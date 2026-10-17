@@ -9,7 +9,7 @@ import { hitPosture, type Actor } from './actor';
 import type { Arena } from './arena';
 import { computeDamage, overlaps, type Shape } from './combat';
 import type { Enemy } from './enemy';
-import type { Hazard, Pickup, Projectile, ProjectileKind, Telegraph } from './entities';
+import type { Hazard, Pickup, Projectile, ProjectileKind, RingWave, Telegraph } from './entities';
 import type { GameEvents } from './events';
 import { Hero } from './hero';
 import { RankTracker } from './rank';
@@ -53,6 +53,7 @@ export class World {
   telegraphs: Telegraph[] = [];
   hazards: Hazard[] = [];
   pickups: Pickup[] = [];
+  ringWaves: RingWave[] = [];
   readonly rank = new RankTracker();
   abilities!: AbilityHost;
   time = 0;
@@ -85,6 +86,7 @@ export class World {
 
   addEnemy(e: Enemy): void {
     this.enemies.push(e);
+    e.onAdded(this);
     this.bus.emit('spawned', { actor: e });
   }
 
@@ -102,6 +104,7 @@ export class World {
     for (const e of this.enemies) e.step(this, dtW);
     this.integrate(dtW, dtH);
     this.stepProjectiles(dtW);
+    this.stepRingWaves(dtW);
     this.stepHazards(dtW);
     this.stepTelegraphs(dtW);
     this.stepPickups(dtW);
@@ -200,7 +203,7 @@ export class World {
     let feel: FeelId = res.crit && p.feel === 'light' ? 'medium' : p.feel;
     let broke = false;
     if (e.posture && !e.dead) {
-      const pm = (perfect ? 2 : 1) * (e.shieldMul < 1 ? 0.5 : 1);
+      const pm = (perfect ? 2 : 1) * (e.shieldMul < 1 ? 0.5 : 1) * e.postureMul;
       if (hitPosture(e.posture, p.posture * pm)) {
         broke = true;
         feel = 'break';
@@ -320,8 +323,13 @@ export class World {
       }
       if (p.accel) { p.vx *= 1 + p.accel * dt; p.vz *= 1 + p.accel * dt; }
       p.x += p.vx * dt; p.z += p.vz * dt;
+      if (p.kind === 'censerBall') {
+        // Цепи кадил катятся по мостам и рушат плиты (возрождаются через 6 с)
+        const t = this.arena.tileAt(p.x, p.z);
+        if (t && t.state === 1 && Math.hypot(p.x, p.z) > 3) this.arena.breakTile(t, 6, 0.35);
+      }
       if (p.age >= p.life) p.alive = false;
-      else if (this.arena.blocked(p.x, p.z, p.r * 0.5) || Math.abs(p.x) > 80 || Math.abs(p.z) > 80) {
+      else if ((p.kind !== 'censerBall' && this.arena.blocked(p.x, p.z, p.r * 0.5)) || Math.abs(p.x) > 80 || Math.abs(p.z) > 80) {
         p.alive = false;
         this.bus.emit('projectileHit', { x: p.x, z: p.z, kind: p.kind });
       } else if (p.reflected) {
@@ -342,6 +350,25 @@ export class World {
         } else if (res === 'perfect' || res === 'dodge') p.spent = true;
       }
       if (!p.alive) swapRemove(this.projectiles, i);
+    }
+  }
+
+  addRingWave(x: number, z: number, speed: number, width: number, maxR: number, gaps: { a: number; w: number }[], dmg: number, owner: number, accel = 0): RingWave {
+    const r: RingWave = { x, z, r: 0.5, speed, accel, width, maxR, gaps, dmg, hit: false, alive: true, owner };
+    this.ringWaves.push(r);
+    return r;
+  }
+
+  private stepRingWaves(dt: number): void {
+    for (let i = this.ringWaves.length - 1; i >= 0; i--) {
+      const rw = this.ringWaves[i];
+      rw.speed += rw.accel * dt;
+      rw.r += rw.speed * dt;
+      if (!rw.hit) {
+        const res = this.enemyStrike({ x: rw.x, z: rw.z, id: rw.owner, kind: 'ring' }, { k: 'ring', x: rw.x, z: rw.z, r0: Math.max(0, rw.r - rw.width / 2), r1: rw.r + rw.width / 2, gaps: rw.gaps }, rw.dmg, 4);
+        if (res !== 'miss') rw.hit = true;
+      }
+      if (rw.r > rw.maxR) { rw.alive = false; swapRemove(this.ringWaves, i); }
     }
   }
 
@@ -427,7 +454,7 @@ export class World {
   }
 
   clear(): void {
-    this.enemies.length = 0; this.projectiles.length = 0; this.telegraphs.length = 0; this.hazards.length = 0; this.pickups.length = 0;
+    this.enemies.length = 0; this.projectiles.length = 0; this.telegraphs.length = 0; this.hazards.length = 0; this.pickups.length = 0; this.ringWaves.length = 0;
     this.stepHooks.length = 0;
   }
 }

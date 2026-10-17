@@ -10,6 +10,7 @@ if (stage) {
   game.startStageById(stage);
   addEventListener('pointerdown', () => game.ctx.audio.unlock(), { once: true });
   addEventListener('keydown', () => game.ctx.audio.unlock(), { once: true });
+  if (params.has('wave')) game.battle!.runner.skipTo(Number(params.get('wave')));
   if (params.has('god')) {
     const w = game.battle!.world;
     const h = w.hero;

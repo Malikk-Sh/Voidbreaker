@@ -44,6 +44,8 @@ export abstract class Enemy implements Actor {
   teleMul = 1;
   /** Щит Аколита: множитель входящего урона. */
   shieldMul = 1;
+  /** Множитель урона по стойке (окна наказания: ×2). */
+  postureMul = 1;
   shieldFrom: Enemy | null = null;
   stagger = 0;
   beingExecuted = false;
@@ -214,6 +216,9 @@ export abstract class Enemy implements Actor {
     this.deathT = 0;
     this.puppet.skel.shatter(dirX, dirZ, power, w.fxRng);
   }
+
+  /** Добавлен в мир. */
+  onAdded(_w: World): void {}
 
   /** Неуязвим (переходы фаз босса, портал). */
   get invulnerable(): boolean { return false; }

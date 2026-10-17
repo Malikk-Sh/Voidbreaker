@@ -61,3 +61,14 @@ export interface Pickup {
   alive: boolean;
   magnet: boolean;
 }
+
+/** Волна-кольцо (Звон колокола): расширяющееся кольцо с разрывами — пройти через разрыв или перепрыгнуть рывком. */
+export interface RingWave {
+  x: number; z: number;
+  r: number; speed: number; accel: number; width: number; maxR: number;
+  gaps: { a: number; w: number }[];
+  dmg: number;
+  hit: boolean;
+  alive: boolean;
+  owner: number;
+}

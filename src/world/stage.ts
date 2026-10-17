@@ -38,6 +38,10 @@ export class StageRunner {
   }
 
   get waveTotal(): number { return this.def.waves.length; }
+
+  /** Отладка: начать сразу с волны i. */
+  skipTo(i: number): void { this.introTime = 0.3; this.startAtWave = Math.min(i, this.waveTotal - 1); }
+  private startAtWave = 0;
   get wave(): WaveDef | null { return this.def.waves[this.waveIdx] ?? null; }
 
   step(dt: number): void {
@@ -45,7 +49,7 @@ export class StageRunner {
     const w = this.w;
     switch (this.phase) {
       case 'intro':
-        if (this.t >= this.introTime) this.startWave(0);
+        if (this.t >= this.introTime) this.startWave(this.startAtWave);
         break;
       case 'wave': {
         // отложенные спауны

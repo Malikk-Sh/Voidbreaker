@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { hexToLinear } from '../core/math';
 import { G } from '../render/materials';
-import type { Telegraph } from '../world/entities';
+import type { RingWave, Telegraph } from '../world/entities';
 
 const RED = new THREE.Vector3(...hexToLinear('#FF4A57')).multiplyScalar(1.6);
 const WHITE = new THREE.Vector3(1.6, 1.55, 1.7);
@@ -91,8 +91,21 @@ export class TelegraphView {
     }
   }
 
-  sync(list: Telegraph[]): void {
+  sync(list: Telegraph[], rings: RingWave[] = []): void {
     let i = 0;
+    // волны-кольца — «живые» атаки: яркое кольцо с разрывами
+    for (const rw of rings) {
+      if (i >= this.pool.length) break;
+      const d = this.pool[i++];
+      const u = d.u, m = d.mesh;
+      m.visible = true;
+      const r1 = rw.r + rw.width / 2, r0 = Math.max(0, rw.r - rw.width / 2);
+      u.uKind.value = 3; u.uInner.value = r0 / r1; u.uProg.value = 1; u.uAlpha.value = 1.15; u.uHatch.value = 0;
+      (u.uColor.value as THREE.Vector3).copy(RED);
+      m.position.set(rw.x, 0.06, rw.z); m.scale.set(r1 * 2, 1, r1 * 2); m.rotation.set(0, Math.PI, 0);
+      u.uGapN.value = Math.min(4, rw.gaps.length);
+      for (let k = 0; k < 4; k++) (u.uGaps.value as THREE.Vector2[])[k].set(rw.gaps[k]?.a ?? 0, rw.gaps[k]?.w ?? 0);
+    }
     for (const t of list) {
       if (i >= this.pool.length) break;
       const d = this.pool[i++];

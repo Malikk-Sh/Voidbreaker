@@ -170,7 +170,7 @@ export class BattleVfx {
   // ------------------------------------------------------------------ синхронизация мира
   sync(w: World, dtReal: number, dtW: number): void {
     // телеграфы
-    this.tele.sync(w.telegraphs);
+    this.tele.sync(w.telegraphs, w.ringWaves);
     this.sprites.begin();
     this.lights.begin();
     this.pools.beginDynamic();
@@ -219,8 +219,9 @@ export class BattleVfx {
 
     // снаряды: ядро + ореол + хвост
     for (const p of w.projectiles) {
-      const big = p.kind === 'acolyteOrb' ? 1.3 : 1;
-      const col = p.reflected ? C.voidHot : C.hungerHot;
+      const big = p.kind === 'acolyteOrb' ? 1.3 : p.kind === 'censerBall' ? 2.8 : p.kind === 'stone' ? 1.5 : 1;
+      const col = p.reflected ? C.voidHot : p.kind === 'censerBall' || p.kind === 'stone' ? C.ember : C.hungerHot;
+      if (p.kind === 'censerBall' && fxRng.chance(0.7)) this.norm.emit({ x: p.x, y: 0.6, z: p.z, vy: 1.5, life: 1.2, size: 0.5, size1: 1.4, color: [0.05, 0.035, 0.05], alpha: 0.5, drag: 1, frame: 'smoke' });
       this.sprites.add(p.x, p.y, p.z, 0.55 * big, col[0], col[1], col[2], 0.9, 'dot');
       this.sprites.add(p.x, p.y, p.z, 0.22 * big, 2.5, 2.2, 2.2, 1, 'dot');
       if (fxRng.chance(0.8 * this.quality)) this.add.emit({ x: p.x, y: p.y, z: p.z, vx: -p.vx * 0.1, vz: -p.vz * 0.1, life: 0.25, size: 0.25 * big, size1: 0.02, color: col, frame: 'dot' });

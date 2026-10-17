@@ -17,6 +17,10 @@ import { effectiveFlashes } from '../meta/settings';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
 import type { BossController } from '../world/boss/bossBase';
+import '../world/boss/guardians';
+import { Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
+import { C } from '../vfx/battleVfx';
+import { fxRng } from '../core/rng';
 
 export const STEP = 1 / 60;
 
@@ -57,7 +61,7 @@ export class Battle {
     this.arena = new Arena(ARENAS[stage.arena]);
     this.world = new World(this.arena, `stage:${stage.id}`);
     this.world.zone = stage.zone;
-    this.world.stage = Math.min(5, stage.index);
+    this.world.stage = stage.boss ? 0 : Math.min(5, stage.index);
     this.world.damageTakenMul = ctx.settings.story ? 0.6 : 1;
     this.world.shardPerDrop = 3 + stage.index * 0.6;
     this.abilities = new Abilities(this.world);
@@ -177,6 +181,9 @@ export class Battle {
     this.vfx.sync(this.world, realDt, dtW);
     this.view.syncTiles();
     this.rune.u.uPulse.value *= Math.exp(-realDt * 4);
+    // руны гаснут, когда пол под ними обрушился (вторая фаза босса)
+    const runeTarget = this.arena.edge === 'abyss' && this.stage.boss ? 0 : 1;
+    this.rune.u.uAlpha.value += (runeTarget - this.rune.u.uAlpha.value) * Math.min(1, realDt * 2);
     // рендер врагов и героя
     this.enemies.render(this.world.enemies);
     h.avatar.render(true, h.blinking);
@@ -197,7 +204,27 @@ export class Battle {
 
   private step(dtW: number, dtH: number): void {
     this.world.step(dtW, dtH, this.ctx.input);
+    if (!this.boss && this.runner.boss instanceof Hierophant) this.boss = new HierophantController(this.bossHost(), this.runner.boss);
     this.boss?.step(dtW);
+  }
+
+  private bossHost(): BossHost {
+    const ctx = this.ctx;
+    return {
+      world: this.world,
+      say: (line, sp) => this.feel.voice(line, 0, sp),
+      banner: (name, title) => ctx.hud.bigBanner(name, title, 'hunger', 3.2, 50),
+      letterbox: (v) => this.feel.setLetterbox(v),
+      slow: (scale, sec) => ctx.time.cinematic(sec, scale),
+      flash: (v) => this.feel.whiteFlash(v),
+      starFlare: (v) => { ctx.renderer.sky.u.uStarFlare.value = v; },
+      musicPhase: (p) => { ctx.music.phase = p; },
+      emitFire: (x, y, z, censer) => {
+        if (censer) this.vfx.norm.emit({ x, y, z, vy: 1.2, vx: fxRng.spread(0.3), vz: fxRng.spread(0.3), life: 1.6, size: 0.35, size1: 1.1, color: [0.06, 0.04, 0.06], alpha: 0.5, drag: 1, frame: 'smoke' });
+        else for (let i = 0; i < 2; i++) this.vfx.add.emit({ x: x + fxRng.spread(0.3), y, z: z + fxRng.spread(0.3), vy: fxRng.range(1.5, 3), vx: fxRng.spread(0.4), vz: fxRng.spread(0.4), life: 0.8, size: 0.22, size1: 0.03, color: C.ember, drag: 0.6, frame: 'dot' });
+      },
+      skipRequested: () => ctx.input.buffer.peek('attack', ctx.input.now) || ctx.input.buffer.peek('dash', ctx.input.now),
+    };
   }
 
   private updateCamera(realDt: number): void {

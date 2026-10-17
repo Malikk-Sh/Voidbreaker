@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildAcolyte, buildBrute, buildCrawler, buildEye, buildMantis, type RigBuild } from '../gen/chars/enemies';
+import { buildHierophant } from '../gen/chars/hierophant';
 import type { Enemy } from '../world/enemy';
 import { RigBatch } from './rigbatch';
 
@@ -12,7 +13,10 @@ const BUILDERS: Record<string, { build: () => RigBuild; max: number }> = {
   brute: { build: () => buildBrute(15), max: 10 },
   gateGuardian: { build: () => buildBrute(21, 1.65, { halberd: true }), max: 2 },
   bellRinger: { build: () => buildBrute(22, 1.45, { bell: true }), max: 2 },
+  hierophant: { build: () => buildHierophant(31), max: 1 },
 };
+/** Крупные риги — слабее контурный свет, иначе они превращаются в красное пятно. */
+const BIG = new Set(['brute', 'gateGuardian', 'bellRinger', 'hierophant']);
 
 export function registerRigBuilder(id: string, build: () => RigBuild, max: number): void { BUILDERS[id] = { build, max }; }
 
@@ -30,7 +34,7 @@ export class EnemyRenderer {
       if (!def) throw new Error(`no rig builder ${id}`);
       const r = def.build();
       b = new RigBatch(r.geometry, r.rig.joints.length, def.max, {
-        rim: id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: 0.8, rimPower: 2.8,
+        rim: id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: BIG.has(id) ? 0.38 : 0.8, rimPower: BIG.has(id) ? 3.2 : 2.8,
         emissive: '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 2.8,
       });
       this.batches.set(id, b);

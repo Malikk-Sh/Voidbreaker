@@ -36,5 +36,7 @@ export interface GameEvents {
   shockwave: { x: number; z: number; r: number; color: 'void' | 'hunger' | 'gold'; strength: number };
   rank: { rank: string; up: boolean };
   voice: { line: string; speaker: 'kaelis' | 'boss' };
+  sfx: { id: string; x: number; z: number; gain?: number };
+  shake: { trauma: number };
   hint: { id: string; text: string };
 }
