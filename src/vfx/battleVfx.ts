@@ -1,0 +1,321 @@
+import * as THREE from 'three';
+import { fxRng } from '../core/rng';
+import { hexToLinear } from '../core/math';
+import { GeomBuilder } from '../gen/geom/build';
+import { crescent } from '../gen/geom/prims';
+import { obsidianMaterial, G } from '../render/materials';
+import type { World } from '../world/world';
+import type { Abilities } from '../world/abilities';
+import { Acolyte } from '../world/enemies/acolyte';
+import { Debris } from './debris';
+import { LightManager } from './lights';
+import { Particles, type ParticleSpec } from './particles';
+import { Rings } from './rings';
+import { Sprites } from './sprites';
+import { TelegraphView } from './telegraphs';
+import { RibbonTrail } from './trail';
+import { LightPools } from './ambient';
+
+const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLinear(h); return [c[0] * k, c[1] * k, c[2] * k]; };
+export const C = {
+  void: lin('#8B5CF6'), voidHot: lin('#B794FF', 2.2), core: lin('#F1E8FF', 2.5), hunger: lin('#E11D2E'), hungerHot: lin('#FF4A57', 2.4),
+  ember: lin('#FF8A3D', 2), gold: lin('#B8954E', 1.5), dust: lin('#3a3150'), dark: lin('#0b0910'), ether: lin('#F4F1FF', 3),
+};
+
+const _v = new THREE.Vector3(), _w = new THREE.Vector3();
+
+/**
+ * Все визуальные системы боя (GDD §16): частицы, шлейф клинка, ударные волны, телеграфы, снаряды, подбор,
+ * осколки, свет. Рецепты эффектов — методы; sync() переносит состояние мира в рендер каждый кадр.
+ */
+export class BattleVfx {
+  readonly group = new THREE.Group();
+  readonly add: Particles;
+  readonly norm: Particles;
+  readonly trail = new RibbonTrail('#8B5CF6', '#F1E8FF');
+  readonly rings = new Rings(28);
+  readonly tele = new TelegraphView(48);
+  readonly sprites = new Sprites(700, true);
+  readonly debris = new Debris(240);
+  readonly lights = new LightManager();
+  readonly pools: LightPools;
+  private sickleMeshes: THREE.Mesh[] = [];
+  private wellMeshes: THREE.Mesh[] = [];
+  private ambientT = 0;
+  /** Пыль/искры атмосферы зоны (слой 7, GDD §17.5). */
+  atmosphere: 'dust' | 'embers' | 'none' = 'dust';
+  quality = 1;
+
+  constructor(maxParticles: number, pools: LightPools) {
+    this.add = new Particles(maxParticles, true);
+    this.norm = new Particles(Math.round(maxParticles * 0.35), false);
+    this.pools = pools;
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.rings.group, this.tele.group, this.sprites.mesh);
+    for (const m of this.debris.meshes) this.group.add(m);
+    // серпы: выдавленный полумесяц с эмиссивной кромкой
+    const b = new GeomBuilder();
+    b.color = [0.02, 0.015, 0.03];
+    b.add(crescent(0.55, 0.22, 2.6, 0.05), { emissive: 0.6 });
+    b.add(crescent(0.57, 0.06, 2.4, 0.07), { emissive: 1.8 });
+    const sg = b.build();
+    const sm = obsidianMaterial({ rim: '#B794FF', rimStrength: 1.0, emissive: '#9b6cff', emissiveStrength: 2.6 });
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.Mesh(sg, sm);
+      m.visible = false; m.frustumCulled = false;
+      this.sickleMeshes.push(m); this.group.add(m);
+    }
+    // колодец: чёрное ядро + кольцо аккреции (шейдер)
+    const wm = new THREE.ShaderMaterial({
+      uniforms: { uTime: G.uTime, uK: { value: 0 } },
+      vertexShader: /* glsl */ `varying vec3 vN; varying vec3 vV; void main() { vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: /* glsl */ `
+        uniform float uTime, uK; varying vec3 vN; varying vec3 vV;
+        void main() {
+          float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+          float rim = pow(f, 2.5);
+          vec3 col = vec3(0.004, 0.0, 0.01) + vec3(0.55, 0.3, 1.0) * rim * (2.5 + uK * 3.0) + vec3(1.0) * pow(f, 8.0) * 2.0;
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    });
+    const wg = new THREE.IcosahedronGeometry(0.75, 2);
+    for (let i = 0; i < 3; i++) {
+      const m = new THREE.Mesh(wg, wm.clone());
+      m.visible = false;
+      this.wellMeshes.push(m); this.group.add(m);
+    }
+  }
+
+  // ------------------------------------------------------------------ рецепты
+  burst(n: number, base: ParticleSpec, spread: { v: number; vy?: number; dir?: [number, number]; cone?: number }, additive = true): void {
+    const sys = additive ? this.add : this.norm;
+    const count = Math.round(n * this.quality);
+    for (let i = 0; i < count; i++) {
+      let a = fxRng.range(0, Math.PI * 2);
+      if (spread.dir) a = Math.atan2(spread.dir[0], spread.dir[1]) + fxRng.spread(spread.cone ?? 0.8);
+      const sp = spread.v * fxRng.range(0.35, 1);
+      sys.emit({ ...base, vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, vy: (spread.vy ?? 0) * fxRng.range(0.3, 1.2), life: base.life * fxRng.range(0.6, 1.2), size: base.size * fxRng.range(0.6, 1.3) });
+    }
+  }
+
+  /** Попадание: фиолетовые искры от клинка, красные искры и обсидиановые осколки от врага (GDD §14.4). */
+  hitSparks(x: number, y: number, z: number, dx: number, dz: number, heavy: number, crit: boolean): void {
+    this.burst(6 + heavy * 6, { x, y, z, life: 0.28, size: 0.09, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.2 }, { v: 9, vy: 4, dir: [dx, dz], cone: 1.1 });
+    this.burst(4 + heavy * 4, { x, y, z, life: 0.35, size: 0.08, size1: 0.01, color: C.hungerHot, gravity: -10, drag: 3, frame: 'spark', stretch: 1 }, { v: 7, vy: 5, dir: [dx, dz], cone: 1.6 });
+    this.add.emit({ x, y, z, life: 0.12, size: 0.9 + heavy * 0.5, size1: 1.6 + heavy, color: crit ? C.core : C.voidHot, alpha: 0.9, frame: 'flare', rot: fxRng.next() * 3 });
+    if (heavy > 0.5 || crit) this.add.emit({ x, y, z, life: 0.2, size: 0.4, size1: 2.6, color: C.void, alpha: 0.6, frame: 'ring' });
+    this.debris.burst(x, y, z, dx, dz, Math.round((2 + heavy * 4) * this.quality), 4 + heavy * 2, 0.16);
+  }
+
+  /** Смерть = распад: осколки, багровый выдох, облачко пыли. */
+  shatter(x: number, y: number, z: number, dx: number, dz: number, big: number): void {
+    this.debris.burst(x, y, z, dx, dz, Math.round((8 + big * 10) * this.quality), 5 + big * 2, 0.2 + big * 0.12);
+    this.burst(14 + big * 16, { x, y, z, life: 0.6, size: 0.12, size1: 0.02, color: C.hungerHot, gravity: -6, drag: 2.5, frame: 'spark', stretch: 0.8 }, { v: 7 + big * 3, vy: 6 });
+    this.burst(6 + big * 6, { x, y: 0.4, z, life: 1.1, size: 0.6 + big * 0.5, size1: 1.4 + big, color: C.dust, alpha: 0.5, drag: 3, frame: 'smoke' }, { v: 2.5, vy: 0.8 }, false);
+    this.add.emit({ x, y, z, life: 0.25, size: 1.2 + big, size1: 2.5 + big * 2, color: C.hungerHot, alpha: 0.7, frame: 'dot' });
+    this.lights.flash(x, 1.2, z, C.hunger, 4 + big * 3, 6 + big * 4, 0.35);
+  }
+
+  /** Удар о землю: ударная волна + пылевое кольцо + осколки. */
+  impact(x: number, z: number, r: number, color: [number, number, number], strength = 1): void {
+    this.rings.spawn(x, z, 0.3, r * 1.15, 0.35, [color[0] * 2.5, color[1] * 2.5, color[2] * 2.5], 0.3 * strength, 1);
+    this.rings.spawn(x, z, 0.2, r * 0.8, 0.5, [color[0], color[1], color[2]], 0.6, 0.6);
+    const n = Math.round(18 * strength);
+    for (let i = 0; i < n * this.quality; i++) {
+      const a = (i / n) * Math.PI * 2 + fxRng.spread(0.2);
+      this.norm.emit({ x: x + Math.sin(a) * r * 0.3, y: 0.2, z: z + Math.cos(a) * r * 0.3, vx: Math.sin(a) * r * 2.2, vz: Math.cos(a) * r * 2.2, vy: fxRng.range(0.3, 1.5), life: 0.8, size: 0.5, size1: 1.3, color: C.dust, alpha: 0.55, drag: 3.5, frame: 'smoke' });
+    }
+    this.burst(10 * strength, { x, y: 0.2, z, life: 0.5, size: 0.08, size1: 0.02, color, gravity: -12, drag: 1.5, frame: 'spark', stretch: 1 }, { v: r * 2.5, vy: 6 });
+    this.debris.burst(x, 0.2, z, 0, 0, Math.round(6 * strength * this.quality), 4, 0.18);
+    this.lights.flash(x, 1, z, color, 3 * strength, r * 2.5, 0.3);
+  }
+
+  /** Портал спавна (0.8 с красный разлом). */
+  portal(x: number, z: number): void {
+    this.rings.spawn(x, z, 1.6, 0.2, 0.8, C.hungerHot, 0.12, 1.2);
+    for (let i = 0; i < 14 * this.quality; i++) {
+      const a = fxRng.range(0, Math.PI * 2), r = fxRng.range(1.0, 1.8);
+      this.add.emit({ x: x + Math.sin(a) * r, y: fxRng.range(0.1, 1.2), z: z + Math.cos(a) * r, vx: -Math.sin(a) * r * 1.6, vz: -Math.cos(a) * r * 1.6, vy: fxRng.range(0.5, 2), life: 0.7, size: 0.07, size1: 0.02, color: C.hungerHot, drag: 0.5, frame: 'spark', stretch: 1, delay: fxRng.range(0, 0.3) });
+    }
+    this.add.emit({ x, y: 0.1, z, life: 0.9, size: 0.6, size1: 2.2, color: C.hunger, alpha: 0.8, frame: 'ring' });
+  }
+
+  dashPuff(x: number, z: number, dx: number, dz: number): void {
+    this.rings.spawn(x, z, 0.2, 1.4, 0.3, C.voidHot, 0.12, 0.8);
+    this.burst(8, { x, y: 0.15, z, life: 0.45, size: 0.35, size1: 0.9, color: C.dust, alpha: 0.5, drag: 4, frame: 'smoke' }, { v: 3, vy: 0.5, dir: [-dx, -dz], cone: 1.2 }, false);
+    this.burst(10, { x, y: 1.0, z, life: 0.3, size: 0.06, size1: 0.01, color: C.voidHot, drag: 3, frame: 'spark', stretch: 1 }, { v: 6, vy: 1, dir: [-dx, -dz], cone: 0.8 });
+  }
+
+  perfectDodge(x: number, z: number): void {
+    this.rings.spawn(x, z, 0.4, 4.5, 0.6, C.core, 0.18, 1.2);
+    this.rings.spawn(x, z, 0.2, 2.5, 0.45, C.voidHot, 0.35, 0.8);
+    this.burst(30, { x, y: 1, z, life: 0.7, size: 0.08, size1: 0.01, color: C.core, drag: 2, frame: 'star', gravity: 1 }, { v: 6, vy: 3 });
+    this.lights.flash(x, 1.5, z, C.void, 6, 8, 0.6);
+  }
+
+  postureBreak(x: number, y: number, z: number): void {
+    this.rings.spawn(x, z, 0.5, 5, 0.5, C.core, 0.2, 1.3);
+    this.add.emit({ x, y, z, life: 0.3, size: 1.5, size1: 4, color: C.core, alpha: 0.9, frame: 'flare' });
+    this.burst(26, { x, y, z, life: 0.5, size: 0.1, size1: 0.02, color: C.core, gravity: -8, drag: 2, frame: 'spark', stretch: 1.5 }, { v: 12, vy: 5 });
+    this.lights.flash(x, y, z, [1, 0.9, 1], 6, 7, 0.4);
+  }
+
+  chargeGather(bx: number, by: number, bz: number, level: number): void {
+    for (let i = 0; i < 2 + level * 2; i++) {
+      const a = fxRng.range(0, Math.PI * 2), r = fxRng.range(0.8, 1.6), up = fxRng.spread(0.8);
+      this.add.emit({ x: bx + Math.sin(a) * r, y: by + up, z: bz + Math.cos(a) * r, vx: -Math.sin(a) * r * 3, vy: -up * 3, vz: -Math.cos(a) * r * 3, life: 0.3, size: 0.06, size1: 0.02, color: level >= 2 ? C.core : C.voidHot, drag: 0, frame: 'spark', stretch: 1 });
+    }
+  }
+
+  // ------------------------------------------------------------------ синхронизация мира
+  sync(w: World, dtReal: number, dtW: number): void {
+    // телеграфы
+    this.tele.sync(w.telegraphs);
+    this.sprites.begin();
+    this.lights.begin();
+    this.pools.beginDynamic();
+    const h = w.hero;
+
+    // свет клинка героя
+    if (!h.dead) {
+      h.avatar.bladePoints(_v, _w);
+      const glow = 0.6 + (h.trailOn ? 1.2 : 0) + (h.eclipse ? 2 : 0) + h.chargeLevel * 0.8;
+      this.lights.add((_v.x + _w.x) / 2, (_v.y + _w.y) / 2 + 0.3, (_v.z + _w.z) / 2, C.void, glow * 2.2, 5 + (h.eclipse ? 3 : 0));
+      this.pools.addDynamic(h.x, h.z, 2.4 + (h.eclipse ? 1.5 : 0), C.void, 0.12 + glow * 0.05);
+      if (h.eclipse) {
+        if (fxRng.chance(0.6)) this.add.emit({ x: h.x + fxRng.spread(0.6), y: fxRng.range(0, 1.8), z: h.z + fxRng.spread(0.6), vy: 2.5, life: 0.7, size: 0.1, size1: 0.02, color: C.voidHot, drag: 1, frame: 'star' });
+      }
+      if (h.state === 'charge') this.chargeGather(_w.x, _w.y, _w.z, h.chargeLevel);
+    }
+
+    // враги: ядра при телеграфе, аура элиты, щиты Аколита
+    for (const e of w.enemies) {
+      if (e.dead) continue;
+      const y = e.height * 0.55;
+      if (e.coreGlow > 0.25) {
+        this.lights.add(e.x, y, e.z, C.hunger, e.coreGlow * 2.5, 4);
+        this.pools.addDynamic(e.x, e.z, 1.6 + e.radius, C.hunger, e.coreGlow * 0.5);
+      }
+      if (e.elite.length && fxRng.chance(0.35 * this.quality)) {
+        const a = fxRng.range(0, Math.PI * 2);
+        this.add.emit({ x: e.x + Math.sin(a) * e.radius, y: 0.1, z: e.z + Math.cos(a) * e.radius, vy: 2.4, life: 0.8, size: 0.14, size1: 0.03, color: C.hungerHot, frame: 'dot', drag: 0.5 });
+      }
+      if (e.elite.length) this.pools.addDynamic(e.x, e.z, e.radius + 1.6, C.hunger, 0.35);
+      else if (e.spawned) this.pools.addDynamic(e.x, e.z, e.radius + 0.9, C.hunger, 0.1);
+      if (e.shieldMul < 1) this.sprites.add(e.x, y, e.z, e.radius * 1.6 + 0.4, C.hunger[0] * 0.8, C.hunger[1] * 0.8, C.hunger[2] * 0.8, 0.55 + Math.sin(w.time * 8) * 0.15, 'ring', w.time);
+      if (e instanceof Acolyte) {
+        const t = e.beamTarget;
+        const links = t ? [t] : e.shielding;
+        for (const tg of links) {
+          const n = 8;
+          for (let k = 1; k < n; k++) {
+            const f = k / n;
+            const jx = fxRng.spread(0.15), jz = fxRng.spread(0.15);
+            this.sprites.add(e.x + (tg.x - e.x) * f + jx, 1.6 + Math.sin(f * Math.PI) * 0.6, e.z + (tg.z - e.z) * f + jz, t ? 0.18 : 0.12, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], t ? 0.8 : 0.45, 'dot');
+          }
+        }
+      }
+    }
+
+    // снаряды: ядро + ореол + хвост
+    for (const p of w.projectiles) {
+      const big = p.kind === 'acolyteOrb' ? 1.3 : 1;
+      const col = p.reflected ? C.voidHot : C.hungerHot;
+      this.sprites.add(p.x, p.y, p.z, 0.55 * big, col[0], col[1], col[2], 0.9, 'dot');
+      this.sprites.add(p.x, p.y, p.z, 0.22 * big, 2.5, 2.2, 2.2, 1, 'dot');
+      if (fxRng.chance(0.8 * this.quality)) this.add.emit({ x: p.x, y: p.y, z: p.z, vx: -p.vx * 0.1, vz: -p.vz * 0.1, life: 0.25, size: 0.25 * big, size1: 0.02, color: col, frame: 'dot' });
+      this.pools.addDynamic(p.x, p.z, 1.3, p.reflected ? C.void : C.hunger, 0.5);
+      this.lights.add(p.x, p.y, p.z, p.reflected ? C.void : C.hunger, 1.0, 3);
+    }
+
+    // подбор: Осколки — фиолетовые кристаллы, Эфир — белое пламя
+    for (const p of w.pickups) {
+      const bob = Math.sin(p.age * 6) * 0.08;
+      if (p.kind === 'shard') {
+        this.sprites.add(p.x, p.y + bob, p.z, 0.32, C.voidHot[0], C.voidHot[1], C.voidHot[2], 1, 'star', p.age * 2);
+        this.sprites.add(p.x, p.y + bob, p.z, 0.6, C.void[0], C.void[1], C.void[2], 0.5, 'dot');
+      } else if (p.kind === 'ether') {
+        this.sprites.add(p.x, p.y + bob + 0.2, p.z, 0.4, C.ether[0], C.ether[1], C.ether[2], 1, 'dot', 0, 1.8);
+        this.lights.add(p.x, p.y + 0.5, p.z, [1, 1, 1], 2, 3);
+      } else {
+        this.sprites.add(p.x, p.y + bob, p.z, 0.45, 2.4, 0.4, 0.6, 1, 'star', p.age);
+      }
+    }
+
+    // зоны: трещины Силы, след рывка
+    for (const hz of w.hazards) {
+      if (hz.shape.k === 'line' && fxRng.chance(0.7 * this.quality)) {
+        const f = fxRng.next();
+        const s = hz.shape;
+        this.add.emit({ x: s.x + s.dx * s.len * f + fxRng.spread(0.2), y: 0.1, z: s.z + s.dz * s.len * f + fxRng.spread(0.2), vy: 1.5, life: 0.4, size: 0.12, size1: 0.02, color: hz.hostile ? C.hungerHot : C.voidHot, frame: 'spark', stretch: 0.6 });
+      }
+    }
+
+    // способности: серпы, колодцы, волны, фазовый разрез
+    const ab = w.abilities as Abilities;
+    this.sickleMeshes.forEach((m, i) => {
+      const s = ab.sickles[i];
+      m.visible = !!s;
+      if (!s) return;
+      m.position.set(s.x, 1.1, s.z);
+      m.rotation.set(-Math.PI / 2, 0, s.rot);
+      this.add.emit({ x: s.x, y: 1.1, z: s.z, life: 0.2, size: 0.4, size1: 0.05, color: C.voidHot, frame: 'dot' });
+      this.lights.add(s.x, 1.2, s.z, C.void, 2.5, 4);
+    });
+    this.wellMeshes.forEach((m, i) => {
+      const wl = ab.wells[i];
+      m.visible = !!wl && !wl.exploded;
+      if (!wl) return;
+      const k = Math.min(1, wl.t / 0.25);
+      m.position.set(wl.x, 1.3, wl.z);
+      m.scale.setScalar(k * (1 + Math.sin(wl.t * 30) * 0.03) * (1 - (wl.t / wl.dur) * 0.3));
+      ((m.material as THREE.ShaderMaterial).uniforms.uK as THREE.IUniform).value = wl.t / wl.dur;
+      if (!wl.exploded) {
+        for (let n = 0; n < 4 * this.quality; n++) {
+          const a = fxRng.range(0, Math.PI * 2), r = fxRng.range(2.5, 5);
+          this.add.emit({ x: wl.x + Math.sin(a) * r, y: fxRng.range(0.2, 2.2), z: wl.z + Math.cos(a) * r, vx: -Math.sin(a + 0.9) * r * 1.6, vz: -Math.cos(a + 0.9) * r * 1.6, vy: (1.3 - 1.0) * 2, life: 0.55, size: 0.08, size1: 0.01, color: C.voidHot, frame: 'spark', stretch: 1 });
+        }
+        this.lights.add(wl.x, 1.3, wl.z, C.void, 3, 6);
+        this.pools.addDynamic(wl.x, wl.z, 5, C.void, 0.5);
+      }
+    });
+    for (const wv of ab.waves) {
+      for (let n = 0; n < 3; n++) {
+        const side = fxRng.spread(1.3);
+        this.add.emit({ x: wv.x + -wv.dz * side, y: 0.6 + fxRng.next() * 0.8, z: wv.z + wv.dx * side, vx: wv.dx * 4, vz: wv.dz * 4, vy: 0.5, life: 0.22, size: 0.35, size1: 0.05, color: C.voidHot, frame: 'spark', stretch: 1 });
+      }
+    }
+    const lp = ab.lastPhase;
+    if (lp && lp.t < dtW * 1.5 + 0.001) {
+      const n = 22;
+      for (let k = 0; k <= n; k++) {
+        const f = k / n;
+        this.add.emit({ x: lp.x0 + (lp.x1 - lp.x0) * f, y: 1.0, z: lp.z0 + (lp.z1 - lp.z0) * f, vy: 0.5, life: 0.4, size: 0.6, size1: 0.05, color: C.voidHot, frame: 'dot' });
+      }
+      this.rings.spawn(lp.x1, lp.z1, 0.2, 2, 0.3, C.voidHot, 0.15, 1);
+    }
+
+    // атмосфера: пыль и искры в воздухе вокруг камеры
+    this.ambientT += dtReal;
+    if (this.atmosphere !== 'none' && this.ambientT > 0.05) {
+      this.ambientT = 0;
+      const ember = this.atmosphere === 'embers';
+      for (let i = 0; i < 2 * this.quality; i++) {
+        this.add.emit({ x: h.x + fxRng.spread(16), y: fxRng.range(0.2, 6), z: h.z + fxRng.spread(11), vx: fxRng.spread(0.3), vy: ember ? 0.8 : 0.12, vz: fxRng.spread(0.3), life: 4, size: ember ? 0.05 : 0.035, color: ember ? C.ember : [0.35, 0.3, 0.5], alpha: 0.8, frame: 'dot' });
+      }
+    }
+
+    this.sprites.end();
+    this.pools.commit();
+    this.add.flush();
+    this.norm.flush();
+    this.rings.update(dtW);
+    this.debris.update(dtW);
+    this.lights.end(dtW);
+  }
+
+  clear(): void {
+    this.add.clear(); this.norm.clear(); this.trail.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear();
+  }
+}
+

@@ -1,0 +1,272 @@
+import * as THREE from 'three';
+import { ARENAS } from '../data/arenas';
+import type { StageDef } from '../data/stages';
+import { buildArenaView, ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
+import { EnemyRenderer } from '../render/enemyRenderer';
+import { QUALITY } from '../render/renderer';
+import { Flames, LightPools, RuneCircle } from '../vfx/ambient';
+import { BattleVfx } from '../vfx/battleVfx';
+import { Abilities, type Loadout } from '../world/abilities';
+import { Arena } from '../world/arena';
+import { CameraRig } from '../world/camera';
+import type { HeroStats } from '../world/heroStats';
+import { StageRunner } from '../world/stage';
+import { World } from '../world/world';
+import { zone1Song, hierophantSong } from '../audio/music';
+import { effectiveFlashes } from '../meta/settings';
+import type { GameContext } from './context';
+import { FeelSystem } from './feel';
+import type { BossController } from '../world/boss/bossBase';
+
+export const STEP = 1 / 60;
+
+export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef }
+
+/**
+ * Бой на этапе: мир + арена + директор волн + VFX + камера + «сочность». Цикл — фиксированный шаг 60 Гц
+ * в реальном времени, каждая система получает своё масштабированное dt (мир/герой).
+ */
+export class Battle {
+  readonly world: World;
+  readonly arena: Arena;
+  readonly view: ArenaView;
+  readonly runner: StageRunner;
+  readonly vfx: BattleVfx;
+  readonly enemies = new EnemyRenderer();
+  readonly cam = new CameraRig();
+  readonly feel: FeelSystem;
+  readonly abilities: Abilities;
+  readonly group = new THREE.Group();
+  private flames: Flames;
+  private pools: LightPools;
+  private rune: RuneCircle;
+  private acc = 0;
+  private endT = -1;
+  outcome: 'playing' | 'won' | 'lost' = 'playing';
+  onEnd: ((o: BattleOutcome) => void) | null = null;
+  boss: BossController | null = null;
+  private fpsAcc = 0; private fpsN = 0; fps = 60;
+  private dashCount = 0;
+  private tutorialReaperDone = false;
+  private intensityT = 0;
+  private bladeA = new THREE.Vector3(); private bladeB = new THREE.Vector3();
+
+  constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout) {
+    const r = ctx.renderer;
+    const Q = QUALITY[r.quality];
+    this.arena = new Arena(ARENAS[stage.arena]);
+    this.world = new World(this.arena, `stage:${stage.id}`);
+    this.world.zone = stage.zone;
+    this.world.stage = Math.min(5, stage.index);
+    this.world.damageTakenMul = ctx.settings.story ? 0.6 : 1;
+    this.world.shardPerDrop = 3 + stage.index * 0.6;
+    this.abilities = new Abilities(this.world);
+    this.abilities.loadout = loadout;
+    this.world.abilities = this.abilities;
+    this.world.hero.applyStats(stats);
+
+    this.view = buildArenaView(this.arena, `stage:${stage.id}`, ZONE1_LOOK, Q.decor);
+    this.group.add(this.view.root);
+    this.flames = new Flames(this.view.flames);
+    this.pools = new LightPools(320);
+    this.pools.setStatic(this.view.pools);
+    this.rune = new RuneCircle(this.view.runeRadius);
+    this.rune.mesh.position.set(ARENAS[stage.arena].parts[0].x, 0, ARENAS[stage.arena].parts[0].z);
+    this.vfx = new BattleVfx(Q.particles, this.pools);
+    this.vfx.quality = r.quality === 'low' ? 0.5 : r.quality === 'medium' ? 0.75 : 1;
+    this.vfx.tele.hatch = ctx.settings.hatch;
+    this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group);
+    this.enemies.warm(['crawler', 'mantis', 'eye', 'acolyte', 'brute']);
+    r.scene.add(this.group);
+
+    this.runner = new StageRunner(this.world, stage);
+    this.world.stepHooks.push((dt) => this.runner.step(dt));
+
+    // старт: герой у ближнего края, смотрит вглубь арены
+    const b = this.arena.bounds;
+    const sx = ARENAS[stage.arena].parts[0].x, sz = Math.min(b.maxZ - 3, (b.maxZ + b.minZ) / 2 + (b.maxZ - b.minZ) * 0.25);
+    const o = { x: 0, z: 0 };
+    this.arena.nearestWalkable(sx, sz, o);
+    this.world.hero.spawn(o.x, o.z, Math.PI);
+    this.abilities.resetCooldowns();
+    this.cam.snap(o.x, o.z - 1);
+
+    ctx.hud.clear();
+    ctx.hud.subtitleScale = ctx.settings.subtitleSize;
+    this.feel = new FeelSystem(this.world, ctx.time, this.cam, r.post, this.vfx, ctx.audio, ctx.music, ctx.input, ctx.hud,
+      { ...ctx.settings, flashes: effectiveFlashes(ctx.settings) }, r.camera);
+    this.bindEvents();
+    ctx.time.reset();
+    ctx.music.play(stage.boss ? hierophantSong() : zone1Song(), 0.3);
+    ctx.music.onBeat = (bar, beat) => { if (beat === 0) this.rune.u.uPulse.value = 0.5; void bar; };
+  }
+
+  private bindEvents(): void {
+    const b = this.world.bus, hud = this.ctx.hud, S = this.ctx;
+    b.on('waveStart', (e) => {
+      hud.waveBanner(e.index, e.total);
+      if (e.index > 0) S.music.stinger('stinger');
+      if (this.stage.tutorial === 'basics' && e.index === 0 && !S.flag('tut_move')) {
+        S.setFlag('tut_move');
+        hud.showHint(S.input.lastDevice === 'touch' ? 'Левый палец — движение • Кнопка — атака' : 'WASD — движение • ЛКМ / J — атака');
+      }
+    });
+    b.on('waveClear', () => { S.audio.play('wave_clear', { gain: 0.6 }); });
+    b.on('stageClear', () => { this.endT = 1.8; this.outcome = 'won'; });
+    b.on('heroDeath', () => { this.endT = 2.4; this.outcome = 'lost'; });
+    b.on('dash', () => {
+      this.dashCount++;
+      if (this.stage.tutorial === 'basics' && this.dashCount === 2 && !S.flag('tut_perfect')) {
+        S.setFlag('tut_perfect');
+        this.feel.voice('Ещё ближе к удару — увидишь.', 0);
+      }
+    });
+    b.on('telegraph', (e) => {
+      // онбординг: первый замах Жнеца — замедление и подсказка «РЫВОК»
+      if (this.stage.tutorial === 'basics' && !this.tutorialReaperDone && e.kind === 'whistle' && !S.flag('tut_dash')) {
+        this.tutorialReaperDone = true;
+        S.setFlag('tut_dash');
+        S.time.slow(0.25, 0.9, 0.25);
+        hud.showHint(S.input.lastDevice === 'touch' ? 'РЫВОК — кнопка или свайп правой рукой' : 'РЫВОК — Пробел / Shift / ПКМ');
+      }
+    });
+    b.on('spawned', (e) => {
+      const en = e.actor as { kind?: string };
+      if (this.stage.tutorial === 'charged' && en.kind === 'golem' && !S.flag('tut_charged')) {
+        S.setFlag('tut_charged');
+        hud.showHint('Удерживайте атаку — заряженный удар ломает стойку');
+      }
+      if (this.stage.tutorial === 'charged' && en.kind === 'eye' && !S.flag('tut_q')) {
+        S.setFlag('tut_q');
+        setTimeout(() => hud.showHint('Q — Серп Луны достанет Око издалека'), 1500);
+      }
+    });
+    b.on('postureBreak', () => {
+      if (!S.flag('tut_execute')) { S.setFlag('tut_execute'); hud.showHint('Атака рядом со сломанным врагом — КАЗНЬ'); }
+    });
+    b.on('resonanceFull', () => {
+      if (this.abilities.loadout.r && !S.flag('tut_ult')) { S.setFlag('tut_ult'); hud.showHint('Резонанс полон — R: ЗАТМЕНИЕ'); }
+    });
+    b.on('playerHurt', () => {
+      if (this.world.hero.hp < this.world.hero.maxHp * 0.25 && !S.flag('tut_low')) { S.setFlag('tut_low'); this.feel.voice('Пилот, броня трещит. Держи дистанцию.', 0); }
+    });
+  }
+
+  /** Шаг симуляции + VFX + камера + HUD. realDt — реальное время кадра. */
+  frame(realDt: number): void {
+    const T = this.ctx.time;
+    const input = this.ctx.input;
+    input.update(T.real);
+    T.update(realDt);
+    // фиксированный шаг 60 Гц
+    this.acc += realDt;
+    let steps = 0;
+    while (this.acc >= STEP && steps < 6) {
+      this.acc -= STEP; steps++;
+      if (!T.paused) this.step(STEP * T.worldScale, STEP * T.heroScale);
+    }
+    if (steps >= 6) this.acc = 0;
+    const dtW = realDt * T.worldScale;
+
+    // шлейф клинка: сэмплы рукоять/кончик
+    const h = this.world.hero;
+    if (h.trailOn && !h.dead) { h.bladePoints(this.bladeA, this.bladeB); this.vfx.trail.push(this.bladeA, this.bladeB); }
+    this.vfx.trail.width = h.eclipse ? 1.0 : 1;
+    this.vfx.trail.intensity = h.eclipse ? 1.6 : this.world.rank.rankIdx >= 4 ? 1.3 : 1;
+    this.vfx.trail.update(realDt * T.heroScale);
+    this.vfx.sync(this.world, realDt, dtW);
+    this.view.syncTiles();
+    this.rune.u.uPulse.value *= Math.exp(-realDt * 4);
+    // рендер врагов и героя
+    this.enemies.render(this.world.enemies);
+    h.avatar.render(true, h.blinking);
+    // камера
+    this.updateCamera(realDt);
+    this.feel.update(realDt);
+    this.updateMusic(realDt);
+    // fps
+    this.fpsAcc += realDt; this.fpsN++;
+    if (this.fpsAcc > 0.5) { this.fps = this.fpsN / this.fpsAcc; this.fpsAcc = 0; this.fpsN = 0; }
+    // конец этапа
+    if (this.endT > 0) {
+      this.endT -= realDt;
+      if (this.outcome === 'won' && this.endT < 1.0 && h.state !== 'victory' && !h.dead) h.victory();
+      if (this.endT <= 0) { this.endT = -1; this.onEnd?.({ cleared: this.outcome === 'won', world: this.world, stage: this.stage }); }
+    }
+  }
+
+  private step(dtW: number, dtH: number): void {
+    this.world.step(dtW, dtH, this.ctx.input);
+    this.boss?.step(dtW);
+  }
+
+  private updateCamera(realDt: number): void {
+    const h = this.world.hero, cam = this.cam;
+    let tx = h.x, tz = h.z;
+    const focusBoss = this.boss?.cameraTarget() ?? (this.runner.guardian && !this.runner.guardian.dead ? this.runner.guardian : null);
+    let zoom = 1;
+    if (focusBoss) {
+      // центр масс с весом 0.65 на героя; зум под размер босса
+      tx = h.x * 0.65 + focusBoss.x * 0.35; tz = h.z * 0.65 + focusBoss.z * 0.35;
+      const d = Math.hypot(focusBoss.x - h.x, focusBoss.z - h.z);
+      zoom = Math.max(1, Math.min(1.35, 0.85 + d / 22)) * (this.boss?.zoomMul ?? 1);
+    } else {
+      // боевой зум: 6+ врагов рядом → отдалить на 10 %
+      let near = 0;
+      for (const e of this.world.enemies) if (!e.dead && Math.hypot(e.x - h.x, e.z - h.z) < 13) near++;
+      if (near >= 6) zoom = 1.1;
+    }
+    this.feel.baseZoom = zoom;
+    const lead = this.world.hero.state === 'move' ? 0.18 : 0;
+    cam.update(realDt, tx, tz, h.vx * lead, h.vz * lead, this.ctx.renderer.camera);
+    this.boss?.cameraOverride(cam, this.ctx.renderer.camera, realDt);
+  }
+
+  /** Слои музыки по интенсивности боя (GDD §18.3). */
+  private updateMusic(realDt: number): void {
+    this.intensityT -= realDt;
+    if (this.intensityT > 0) return;
+    this.intensityT = 0.5;
+    const w = this.world;
+    if (w.hero.dead || this.outcome !== 'playing') return;
+    let alive = 0, elite = false;
+    for (const e of w.enemies) if (!e.dead) { alive++; if (e.elite.length || e.isGuardian || e.isBoss) elite = true; }
+    let x = 0.3;
+    if (alive >= 4 || elite) x = 0.6;
+    if (w.rank.rankIdx >= 3 || this.runner.guardian || this.boss) x = 0.9;
+    if (this.runner.phase === 'breather' || this.runner.phase === 'intro') x = Math.min(x, 0.3);
+    if (w.hero.eclipse) x = 1;
+    if (Math.abs(x - this.ctx.music.intensity) > 0.01) this.ctx.music.setIntensity(x);
+  }
+
+  hudFrame(): Parameters<GameContext['hud']['draw']>[1] {
+    const r = this.ctx.renderer;
+    return {
+      world: this.world, abilities: this.abilities, input: this.ctx.input,
+      project: (x, y, z, out) => r.project(x, y, z, out),
+      wave: this.runner.phase === 'intro' || this.stage.boss ? null : { index: Math.max(0, this.runner.waveIdx), total: this.runner.waveTotal },
+      boss: this.boss?.hudBoss() ?? null, bossName: this.boss?.name ?? '', bossPhases: this.boss?.phaseMarks ?? [], bossPhase: this.boss?.phase ?? 0,
+      guardian: this.runner.guardian,
+      stageLabel: this.stage.boss ? 'БОСС' : `${this.stage.zone + 1}-${this.stage.index + 1}`,
+      stageName: this.stage.name,
+      showTouch: this.ctx.input.touchUi,
+      fps: this.fps,
+      showFps: this.ctx.settings.showFps,
+    };
+  }
+
+  dispose(): void {
+    this.feel.dispose();
+    this.world.bus.clear();
+    this.ctx.renderer.scene.remove(this.group);
+    this.view.dispose();
+    this.flames.dispose();
+    this.enemies.dispose();
+    this.vfx.clear();
+    this.ctx.music.onBeat = null;
+    this.ctx.renderer.post.state.letterbox = 0;
+    this.ctx.renderer.post.state.desat = 0;
+    this.ctx.renderer.post.state.lowHp = 0;
+    this.ctx.time.reset();
+  }
+}
