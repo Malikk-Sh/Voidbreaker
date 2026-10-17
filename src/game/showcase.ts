@@ -113,6 +113,7 @@ export class Showcase {
   dispose(): void {
     this.renderer.scene.remove(this.group);
     this.view.dispose();
+    this.hero.dispose();
     this.flames.dispose();
     this.lights.clear();
   }

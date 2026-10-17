@@ -62,6 +62,8 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
         const s = importSave(io.value);
         if (!s) { io.value = 'Строка повреждена'; return; }
         Object.assign(app.ctx.save, s);
+        app.ctx.settings = app.ctx.save.settings;
+        app.game.applySettings();
         writeSave(app.ctx.save, true);
         app.sfx('ui_upgrade');
         app.go('hub');

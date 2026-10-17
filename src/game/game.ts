@@ -78,6 +78,7 @@ export class Game {
     this.ctx.input.vibration = s.vibration;
     this.ctx.input.layout = { scale: s.buttonScale, offsetX: s.buttonOffsetX, offsetY: s.buttonOffsetY };
     if (s.quality !== 'auto' && s.quality !== this.ctx.renderer.quality) this.ctx.renderer.setQuality(s.quality);
+    this.battle?.applySettings();
     this.resize();
   }
 

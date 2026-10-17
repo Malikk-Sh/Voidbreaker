@@ -88,6 +88,7 @@ export class Input {
     if (e.repeat) { if (['Space', 'Tab'].includes(e.code)) e.preventDefault(); return; }
     this.lastDevice = 'kbd';
     this.keys.add(e.code);
+    if (e.code === 'Escape' || e.code === 'KeyP') { this.onPause?.(); return; }
     if (!this.enabled) return;
     switch (e.code) {
       case 'KeyJ': case 'Enter': this.pressAttack(); break;
@@ -95,7 +96,6 @@ export class Input {
       case 'KeyQ': case 'KeyU': this.push('q'); break;
       case 'KeyE': case 'KeyI': this.push('e'); break;
       case 'KeyR': case 'KeyO': this.push('r'); break;
-      case 'Escape': case 'KeyP': this.onPause?.(); break;
     }
   };
 

@@ -169,6 +169,12 @@ export class HeroAvatar {
   chestPos(out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPos(this.iChest, out); }
   kaelisPos(out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPos(this.iKaelis, out); }
 
+  dispose(): void {
+    this.group.removeFromParent();
+    this.batch.dispose(); this.ghostBatch.dispose();
+    this.cloakMesh.dispose(); this.scarfMesh.dispose();
+  }
+
   render(visible = true, blink = false): void {
     const p = this.puppet;
     this.batch.begin();

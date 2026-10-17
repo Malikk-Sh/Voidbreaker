@@ -124,7 +124,7 @@ export class World {
       if (e.dead || e.state === 'spawn') continue;
       this.arena.move(e.x, e.z, e.vx * dtW, e.vz * dtW, e.radius, o);
       // пропасть: враг, сброшенный ударом с края, падает
-      if (this.arena.edge === 'abyss' && !this.arena.walkable(o.x, o.z) && (e.kbX || e.kbZ) && !e.isBoss) {
+      if (this.arena.edge === 'abyss' && (e.kbX || e.kbZ) && !e.isBoss && !this.arena.walkable(e.x + e.vx * dtW, e.z + e.vz * dtW)) {
         e.x += e.vx * dtW; e.z += e.vz * dtW;
         this.bus.emit('fall', { x: e.x, z: e.z, hero: false });
         this.killEnemy(e, e.kbX, e.kbZ, 2);

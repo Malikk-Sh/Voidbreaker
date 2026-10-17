@@ -31,7 +31,7 @@ export class FeelSystem {
 
   constructor(
     private w: World, private time: Time, private cam: CameraRig, private post: Post, private vfx: BattleVfx,
-    private audio: AudioEngine, private music: Sequencer, private input: Input, private hud: Hud, private settings: Settings,
+    private audio: AudioEngine, private music: Sequencer, private input: Input, private hud: Hud, public settings: Settings,
     private camera: THREE.PerspectiveCamera,
   ) {
     const b = w.bus;

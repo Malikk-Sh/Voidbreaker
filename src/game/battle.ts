@@ -13,7 +13,7 @@ import type { HeroStats } from '../world/heroStats';
 import { StageRunner } from '../world/stage';
 import { World } from '../world/world';
 import { zone1Song, hierophantSong } from '../audio/music';
-import { effectiveFlashes } from '../meta/settings';
+import { effectiveFlashes, type Settings } from '../meta/settings';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
 import type { BossController } from '../world/boss/bossBase';
@@ -98,7 +98,7 @@ export class Battle {
     ctx.hud.clear();
     ctx.hud.subtitleScale = ctx.settings.subtitleSize;
     this.feel = new FeelSystem(this.world, ctx.time, this.cam, r.post, this.vfx, ctx.audio, ctx.music, ctx.input, ctx.hud,
-      { ...ctx.settings, flashes: effectiveFlashes(ctx.settings) }, r.camera);
+      Battle.feelSettings(ctx.settings), r.camera);
     this.bindEvents();
     ctx.time.reset();
     ctx.music.play(stage.boss ? hierophantSong() : zone1Song(), 0.3);
@@ -282,8 +282,17 @@ export class Battle {
     };
   }
 
+  private static feelSettings(s: Settings): Settings { return { ...s, flashes: effectiveFlashes(s) }; }
+
+  /** Настройки, изменённые из паузы, сразу действуют в текущем бою. */
+  applySettings(): void {
+    this.feel.settings = Battle.feelSettings(this.ctx.settings);
+    this.ctx.hud.subtitleScale = this.ctx.settings.subtitleSize;
+  }
+
   dispose(): void {
     this.feel.dispose();
+    this.world.hero.avatar.dispose();
     this.world.bus.clear();
     this.ctx.renderer.scene.remove(this.group);
     this.view.dispose();
