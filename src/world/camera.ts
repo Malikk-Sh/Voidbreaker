@@ -15,7 +15,8 @@ export class CameraRig {
   zoomTarget = 1;
   tilt = 0.96;
   roll = 0;
-  baseDist = 28;
+  /** Базовая дистанция (м); настройка «Дистанция камеры» масштабирует её. */
+  baseDist = 22;
   shakeScale = 1;
   /** Внешняя цель кинематографа (пролёт): если задана, перекрывает следование. */
   cine: { pos: THREE.Vector3; look: THREE.Vector3; w: number } | null = null;

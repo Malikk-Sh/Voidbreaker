@@ -23,23 +23,32 @@ const LOOKAHEAD = 0.12, TICK_MS = 25;
  */
 export class Sequencer {
   song: Song | null = null;
+  /** Слои текущей песни. У каждой песни свои шины: старая затухает и отключается, не смешиваясь с новой. */
   private layers = {} as Record<Layer, GainNode>;
+  private bus: GainNode | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private next = 0;
   step = 0;
+  /** Кэш запечённых буферов: ключ включает id песни (у песен разный темп — разная длина аккордов). */
   private bufs = new Map<string, AudioBuffer>();
   intensity = 0;
   /** Фаза босса / вариант паттерна. */
   phase = 0;
   readonly rng = new Rng(Date.now() >>> 0);
   onBeat: ((bar: number, beat: number) => void) | null = null;
+  /** Поколение запуска: отложенные onBeat и загрузки старых песен игнорируются. */
+  private gen = 0;
 
   constructor(private engine: AudioEngine) {}
 
-  private ensureLayers(): boolean {
+  private key(name: string): string { return `${this.song?.id ?? ''}:${name}`; }
+
+  private makeLayers(): boolean {
     const ctx = this.engine.ctx;
     if (!ctx) return false;
-    if (!this.layers.A) for (const l of LAYERS) { const g = ctx.createGain(); g.gain.value = 0; g.connect(this.engine.musicBus); this.layers[l] = g; }
+    this.bus = ctx.createGain();
+    this.bus.connect(this.engine.musicBus);
+    for (const l of LAYERS) { const g = ctx.createGain(); g.gain.value = 0; g.connect(this.bus); this.layers[l] = g; }
     return true;
   }
 
@@ -47,23 +56,25 @@ export class Sequencer {
     const ctx = this.engine.ctx;
     if (!ctx) return;
     const sr = Math.min(44100, ctx.sampleRate);
-    const jobs = Object.entries(song.bake).filter(([k]) => !this.bufs.has(k)).map(async ([k, b]) => {
+    const jobs = Object.entries(song.bake).filter(([k]) => !this.bufs.has(`${song.id}:${k}`)).map(async ([k, b]) => {
       const off = new OfflineAudioContext(1, Math.ceil(sr * b.len), sr);
       const g = off.createGain(); g.connect(off.destination);
       b.render(off, g, 0.005);
-      this.bufs.set(k, await off.startRendering());
+      this.bufs.set(`${song.id}:${k}`, await off.startRendering());
     });
     await Promise.all(jobs);
   }
 
   play(song: Song, intensity = 0.3): void {
-    if (!this.ensureLayers()) return;
-    if (this.song?.id === song.id && this.timer) { this.setIntensity(intensity); return; }
-    this.stop(0.6);
+    if (!this.engine.ctx) return;
+    if (this.song?.id === song.id) { this.setIntensity(intensity); return; }
+    this.stop(0.8);
+    if (!this.makeLayers()) return;
     this.song = song;
     this.phase = 0;
+    const gen = ++this.gen;
     void this.load(song).then(() => {
-      if (this.song !== song) return;
+      if (gen !== this.gen) return;
       const ctx = this.engine.ctx!;
       this.next = ctx.currentTime + 0.1;
       this.step = 0;
@@ -73,9 +84,16 @@ export class Sequencer {
   }
 
   stop(fade = 0.5): void {
+    this.gen++;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    const ctx = this.engine.ctx;
-    if (ctx && this.layers.A) for (const l of LAYERS) this.layers[l].gain.setTargetAtTime(0, ctx.currentTime, fade / 3);
+    const ctx = this.engine.ctx, bus = this.bus;
+    if (ctx && bus) {
+      // запланированные и звучащие хвосты (пэды, хор, колокола) глушатся вместе с шиной старой песни
+      bus.gain.setTargetAtTime(0, ctx.currentTime, fade / 3);
+      setTimeout(() => bus.disconnect(), (fade * 2 + 0.2) * 1000);
+    }
+    this.bus = null;
+    this.layers = {} as Record<Layer, GainNode>;
     this.song = null;
   }
 
@@ -101,12 +119,13 @@ export class Sequencer {
     const ctx = this.engine.ctx;
     if (!ctx || !this.song || ctx.state !== 'running') return;
     if (this.next < ctx.currentTime - 0.5) this.next = ctx.currentTime + 0.05;
+    const gen = this.gen;
     while (this.next < ctx.currentTime + LOOKAHEAD) {
       this.song.schedule(this, this.step, this.next);
       if (this.step % 4 === 0) {
         const bar = (this.step / 16) | 0, beat = (this.step / 4) % 4;
         const delay = Math.max(0, (this.next - ctx.currentTime) * 1000);
-        setTimeout(() => this.onBeat?.(bar, beat), delay);
+        setTimeout(() => { if (gen === this.gen) this.onBeat?.(bar, beat); }, delay);
       }
       this.next += 60 / this.song.bpm / 4;
       this.step++;
@@ -115,8 +134,8 @@ export class Sequencer {
 
   /** Воспроизвести запечённый буфер в слой. */
   buf(name: string, t: number, layer: Layer, gain = 1, rate = 1): void {
-    const ctx = this.engine.ctx, b = this.bufs.get(name);
-    if (!ctx || !b) return;
+    const ctx = this.engine.ctx, b = this.bufs.get(this.key(name));
+    if (!ctx || !b || !this.layers[layer]) return;
     const s = ctx.createBufferSource(); s.buffer = b;
     s.playbackRate.value = rate * Math.pow(2, this.engine.musicDetune / 1200);
     const g = ctx.createGain(); g.gain.value = gain;
@@ -128,16 +147,17 @@ export class Sequencer {
   /** Живой инструмент в слой. */
   live(layer: Layer, fn: (ctx: Ctx, out: AudioNode, t: number) => void, t: number): void {
     const ctx = this.engine.ctx;
-    if (!ctx) return;
+    if (!ctx || !this.layers[layer]) return;
     fn(ctx, this.layers[layer], t);
   }
 
   /** Стингер (слой E): колокол + удар + хоровой аккорд — вне сетки, сразу. */
   stinger(name: string): void {
     const ctx = this.engine.ctx;
-    if (!ctx || !this.bufs.has(name)) { this.engine.play(name); return; }
-    const s = ctx.createBufferSource(); s.buffer = this.bufs.get(name)!;
-    s.connect(this.engine.musicBus); s.start(ctx.currentTime + 0.01);
+    const b = this.bufs.get(this.key(name));
+    if (!ctx || !b || !this.bus) { this.engine.play(name); return; }
+    const s = ctx.createBufferSource(); s.buffer = b;
+    s.connect(this.bus); s.start(ctx.currentTime + 0.01);
   }
 
   get detuneCents(): number { return this.engine.musicDetune; }

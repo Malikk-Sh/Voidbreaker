@@ -50,7 +50,7 @@ export function hubScreen(app: App, initial: Tab = 'stats'): HTMLElement {
     h('div', { class: 'vb-row', style: { position: 'absolute', top: 'max(12px, env(safe-area-inset-top))', left: 'max(18px, env(safe-area-inset-left))', right: 'max(18px, env(safe-area-inset-right))', justifyContent: 'space-between' } },
       h('div', { class: 'vb-col', style: { gap: '0' } }, titleCanvas('СВЯТИЛИЩЕ', 22, { color: 'gold', glow: 0.6 }), h('div', { class: 'vb-caps vb-dim', style: { marginTop: '-10px', marginLeft: '14px', fontSize: '10px' } }, 'Обсидиановый собор · убежище Пилота')),
       h('div', { class: 'vb-row' }, curSlot,
-        h('button', { class: 'vb-iconbtn', 'aria-label': 'Настройки', onClick: () => { app.sfx('ui_click'); app.go('settings'); } }, iconCanvas('gear', 26, '#e2c27a', 'rgba(139,92,246,.6)'))),
+        h('button', { class: 'vb-iconbtn', 'aria-label': 'Настройки', onClick: () => { app.sfx('ui_click'); app.openSettings('hub'); } }, iconCanvas('gear', 26, '#e2c27a', 'rgba(139,92,246,.6)'))),
     ),
     h('div', { class: 'vb-panel vb-col', style: { position: 'absolute', right: 'max(18px, env(safe-area-inset-right))', top: '58px', bottom: '74px', width: panelW, gap: '4px' } },
       tabsRow, h('div', { class: 'vb-rule', style: { margin: '2px 0 6px' } }), content),

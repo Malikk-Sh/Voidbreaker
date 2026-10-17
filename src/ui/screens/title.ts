@@ -1,6 +1,8 @@
 import type { App } from '../../game/app';
 import { h } from '../dom';
 import { titleCanvas } from '../font';
+import { iconCanvas } from '../icons';
+import { enterFullscreen } from '../fullscreen';
 
 /** Титул (GDD §19.2): чёрное солнце, медленный пролёт по руинам, «НАЖМИТЕ, ЧТОБЫ НАЧАТЬ» (заодно разблокирует аудио). */
 export function titleScreen(app: App): HTMLElement {
@@ -9,6 +11,7 @@ export function titleScreen(app: App): HTMLElement {
   title.className = 'vb-stamp';
   const start = () => {
     app.ctx.audio.unlock();
+    if (app.ctx.settings.fullscreen) void enterFullscreen();
     app.sfx('ui_confirm');
     if (!app.ctx.flag('prologue')) app.go('prologue');
     else app.go('hub');
@@ -20,7 +23,9 @@ export function titleScreen(app: App): HTMLElement {
       h('div', { class: 'vb-rule', style: { width: '240px' } }),
       h('div', { class: 'vb-caps vb-pulse', style: { marginTop: '18vh', fontSize: '13px', color: '#e2c27a' } }, 'Нажмите, чтобы начать'),
     ),
-    h('div', { class: 'vb-dim', style: { position: 'absolute', bottom: 'max(12px, env(safe-area-inset-bottom))', right: '20px', fontSize: '10px', letterSpacing: '.2em' } }, 'v0.1 · вся графика и звук созданы кодом'),
+    h('div', { class: 'vb-dim', style: { position: 'absolute', bottom: 'max(12px, env(safe-area-inset-bottom))', right: '20px', fontSize: '10px', letterSpacing: '.2em' } }, 'v0.2 · вся графика и звук созданы кодом'),
+    h('button', { class: 'vb-iconbtn', 'aria-label': 'Настройки', style: { position: 'absolute', top: 'max(10px, env(safe-area-inset-top))', right: 'max(14px, env(safe-area-inset-right))' },
+      onPointerdown: (e: Event) => { e.stopPropagation(); app.ctx.audio.unlock(); app.sfx('ui_click'); app.openSettings('title'); } }, iconCanvas('gear', 30, '#e2c27a', 'rgba(0,0,0,0)')),
   );
   const onKey = (e: KeyboardEvent) => {
     // экран уже снят — слушатель больше не нужен (иначе Пробел в бою «стартует» игру заново)

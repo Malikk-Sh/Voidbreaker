@@ -24,12 +24,16 @@ export interface Settings {
   buttonScale: number;
   buttonOffsetX: number;
   buttonOffsetY: number;
+  /** Дистанция камеры в бою (множитель): меньше — ближе к Пилоту. */
+  camDist: number;
+  /** Полноэкранный режим: включается по первому касанию на титуле. */
+  fullscreen: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   shake: 1, flashes: true, photosensitive: false, aberration: true, distortion: true, autoAim: 2, vibration: true,
   volMaster: 0.9, volMusic: 0.6, volSfx: 0.9, volVoice: 0.8, quality: 'auto', story: false, showFps: false,
-  hatch: 0.35, subtitleSize: 1, buttonScale: 1, buttonOffsetX: 0, buttonOffsetY: 0,
+  hatch: 0.35, subtitleSize: 1, buttonScale: 1, buttonOffsetX: 0, buttonOffsetY: 0, camDist: 1, fullscreen: false,
 };
 
 export function effectiveFlashes(s: Settings): boolean { return s.flashes && !s.photosensitive; }

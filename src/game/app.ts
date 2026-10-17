@@ -87,12 +87,16 @@ export class App {
         case 'prologue': this.ensureShowcase('title'); this.mount(prologueScreen(this)); break;
         case 'hub': this.ensureShowcase('hub'); this.mount(hubScreen(this)); break;
         case 'map': this.ensureShowcase('map'); this.mount(mapScreen(this)); break;
-        case 'settings': this.ensureShowcase('hub'); this.mount(settingsScreen(this, () => this.go('hub'))); break;
+        case 'settings': this.ensureShowcase(this.settingsFrom === 'title' ? 'title' : 'hub'); this.mount(settingsScreen(this, () => this.go(this.settingsFrom))); break;
       }
       if (this.ctx.audio.ctx) this.ctx.music.play(hubSong(), 0);
     };
     if (transition && this.screenEl) wipe(this.layer, run); else run();
   }
+
+  /** Откуда открыты настройки (титул или Святилище) — туда же и возврат. */
+  settingsFrom: 'title' | 'hub' = 'hub';
+  openSettings(from: 'title' | 'hub'): void { this.settingsFrom = from; this.go('settings'); }
 
   startStage(id: string): void {
     const def = stageById(id);

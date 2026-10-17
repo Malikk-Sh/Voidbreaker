@@ -4,6 +4,7 @@ import { exportSave, importSave, newSave, writeSave } from '../../meta/save';
 import { h } from '../dom';
 import { titleCanvas } from '../font';
 import { iconCanvas } from '../icons';
+import { enterFullscreen, exitFullscreen, fullscreenSupported } from '../fullscreen';
 
 /** Доступность и настройки (GDD §21). */
 export function settingsScreen(app: App, back: () => void): HTMLElement {
@@ -36,6 +37,11 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
   } }, 'Сбросить прогресс');
 
   const content = h('div', { class: 'vb-col vb-scroll', style: { flex: '1', minHeight: '0', paddingRight: '8px', gap: '8px' } },
+    section('Экран'),
+    fullscreenSupported()
+      ? toggle('Полноэкранный режим', 'fullscreen', [[false, 'Выкл'], [true, 'Вкл']], () => { if (S.fullscreen) void enterFullscreen(); else void exitFullscreen(); })
+      : h('div', { class: 'vb-dim', style: { fontSize: '12px' } }, 'Полноэкранный режим: добавьте игру на главный экран («Поделиться» → «На экран Домой»).'),
+    slider('Дистанция камеры', 'camDist', 0.75, 1.3, 0.05),
     section('Звук'),
     slider('Общая громкость', 'volMaster'), slider('Музыка', 'volMusic'), slider('Эффекты', 'volSfx'), slider('Голос', 'volVoice'),
     h('div', { class: 'vb-dim', style: { fontSize: '11px' } }, 'iOS: в беззвучном режиме Web Audio может молчать — выключите беззвучный режим.'),

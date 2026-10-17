@@ -22,6 +22,9 @@ import { Hierophant, HierophantController, type BossHost } from '../world/boss/h
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
 
+
+/** Базовая дистанция боевой камеры (м) при «Дистанции камеры» = 100 %. */
+const CAM_DIST = 22;
 export const STEP = 1 / 60;
 
 export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef }
@@ -94,6 +97,7 @@ export class Battle {
     this.world.hero.spawn(o.x, o.z, Math.PI);
     this.abilities.resetCooldowns();
     this.cam.snap(o.x, o.z - 1);
+    this.cam.baseDist = CAM_DIST * ctx.settings.camDist;
 
     ctx.hud.clear();
     ctx.hud.subtitleScale = ctx.settings.subtitleSize;
@@ -287,6 +291,7 @@ export class Battle {
   /** Настройки, изменённые из паузы, сразу действуют в текущем бою. */
   applySettings(): void {
     this.feel.settings = Battle.feelSettings(this.ctx.settings);
+    this.cam.baseDist = CAM_DIST * this.ctx.settings.camDist;
     this.ctx.hud.subtitleScale = this.ctx.settings.subtitleSize;
   }
 
