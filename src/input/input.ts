@@ -54,6 +54,8 @@ export class Input {
   heroScreen: (() => { x: number; y: number }) | null = null;
 
   constructor(readonly el: HTMLElement) {
+    // сенсорный экран — тач-раскладка с первого кадра
+    if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) { this.lastDevice = 'touch'; this.touchUi = true; }
     addEventListener('keydown', this.onKey, { passive: false });
     addEventListener('keyup', this.onKeyUp);
     addEventListener('blur', () => { this.keys.clear(); this.attackHeld = false; });

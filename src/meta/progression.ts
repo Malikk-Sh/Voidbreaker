@@ -43,6 +43,11 @@ export function computeStats(s: SaveData, autoAim = 2): HeroStats {
   if (R >= 5) st.startResonance = 20;
   if (R >= 10) st.cdr += 0.1;
   if (R >= 20) st.ultHeal = 0.15;
+  // Кузня: +8 % урона за уровень оружия, перки на 5 и 10 (GDD §7.1)
+  const wl = s.weapons[s.loadout.weapon]?.level ?? 1;
+  st.atk *= 1 + 0.08 * (wl - 1);
+  if (wl >= 5) st.critChance += 0.05;
+  if (wl >= 10) st.riftCrack = true;
   // реликвии
   for (const id of s.loadout.relics) applyRelic(st, id);
   st.autoAim = autoAim / 2;
@@ -194,4 +199,17 @@ export function stageUnlocked(s: SaveData, def: StageDef): boolean {
 /** Всё, что можно улучшить, помечено фиолетовым ромбом в хабе (GDD §19.3). */
 export function anyUpgradeAffordable(s: SaveData): boolean {
   return (['power', 'agility', 'fortitude', 'resonance'] as Branch[]).some((b) => canBuyStat(s, b));
+}
+
+// ------------------------------------------------------------------ Кузня (GDD §7.1)
+export const WEAPON_MAX = 10;
+export function weaponCost(level: number): number { return Math.round(220 * Math.pow(1.45, level - 1)); }
+export function upgradeWeapon(s: SaveData, id: string): boolean {
+  const w = s.weapons[id];
+  if (!w || !w.unlocked || w.level >= WEAPON_MAX) return false;
+  const c = weaponCost(w.level);
+  if (s.currencies.shards < c) return false;
+  s.currencies.shards -= c;
+  w.level++;
+  return true;
 }

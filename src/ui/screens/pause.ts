@@ -1,0 +1,29 @@
+import type { App } from '../../game/app';
+import { fmtTime, h } from '../dom';
+import { titleCanvas } from '../font';
+import { settingsScreen } from './settings';
+
+/** Пауза (GDD §19.2): продолжить, настройки, выйти (с подтверждением). Автопауза на visibilitychange. */
+export function pauseScreen(app: App): HTMLElement {
+  const b = app.game.battle;
+  let confirm = false;
+  const exitBtn = h('button', { class: 'vb-btn', onClick: () => {
+    if (!confirm) { confirm = true; exitBtn.textContent = 'Точно выйти?'; app.sfx('ui_click'); return; }
+    app.sfx('ui_back');
+    app.go('hub');
+  } }, 'Покинуть этап');
+  const el = h('div', { class: 'vb-screen vb-fade', style: { display: 'grid', placeItems: 'center', background: 'rgba(7,6,11,.72)' } },
+    h('div', { class: 'vb-col', style: { alignItems: 'center', gap: '14px' } },
+      titleCanvas('ПАУЗА', 44, { color: 'void', glow: 1 }),
+      b ? h('div', { class: 'vb-caps vb-dim' }, `${b.stage.boss ? 'Босс' : `Этап ${b.stage.id}`} · ${b.stage.name} · ${fmtTime(b.world.run.time)}`) : null,
+      h('button', { class: 'vb-btn primary', style: { minWidth: '240px' }, onClick: () => { app.sfx('ui_confirm'); app.resume(); } }, 'Продолжить'),
+      h('button', { class: 'vb-btn', style: { minWidth: '240px' }, onClick: () => {
+        app.sfx('ui_click');
+        app.openOverlay(settingsScreen(app, () => app.openOverlay(pauseScreen(app))));
+      } }, 'Настройки'),
+      exitBtn,
+      h('div', { class: 'vb-dim', style: { fontSize: '11px', marginTop: '8px', letterSpacing: '.12em' } }, 'Esc / P — пауза · WASD — движение · ЛКМ/J — атака (удержание — заряд) · Пробел/Shift/ПКМ — рывок · Q E R — способности'),
+    ),
+  );
+  return el;
+}

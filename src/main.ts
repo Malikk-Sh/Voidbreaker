@@ -1,24 +1,11 @@
-import { Game } from './game/game';
+import { App } from './game/app';
 
 const root = document.getElementById('app')!;
 document.getElementById('boot')?.remove();
-const game = new Game(root);
+const app = new App(root);
+app.start();
 
-const params = new URLSearchParams(location.search);
-const stage = params.get('stage');
-if (stage) {
-  game.startStageById(stage);
-  addEventListener('pointerdown', () => game.ctx.audio.unlock(), { once: true });
-  addEventListener('keydown', () => game.ctx.audio.unlock(), { once: true });
-  if (params.has('wave')) game.battle!.runner.skipTo(Number(params.get('wave')));
-  if (params.has('god')) {
-    const w = game.battle!.world;
-    const h = w.hero;
-    const orig = h.receiveAttack.bind(h);
-    h.receiveAttack = (dmg, dx, dz, src, kb) => orig(0 * dmg, dx, dz, src, kb);
-  }
+// PWA: офлайн после первой загрузки (service worker генерируется при сборке)
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => { /* офлайн-кэш недоступен — игра работает и так */ }); });
 }
-game.onBattleEnd = (o) => {
-  console.log('battle end', o.cleared, JSON.stringify(o.world.run));
-  setTimeout(() => game.startStageById(o.stage.id), 500);
-};
