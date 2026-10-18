@@ -158,6 +158,7 @@ export class Hud {
     this.drawRank(f, R, s);
     this.drawAbilities(f, R, B, s);
     if (f.showTouch) this.drawTouch(f.input, s);
+    this.drawBranchHint(dt, f, s);
     this.drawNums(dt, f);
     this.drawWorldTexts(dt, f);
     this.drawStarFly(dt, f);
@@ -721,6 +722,41 @@ export class Hud {
       g.restore();
     }
     this.worldTexts = this.worldTexts.filter((wt) => wt.t < wt.dur);
+  }
+
+  private hintText = ''; private hintT = 0;
+  /**
+   * Подсказка ветки (план §6.4): маленький глиф следующего приёма — над кнопкой атаки (тач)
+   * или у курсора (клавиатура и мышь), иначе над героем.
+   */
+  private drawBranchHint(dt: number, f: HudFrame, s: number): void {
+    const text = f.world.hero.branchHint;
+    if (text !== this.hintText) { this.hintText = text ?? ''; this.hintT = 0; }
+    if (!text) return;
+    this.hintT += dt;
+    const g = this.g;
+    let x: number, y: number;
+    const btn = f.showTouch ? f.input.buttons.find((b) => b.id === 'attack') : undefined;
+    const m = f.input.mouse;
+    if (btn) { x = btn.x; y = btn.y - btn.r * 1.45; }
+    else if (m) { x = m.x + 20 * s; y = m.y - 22 * s; }
+    else {
+      const h = f.world.hero;
+      f.project(h.x, 2.6, h.z, this.tmp);
+      x = this.tmp.x; y = this.tmp.y;
+    }
+    const pop = this.hintT < 0.12 ? 1.25 - Ease.outBack(this.hintT / 0.12) * 0.25 : 1;
+    const size = 12 * s * pop;
+    g.save();
+    g.globalAlpha = Math.min(1, this.hintT / 0.08) * (0.85 + 0.15 * Math.sin(this.time * 8));
+    g.font = `700 ${Math.round(size)}px ${FONT_BODY}`;
+    const tw = g.measureText(text).width, pad = 9 * s;
+    const x0 = x - tw / 2 - pad, x1 = x + tw / 2 + pad, h2 = 10 * s * pop;
+    g.beginPath(); g.moveTo(x0, y); g.lineTo(x0 + 6 * s, y - h2); g.lineTo(x1 - 6 * s, y - h2); g.lineTo(x1, y); g.lineTo(x1 - 6 * s, y + h2); g.lineTo(x0 + 6 * s, y + h2); g.closePath();
+    g.fillStyle = 'rgba(10,8,18,0.85)'; g.fill();
+    g.strokeStyle = UI.void; g.lineWidth = 1.2; g.stroke();
+    this.text(text, x, y + size * 0.36, size, '#e8dcff', 'bodyBold', 'center');
+    g.restore();
   }
 
   /** Перенос строки по ширине (реплики Каэлис). */

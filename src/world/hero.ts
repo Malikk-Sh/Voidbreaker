@@ -93,6 +93,10 @@ export class Hero implements Actor {
   trailOn = false;
   /** Рывок-скольжение по трещине (план §6.2). */
   sliding = false;
+  /** Отмены (план §6.4): удар попал и прошёл hitOff — можно в Q/E; каст отпустил способность — можно в удар. */
+  private moveLanded = false;
+  private hitOffSeen = false;
+  private castReleased = false;
   private slideHits = new Set<number>();
 
   constructor(private world: World) {
@@ -239,7 +243,8 @@ export class Hero implements Actor {
 
     // способности
     for (const slot of ['q', 'e', 'r'] as const) {
-      if ((st === 'move' || (st === 'attack' && this.move && this.stateT >= this.move.dashCancelFrom / this.atkSpeed)) && buf.peek(slot, now)) {
+      const cancel = st === 'attack' && this.move && (this.stateT >= this.move.dashCancelFrom / this.atkSpeed || (this.moveLanded && this.hitOffSeen));
+      if ((st === 'move' || cancel) && buf.peek(slot, now)) {
         if (this.world.abilities.tryCast(slot, input)) { buf.consume(slot, now); return; }
       }
     }
@@ -247,6 +252,8 @@ export class Hero implements Actor {
     // атака
     if (buf.peek('attack', now)) {
       if (st === 'move') { buf.consume('attack', now); this.startAttack(input, mvx, mvz, hasStick); return; }
+      // способность отпущена — каст отменяется в удар, клип плавно переходит в меч
+      if (st === 'cast' && this.castReleased) { buf.consume('attack', now); this.startAttack(input, mvx, mvz, hasStick, 0.06); return; }
       if (st === 'attack' && this.move && this.stateT >= this.move.chain[0] / this.atkSpeed && !this.move.noChain) {
         buf.consume('attack', now); this.startAttack(input, mvx, mvz, hasStick); return;
       }
@@ -310,7 +317,7 @@ export class Hero implements Actor {
   }
 
   // ------------------------------------------------------------------ атаки
-  private startAttack(input: Input, mvx: number, mvz: number, hasStick: boolean): void {
+  private startAttack(input: Input, mvx: number, mvz: number, hasStick: boolean, fade?: number): void {
     const W = this.weapon;
     let next: MoveDef;
     const since = this.clock - this.lastMoveStart;
@@ -351,7 +358,7 @@ export class Hero implements Actor {
         this.facing = angleOf(-dx, -dz);
         this.invulnUntil = Math.max(this.invulnUntil, this.clock + 0.3);
       }
-      this.beginMove(next, 0);
+      this.beginMove(next, 0, fade);
       return;
     }
 
@@ -363,10 +370,11 @@ export class Hero implements Actor {
       if (d < AIM.magnetRange) lunge = clamp(d, 0, Math.max(AIM.magnetDist, next.lunge * 0.6));
       else lunge = next.lunge * 0.5;
     }
-    this.beginMove(next, lunge);
+    this.beginMove(next, lunge, fade);
   }
 
-  private beginMove(m: MoveDef, lunge: number): void {
+  private beginMove(m: MoveDef, lunge: number, fade?: number): void {
+    this.moveLanded = false; this.hitOffSeen = false;
     this.state = m === this.weapon.combo[3] || m.id === 'lunge' ? 'attack' : 'attack';
     this.stateT = 0;
     this.move = m;
@@ -377,7 +385,7 @@ export class Hero implements Actor {
     this.lungeLeft = lunge;
     this.lungeDirX = Math.sin(this.facing); this.lungeDirZ = Math.cos(this.facing);
     this.vx *= 0.2; this.vz *= 0.2;
-    this.avatar.puppet.play(m.clip, this.atkSpeed, m.id === 'slash1' ? 0.04 : 0.03);
+    this.avatar.puppet.play(m.clip, this.atkSpeed, fade ?? (m.id === 'slash1' ? 0.04 : 0.03));
     this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(m.clip) / this.atkSpeed });
     // удар клинка отправляет украденные осколки в цель автоприцела
     this.world.fireStolen(this.target);
@@ -416,7 +424,7 @@ export class Hero implements Actor {
         this.hitActive = true;
         if (this.move?.multi) this.hitList.clear();
         break;
-      case 'hitOff': this.hitActive = false; break;
+      case 'hitOff': this.hitActive = false; this.hitOffSeen = true; break;
       case 'trailOn': this.trailOn = true; break;
       case 'trailOff': this.trailOn = false; break;
       case 'impact': {
@@ -435,7 +443,7 @@ export class Hero implements Actor {
         }
         break;
       }
-      case 'release': this.castRelease?.(); this.castRelease = null; break;
+      case 'release': this.castRelease?.(); this.castRelease = null; this.castReleased = true; break;
       case 'stab': this.world.bus.emit('swing', { kind: 'stab' }); break;
       case 'swing2': this.world.bus.emit('swing', { kind: 'heavy' }); break;
     }
@@ -466,6 +474,7 @@ export class Hero implements Actor {
       dirX: Math.sin(this.facing), dirZ: Math.cos(this.facing), pierce: true, source: 'blade', launch: m.launch,
       moveId: charged ? 'charged' : m.id,
     });
+    if (n > 0) this.moveLanded = true;
     if (n > 0 && this.eclipse && !this.hitWaveDone) {
       this.hitWaveDone = true;
       this.world.abilities.eclipseWave(this.x, this.z, this.facing);
@@ -693,8 +702,27 @@ export class Hero implements Actor {
     this.state = 'cast'; this.stateT = 0;
     this.hitActive = false; this.move = null; this.chargeLevel = 0;
     this.castRelease = onRelease;
+    this.castReleased = false;
     this.castMinT = minCancel;
     this.avatar.puppet.play(clip, 1, 0.04);
+  }
+
+  /**
+   * Подсказка ветки (план §6.4): какой приём выйдет следующим нажатием атаки — ветки, спрятанные в таймингах,
+   * становятся видимыми. null — обычная серия.
+   */
+  get branchHint(): string | null {
+    const W = this.weapon, c = this.clock, st = this.state;
+    if (st !== 'move' && st !== 'attack' && st !== 'dash') return null;
+    if (c < this.counterUntil) return 'Контрудар';
+    const t = this.target;
+    const heavy = !!t && t.stunned && (t.mass > 3 || t.elite.length > 0) && !t.isGuardian && !t.isBoss;
+    const since = c - this.lastMoveStart;
+    if (heavy && this.lastMove === W.lunge && since <= W.lunge.chain[1] / this.atkSpeed) return 'Вознесение';
+    if (st === 'move' && c - this.lastDashEnd <= 0.2) return 'Рассечение';
+    if (st === 'move' && this.lastMove === W.combo[1] && since >= 0.3 && since <= 0.7) return 'Шквал';
+    if (heavy) return 'Рывок → Вознесение';
+    return null;
   }
 
   /** Точки клинка для шлейфа. */

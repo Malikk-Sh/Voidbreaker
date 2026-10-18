@@ -42,6 +42,8 @@ export class Input {
 
   private keys = new Set<string>();
   private mouseX = 0; private mouseY = 0; private mouseSeen = false;
+  /** Курсор мыши (экранные px), если мышь использовалась. */
+  get mouse(): { x: number; y: number } | null { return this.mouseSeen ? { x: this.mouseX, y: this.mouseY } : null; }
   // тач
   stick = { active: false, pointer: -1, ox: 0, oy: 0, x: 0, y: 0, radius: 60 };
   buttons: TouchButton[] = [];

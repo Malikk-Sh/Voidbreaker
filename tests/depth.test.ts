@@ -178,3 +178,44 @@ describe('украденный импульс и мгновенный заряд
     expect(h2.chargeLevel).toBe(0);
   });
 });
+
+describe('отмены и подсказка ветки (план §6.4)', () => {
+  /** Шаги героя с вводом; press — нажатия в начале. */
+  function run(w: World, sec: number, inp = input()): void {
+    for (let t = 0; t < sec; t += DT) { (inp as { now: number }).now += DT; w.step(DT, DT, inp); }
+  }
+
+  it('после идеального уклонения — «Контрудар»; после рывка — «Рассечение»; пауза после второго удара — «Шквал»', () => {
+    const { w } = setup();
+    const h = w.hero as unknown as { counterUntil: number; clock: number; lastDashEnd: number; lastMove: unknown; lastMoveStart: number; branchHint: string | null; state: string };
+    h.counterUntil = h.clock + 0.5;
+    expect(h.branchHint).toBe('Контрудар');
+    h.counterUntil = 0;
+    h.lastDashEnd = h.clock - 0.1;
+    expect(h.branchHint).toBe('Рассечение');
+    h.lastDashEnd = -9;
+    h.lastMove = VOID_BLADE.combo[1]; h.lastMoveStart = h.clock - 0.45;
+    expect(h.branchHint).toBe('Шквал');
+    h.lastMove = VOID_BLADE.combo[0];
+    expect(h.branchHint).toBeNull();
+  });
+
+  it('каст отменяется в удар только после release (0.1 с), не дожидаясь конца клипа (0.3 с)', () => {
+    const { w } = setup();
+    const h = w.hero;
+    const inp = input();
+    inp.buffer.push('q', 0);
+    run(w, DT, inp);
+    expect(h.state).toBe('cast');
+    // до release удар не перебивает каст
+    inp.buffer.push('attack', (inp as { now: number }).now);
+    run(w, 0.05, inp);
+    expect(h.state).toBe('cast');
+    inp.buffer.clear();
+    run(w, 0.08, inp);
+    expect(h.state).toBe('cast');
+    inp.buffer.push('attack', (inp as { now: number }).now);
+    run(w, DT, inp);
+    expect(h.state).toBe('attack');
+  });
+});
