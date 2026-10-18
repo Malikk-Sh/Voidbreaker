@@ -68,6 +68,12 @@ export interface GameEvents {
    * snap — нить лопнула (tx, tz — второй конец).
    */
   psalm: { kind: 'link' | 'off' | 'snap'; x: number; z: number; tx?: number; tz?: number };
+  /** Звонарь (план §7.4): удар колокола виден — пульсация колокола (big — полный удар). */
+  bellPulse: { x: number; y: number; z: number; big: boolean };
+  /** Полный заряженный удар по колоколу сзади: фиолетовое кольцо героя. */
+  bellStrike: { x: number; y: number; z: number; r: number };
+  /** Цепи упали с потолка и стали стенами. */
+  chains: { x: number; z: number; n: number };
   /** Клинок застрял в камне: окно уязвимости (с). */
   stuck: { x: number; z: number; dur: number };
   projectileHit: { x: number; z: number; kind: string };

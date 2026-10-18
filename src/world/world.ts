@@ -119,6 +119,11 @@ export class World {
   magnet = false;
   /** Дополнительные «наблюдатели» шага (босс-скрипты, директор волн). */
   readonly stepHooks: ((dt: number) => void)[] = [];
+  /** Свечи арены гаснут по кругу, пока Звонарь заряжает сильный удар (план §7.4): доля круга 0..1 и его начало. */
+  candlesOut = 0;
+  candlesFrom = 0;
+  /** Временные стены (цепи Звонаря): укрытия арены с таймером; навигация перестраивается по версии арены. */
+  readonly tempWalls: { x: number; z: number; r: number; t: number; dur: number; cover: { x: number; z: number; r: number } }[] = [];
   /** Бонус урона по оглушённым (Сердце Молоха и т.п.). */
   brokenBonus = 0;
   /** Когда герой последний раз идеально ушёл от атаки Стража или босса (время мира). */
@@ -165,6 +170,8 @@ export class World {
     if (this.shatterSeq) this.stepShatter(dtR, input);
     this.hero.update(dtH, input);
     this.nav.update(dtW, this.hero.x, this.hero.z);
+    // свечи загораются снова, если их никто не гасит (Звонарь держит долю, пока заряжает удар)
+    this.candlesOut = Math.max(0, this.candlesOut - dtW * 0.8);
     for (const e of this.enemies) e.step(this, dtW);
     this.integrate(dtW, dtH);
     this.stepProjectiles(dtW);
@@ -177,6 +184,7 @@ export class World {
     // +1 Резонанс/с на ранге S+
     if (this.rank.rankIdx >= 4) this.hero.addResonance(RESONANCE.perSecondAtS * dtH);
     this.abilities.step(dtW, dtH);
+    this.stepTempWalls(dtW);
     for (const h of this.stepHooks) h(dtW);
     for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].removable) swapRemove(this.enemies, i);
   }
@@ -321,6 +329,7 @@ export class World {
     }
     // реакция по классу врага (план §7.1)
     e.react(this, p.feel === 'heavy' || feel === 'break', FEEL[feel].spring, p.dirX, p.dirZ);
+    if (p.source === 'blade' && !e.dead) e.onBladeHit(this, p, kind);
     if (!p.noResonance) h.addResonance(RESONANCE.perHit + (p.finisher ? RESONANCE.perFinisher - RESONANCE.perHit : 0));
     this.rank.hit(!!p.finisher);
     if (p.abilityId) this.rank.used(p.abilityId);
@@ -692,7 +701,53 @@ export class World {
     return true;
   }
 
+  /** Временная стена (цепь, колонна): укрытие на dur секунд. */
+  addTempWall(x: number, z: number, r: number, dur: number): void {
+    const cover = { x, z, r };
+    this.arena.covers.push(cover);
+    this.arena.version++;
+    this.tempWalls.push({ x, z, r, t: 0, dur, cover });
+  }
+
+  private stepTempWalls(dt: number): void {
+    for (let i = this.tempWalls.length - 1; i >= 0; i--) {
+      const tw = this.tempWalls[i];
+      tw.t += dt;
+      if (tw.t < tw.dur) continue;
+      const k = this.arena.covers.indexOf(tw.cover);
+      if (k >= 0) this.arena.covers.splice(k, 1);
+      this.arena.version++;
+      swapRemove(this.tempWalls, i);
+    }
+  }
+
+  /**
+   * Кольцо силы героя (колокол Звонаря, план §7.4): фиолетовая волна от точки, бьёт каждого врага один раз,
+   * когда фронт доходит до него.
+   */
+  heroRing(x: number, z: number, maxR: number, speed: number, mult: number, stun: number): void {
+    const hit = new Set<number>();
+    let r = 0;
+    const hook = (dt: number): void => {
+      r += speed * dt;
+      this.beginStrike();
+      for (const e of this.enemies) {
+        if (!e.targetable || hit.has(e.id) || Math.hypot(e.x - x, e.z - z) - e.radius > r) continue;
+        hit.add(e.id);
+        const d = Math.hypot(e.x - x, e.z - z) || 1;
+        this.damageEnemy(e, { mult, stun, stunKind: 'other', knockback: 4, feel: 'heavy', dirX: (e.x - x) / d, dirZ: (e.z - z) / d, source: 'ability', noResonance: true });
+      }
+      this.endStrike({ dirX: 0, dirZ: 1, source: 'ability' });
+      if (r >= maxR) { const i = this.stepHooks.indexOf(hook); if (i >= 0) this.stepHooks.splice(i, 1); }
+    };
+    this.stepHooks.push(hook);
+  }
+
   clear(): void {
+    for (const tw of this.tempWalls) { const k = this.arena.covers.indexOf(tw.cover); if (k >= 0) this.arena.covers.splice(k, 1); }
+    if (this.tempWalls.length) this.arena.version++;
+    this.tempWalls.length = 0;
+    this.candlesOut = 0;
     this.enemies.length = 0; this.projectiles.length = 0; this.telegraphs.length = 0; this.hazards.length = 0; this.pickups.length = 0; this.ringWaves.length = 0;
     this.stepHooks.length = 0;
   }

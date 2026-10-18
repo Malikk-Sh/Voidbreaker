@@ -321,6 +321,21 @@ export class FeelSystem {
           this.vfx.threadSnap(e.x, e.z, e.tx ?? e.x, e.tz ?? e.z);
         }
       }),
+      // Звонарь: каждый удар колокола виден; кольцо героя из колокола; цепи с потолка
+      b.on('bellPulse', (e) => this.vfx.bellPulse(e.x, e.y, e.z, e.big)),
+      b.on('bellStrike', (e) => {
+        this.audio.play('bell_strike', { pan: this.pan(e.x) });
+        this.vfx.bellStrike(e.x, e.y, e.z, e.r);
+        this.shockwave(e.x, e.z, 0.9, 0.5);
+        this.cam.addTrauma(0.4);
+        this.time.addHitstop(0.08);
+        this.hud.flashText('ЗВОН', '#B794FF', e.x, e.y + 1, e.z, true);
+      }),
+      b.on('chains', (e) => {
+        this.audio.play('chain_drop', { pan: this.pan(e.x) });
+        for (const c of this.w.tempWalls) if (c.t < 0.05) this.vfx.impact(c.x, c.z, 0.9, C.ember, 0.5);
+        this.cam.addTrauma(0.25);
+      }),
       b.on('stuck', (e) => this.audio.play('nail_strain', { gain: 0.6, pan: this.pan(e.x) })),
       b.on('lob', (e) => this.vfx.lob(e.fx, e.fz, e.tx, e.tz, e.dur, e.size)),
       b.on('projectileHit', (e) => {

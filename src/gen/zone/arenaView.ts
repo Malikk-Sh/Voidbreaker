@@ -308,6 +308,17 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
         g.add(box(0.15, 2.5, 0.15), { matrix: mat(0, 11, 0) });
         g.add(bell.clone().scale(0.98, 0.98, 0.98), { matrix: mat(0, 7.25, 0), emissive: -0.4, color: OBS_DEEP });
       }, p0.x, 0, farZ - 1.4);
+      // поминальные свечи кольцом у стен: гаснут по кругу, когда Звонарь заряжает удар (план §7.4)
+      for (let i = 0; i < 30; i++) {
+        const a = (i / 30) * Math.PI * 2 + rng.spread(0.05);
+        const r = boundaryAt(def, a, p0.x, p0.z) - rng.range(0.5, 1.0);
+        const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
+        if (z > nearZ - 1.5) continue;
+        const h = rng.range(0.15, 0.45);
+        D.add(prism(6, 0.07, 0.06, h), { matrix: mat(x, 0, z), color: hexToLinear('#5a4a3a') });
+        flames.push([x, h + 0.08, z]);
+        if (i % 3 === 0) pools.push({ x, z, r: 2.2, color: look.warm, intensity: 0.35, flicker: 1 });
+      }
     }
     if (style === 'candles') {
       for (let i = 0; i < 6; i++) {

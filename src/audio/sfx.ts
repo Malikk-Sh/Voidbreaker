@@ -140,6 +140,9 @@ export const SFX: Record<string, SfxRecipe> = {
   thread_snap: { len: 0.5, variants: 2, reverb: 0.08, render: (c, o, t) => { transient(c, o, t, 3400, 0.6); noiseHit(c, o, t, 0.05, 3000, 0.35, 'bandpass', 1); sweep(c, o, t + 0.01, 2600, 400, 0.14, 0.35, 2); } },
   chime_ring: { reverb: 0.25, len: 2.2, render: (c, o, t) => { bell(c, o, t, 587, 0.12, 1.8); bell(c, o, t + 0.02, 880, 0.07, 1.4); kick(c, o, t, 0.45, 40); } },
   plates_scatter: { len: 0.8, reverb: 0.1, render: (c, o, t) => { glassTail(c, o, t, 6, 0.05); crunch(c, o, t, 700, 0.06, 0.3); chips(c, o, t, 5, 0.12, 0.12); } },
+  // Звонарь: цепи падают с потолка; колокол, ударенный героем, — чистый звон Пустоты
+  chain_drop: { len: 1.0, reverb: 0.12, render: (c, o, t) => { for (let i = 0; i < 14; i++) metal(c, o, t + Math.random() * 0.35, 1200 + Math.random() * 1600, 0.05, 0.12); kick(c, o, t + 0.05, 0.6, 35); crunch(c, o, t + 0.05, 420, 0.1, 0.4); } },
+  bell_strike: { reverb: 0.3, len: 3.2, render: (c, o, t) => { bell(c, o, t, 146.8, 0.3, 3); bell(c, o, t, 293.7, 0.12, 2.2); voidHiss(c, o, t, 0.4, 0.16, 2400); sub(c, o, t, 70, 36, 0.45, 0.7); } },
   bite: { len: 0.2, variants: 2, render: (c, o, t) => { noiseHit(c, o, t, 0.02, 3000, 0.35, 'bandpass', 2); noiseHit(c, o, t + 0.05, 0.02, 2200, 0.4, 'bandpass', 2); } },
   slash_enemy: { len: 0.35, render: (c, o, t) => { sweep(c, o, t, 2500, 800, 0.2, 0.5, 2); osc(c, 'sawtooth', 600, t, 0.1, o, 0.04, 0.002, 0.15); } },
   beam: { len: 0.6, render: (c, o, t) => { const x = osc(c, 'sawtooth', 220, t, 0.5, o, 0.05, 0.05, 0.45); x.frequency.exponentialRampToValueAtTime(880, t + 0.45); } },

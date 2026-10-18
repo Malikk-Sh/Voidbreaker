@@ -340,3 +340,93 @@ describe('Псаломщик Голода (план §7.3)', () => {
     expect(maxY).toBeLessThan(0.6);
   });
 });
+
+describe('Звонарь: уловки (план §7.4)', () => {
+  const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
+  const run = (w: World, sec: number, each?: () => void): void => { const inp = idle(); for (let t = 0; t < sec; t += DT) { w.step(DT, DT, inp, DT); each?.(); } };
+  async function setup(arenaName = 'belfry') {
+    const G = await import('../src/world/boss/guardians');
+    const w = arena(arenaName);
+    w.hero.x = 0; w.hero.z = 4;
+    const b = put(w, new G.BellRinger({ zone: 0, stage: 5 }), 0, 0);
+    b.idleT = 99;
+    return { w, b, G };
+  }
+  const charged = (w: World, e: Enemy): void => {
+    w.damageEnemy(e, { mult: 1, stun: 0, stunKind: 'charged', knockback: 1, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade' });
+  };
+
+  it('колокол на спине: полный заряд сзади — фиолетовое кольцо, урон Звонарю и врагам, +30 оглушения; спереди — нет', async () => {
+    const { Husk } = await import('../src/world/enemies/husk');
+    const { w, b, G } = await setup();
+    const husk = put(w, new Husk({ zone: 0, stage: 0, hpMul: 50 }), 4, 0);
+    let strikes = 0;
+    w.bus.on('bellStrike', () => strikes++);
+    // лицом к герою — удар спереди
+    b.facing = 0;
+    charged(w, b);
+    expect(strikes).toBe(0);
+    // спиной к герою
+    b.facing = Math.PI;
+    const stun0 = b.stun!.value, hp0 = b.hp, huskHp = husk.hp;
+    charged(w, b);
+    expect(strikes).toBe(1);
+    expect(b.stun!.value - stun0).toBeCloseTo(G.BELL_STUN, 0);
+    run(w, 0.5);
+    expect(b.hp).toBeLessThan(hp0);
+    expect(husk.hp).toBeLessThan(huskHp);
+  });
+
+  it('Колокольный плен: цепи кольцом вокруг героя с разрывами, на 4 с — стены и препятствия навигации', async () => {
+    const { w, b, G } = await setup();
+    const p = b.patterns.find((x) => x.id === 'captivity')!;
+    b.startPattern(p);
+    const n0 = w.arena.covers.length;
+    run(w, 0.75);
+    expect(w.arena.covers.length).toBe(n0);
+    run(w, 0.1);
+    const chains = w.arena.covers.length - n0;
+    expect(chains).toBeGreaterThanOrEqual(5);
+    expect(chains).toBeLessThanOrEqual(7);
+    for (const c of b.chainPts) expect(Math.hypot(c.x - 0, c.z - 4)).toBeCloseTo(G.CHAIN_R, 1);
+    // навигация видит стену: клетка цепи непроходима
+    w.nav.update(DT, w.hero.x, w.hero.z, true);
+    const c0 = b.chainPts[0];
+    expect(w.nav.blocked[w.nav.idx(c0.x, c0.z)]).toBe(1);
+    run(w, G.CHAIN_DUR);
+    expect(w.arena.covers.length).toBe(n0);
+    w.nav.update(DT, w.hero.x, w.hero.z, true);
+    expect(w.nav.blocked[w.nav.idx(c0.x, c0.z)]).toBe(0);
+  });
+
+  it('Похоронный такт: три удара с неравными интервалами, в ярости ритм другой; каждый звук — пульсация колокола', async () => {
+    const { w, b, G } = await setup();
+    const beats = (ph: 1 | 2) => G.FUNERAL_BEATS[ph];
+    const gaps = (ph: 1 | 2) => [beats(ph)[1] - beats(ph)[0], beats(ph)[2] - beats(ph)[1]];
+    for (const ph of [1, 2] as const) expect(Math.abs(gaps(ph)[0] - gaps(ph)[1])).toBeGreaterThan(0.2);
+    expect(gaps(1)[0]).not.toBeCloseTo(gaps(2)[0], 1);
+    const bells: number[] = [], pulses: number[] = [];
+    w.bus.on('sfx', (e) => { if (e.id === 'boss_bell') bells.push(w.time); });
+    w.bus.on('bellPulse', (e) => { if (e.big) pulses.push(w.time); });
+    b.startPattern(b.patterns.find((x) => x.id === 'funeral')!);
+    run(w, 2.6);
+    expect(bells.length).toBe(3);
+    expect(pulses).toEqual(bells);
+    expect(bells[1] - bells[0]).toBeCloseTo(gaps(1)[0], 1);
+    expect(bells[2] - bells[1]).toBeCloseTo(gaps(1)[1], 1);
+  });
+
+  it('гаснущие свечи: во время зарядки Резонанса свечи гаснут по кругу, после удара загораются', async () => {
+    const { w, b } = await setup();
+    b.startPattern(b.patterns.find((x) => x.id === 'resonance')!);
+    let atStrike = 0;
+    w.bus.on('sfx', (e) => { if (e.id === 'boss_bell' && !atStrike) atStrike = w.candlesOut; });
+    run(w, 0.5);
+    expect(w.candlesOut).toBeGreaterThan(0.35);
+    expect(w.candlesOut).toBeLessThan(0.7);
+    run(w, 0.6);
+    expect(atStrike).toBeGreaterThan(0.95);
+    run(w, 2.6);
+    expect(w.candlesOut).toBe(0);
+  });
+});

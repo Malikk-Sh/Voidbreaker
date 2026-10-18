@@ -11,23 +11,31 @@ const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
 /** Пламя свечей: billboard, вытянутый шум вверх, градиент белый → оранжевый → прозрачный (Tech §6.3). */
 export class Flames {
   readonly mesh: THREE.Mesh;
-  constructor(points: [number, number, number][], scale = 1) {
+  /** Горит ли свеча 0..1 (гаснут по кругу при заряде удара Звонаря, план §7.4). */
+  private readonly lit: Float32Array;
+  private readonly litAttr: THREE.InstancedBufferAttribute;
+  private doused = false;
+  constructor(private readonly points: [number, number, number][], scale = 1) {
     const g = new THREE.InstancedBufferGeometry();
     const [pos, uv] = QUAD();
     g.setAttribute('position', pos); g.setAttribute('uv', uv); g.setIndex(QUAD_INDEX);
     const ip = new Float32Array(Math.max(1, points.length) * 4);
     points.forEach((p, i) => { ip[i * 4] = p[0]; ip[i * 4 + 1] = p[1]; ip[i * 4 + 2] = p[2]; ip[i * 4 + 3] = Math.random() * 100; });
     g.setAttribute('iPos', new THREE.InstancedBufferAttribute(ip, 4));
+    this.lit = new Float32Array(Math.max(1, points.length)).fill(1);
+    this.litAttr = new THREE.InstancedBufferAttribute(this.lit, 1);
+    this.litAttr.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('iLit', this.litAttr);
     g.instanceCount = points.length;
     const m = new THREE.ShaderMaterial({
       uniforms: { uTime: G.uTime, uScale: { value: scale }, uColor: { value: new THREE.Vector3(...hexToLinear('#FFB866')) } },
       vertexShader: /* glsl */ `
-        attribute vec4 iPos; uniform float uTime, uScale; varying vec2 vUv; varying float vSeed;
+        attribute vec4 iPos; attribute float iLit; uniform float uTime, uScale; varying vec2 vUv; varying float vSeed;
         void main() {
           vUv = uv; vSeed = iPos.w;
           float fl = 1.0 + 0.12 * sin(uTime * 13.0 + iPos.w) + 0.08 * sin(uTime * 23.0 + iPos.w * 2.0);
           vec4 mv = viewMatrix * vec4(iPos.xyz, 1.0);
-          mv.xy += vec2(position.x * 0.07, (position.y * 0.5 + 0.35) * 0.2 * fl) * uScale;
+          mv.xy += vec2(position.x * 0.07, (position.y * 0.5 + 0.35) * 0.2 * fl) * uScale * iLit;
           gl_Position = projectionMatrix * mv;
         }
       `,
@@ -51,8 +59,31 @@ export class Flames {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 5;
   }
+
+  /**
+   * Гасить по кругу вокруг (cx, cz) от угла from: погашена доля frac. Гаснут быстро (0.1 с), загораются медленнее.
+   * В out — точки, которые только что погасли (дымок).
+   */
+  douse(cx: number, cz: number, from: number, frac: number, dt: number, out: [number, number, number][]): void {
+    if (frac <= 0 && !this.doused) return;
+    let any = false;
+    for (let i = 0; i < this.points.length; i++) {
+      const p = this.points[i];
+      const a = (((Math.atan2(p[0] - cx, p[2] - cz) - from) % TAU) + TAU) % TAU / TAU;
+      const target = a < frac ? 0 : 1;
+      const was = this.lit[i];
+      this.lit[i] = target < was ? Math.max(target, was - dt * 10) : Math.min(target, was + dt * 2.5);
+      if (was > 0.5 && this.lit[i] <= 0.5) out.push(p);
+      if (this.lit[i] < 1) any = true;
+    }
+    this.doused = any;
+    this.litAttr.needsUpdate = true;
+  }
+
   dispose(): void { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); }
 }
+
+const TAU = Math.PI * 2;
 
 /**
  * Световые пятна на полу (Tech §4.2): аддитивные квады с радиальным градиентом — «свет» без источников.
@@ -123,17 +154,28 @@ export class LightPools {
    */
   tintNear(x: number, z: number, radius: number, rgb: [number, number, number], k: number): void {
     const o = this.orig;
-    if (!o || (k <= 0.001 && !this.tinted)) return;
+    const dark = this.dFrac > 0;
+    if (!o || (k <= 0.001 && !this.tinted && !dark)) return;
     for (let i = 0; i < this.staticCount; i++) {
       const j = i * 4, d = Math.hypot(this.data[j] - x, this.data[j + 1] - z);
       const w = k * Math.max(0, 1 - d / radius);
       const lum = (o[j] + o[j + 1] + o[j + 2]) / 3;
-      this.col[j] = o[j] + (rgb[0] * lum * 1.6 - o[j]) * w;
-      this.col[j + 1] = o[j + 1] + (rgb[1] * lum * 1.6 - o[j + 1]) * w;
-      this.col[j + 2] = o[j + 2] + (rgb[2] * lum * 1.6 - o[j + 2]) * w;
+      // свечи гаснут по кругу — их пятна света тоже (мягкий край)
+      let lit = 1;
+      if (dark) {
+        const a = (((Math.atan2(this.data[j] - this.dX, this.data[j + 1] - this.dZ) - this.dFrom) % TAU) + TAU) % TAU / TAU;
+        lit = Math.min(1, Math.max(0.12, (a - this.dFrac) / 0.05 + 0.5));
+      }
+      this.col[j] = (o[j] + (rgb[0] * lum * 1.6 - o[j]) * w) * lit;
+      this.col[j + 1] = (o[j + 1] + (rgb[1] * lum * 1.6 - o[j + 1]) * w) * lit;
+      this.col[j + 2] = (o[j + 2] + (rgb[2] * lum * 1.6 - o[j + 2]) * w) * lit;
     }
-    this.tinted = k > 0.001;
+    this.tinted = k > 0.001 || dark;
   }
+
+  private dX = 0; private dZ = 0; private dFrom = 0; private dFrac = 0;
+  /** Погасить статичные пятна по кругу (вместе со свечами); применяется в tintNear. */
+  douse(cx: number, cz: number, from: number, frac: number): void { this.dX = cx; this.dZ = cz; this.dFrom = from; this.dFrac = frac; }
 
   private write(i: number, x: number, z: number, r: number, color: string | [number, number, number], intensity: number, flicker: number): void {
     const c = typeof color === 'string' ? hexToLinear(color) : color;

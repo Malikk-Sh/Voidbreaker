@@ -6,12 +6,26 @@ import { ENEMIES } from '../../data/enemies';
 import { bruteRig } from '../../gen/chars/enemies';
 import type { SpawnOpts } from '../enemy';
 import { resetStunHabit } from '../actor';
+import type { StunKind } from '../../data/weapons';
+import type { StrikeParams } from '../world';
 import { registerEnemy } from '../enemies/factory';
 import type { World } from '../world';
 import { ScriptedEnemy, type PoseLib } from './scripted';
 import type { Pattern, Step } from './timeline';
 
 const _p = new THREE.Vector3();
+const _b = { x: 0, y: 0, z: 0 };
+
+/** Колокол Звонаря (план §7.4): полный заряд в спину (угол к взгляду > 100°) — кольцо героя и +30 оглушения. */
+export const BELL_BACK_DEG = 100;
+export const BELL_STUN = 30;
+const BELL_RING_R = 7, BELL_RING_SPEED = 16, BELL_RING_MULT = 1.6;
+/** Колокольный плен: кольцо цепей вокруг героя с двумя разрывами; цепь — стена на 4 с. */
+export const CHAIN_R = 3.2;
+export const CHAIN_DUR = 4;
+const CHAIN_N = 9, CHAIN_HIT_R = 0.75, CHAIN_WALL_R = 0.5;
+/** Похоронный такт: три удара с неравными интервалами; в ярости ритм другой. */
+export const FUNERAL_BEATS: Record<1 | 2, number[]> = { 1: [0.9, 1.3, 2.2], 2: [0.9, 1.75, 2.05] };
 /** Порог ярости: на 50 % HP страж ревёт и переходит во вторую фазу. */
 const RAGE_AT = 0.5;
 
@@ -294,6 +308,7 @@ export class BellRinger extends BruteGuardian {
     {
       id: 'resonance', weight: 2, cooldown: 7, range: [0, 9], phases: [1, 2], unstoppable: true,
       steps: [
+        { t: 0, do: 'call', fn: 'douse', arg: 1.0 },
         { t: 0, do: 'pose', id: 'ringWind', blend: 0.3 },
         { t: 0, do: 'telegraph', shape: { ring: [2.8, 7] }, at: 'self', dur: 1.0 },
         { t: 0, do: 'telegraphSound', kind: 'bell' },
@@ -309,6 +324,7 @@ export class BellRinger extends BruteGuardian {
         { t: 1.9, do: 'fx', id: 'impact', at: 'self', r: 3 },
         { t: 1.9, do: 'sfx', id: 'boss_bell' },
         { t: 1.92, do: 'shake', trauma: 0.45 },
+        { t: 1.95, do: 'call', fn: 'relight' },
         { t: 2.0, do: 'vulnerable', dur: 1.3 },
       ],
     },
@@ -342,6 +358,7 @@ export class BellRinger extends BruteGuardian {
     {
       id: 'cacophony', weight: 3, cooldown: 8, phases: [2], unstoppable: true,
       steps: [
+        { t: 0, do: 'call', fn: 'douse', arg: 0.9 },
         { t: 0, do: 'pose', id: 'ringWind', blend: 0.3 },
         { t: 0, do: 'telegraph', shape: { circle: 2.6 }, at: 'front', dur: 0.9 },
         { t: 0, do: 'telegraphSound', kind: 'bell' },
@@ -361,11 +378,133 @@ export class BellRinger extends BruteGuardian {
         { t: 2.12, do: 'ringwave', at: 'front', speed: 8.6, width: 1.0, maxR: 17, gaps: 1, gapW: 1.4, dmg: 0.18 },
         { t: 2.12, do: 'sfx', id: 'boss_bell' },
         { t: 2.14, do: 'shake', trauma: 0.4 },
+        { t: 2.2, do: 'call', fn: 'relight' },
         { t: 2.3, do: 'vulnerable', dur: 1.3 },
       ],
     },
+    // Колокольный плен: цепи падают кольцом вокруг героя и на 4 с становятся стенами
+    { id: 'captivity', weight: 2, cooldown: 12, range: [0, 14], phases: [1, 2], steps: [], build: () => this.chainSteps() },
+    // Похоронный такт: три удара с неравными интервалами — звук и пульсация колокола
+    { id: 'funeral', weight: 2, cooldown: 9, phases: [1, 2], steps: [], build: () => this.funeralSteps() },
   ];
+  /** Точки цепей текущего плена. */
+  chainPts: { x: number; z: number }[] = [];
+  /** Вспышка колокола (визуальный дубль звука). */
+  bellFlash = 0;
+  private douseT = 0; private douseDur = 0;
+
   constructor(o: SpawnOpts) { super('bellRinger', 1.45, o); }
+
+  /** Центр колокола на спине. */
+  bellPoint(out: { x: number; y: number; z: number }): void {
+    const L = this.puppet.layout, s = 1.45;
+    this.puppet.skel.jointPoint(L.idx('chest'), 0, 1.0 * s, -1.2 * s, _p);
+    out.x = _p.x; out.y = _p.y; out.z = _p.z;
+  }
+
+  /** Герой сзади: угол между взглядом Звонаря и направлением на героя больше 100°. */
+  heroBehind(w: World): boolean {
+    const h = w.hero, dx = h.x - this.x, dz = h.z - this.z, l = Math.hypot(dx, dz) || 1;
+    return (Math.sin(this.facing) * dx + Math.cos(this.facing) * dz) / l < Math.cos((BELL_BACK_DEG * Math.PI) / 180);
+  }
+
+  /** Колокол на спине — оружие героя: полный заряженный удар сзади. */
+  override onBladeHit(w: World, p: StrikeParams, kind: StunKind): void {
+    if (kind !== 'charged' || p.feel !== 'heavy' || !this.heroBehind(w)) return;
+    this.bellPoint(_b);
+    this.bellFlash = 1.5;
+    w.bus.emit('bellStrike', { x: _b.x, y: _b.y, z: _b.z, r: BELL_RING_R });
+    w.addStunTo(this, BELL_STUN);
+    w.heroRing(this.x, this.z, BELL_RING_R, BELL_RING_SPEED, BELL_RING_MULT, 0);
+  }
+
+  private chainSteps(): Step[] {
+    const w = this.w_, h = w.hero;
+    const gapA = Math.floor(w.rng.next() * CHAIN_N), gapB = (gapA + 4 + Math.floor(w.rng.next() * 2)) % CHAIN_N;
+    const a0 = w.rng.next() * Math.PI * 2;
+    this.chainPts = [];
+    for (let i = 0; i < CHAIN_N; i++) {
+      if (i === gapA || i === gapB) continue;
+      const a = a0 + (i / CHAIN_N) * Math.PI * 2;
+      const x = h.x + Math.sin(a) * CHAIN_R, z = h.z + Math.cos(a) * CHAIN_R;
+      if (!w.arena.walkable(x, z) || Math.hypot(x - this.x, z - this.z) < this.radius + 0.8) continue;
+      this.chainPts.push({ x, z });
+    }
+    const steps: Step[] = [
+      { t: 0, do: 'pose', id: 'summon', blend: 0.3 },
+      { t: 0, do: 'telegraphSound', kind: 'bell' },
+      { t: 0.8, do: 'call', fn: 'chains' },
+      { t: 0.82, do: 'shake', trauma: 0.3 },
+      { t: 1.1, do: 'pose', id: 'idle', blend: 0.3 },
+      { t: 1.2, do: 'vulnerable', dur: 0.8 },
+    ];
+    for (const p of this.chainPts) {
+      steps.push({ t: 0, do: 'telegraph', shape: { circle: CHAIN_HIT_R }, at: p, dur: 0.8 });
+      steps.push({ t: 0.8, do: 'hitbox', shape: { circle: CHAIN_HIT_R }, at: p, dmg: 0.1, kb: 5 });
+    }
+    return steps;
+  }
+
+  private funeralSteps(): Step[] {
+    const beats = FUNERAL_BEATS[this.phase === 2 ? 2 : 1];
+    const steps: Step[] = [
+      { t: 0, do: 'pose', id: 'ringWind', blend: 0.3 },
+      { t: 0, do: 'telegraph', shape: { circle: 2.6 }, at: 'front', dur: beats[0] },
+      { t: 0, do: 'telegraphSound', kind: 'bell' },
+      { t: beats[0], do: 'hitbox', shape: { circle: 2.6 }, at: 'front', dmg: 0.18, kb: 6 },
+    ];
+    beats.forEach((t, i) => {
+      if (i) steps.push({ t: t - 0.15, do: 'pose', id: 'ringWind', blend: 0.06 });
+      steps.push({ t, do: 'pose', id: 'ring', blend: 0.04 });
+      steps.push({ t, do: 'ringwave', at: 'front', speed: 6 + i * 0.7, width: 0.9, maxR: 17, gaps: 2, gapW: 1.05, dmg: 0.14 });
+      steps.push({ t, do: 'sfx', id: 'boss_bell' });
+      steps.push({ t, do: 'shake', trauma: 0.25 });
+    });
+    steps.push({ t: beats[2] + 0.25, do: 'vulnerable', dur: 1.2 });
+    return steps;
+  }
+
+  /** Каждый удар колокола виден: пульсация колокола дублирует звук. */
+  protected override exec(w: World, s: Step): void {
+    super.exec(w, s);
+    const big = s.do === 'sfx' && s.id === 'boss_bell';
+    if (big || (s.do === 'sfx' && s.id === 'tele_bell') || (s.do === 'telegraphSound' && s.kind === 'bell')) {
+      this.bellFlash = Math.max(this.bellFlash, big ? 1 : 0.6);
+      this.bellPoint(_b);
+      w.bus.emit('bellPulse', { x: _b.x, y: _b.y, z: _b.z, big });
+    }
+  }
+
+  protected override onCall(w: World, fn: string, arg?: number): void {
+    if (fn === 'chains') {
+      for (const p of this.chainPts) w.addTempWall(p.x, p.z, CHAIN_WALL_R, CHAIN_DUR);
+      w.bus.emit('chains', { x: w.hero.x, z: w.hero.z, n: this.chainPts.length });
+    } else if (fn === 'douse') {
+      // свечи гаснут по кругу, начиная со стороны Звонаря, — к удару погасли все
+      const b = w.arena.bounds;
+      w.candlesFrom = angleOf(this.x - (b.minX + b.maxX) / 2, this.z - (b.minZ + b.maxZ) / 2);
+      this.douseT = 0; this.douseDur = arg ?? 1;
+    } else if (fn === 'relight') this.douseDur = 0;
+  }
+
+  protected override think(w: World, dt: number, tick: boolean): void {
+    if (this.douseDur > 0) {
+      this.douseT += dt;
+      w.candlesOut = Math.max(w.candlesOut, Math.min(1, this.douseT / this.douseDur));
+    }
+    super.think(w, dt, tick);
+  }
+
+  override onStun(): void {
+    super.onStun();
+    this.douseDur = 0;
+  }
+
+  protected override animate(dt: number, w: World): void {
+    super.animate(dt, w);
+    this.puppet.boost += this.bellFlash * 1.4;
+    this.bellFlash = Math.max(0, this.bellFlash - dt * 3);
+  }
 }
 
 registerEnemy('gateGuardian', GateGuardian);

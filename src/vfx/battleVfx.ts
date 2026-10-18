@@ -20,6 +20,7 @@ import { LightPools } from './ambient';
 import { StunStars } from './stunStars';
 import { FloorRiftsView } from './floorRifts';
 import { FloorSpikes } from './floorSpikes';
+import { ChainsView } from './chains';
 
 const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLinear(h); return [c[0] * k, c[1] * k, c[2] * k]; };
 export const C = {
@@ -52,6 +53,8 @@ export class BattleVfx {
   readonly rifts = new FloorRiftsView();
   /** Шипы из пола (Погребальный ряд, план §7.2). */
   readonly spikes = new FloorSpikes();
+  /** Цепи Звонаря — временные стены (план §7.4). */
+  readonly chains = new ChainsView();
   /** Рясы Псаломщиков — ткань Верле, по сетке на каждого (план §7.3). */
   private robes = new Map<Psalmist, ClothMesh>();
   /** Ступень ранга (план §6.6): 0 — ниже A, 1 — A, 2 — S, 3 — SS. Только визуал, без бонуса к урону. */
@@ -76,7 +79,7 @@ export class BattleVfx {
     this.add = new Particles(maxParticles, true);
     this.norm = new Particles(Math.round(maxParticles * 0.35), false);
     this.pools = pools;
-    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh);
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh, this.chains.mesh);
     for (const m of this.debris.meshes) this.group.add(m);
     // серпы: выдавленный полумесяц с эмиссивной кромкой
     const b = new GeomBuilder();
@@ -262,6 +265,28 @@ export class BattleVfx {
     this.rings.spawn(x, z, 0.4, r * 1.1, 0.4, C.hungerHot, 0.18, 1);
     this.burst(18, { x, y: 1.6, z, life: 0.45, size: 0.1, size1: 0.02, color: C.hungerHot, drag: 2.5, frame: 'spark', stretch: 1.4 }, { v: 8, vy: 1 });
     this.lights.flash(x, 1.5, z, C.hunger, 4, r * 2, 0.3);
+  }
+
+  /** Свеча погасла: тонкая струйка дыма. */
+  smokePuff(x: number, y: number, z: number): void {
+    this.norm.emit({ x, y: y + 0.05, z, vy: 0.5, vx: fxRng.spread(0.1), life: 1.2, size: 0.08, size1: 0.45, color: C.dust, alpha: 0.45, drag: 0.6, frame: 'smoke' });
+  }
+
+  /** Удар колокола виден: вспышка на колоколе и кольцо по полу (дубль звука). */
+  bellPulse(x: number, y: number, z: number, big: boolean): void {
+    this.add.emit({ x, y, z, life: 0.3, size: big ? 1.6 : 1.0, size1: big ? 3.2 : 2, color: C.hungerHot, alpha: 0.55, frame: 'ring' });
+    this.add.emit({ x, y, z, life: 0.18, size: big ? 1.4 : 0.9, size1: 0.3, color: C.ember, alpha: 0.8, frame: 'dot' });
+    this.rings.spawn(x, z, 0.4, big ? 3.6 : 2.4, 0.4, C.hungerHot, 0.12, big ? 0.9 : 0.5);
+    this.lights.flash(x, y, z, C.hunger, big ? 4 : 2.5, 6, 0.25);
+  }
+
+  /** Колокол Звонаря ударен героем: фиолетовое кольцо силы. */
+  bellStrike(x: number, y: number, z: number, r: number): void {
+    this.rings.spawn(x, z, 0.5, r, 0.45, C.voidHot, 0.35, 1.5);
+    this.rings.spawn(x, z, 0.3, r * 0.7, 0.35, C.core, 0.15, 1);
+    this.burst(26, { x, y, z, life: 0.5, size: 0.12, size1: 0.02, color: C.voidHot, drag: 2.5, frame: 'spark', stretch: 1.6 }, { v: 12, vy: 2 });
+    this.add.emit({ x, y, z, life: 0.25, size: 1.5, size1: 4, color: C.voidHot, alpha: 0.7, frame: 'ring' });
+    this.lights.flash(x, y, z, C.void, 6, r * 1.5, 0.4);
   }
 
   /** Искры от клинка, волочащегося по полу. */
@@ -574,6 +599,7 @@ export class BattleVfx {
     const ab = w.abilities as Abilities;
     this.rifts.sync(ab.floorRifts);
     this.spikes.update(dtW);
+    this.chains.sync(w);
     for (const r of ab.floorRifts) {
       if (!fxRng.chance(0.5 * this.quality)) continue;
       const d = fxRng.next() * r.len;
@@ -679,7 +705,7 @@ export class BattleVfx {
   clear(): void {
     for (const m of this.robes.values()) { this.group.remove(m.mesh); m.dispose(); }
     this.robes.clear();
-    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear();
+    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear(); this.chains.clear();
   }
 }
 

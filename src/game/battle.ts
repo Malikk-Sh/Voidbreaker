@@ -80,6 +80,7 @@ export class Battle {
   private ultCut = 0;
   /** Сила затмения в небе и фиолетового света арены 0..1. */
   private eclipseK = 0;
+  private readonly douseOut: [number, number, number][] = [];
   private readonly baseHemi = G.uHemiTop.value.clone();
   private readonly baseMoon = G.uMoonColor.value.clone();
 
@@ -276,6 +277,12 @@ export class Battle {
     this.vfx.trail.width = ri >= 3 ? 1.15 : 1;
     this.vfx.trail.intensity = h.eclipse ? 1.6 : ri >= 3 ? 1.35 : 1;
     this.vfx.trail.update(realDt * T.heroScale);
+    // свечи гаснут по кругу, пока Звонарь заряжает удар (план §7.4): пламя, пятна света и дымок от погасших
+    const ab = this.arena.bounds, acx = (ab.minX + ab.maxX) / 2, acz = (ab.minZ + ab.maxZ) / 2;
+    this.douseOut.length = 0;
+    this.flames.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut, realDt, this.douseOut);
+    this.pools.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut);
+    for (const p of this.douseOut) this.vfx.smokePuff(p[0], p[1], p[2]);
     this.vfx.sync(this.world, realDt, dtW);
     this.view.syncTiles();
     this.view.update(realDt);

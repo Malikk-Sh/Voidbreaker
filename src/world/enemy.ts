@@ -7,9 +7,10 @@ import { Puppet } from '../anim/puppet';
 import type { RigLayout } from '../anim/skeleton';
 import type { ClipDef } from '../anim/clip';
 import { makeStun, stepStun, STUN_STAR_SEC, type Actor, type Stun, newId } from './actor';
+import type { StunKind } from '../data/weapons';
 import type { Shape } from './combat';
 import type { Telegraph } from './entities';
-import type { World } from './world';
+import type { StrikeParams, World } from './world';
 import { BIG_RADIUS } from './nav';
 
 const _nav = { x: 0, z: 0 };
@@ -551,6 +552,9 @@ export abstract class Enemy implements Actor {
       w.onEliteHalf?.(this);
     }
   }
+
+  /** Попадание клинком (после урона): уловки Стражей — колокол Звонаря, древко алебарды. */
+  onBladeHit(_w: World, _p: StrikeParams, _kind: StunKind): void {}
 
   /** Смертельный урон: false — враг не умирает (босс ждёт перехода фазы). */
   onLethal(_w: World): boolean { return true; }

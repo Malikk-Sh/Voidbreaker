@@ -17,9 +17,9 @@ import { Rng } from '../src/core/rng';
 /** GDD §11: телеграфы в зоне 1 — минимум 0.8 с. */
 const MIN_TELE_ZONE1 = 0.8;
 
-/** Стаб мира: паттернам с build() нужны только позиции героя и арена. */
+/** Стаб мира: паттернам с build() нужны позиции героя, арена и генератор мира (цепи Звонаря). */
 function attach(e: ScriptedEnemy, hx = 4, hz = 3): ScriptedEnemy {
-  e.w_ = { hero: { x: hx, z: hz }, arena: new Arena(ARENAS.hierophant) } as unknown as World;
+  e.w_ = { hero: { x: hx, z: hz }, arena: new Arena(ARENAS.hierophant), rng: new Rng(7) } as unknown as World;
   return e;
 }
 
