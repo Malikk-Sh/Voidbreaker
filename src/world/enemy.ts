@@ -8,8 +8,11 @@ import { makePosture, stepPosture, type Actor, type Posture, newId } from './act
 import type { Shape } from './combat';
 import type { Telegraph } from './entities';
 import type { World } from './world';
+import { BIG_RADIUS } from './nav';
 
-export type EState = 'spawn' | 'idle' | 'chase' | 'orbit' | 'telegraph' | 'attack' | 'recover' | 'stagger' | 'broken' | 'dead' | 'special';
+const _nav = { x: 0, z: 0 };
+
+export type EState = 'spawn' | 'idle' | 'chase' | 'orbit' | 'telegraph' | 'attack' | 'recover' | 'stagger' | 'broken' | 'dead' | 'special' | 'warp';
 
 export interface SpawnOpts { zone: number; stage: number; elite?: Affix[]; mode?: number; hpMul?: number }
 
@@ -66,6 +69,17 @@ export abstract class Enemy implements Actor {
   cooldown = 0.8 + Math.random() * 0.8;
   /** Полёт после подбрасывания (Восходящий месяц). */
   private airT = 0; private airDur = 0; private airH = 0;
+  /** Навигация (план §4.4): хотел ли идти в этом шаге, окно застревания, недостижимость, уход порталом. */
+  private navWant = false;
+  private navWinT = 0; private navX = 0; private navZ = 0;
+  private stuckT = 0;
+  /** Секунды принудительного следования по полю (после застревания). */
+  protected navForceT = 0;
+  /** Сколько секунд герой недостижим из клетки врага. */
+  unreachT = 0;
+  private warpX = 0; private warpZ = 0;
+  /** Точка стрельбы (стрелки и поддержка): держится ~1 с. */
+  private standX = 0; private standZ = 0; private standT = 0;
 
   constructor(readonly def: EnemyDef, layout: RigLayout, clips: ClipDef[], o: SpawnOpts) {
     this.kind = def.id;
@@ -88,7 +102,7 @@ export abstract class Enemy implements Actor {
     this.puppet.dissolve = 1;
   }
 
-  get targetable(): boolean { return !this.dead && this.state !== 'spawn'; }
+  get targetable(): boolean { return !this.dead && this.state !== 'spawn' && this.state !== 'warp'; }
   /** Треснул (стойка сломана): финишер или заряженный удар вызовет Раскол. */
   get cracked(): boolean { return !this.dead && !!this.posture && this.posture.broken > 0 && this.canShatter; }
   /** Боссы запрещают Раскол в переходах фаз (переопределяется). */
@@ -113,6 +127,20 @@ export abstract class Enemy implements Actor {
       this.puppet.skel.stepDebris(dt);
       this.puppet.skel.update();
       this.puppet.dissolve = clamp((this.deathT - 0.35) / 0.6, 0, 1);
+      return;
+    }
+    if (this.state === 'warp') {
+      // уход порталом: растворение 0.45 с, затем появление в достижимой точке
+      this.vx = this.vz = 0;
+      this.puppet.dissolve = clamp(this.stateT / 0.45, 0, 1);
+      if (this.stateT >= 0.45) {
+        this.x = this.warpX; this.z = this.warpZ;
+        this.facing = angleOf(w.hero.x - this.x, w.hero.z - this.z);
+        this.unreachT = 0; this.stuckT = 0; this.navForceT = 0;
+        this.setState('spawn');
+        w.bus.emit('portal', { x: this.x, z: this.z });
+      }
+      this.animate(dt, w);
       return;
     }
     if (this.state === 'spawn') {
@@ -153,10 +181,83 @@ export abstract class Enemy implements Actor {
       if (this.stateT >= this.stagger) this.setState('recover');
     } else {
       this.brainT -= dt;
+      this.navWant = false;
       this.think(w, dt, this.brainT <= 0);
       if (this.brainT <= 0) this.brainT = 1 / 18;
+      this.stepNav(w, dt);
     }
     this.animate(dt, w);
+  }
+
+  /** Застревание и недостижимость: принудительно по полю, затем — уход порталом (план §4.4, п. 6–7). */
+  private stepNav(w: World, dt: number): void {
+    if (this.navForceT > 0) this.navForceT -= dt;
+    if (!this.navWant) { this.navWinT = 0; this.stuckT = 0; this.navX = this.x; this.navZ = this.z; return; }
+    this.navWinT += dt;
+    if (this.navWinT >= 1) {
+      const moved = Math.hypot(this.x - this.navX, this.z - this.navZ);
+      if (moved < 0.2) { this.stuckT += this.navWinT; this.navForceT = 2; } else this.stuckT = 0;
+      this.navWinT = 0; this.navX = this.x; this.navZ = this.z;
+    }
+    if ((this.unreachT > 1.5 || this.stuckT >= 3) && this.state !== 'telegraph' && this.state !== 'attack') this.onUnreachable(w);
+  }
+
+  /** Герой недостижим: по умолчанию — уйти порталом в достижимую точку в 6–9 м от него. Шелуха прыгает. */
+  protected onUnreachable(w: World): void {
+    if (this.isBoss || this.isGuardian) { this.unreachT = 0; this.stuckT = 0; return; }
+    const p = w.nav.pointNearHero(w.hero.x, w.hero.z, 6, 9, this.radius > BIG_RADIUS, w.rng);
+    if (!p) { this.unreachT = 0; this.stuckT = 0; return; }
+    this.cancelTelegraph();
+    this.token = null;
+    this.warpX = p.x; this.warpZ = p.z;
+    this.setState('warp');
+    w.bus.emit('portal', { x: this.x, z: this.z });
+  }
+
+  /**
+   * Идти к точке с обходом провалов и колонн: прямая видимость — рулить прямо (как steer),
+   * иначе — вниз по полю потоков к герою.
+   */
+  seek(w: World, tx: number, tz: number, speed: number, dt: number, stopAt = 0): void {
+    const nav = w.nav, big = this.radius > BIG_RADIUS;
+    this.navWant = true;
+    if (this.navForceT <= 0 && nav.losClear(this.x, this.z, tx, tz, Math.min(this.radius, 0.6) * 0.8)) {
+      this.unreachT = 0;
+      this.steer(tx, tz, speed, dt, stopAt);
+      if (Math.hypot(tx - this.x, tz - this.z) <= stopAt + 0.05) this.navWant = false;
+      return;
+    }
+    if (nav.descend(this.x, this.z, big, _nav)) {
+      this.unreachT = 0;
+      if (nav.distance(this.x, this.z, big) <= stopAt) { this.steer(this.x, this.z, speed, dt, 0); this.navWant = false; return; }
+      this.steer(_nav.x, _nav.z, speed, dt, 0);
+    } else {
+      this.unreachT += dt;
+      this.steer(this.x, this.z, speed, dt, 0);
+    }
+  }
+
+  /**
+   * Стрелки и поддержка: держать дистанцию R с прямой видимостью героя. Видно — кружить как orbit;
+   * нет — 8 точек по кругу, ближайшая видящая героя, путь к ней по полю.
+   */
+  standOff(w: World, R: number, speed: number, dt: number, dir: number): void {
+    const h = w.hero, nav = w.nav;
+    if (nav.losClear(this.x, this.z, h.x, h.z, 0) && this.navForceT <= 0) { this.orbit(w, R, speed, dt, dir); this.unreachT = 0; return; }
+    this.standT -= dt;
+    if (this.standT <= 0) {
+      this.standT = 1;
+      let bd = Infinity;
+      this.standX = this.x; this.standZ = this.z;
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        const x = h.x + Math.sin(a) * R, z = h.z + Math.cos(a) * R;
+        if (!w.arena.walkable(x, z) || !nav.losClear(x, z, h.x, h.z, 0)) continue;
+        const d = Math.hypot(x - this.x, z - this.z);
+        if (d < bd) { bd = d; this.standX = x; this.standZ = z; }
+      }
+    }
+    this.seek(w, this.standX, this.standZ, speed, dt, 0.3);
   }
 
   /** Решения ИИ: thinkTick — тик мозга (≈18 Гц), иначе — только движение/таймеры. */

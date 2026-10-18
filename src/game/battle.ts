@@ -28,6 +28,8 @@ import { fxRng } from '../core/rng';
 /** Базовая дистанция боевой камеры (м) при «Дистанции камеры» = 100 %. */
 const CAM_DIST = 22;
 export const STEP = 1 / 60;
+/** Dev: ?nav — оверлей поля потоков (план §4.4, п. 9). */
+const DEBUG_NAV = typeof location !== 'undefined' && new URLSearchParams(location.search).has('nav');
 
 export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef }
 
@@ -336,6 +338,7 @@ export class Battle {
       showTouch: this.ctx.input.touchUi,
       fps: this.fps,
       showFps: this.ctx.settings.showFps,
+      debugNav: DEBUG_NAV,
     };
   }
 

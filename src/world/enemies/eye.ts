@@ -45,8 +45,8 @@ export class Eye extends Enemy {
           // отступить от героя
           const dx = this.x - h.x, dz = this.z - h.z, l = d || 1;
           this.steer(this.x + (dx / l) * 3, this.z + (dz / l) * 3, this.speed * 1.2, dt);
-        } else if (d > 9) this.steer(h.x, h.z, this.speed, dt, 7);
-        else this.orbit(w, 7, this.speed * 0.5, dt, this.strafe);
+        } else if (d > 9) this.seek(w, h.x, h.z, this.speed, dt, 7);
+        else this.standOff(w, 7, this.speed * 0.5, dt, this.strafe);
         if (tick && this.cooldown <= 0 && d < 12 && !h.dead && w.requestToken(this, 'ranged')) {
           if (d > 4.5 && d < BEAM_LEN - 1 && Math.random() < 0.4) {
             this.mode = 'beam';

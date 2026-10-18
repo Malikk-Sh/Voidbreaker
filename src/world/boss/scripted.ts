@@ -100,7 +100,7 @@ export abstract class ScriptedEnemy extends Enemy {
     if (this.state !== 'chase') this.setState('chase');
     if (this.poseId === 'broken') this.setPose('idle', 0.3);
     const d = this.distTo(h);
-    if (!this.stationary && !this.move) this.steer(h.x, h.z, this.speed, dt, this.approach);
+    if (!this.stationary && !this.move) this.seek(w, h.x, h.z, this.speed, dt, this.approach);
     else { this.vx *= 0.85; this.vz *= 0.85; }
     this.faceTo(h.x, h.z, 0.35, dt);
     this.idleT -= dt;

@@ -6,6 +6,7 @@ import { FEEL, type FeelId } from '../data/feel';
 import { RESONANCE } from '../data/player';
 import type { Input } from '../input/input';
 import { hitPosture, POSTURE_IMMUNE, type Actor } from './actor';
+import { NavGrid } from './nav';
 import type { Arena } from './arena';
 import { computeDamage, overlaps, type Shape } from './combat';
 import type { Enemy } from './enemy';
@@ -81,8 +82,12 @@ export class World {
   /** Элита опустилась до 50 % HP (подкрепления, Зеркальный аффикс). */
   onEliteHalf: ((e: Enemy) => void) | null = null;
 
+  /** Навигация врагов: поля потоков к герою (план §4.4). */
+  readonly nav: NavGrid;
+
   constructor(public arena: Arena, seed: string) {
     this.rng = new Rng(seed);
+    this.nav = new NavGrid(arena);
     this.hero = new Hero(this);
     this.bus.on('playerHurt', () => this.rank.hurt());
     this.bus.on('perfectDodge', () => { this.rank.perfectDodge(); this.run.perfectDodges++; });
@@ -105,6 +110,7 @@ export class World {
     this.time += dtW;
     this.run.time += dtW;
     this.hero.update(dtH, input);
+    this.nav.update(dtW, this.hero.x, this.hero.z);
     for (const e of this.enemies) e.step(this, dtW);
     this.integrate(dtW, dtH);
     this.stepProjectiles(dtW);

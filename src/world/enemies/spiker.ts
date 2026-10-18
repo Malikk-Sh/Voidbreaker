@@ -36,7 +36,7 @@ export class Spiker extends Enemy {
         if (this.state !== 'chase') this.setState('chase');
         // рой: заход с разных сторон
         const ox = Math.sin(this.ang) * 1.2, oz = Math.cos(this.ang) * 1.2;
-        this.steer(h.x + (d > 3 ? ox : 0), h.z + (d > 3 ? oz : 0), this.speed, dt, 0.9);
+        this.seek(w, h.x + (d > 3 ? ox : 0), h.z + (d > 3 ? oz : 0), this.speed, dt, 0.9);
         this.faceTo(h.x, h.z, 0.1, dt);
         this.volleyCd -= dt;
         if (tick && d < 1.7 && this.cooldown <= 0 && !h.dead && w.requestToken(this, 'melee')) {

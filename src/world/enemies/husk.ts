@@ -31,6 +31,25 @@ export class Husk extends Enemy {
     this.cooldown = 0.4 + Math.random() * 1.2;
   }
 
+  /** Герой за провалом: прыжок до 6 м в первую достижимую точку на прямой к нему (тень-телеграф 0.5 с). */
+  protected override onUnreachable(w: World): void {
+    if (this.state === 'telegraph' || this.state === 'attack') return;
+    const h = w.hero, d = this.distTo(h) || 1;
+    const dx = (h.x - this.x) / d, dz = (h.z - this.z) / d;
+    for (let s = Math.min(6, d - 0.8); s >= 1.5; s -= 0.5) {
+      const x = this.x + dx * s, z = this.z + dz * s;
+      if (!w.arena.walkable(x, z) || !w.nav.reachable(x, z)) continue;
+      this.mode = 'leap';
+      this.unreachT = 0;
+      this.fromX = this.x; this.fromZ = this.z; this.toX = x; this.toZ = z;
+      this.facing = angleOf(dx, dz);
+      this.telegraph(w, { k: 'circle', x, z, r: 1.1 }, LEAP_TELE, false, 'hum');
+      this.setState('telegraph');
+      return;
+    }
+    super.onUnreachable(w);
+  }
+
   protected think(w: World, dt: number, tick: boolean): void {
     const h = w.hero;
     const d = this.distTo(h);
@@ -39,7 +58,7 @@ export class Husk extends Enemy {
         if (this.state === 'recover' && this.stateT < 0.45) { this.vx *= 0.85; this.vz *= 0.85; break; }
         if (this.state !== 'chase') this.setState('chase');
         const ox = Math.sin(this.ang) * 1.6, oz = Math.cos(this.ang) * 1.6;
-        this.steer(h.x + (d > 3 ? ox : 0), h.z + (d > 3 ? oz : 0), this.speed, dt, 0.85);
+        this.seek(w, h.x + (d > 3 ? ox : 0), h.z + (d > 3 ? oz : 0), this.speed, dt, 0.85);
         this.faceTo(h.x, h.z, 0.08, dt);
         if (!tick || h.dead || this.cooldown > 0) break;
         if (d > 3.8 && d < 6.2 && Math.random() < 0.05 && w.requestToken(this, 'swarm')) {

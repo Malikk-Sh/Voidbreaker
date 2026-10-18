@@ -30,6 +30,8 @@ export interface HudFrame {
   showTouch: boolean;
   fps: number;
   showFps: boolean;
+  /** Отладка навигации (?nav): стрелки поля потоков и непроходимые клетки вокруг героя. */
+  debugNav?: boolean;
 }
 
 const RANK_COLOR: Record<string, NonNullable<TitleOpts['color']>> = { D: 'steel', C: 'white', B: 'gold', A: 'gold', S: 'ether', SS: 'void' };
@@ -111,6 +113,7 @@ export class Hud {
     const L = 20 * s + this.safe.l, R = this.w - 20 * s - this.safe.r, T = 14 * s + this.safe.t, B = this.h - 16 * s - this.safe.b;
     g.globalAlpha = 0.95;
     this.drawWorldMarks(f);
+    if (f.debugNav) this.drawNav(f);
     this.drawHeroPanel(f, L, T, s);
     if (f.boss) this.drawBossBar(s, T, f.boss, f.bossName, f.bossPhases, f.bossPhase);
     else if (f.guardian && !f.guardian.dead) this.drawBossBar(s, T, f.guardian, f.guardian.def.name, [], 0);
@@ -475,6 +478,30 @@ export class Hud {
   }
 
   /** Баннеры: въезжают с разрезом (маска-полоса), висят, уходят (GDD §15.9). */
+  private readonly navA = { x: 0, y: 0, visible: false };
+  private readonly navB = { x: 0, y: 0, visible: false };
+  private readonly navO = { x: 0, z: 0 };
+  /** Поле потоков: стрелки к герою по клеткам (каждая вторая), красные точки — стены, жёлтые — узко для крупных. */
+  private drawNav(f: HudFrame): void {
+    const g = this.g, nav = f.world.nav, h = f.world.hero;
+    g.save();
+    g.lineWidth = 1;
+    for (let id = 0; id < nav.blocked.length; id++) {
+      const i = id % nav.nx, j = (id / nav.nx) | 0;
+      if (i % 2 || j % 2) continue;
+      const x = nav.cx(id), z = nav.cz(id);
+      if (Math.abs(x - h.x) > 13 || Math.abs(z - h.z) > 9) continue;
+      f.project(x, 0.05, z, this.navA);
+      if (!this.navA.visible) continue;
+      if (nav.blocked[id]) { g.fillStyle = 'rgba(255,60,80,0.5)'; g.fillRect(this.navA.x - 1.5, this.navA.y - 1.5, 3, 3); continue; }
+      if (!nav.descend(x, z, false, this.navO)) { g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(this.navA.x - 1, this.navA.y - 1, 2, 2); continue; }
+      f.project(x + (this.navO.x - x) * 0.4, 0.05, z + (this.navO.z - z) * 0.4, this.navB);
+      g.strokeStyle = nav.clearance[id] < 0.9 ? 'rgba(255,210,90,0.55)' : 'rgba(143,216,239,0.55)';
+      g.beginPath(); g.moveTo(this.navA.x, this.navA.y); g.lineTo(this.navB.x, this.navB.y); g.stroke();
+    }
+    g.restore();
+  }
+
   private drawBanners(dt: number): void {
     const g = this.g, s = this.scale;
     for (const b of this.banners) {

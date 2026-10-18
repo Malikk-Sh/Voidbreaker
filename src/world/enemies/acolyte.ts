@@ -54,7 +54,7 @@ export class Acolyte extends Enemy {
         if (d < 4) {
           const dx = this.x - h.x, dz = this.z - h.z, l = d || 1;
           this.steer(this.x + (dx / l) * 3, this.z + (dz / l) * 3, this.speed * 1.15, dt);
-        } else this.orbit(w, 7.5, this.speed * 0.5, dt, this.strafe);
+        } else this.standOff(w, 7.5, this.speed * 0.5, dt, this.strafe);
         this.faceTo(h.x, h.z, 0.3, dt);
         if (!tick || h.dead) break;
         if (this.shieldCd <= 0) {

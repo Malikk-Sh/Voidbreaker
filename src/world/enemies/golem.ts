@@ -45,7 +45,7 @@ export class Golem extends Enemy {
       case 'idle': case 'chase': case 'recover': {
         if (this.state === 'recover' && this.stateT < 1.5) { this.vx *= 0.85; this.vz *= 0.85; break; }
         if (this.state !== 'chase') this.setState('chase');
-        this.steer(h.x, h.z, this.speed, dt, 2.2);
+        this.seek(w, h.x, h.z, this.speed, dt, 2.2);
         this.faceTo(h.x, h.z, 0.4, dt);
         this.throwCd -= dt;
         if (tick && d < 3.4 && this.cooldown <= 0 && !h.dead && w.requestToken(this, 'melee')) {

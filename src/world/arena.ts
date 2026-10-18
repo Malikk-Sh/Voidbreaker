@@ -26,6 +26,8 @@ export class Arena {
   readonly covers: { x: number; z: number; r: number }[];
   readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   tilesDirty = true;
+  /** Растёт, когда меняется проходимость (плиты, временные стены) — навигация перестраивает сетку. */
+  version = 0;
 
   constructor(readonly def: ArenaDef) {
     this.t = def.tile;
@@ -112,6 +114,7 @@ export class Arena {
     if (warn > 0) { t.state = TileState.Warning; t.timer = warn; t.vy = respawn; t.dirty = true; return; }
     t.state = TileState.Falling; t.vy = 0; t.rot = 0; t.timer = respawn > 0 ? respawn : -1; t.dirty = true;
     this.tilesDirty = true;
+    this.version++;
   }
 
   step(dt: number): void {
@@ -134,7 +137,7 @@ export class Arena {
         case TileState.Rising:
           if (t.timer > 0) { t.timer -= dt; break; }
           t.y += (0 - t.y) * Math.min(1, dt * 6); t.rot *= 0.9; t.dirty = true;
-          if (t.y > -0.02) { t.y = 0; t.rot = 0; t.state = TileState.Alive; }
+          if (t.y > -0.02) { t.y = 0; t.rot = 0; t.state = TileState.Alive; this.version++; }
           break;
         default: break;
       }
@@ -150,11 +153,13 @@ export class Arena {
       this.breakTile(t, 0, 0.6 + Math.max(0, 14 - d) * 0.09);
     }
     this.edge = 'abyss';
+    this.version++;
   }
 
   restoreAll(): void {
     for (const t of this.tiles) { t.state = TileState.Alive; t.y = 0; t.rot = 0; t.dirty = true; }
     this.edge = this.def.edge;
     this.tilesDirty = true;
+    this.version++;
   }
 }

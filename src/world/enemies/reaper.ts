@@ -50,11 +50,11 @@ export class Reaper extends Enemy {
     switch (this.state) {
       case 'idle': case 'chase': case 'orbit': case 'recover': {
         if (this.state === 'recover' && this.stateT < 0.8) { this.vx *= 0.88; this.vz *= 0.88; this.faceTo(h.x, h.z, 0.4, dt); break; }
-        if (d > 6.5) { this.steer(h.x, h.z, this.speed, dt, 4); if (this.state !== 'chase') this.setState('chase'); }
+        if (d > 6.5) { this.seek(w, h.x, h.z, this.speed, dt, 4); if (this.state !== 'chase') this.setState('chase'); }
         else {
           if (this.state !== 'orbit') this.setState('orbit');
           if (tick && Math.random() < 0.01) this.orbitDir *= -1;
-          this.orbit(w, 4.2, this.speed * 0.55, dt, this.orbitDir);
+          this.standOff(w, 4.2, this.speed * 0.55, dt, this.orbitDir);
         }
         this.faceTo(h.x, h.z, 0.15, dt);
         if (!tick || h.dead || this.cooldown > 0) break;

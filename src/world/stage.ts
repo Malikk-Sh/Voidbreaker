@@ -2,6 +2,8 @@ import { TileState } from './arena';
 import type { StageDef, SpawnDef, WaveDef } from '../data/stages';
 import type { Enemy } from './enemy';
 import { createEnemy } from './enemies/factory';
+import { ENEMIES } from '../data/enemies';
+import { BIG_RADIUS } from './nav';
 import type { World } from './world';
 
 type Phase = 'intro' | 'wave' | 'breather' | 'clear' | 'failed';
@@ -106,10 +108,21 @@ export class StageRunner {
     if (e.isBoss) this.boss = e;
   }
 
-  private pickPos(s: SpawnDef, i: number, n: number): { x: number; z: number } {
+  /** Точка спауна: ближний бой — только в области, связной с героем (стрелкам можно и на островах). */
+  pickPos(s: SpawnDef, i: number, n: number): { x: number; z: number } {
+    const p = this.pickRaw(s, i, n);
+    const def = ENEMIES[s.enemy];
+    const big = def.radius > BIG_RADIUS;
+    if (!def.ranged && !this.w.nav.reachable(p.x, p.z, big)) this.w.nav.nearestReachable(p.x, p.z, big, p);
+    return p;
+  }
+
+  private pickRaw(s: SpawnDef, i: number, n: number): { x: number; z: number } {
     const w = this.w, a = w.arena, h = w.hero, b = a.bounds;
     const out = { x: 0, z: 0 };
-    const ok = (x: number, z: number) => a.walkable(x, z) && Math.hypot(x - h.x, z - h.z) >= 3.2;
+    const def = ENEMIES[s.enemy];
+    const melee = !def.ranged, big = def.radius > BIG_RADIUS;
+    const ok = (x: number, z: number) => a.walkable(x, z) && Math.hypot(x - h.x, z - h.z) >= 3.2 && (!melee || w.nav.reachable(x, z, big));
     if (s.at && s.at.length) {
       const anchor = s.at[i % s.at.length];
       const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
@@ -132,7 +145,7 @@ export class StageRunner {
     if (pattern === 'edges' && this.edgeTiles.length) {
       for (let tries = 0; tries < 12; tries++) {
         const t = w.rng.pick(this.edgeTiles);
-        if (Math.hypot(t.x - h.x, t.z - h.z) > 6) return { x: t.x, z: t.z };
+        if (Math.hypot(t.x - h.x, t.z - h.z) > 6 && ok(t.x, t.z)) return { x: t.x, z: t.z };
       }
     }
     // far / random: лучшая из случайной выборки по удалённости
@@ -140,7 +153,7 @@ export class StageRunner {
     const tiles = a.tiles.filter((t) => t.state === TileState.Alive);
     for (let k = 0; k < 14; k++) {
       const t = w.rng.pick(tiles);
-      if (!t || !a.walkable(t.x, t.z)) continue;
+      if (!t || !a.walkable(t.x, t.z) || (melee && !w.nav.reachable(t.x, t.z, big))) continue;
       const d = Math.hypot(t.x - h.x, t.z - h.z);
       const score = pattern === 'far' ? d : d > 4 && d < 10 ? 10 - Math.abs(d - 7) : d * 0.3;
       if (score > bd) { bd = score; best = { x: t.x + w.rng.spread(0.4), z: t.z + w.rng.spread(0.4) }; }
