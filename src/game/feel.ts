@@ -70,7 +70,9 @@ export class FeelSystem {
         const crowd = 1 + 0.25 * Math.log2(e.n);
         let hs = (f.hitstop + (e.crit ? CRIT_HITSTOP : 0)) * crowd;
         if (e.source === 'ability' && e.feel === 'light') hs *= 0.5;
-        this.time.addHitstop(Math.min(0.14, hs));
+        const held = this.time.addHitstop(Math.min(0.14, hs));
+        // поза героя застывает в кадре удара вместе с растяжением
+        if (e.source === 'blade' && held > 0) this.w.hero.avatar.holdPose(held);
         if (e.feel !== 'light') this.cam.addTrauma(f.trauma * Math.min(1.5, crowd) * (e.source === 'ability' ? 0.6 : 1));
         this.cam.addKick(e.dirX, e.dirZ, f.kick * 0.5);
         if (f.zoomPunch) this.cam.zoomPunch += f.zoomPunch;
@@ -85,7 +87,10 @@ export class FeelSystem {
         const isEnemy = e.target.faction === 'enemy';
         if (isEnemy && e.dmg > 0) {
           const heavy = e.feel === 'heavy' || e.feel === 'break' ? 1 : e.feel === 'medium' ? 0.5 : 0;
-          this.vfx.hitSparks(e.x, e.y, e.z, e.dirX, e.dirZ, heavy, e.crit);
+          // искры клинка — по касательной к дуге взмаха (ход кончика), а не взрывом от героя
+          const tv = this.w.hero.avatar.tipVel, sp = Math.hypot(tv.x, tv.z);
+          const tang = e.source === 'blade' && sp > 3;
+          this.vfx.hitSparks(e.x, e.y, e.z, e.dirX, e.dirZ, heavy, e.crit, tang ? tv.x / sp : e.dirX, tang ? tv.z / sp : e.dirZ);
         }
         // звон — только броня (неуязвимая цель, щит Аколита); удар в окно уязвимости — чистый тон и резонанс
         if (isEnemy && e.shielded) this.audio.play('hit_armor', { gain: e.dmg > 0 ? 0.45 : 0.7, pan: this.pan(e.x) });
@@ -164,6 +169,8 @@ export class FeelSystem {
       b.on('swing', (e) => {
         const id = e.kind === 'light' ? 'swing_light' : e.kind === 'spin' ? 'swing_spin' : e.kind === 'stab' ? 'swing_stab' : e.kind === 'charged' ? 'swing_charged' : 'swing_heavy';
         this.audio.play(id, { gain: 0.8 });
+        // смазанный кадр в кадре удара (уколы — без веера)
+        if (e.kind !== 'stab') this.vfx.trail.armSmear(e.hitAt ?? 0.06);
       }),
       b.on('dash', (e) => {
         this.vfx.dashPuff(e.x, e.z, e.dirX, e.dirZ);
@@ -319,6 +326,8 @@ export class FeelSystem {
 
   update(realDt: number): void {
     const P = this.post.state, S = this.settings;
+    const av = this.w.hero.avatar;
+    if (av.hold > 0) av.hold = Math.max(0, av.hold - realDt);
     // «Мгновение Пустоты»
     if (this.voidMoment > 0) this.voidMoment -= realDt;
     // лёгкое приглушение красок на долю секунды — без провала музыки и полного обесцвечивания

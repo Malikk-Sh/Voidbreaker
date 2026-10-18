@@ -67,6 +67,9 @@ export class LightPools {
   private readonly geo: THREE.InstancedBufferGeometry;
   private staticCount = 0;
   private dyn = 0;
+  /** Исходные цвета статичных пятен (для багрового оттенка при замахе босса). */
+  private orig: Float32Array | null = null;
+  private tinted = false;
   constructor(readonly max = 256) {
     this.geo = new THREE.InstancedBufferGeometry();
     const [pos, uv] = QUAD();
@@ -108,8 +111,28 @@ export class LightPools {
   setStatic(list: { x: number; z: number; r: number; color: string; intensity: number; flicker: number }[]): void {
     this.staticCount = Math.min(list.length, this.max - 64);
     for (let i = 0; i < this.staticCount; i++) this.write(i, list[i].x, list[i].z, list[i].r, list[i].color, list[i].intensity, list[i].flicker);
+    this.orig = this.col.slice(0, this.staticCount * 4);
+    this.tinted = false;
     this.dyn = 0;
     this.commit();
+  }
+
+  /**
+   * Ближние к точке источники слегка багровеют (план §5.8, п. 7): босс готовит красную атаку.
+   * k — сила 0..1; 0 возвращает исходные цвета.
+   */
+  tintNear(x: number, z: number, radius: number, rgb: [number, number, number], k: number): void {
+    const o = this.orig;
+    if (!o || (k <= 0.001 && !this.tinted)) return;
+    for (let i = 0; i < this.staticCount; i++) {
+      const j = i * 4, d = Math.hypot(this.data[j] - x, this.data[j + 1] - z);
+      const w = k * Math.max(0, 1 - d / radius);
+      const lum = (o[j] + o[j + 1] + o[j + 2]) / 3;
+      this.col[j] = o[j] + (rgb[0] * lum * 1.6 - o[j]) * w;
+      this.col[j + 1] = o[j + 1] + (rgb[1] * lum * 1.6 - o[j + 1]) * w;
+      this.col[j + 2] = o[j + 2] + (rgb[2] * lum * 1.6 - o[j + 2]) * w;
+    }
+    this.tinted = k > 0.001;
   }
 
   private write(i: number, x: number, z: number, r: number, color: string | [number, number, number], intensity: number, flicker: number): void {

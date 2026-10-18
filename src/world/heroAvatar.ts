@@ -3,12 +3,22 @@ import { BipedGait, bipedJoints, addJoint, type BipedJoints } from '../anim/loco
 import { layoutOf, Puppet } from '../anim/puppet';
 import { VerletCloth } from '../anim/verlet';
 import { HERO_CLIPS } from '../anim/clips/hero';
+import { Clip } from '../anim/clip';
 import { buildHeroGeometry, HERO_RIG, BLADE_LEN } from '../gen/chars/hero';
 import { RigBatch } from '../render/rigbatch';
 import { ClothMesh } from '../render/cloth';
 
 const GHOSTS = 6;
-const _v = new THREE.Vector3(), _w = new THREE.Vector3();
+const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _tb = new THREE.Vector3(), _tt = new THREE.Vector3();
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+
+/** Шаг-выпад под удары серии (план §5.8, п. 5): передняя нога вперёд, таз ниже. L — левая нога впереди. */
+const LUNGE_POSE = {
+  L: { hipL: [-0.6, 0, 0.12], kneeL: [0.8, 0, 0], footL: [-0.2, 0, 0], hipR: [0.32, 0, -0.12], kneeR: [0.55, 0, 0], footR: [0.18, 0, 0] },
+  R: { hipR: [-0.6, 0, -0.12], kneeR: [0.8, 0, 0], footR: [-0.2, 0, 0], hipL: [0.32, 0, 0.12], kneeL: [0.55, 0, 0], footL: [0.18, 0, 0] },
+} as const;
+/** Удары серии с маской «верх» — им нужен шаг ногами; какая нога впереди. */
+const LUNGE_CLIPS: Record<string, 'L' | 'R'> = { atk1: 'L', atk2: 'R', flurry: 'L' };
 
 /**
  * Визуальный герой: кукла + походка + плащ (Верле 3 × 7) + шарф (2 × 8) + Каэлис + остаточные изображения.
@@ -39,6 +49,19 @@ export class HeroAvatar {
   glow = 0;
   /** Тон кукловода: >0 — аура ульты. */
   aura = 0;
+  /** Скорость кончика клинка в мире (м/с): искры по касательной, ширина шлейфа. */
+  readonly tipVel = new THREE.Vector3();
+  private readonly prevTip = new THREE.Vector3();
+  private tipReady = false;
+  /** Удержание позы в кадре удара (реальные с; уменьшает FeelSystem): поза и растяжение стоят. */
+  hold = 0;
+  private holdStretch = 1;
+  private lastStretch = 1;
+  private lunge: Record<'L' | 'R', Clip>;
+  private lungeW = 0;
+  private lungeSide: 'L' | 'R' = 'L';
+  private prevYaw = 0;
+  private yawRate = 0;
 
   constructor() {
     const layout = layoutOf(HERO_RIG);
@@ -58,6 +81,26 @@ export class HeroAvatar {
     this.cloak.wind = 1.2; this.scarf.wind = 1.6;
     this.cloak.iterations = 4; this.scarf.iterations = 3;
     this.cloak.damping = 0.94; this.scarf.damping = 0.95;
+    this.lunge = {
+      L: new Clip({ id: 'lungeL', dur: 0.1, mask: 'full', keys: [{ t: 0, pose: LUNGE_POSE.L as unknown as Record<string, [number, number, number]> }] }, layout),
+      R: new Clip({ id: 'lungeR', dur: 0.1, mask: 'full', keys: [{ t: 0, pose: LUNGE_POSE.R as unknown as Record<string, [number, number, number]> }] }, layout),
+    };
+  }
+
+  /** Замереть в кадре удара на sec реальных секунд, удерживая растяжение (без отката). */
+  holdPose(sec: number): void {
+    this.hold = Math.max(this.hold, sec);
+    this.holdStretch = Math.max(1.06, this.lastStretch);
+  }
+
+  /** Финишер/заряд ударил в землю: плащ взлетает и раскрывается. */
+  cloakImpulse(up: number, out: number): void {
+    const c = this.cloak, s = this.puppet.skel;
+    s.jointPoint(this.iChest, 0, 0, 0, _w);
+    for (let k = c.w; k < c.n; k++) {
+      const o = k * 3, rx = c.p[o] - _w.x, rz = c.p[o + 2] - _w.z, l = Math.hypot(rx, rz) || 1;
+      c.q[o] -= (rx / l) * out * 0.016; c.q[o + 2] -= (rz / l) * out * 0.016; c.q[o + 1] -= up * 0.016;
+    }
   }
 
   /**
@@ -67,11 +110,14 @@ export class HeroAvatar {
   update(dt: number, x: number, z: number, facing: number, moveDist: number, speed: number, accel: number, bladeBack: boolean): void {
     const p = this.puppet, s = p.skel;
     this.time += dt;
-    this.gait.update(moveDist, speed, accel, dt);
+    // удержание позы на hitstop: клип и походка стоят
+    const adt = this.hold > 0 ? 0 : dt;
+    this.gait.update(moveDist, speed, accel, adt);
     this.gait.write(p.base, p.layout, this.J, bladeBack);
-    p.anim.update(dt);
+    p.anim.update(adt);
     p.anim.compose(p.base);
     s.rot.set(p.anim.out);
+    this.applyLunge(adt);
     // аддитивные слои: пружина отдачи на корпусе
     p.stepSpring(dt);
     const cf = Math.cos(facing), sf = Math.sin(facing);
@@ -87,18 +133,56 @@ export class HeroAvatar {
     s.scl[this.iBlade * 3] = this.bladeScale; s.scl[this.iBlade * 3 + 1] = this.bladeScale; s.scl[this.iBlade * 3 + 2] = this.bladeScale;
 
     const r = p.anim.root;
-    const st = r.stretch * this.stretch;
+    let st = r.stretch * this.stretch;
+    if (this.hold > 0) st = Math.max(st, this.holdStretch);
+    else this.lastStretch = st;
     s.facing = facing + r.spin;
     s.x = x + r.z * sf + r.x * cf;
     s.z = z + r.z * cf - r.x * sf;
-    s.y = this.gait.bob + r.y;
+    s.y = this.gait.bob + r.y - this.lungeW * 0.11;
+    // скорость поворота корпуса: от неё плащ раскрывается во вращении
+    if (adt > 0) {
+      let dy = s.facing - this.prevYaw;
+      dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      this.yawRate = dy / adt;
+    } else this.yawRate = 0;
+    this.prevYaw = s.facing;
     if (st >= 1) { const k = 1 / Math.sqrt(st); s.sx = k; s.sy = k; s.sz = st; }
     else { const k = 1 / Math.sqrt(st); s.sx = k; s.sy = st; s.sz = k; }
     if (this.squash !== 1) { s.sy *= this.squash; const k = 1 / Math.sqrt(this.squash); s.sx *= k; s.sz *= k; }
     s.update();
 
-    this.updateCloth(dt);
+    // скорость кончика клинка (сглаженная)
+    if (adt > 0) {
+      this.bladePoints(_tb, _tt);
+      if (this.tipReady) {
+        _tb.copy(_tt).sub(this.prevTip).divideScalar(adt);
+        this.tipVel.lerp(_tb, 0.6);
+      }
+      this.prevTip.copy(_tt);
+      this.tipReady = true;
+    }
+
+    this.updateCloth(adt);
     this.updateGhosts(dt);
+  }
+
+  /** Шаг-выпад (вес 0.6 по маске «всё тело»): ноги из клипа «верх» иначе стоят на месте. */
+  private applyLunge(dt: number): void {
+    const a = this.puppet.anim, c = a.clip;
+    const side = c && !a.done ? LUNGE_CLIPS[c.id] : undefined;
+    if (side) this.lungeSide = side;
+    // быстро встаёт в выпад к кадру удара, мягче возвращается
+    const target = side && a.t < c!.dur * 0.8 ? 0.6 : 0;
+    this.lungeW += (target - this.lungeW) * Math.min(1, dt * (target > this.lungeW ? 30 : 8));
+    if (this.lungeW < 0.01) return;
+    const L = this.lunge[this.lungeSide], q = L.quats[0], rot = this.puppet.skel.rot;
+    for (let j = 0; j < L.joints.length; j++) {
+      const o = L.joints[j] * 4;
+      _qa.fromArray(rot, o); _qb.fromArray(q, j * 4);
+      _qa.slerp(_qb, this.lungeW);
+      rot[o] = _qa.x; rot[o + 1] = _qa.y; rot[o + 2] = _qa.z; rot[o + 3] = _qa.w;
+    }
   }
 
   private anchor(joint: number, lx: number, ly: number, lz: number): THREE.Vector3 {
@@ -137,6 +221,17 @@ export class HeroAvatar {
     s.jointPoint(this.iPelvis, 0, -0.42, 0.04, _w); col.push({ x: _w.x, y: _w.y, z: _w.z, r: 0.2 });
     this.scarf.colliders.length = 0;
     this.scarf.colliders.push(col[0]);
+    // вращение корпуса (Удар 3, разворот): ткань раскрывается от центробежного импульса
+    const yr = Math.abs(this.yawRate);
+    if (yr > 4 && dt > 0) {
+      s.jointPoint(this.iChest, 0, 0, 0, _w);
+      const out = Math.min(4, yr * 0.09) * dt, c = this.cloak;
+      for (let k = c.w; k < c.n; k++) {
+        const o = k * 3, rx = c.p[o] - _w.x, rz = c.p[o + 2] - _w.z, l = Math.hypot(rx, rz) || 1;
+        c.q[o] -= (rx / l) * out; c.q[o + 2] -= (rz / l) * out; c.q[o + 1] -= out * 0.25;
+      }
+    }
+    if (dt <= 0) { this.cloakMesh.sync(); this.scarfMesh.sync(); return; }
     const sub = dt > 1 / 70 ? 2 : 1;
     for (let i = 0; i < sub; i++) { this.cloak.step(dt / sub); this.scarf.step(dt / sub); }
     this.cloakMesh.sync();

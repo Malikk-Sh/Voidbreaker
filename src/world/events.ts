@@ -28,7 +28,8 @@ export interface GameEvents {
   playerHurt: { dmg: number; hpLeft: number; dirX: number; dirZ: number; source: string };
   heroDeath: { x: number; z: number };
   secondWind: { x: number; z: number };
-  swing: { kind: 'light' | 'spin' | 'heavy' | 'stab' | 'charged' };
+  /** Начат взмах; hitAt — через сколько (время героя) кадр удара: туда ставится смазанный кадр. */
+  swing: { kind: 'light' | 'spin' | 'heavy' | 'stab' | 'charged'; hitAt?: number };
   /** Начат приём (для подсказок о ветках комбо). */
   moveStart: { id: string };
   dash: { x: number; z: number; dirX: number; dirZ: number };

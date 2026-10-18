@@ -243,7 +243,7 @@ export class Battle {
 
     // шлейф клинка: сэмплы рукоять/кончик
     const h = this.world.hero;
-    if (h.trailOn && !h.dead) { h.bladePoints(this.bladeA, this.bladeB); this.vfx.trail.push(this.bladeA, this.bladeB); }
+    if (h.trailOn && !h.dead) { h.bladePoints(this.bladeA, this.bladeB); this.vfx.trail.push(this.bladeA, this.bladeB, h.swingWeight); }
     this.vfx.trail.width = h.eclipse ? 1.0 : 1;
     this.vfx.trail.intensity = h.eclipse ? 1.6 : this.world.rank.rankIdx >= 4 ? 1.3 : 1;
     this.vfx.trail.update(realDt * T.heroScale);

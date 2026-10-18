@@ -372,8 +372,14 @@ export class Hero implements Actor {
     this.lungeDirX = Math.sin(this.facing); this.lungeDirZ = Math.cos(this.facing);
     this.vx *= 0.2; this.vz *= 0.2;
     this.avatar.puppet.play(m.clip, this.atkSpeed, m.id === 'slash1' ? 0.04 : 0.03);
-    this.world.bus.emit('swing', { kind: m.swing });
+    this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(m.clip) / this.atkSpeed });
     this.world.bus.emit('moveStart', { id: m.id });
+  }
+
+  /** Кадр удара клипа: первое hitOn + полкадра быстрой фазы. */
+  private hitFrame(clip: string): number {
+    const c = this.avatar.puppet.clips.get(clip);
+    return (c?.events.find((e) => e.name === 'hitOn')?.t ?? 0.05) + 0.025;
   }
 
   private updateAttack(dt: number): void {
@@ -407,6 +413,8 @@ export class Hero implements Actor {
       case 'trailOff': this.trailOn = false; break;
       case 'impact': {
         const m = this.move;
+        // удар в землю: плащ взлетает и раскрывается
+        this.avatar.cloakImpulse(3, 2.5);
         if (m?.wave) this.world.abilities.bladeWave(this.x, this.z, this.facing, m.wave.mult, m.wave.dist, m.wave.r);
         const r = m?.hitbox.shape === 'circle' ? m.hitbox.radius : 3;
         const off = 0.7;
@@ -483,7 +491,7 @@ export class Hero implements Actor {
     this.beginMove(m, 1.6);
     this.state = 'charged';
     this.lastMove = null;
-    this.world.bus.emit('swing', { kind: 'charged' });
+    this.world.bus.emit('swing', { kind: 'charged', hitAt: this.hitFrame('cleave') });
   }
 
   // ------------------------------------------------------------------ рывок
@@ -657,6 +665,12 @@ export class Hero implements Actor {
 
   /** Точки клинка для шлейфа. */
   bladePoints(base: THREE.Vector3, tip: THREE.Vector3): void { this.avatar.bladePoints(base, tip); }
+  /** Тяжесть текущего взмаха для шлейфа: 0 — лёгкий/укол, 0.5 — вращение, 1 — тяжёлый и заряд. */
+  get swingWeight(): number {
+    if (this.state === 'charged') return 1;
+    const sw = this.move?.swing;
+    return sw === 'heavy' ? 0.85 : sw === 'spin' ? 0.5 : 0;
+  }
 
   get blinking(): boolean { return this.clock < this.blinkUntil && Math.floor(this.clock * 20) % 2 === 0; }
 

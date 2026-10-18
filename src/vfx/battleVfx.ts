@@ -57,7 +57,7 @@ export class BattleVfx {
     this.add = new Particles(maxParticles, true);
     this.norm = new Particles(Math.round(maxParticles * 0.35), false);
     this.pools = pools;
-    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh);
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh);
     for (const m of this.debris.meshes) this.group.add(m);
     // серпы: выдавленный полумесяц с эмиссивной кромкой
     const b = new GeomBuilder();
@@ -105,9 +105,13 @@ export class BattleVfx {
     }
   }
 
-  /** Попадание: фиолетовые искры от клинка, красные искры и обсидиановые осколки от врага (GDD §14.4). */
-  hitSparks(x: number, y: number, z: number, dx: number, dz: number, heavy: number, crit: boolean): void {
-    this.burst(6 + heavy * 6, { x, y, z, life: 0.28, size: 0.09, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.2 }, { v: 9, vy: 4, dir: [dx, dz], cone: 1.1 });
+  /**
+   * Попадание: фиолетовые искры от клинка, красные искры и обсидиановые осколки от врага (GDD §14.4).
+   * tx, tz — касательная к дуге взмаха (ход кончика клинка): основная часть искр летит узким конусом по ней (план §5.8).
+   */
+  hitSparks(x: number, y: number, z: number, dx: number, dz: number, heavy: number, crit: boolean, tx = dx, tz = dz): void {
+    this.burst(5 + heavy * 6, { x, y, z, life: 0.3, size: 0.09, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.5 }, { v: 11, vy: 2.5, dir: [tx, tz], cone: 0.35 });
+    this.burst(2 + heavy * 2, { x, y, z, life: 0.25, size: 0.08, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.2 }, { v: 7, vy: 4, dir: [dx, dz], cone: 0.9 });
     this.burst(4 + heavy * 4, { x, y, z, life: 0.35, size: 0.08, size1: 0.01, color: C.hungerHot, gravity: -10, drag: 3, frame: 'spark', stretch: 1 }, { v: 7, vy: 5, dir: [dx, dz], cone: 1.6 });
     this.add.emit({ x, y, z, life: 0.12, size: 0.9 + heavy * 0.5, size1: 1.6 + heavy, color: crit ? C.core : C.voidHot, alpha: 0.9, frame: 'flare', rot: fxRng.next() * 3 });
     if (heavy > 0.5 || crit) this.add.emit({ x, y, z, life: 0.2, size: 0.4, size1: 2.6, color: C.void, alpha: 0.6, frame: 'ring' });
@@ -255,7 +259,9 @@ export class BattleVfx {
     // свет клинка героя
     if (!h.dead) {
       h.avatar.bladePoints(_v, _w);
-      const glow = 0.3 + (h.trailOn ? 1.0 : 0) + (h.eclipse ? 2 : 0) + h.chargeLevel * 0.8;
+      // заряд удара или способности: фиолетовый свет у клинка нарастает — блики на броне, полу, колоннах
+      const charging = h.state === 'charge' ? 0.5 + Math.min(1, h.stateT / 0.9) * 1.3 : h.state === 'cast' ? 1.4 : 0;
+      const glow = 0.3 + (h.trailOn ? 1.0 : 0) + (h.eclipse ? 2 : 0) + h.chargeLevel * 0.8 + charging;
       this.lights.add((_v.x + _w.x) / 2, (_v.y + _w.y) / 2 + 0.3, (_v.z + _w.z) / 2, C.void, glow * 1.6, 4 + (h.eclipse ? 3 : 0));
       this.pools.addDynamic(h.x, h.z, 2.4 + (h.eclipse ? 1.5 : 0), C.void, 0.1 + glow * 0.08);
       if (h.eclipse) {
@@ -263,6 +269,15 @@ export class BattleVfx {
       }
       if (h.state === 'charge') this.chargeGather(_w.x, _w.y, _w.z, h.chargeLevel);
     }
+
+    // босс готовит красную атаку: ближние источники света слегка багровеют
+    let tintK = 0, tx = 0, tz = 0;
+    for (const e of w.enemies) {
+      if (e.dead || !(e.isBoss || e.isGuardian)) continue;
+      const k = e.windup * 0.45;
+      if (k > tintK) { tintK = k; tx = e.x; tz = e.z; }
+    }
+    this.pools.tintNear(tx, tz, 14, C.hunger, tintK);
 
     // враги: ядра при телеграфе, аура элиты, щиты Аколита
     for (const e of w.enemies) {
