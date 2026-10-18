@@ -31,7 +31,7 @@ export class Hero implements Actor {
   hp: number = PLAYER_BASE.hp; maxHp: number = PLAYER_BASE.hp;
   armor = 0;
   dead = false;
-  posture = null;
+  stun = null;
   kbX = 0; kbZ = 0;
   height = 2.1;
 
@@ -50,7 +50,7 @@ export class Hero implements Actor {
   private hitList = new Set<number>();
   private lungeLeft = 0;
   private lungeDirX = 0; private lungeDirZ = 0;
-  private chargedMul = 0; private chargedPosture = 0; private chargedWide = 1;
+  private chargedMul = 0; private chargedStun = 0; private chargedWide = 1;
   chargeLevel = 0;
   // рывок
   dashCharges = 2;
@@ -441,10 +441,10 @@ export class Hero implements Actor {
     const shape = this.moveShape(m);
     const charged = this.state === 'charged';
     const mult = charged ? this.chargedMul : m.dmg;
-    const posture = charged ? this.chargedPosture : m.posture;
+    const stun = charged ? this.chargedStun : m.stun;
     const feel = charged ? (this.chargeLevel >= 2 ? 'heavy' : 'medium') : m.feel;
     const n = this.world.heroStrike(shape, this.hitList, {
-      mult, posture, knockback: m.knockback * (charged ? 2 : 1), feel, finisher: !!m.finisher || charged,
+      mult, stun, stunKind: charged ? 'charged' : m.stunKind, knockback: m.knockback * (charged ? 2 : 1), feel, finisher: !!m.finisher || charged,
       dirX: Math.sin(this.facing), dirZ: Math.cos(this.facing), pierce: true, source: 'blade', launch: m.launch,
       moveId: charged ? 'charged' : m.id,
     });
@@ -455,7 +455,7 @@ export class Hero implements Actor {
   }
   private hitWaveDone = false;
 
-  /** Списать «идеальный» бафф (крит ×1.3, слом ×2) — вызывается миром при первом попадании. */
+  /** Списать «идеальный» бафф (крит ×1.3, оглушение ×2) — вызывается миром при первом попадании. */
   consumePerfectBuff(): boolean {
     if (!this.perfectBuff) return false;
     this.perfectBuff = false;
@@ -475,10 +475,10 @@ export class Hero implements Actor {
     if (this.chargeLevel <= 0) { this.avatar.puppet.anim.stop(0.12); this.toMove(); return; }
     const full = this.chargeLevel >= 2;
     this.chargedMul = full ? C.dmg[1] : C.dmg[0];
-    this.chargedPosture = full ? C.posture[1] : C.posture[0];
+    this.chargedStun = full ? C.stun[1] : C.stun[0];
     this.chargedWide = full ? 1.5 : 1;
     // нисходящий рассекающий удар из-за головы; полный заряд — ещё и волна Пустоты на 9 м
-    const m: MoveDef = { id: 'charged', clip: 'cleave', dur: 0.5, chain: [0.4, 0.62], dashCancelFrom: 0.16, hitbox: { shape: 'line', length: C.length, width: C.width }, dmg: this.chargedMul, posture: this.chargedPosture, knockback: 3, feel: full ? 'heavy' : 'medium', lunge: 1.4, finisher: true, swing: 'heavy', wave: full ? { mult: 2.2, dist: 9, r: 1.5 } : undefined };
+    const m: MoveDef = { id: 'charged', clip: 'cleave', dur: 0.5, chain: [0.4, 0.62], dashCancelFrom: 0.16, hitbox: { shape: 'line', length: C.length, width: C.width }, dmg: this.chargedMul, stun: this.chargedStun, stunKind: 'charged', knockback: 3, feel: full ? 'heavy' : 'medium', lunge: 1.4, finisher: true, swing: 'heavy', wave: full ? { mult: 2.2, dist: 9, r: 1.5 } : undefined };
     if (this.target) this.facing = angleOf(this.target.x - this.x, this.target.z - this.z);
     this.beginMove(m, 1.6);
     this.state = 'charged';

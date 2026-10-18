@@ -1,23 +1,25 @@
+import * as THREE from 'three';
 import { angleOf, clamp, dampAngle } from '../core/math';
 import type { Affix, EnemyDef } from '../data/enemies';
 import { ELITE, scaleDmg, scaleHp } from '../data/enemies';
 import { Puppet } from '../anim/puppet';
 import type { RigLayout } from '../anim/skeleton';
 import type { ClipDef } from '../anim/clip';
-import { makePosture, stepPosture, type Actor, type Posture, newId } from './actor';
+import { makeStun, stepStun, STUN_STAR_SEC, type Actor, type Stun, newId } from './actor';
 import type { Shape } from './combat';
 import type { Telegraph } from './entities';
 import type { World } from './world';
 import { BIG_RADIUS } from './nav';
 
 const _nav = { x: 0, z: 0 };
+const _head = new THREE.Vector3();
 
-export type EState = 'spawn' | 'idle' | 'chase' | 'orbit' | 'telegraph' | 'attack' | 'recover' | 'stagger' | 'broken' | 'dead' | 'special' | 'warp';
+export type EState = 'spawn' | 'idle' | 'chase' | 'orbit' | 'telegraph' | 'attack' | 'recover' | 'stagger' | 'stunned' | 'dead' | 'special' | 'warp';
 
 export interface SpawnOpts { zone: number; stage: number; elite?: Affix[]; mode?: number; hpMul?: number }
 
 /**
- * Враг (Tech §16): иерархическая FSM Spawn → Approach → Position → Telegraph → Attack → Recover → (Broken) → Dead.
+ * Враг (Tech §16): иерархическая FSM Spawn → Approach → Position → Telegraph → Attack → Recover → (Stunned) → Dead.
  * Мозг принимает решения 15–20 раз/с, движение — каждый шаг. Каждая атака всегда телеграфирована.
  */
 export abstract class Enemy implements Actor {
@@ -30,7 +32,7 @@ export abstract class Enemy implements Actor {
   hp: number; maxHp: number;
   armor: number;
   dead = false;
-  posture: Posture | null = null;
+  stun: Stun | null = null;
   kbX = 0; kbZ = 0;
   height: number;
 
@@ -47,8 +49,6 @@ export abstract class Enemy implements Actor {
   teleMul = 1;
   /** Щит Аколита: множитель входящего урона. */
   shieldMul = 1;
-  /** Множитель урона по стойке (окна наказания: ×2). */
-  postureMul = 1;
   shieldFrom: Enemy | null = null;
   stagger = 0;
   deathT = 0;
@@ -81,6 +81,10 @@ export abstract class Enemy implements Actor {
   lagT = 0;
   /** Стопкадр после попадания (мировые с): поза и тело стоят, модель дрожит (план §5.1, п. 4). */
   freeze = 0;
+  /** Рядовой сбит с ног тяжёлым ударом: две маленькие звезды (с). */
+  dazeT = 0;
+  /** Звёзд оглушения над головой в прошлом шаге. */
+  private starsLeft = 0;
   /** Сколько секунд герой недостижим из клетки врага. */
   unreachT = 0;
   private warpX = 0; private warpZ = 0;
@@ -100,8 +104,8 @@ export abstract class Enemy implements Actor {
     this.height = def.height * (eliteK ? ELITE.scale : 1);
     this.armor = def.armor ?? 0;
     this.scale = eliteK ? ELITE.scale : 1;
-    if (def.posture) this.posture = makePosture(def.posture * (eliteK ? 1.5 : 1), def.breakDur ?? 1.8);
-    else if (eliteK) this.posture = makePosture(ELITE.posture, 1.8);
+    if (def.stun) this.stun = makeStun(def.stun * (eliteK ? 1.5 : 1), Math.max(def.stunDur ?? 1.8, eliteK ? ELITE.stunDur : 0));
+    else if (eliteK) this.stun = makeStun(ELITE.stun, ELITE.stunDur);
     if (this.elite.includes('hasted')) { this.speed *= 1.4; this.teleMul = 0.7; }
     this.puppet = new Puppet(layout, clips);
     this.puppet.skel.size = this.scale;
@@ -109,20 +113,23 @@ export abstract class Enemy implements Actor {
   }
 
   get targetable(): boolean { return !this.dead && this.state !== 'spawn' && this.state !== 'warp'; }
-  /** Треснул (стойка сломана): финишер или заряженный удар вызовет Раскол. */
-  get cracked(): boolean { return !this.dead && !!this.posture && this.posture.broken > 0 && this.canShatter; }
+  /** Оглушён (план §5.5): +25 % урона, финишер или полный заряд вызовет Раскол. */
+  get stunned(): boolean { return !!this.stun && this.stun.stunned > 0; }
+  /** Раскол возможен: оглушён и не в переходе фаз. Раскол заканчивает оглушение — один на оглушение. */
+  get shatterable(): boolean { return !this.dead && this.stunned && this.canShatter; }
   /** Боссы запрещают Раскол в переходах фаз (переопределяется). */
   get canShatter(): boolean { return true; }
-  get broken(): boolean { return !!this.posture && this.posture.broken > 0; }
-  /** Слом наступил во время неудержимой атаки и ждёт её конца. */
-  breakQueued = false;
-  /** Можно ли сломать стойку прямо сейчас (неудержимые атаки Стражей и боссов — нет). */
-  canBreakNow(): boolean { return true; }
+  /** Окно уязвимости после атаки (Стражи и боссы): оглушение копится полностью. */
+  get inWindow(): boolean { return false; }
+  /** Шкала заполнилась во время неудержимой атаки: оглушение ждёт её конца. */
+  stunQueued = false;
+  /** Можно ли оглушить прямо сейчас (неудержимые атаки Стражей и боссов — нет). */
+  canStunNow(): boolean { return true; }
   get spawned(): boolean { return this.state !== 'spawn'; }
 
   setState(s: EState): void { this.state = s; this.stateT = 0; }
 
-  /** Общий шаг: спаун через портал, хитстан, стойка, отбрасывание; затем мозг. */
+  /** Общий шаг: спаун через портал, хитстан, оглушение, отбрасывание; затем мозг. */
   step(w: World, dt: number): void {
     if (this.lagT > 0) { this.lagT -= dt; dt *= 0.5; }
     this.time += dt;
@@ -157,13 +164,17 @@ export abstract class Enemy implements Actor {
       this.animate(dt, w);
       return;
     }
-    if (this.posture) {
-      const wasBroken = this.posture.broken > 0;
-      stepPosture(this.posture, dt);
-      this.puppet.crack = this.posture.broken > 0 ? 1 : Math.max(0, this.puppet.crack - dt * 2);
-      if (wasBroken && this.posture.broken <= 0 && this.state === 'broken') this.setState('recover');
-      if (this.breakQueued && this.canBreakNow()) w.breakEnemy(this);
+    if (this.stun) {
+      if (stepStun(this.stun, dt)) this.onStunEnd(w);
+      // звёзды гаснут по одной — таймер оглушения виден на самом враге
+      const left = this.stun.stunned > 0 ? Math.min(7, Math.ceil(this.stun.stunned / STUN_STAR_SEC)) : 0;
+      if (left === this.starsLeft - 1) w.bus.emit('stunTick', { target: this, x: this.x, z: this.z, left, boss: this.isBoss || this.isGuardian });
+      this.starsLeft = left;
+      // ядро мерцает: украденный свет рвётся наружу трещинами
+      this.puppet.crack = this.stun.stunned > 0 ? 0.6 + 0.3 * Math.sin(this.time * 11) : Math.max(0, this.puppet.crack - dt * 2);
+      if (this.stunQueued && this.canStunNow()) w.stunEnemy(this);
     }
+    if (this.dazeT > 0) this.dazeT -= dt;
     if (this.shieldFrom && (this.shieldFrom.dead || !this.shieldFrom.spawned)) { this.shieldFrom = null; this.shieldMul = 1; }
     if (this.airDur > 0) {
       this.airT += dt;
@@ -190,9 +201,9 @@ export abstract class Enemy implements Actor {
       if (Math.abs(this.kbX) + Math.abs(this.kbZ) < 0.1) this.kbX = this.kbZ = 0;
     }
 
-    if (this.state === 'broken') {
+    if (this.state === 'stunned') {
       this.vx *= 0.8; this.vz *= 0.8;
-      if (!this.posture || this.posture.broken <= 0) this.setState('recover');
+      if (!this.stunned) this.setState('recover');
     } else if (this.state === 'stagger') {
       if (this.stateT >= this.stagger) this.setState('recover');
     } else {
@@ -203,7 +214,26 @@ export abstract class Enemy implements Actor {
       this.stepNav(w, dt);
     }
     this.animate(dt, w);
+    if (this.stunned) this.applySway();
     if (shiver) this.applyShiver();
+  }
+
+  /** Оглушение: тело «плывёт» — наклон ±9° кружит в такт звёздам (1.6 об/с). */
+  private applySway(): void {
+    const s = this.puppet.skel, a = this.time * Math.PI * 2 * 1.6;
+    s.tiltX += Math.sin(a) * 0.15; s.tiltZ += Math.cos(a) * 0.15;
+    s.update();
+  }
+
+  /** Точка над головой: там кружат звёзды оглушения. */
+  headPoint(out: { x: number; y: number; z: number }): void {
+    const L = this.puppet.layout;
+    if (L.has('head')) {
+      // выше макушки: у крупных шлем и рога тоже по росту
+      const p = this.puppet.skel.jointPoint(L.idx('head'), 0, 0, 0, _head);
+      p.y += 0.2 + this.height * 0.12;
+      out.x = p.x; out.y = p.y; out.z = p.z;
+    } else { out.x = this.x; out.y = this.y + this.height + 0.25; out.z = this.z; }
   }
 
   /** Дрожь ±2.5 см вокруг позиции тела (стопкадр попадания). */
@@ -349,11 +379,16 @@ export abstract class Enemy implements Actor {
     this.setState('stagger');
   }
 
-  /** Слом стойки: короткое оглушение (элита 1.8 с, стражи 2.4 с, босс 2.8 с), +25 % урона, Раскол финишером. */
-  onBreak(): void {
+  /** Оглушение: атака отменяется, враг «плывёт» (элита 2.5 с, Голем 1.8 с, Страж 3 с, Иерофант 3.5 с). */
+  onStun(): void {
     this.cancelTelegraph();
     this.token = null;
-    this.setState('broken');
+    this.setState('stunned');
+  }
+
+  /** Оглушение кончилось (таймер или Раскол): пробуждение. */
+  onStunEnd(_w: World): void {
+    if (this.state === 'stunned') this.setState('recover');
   }
 
   /** Смерть = распад: детали отрываются и разлетаются (GDD §15.2). */
@@ -395,7 +430,7 @@ export abstract class Enemy implements Actor {
   /** Смертельный урон: false — враг не умирает (босс ждёт перехода фазы). */
   onLethal(_w: World): boolean { return true; }
 
-  /** Раскол применён: трещины взорваны, враг выходит из слома. */
+  /** Раскол применён: трещины взорваны, оглушение кончилось. */
   onShattered(_w: World): void {}
 
   /** Сколько кадров удалить после распада. */

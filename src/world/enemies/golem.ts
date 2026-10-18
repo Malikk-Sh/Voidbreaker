@@ -17,7 +17,7 @@ const THROW_R = 1.9;
 /**
  * Обсидиановый голем (GDD §9.2): танк. Медленно идёт; вблизи — удар двумя руками (круг 3.5 м) и расходящееся
  * кольцо с двумя разрывами; издали — вырывает глыбу из пола и бросает навесом (метка приземления 1.35 с).
- * Контрплей — слом стойки (40) и Раскол.
+ * Контрплей — оглушение (40 / 1.8 с) заряженным ударом и Раскол.
  */
 export class Golem extends Enemy {
   private gait = new BipedGait(2.1, 1.7, true);
@@ -131,7 +131,7 @@ export class Golem extends Enemy {
     else if (this.state === 'telegraph') raise = Ease.inBack(clamp(this.stateT / (TELE * this.teleMul), 0, 1));
     else if (this.state === 'attack') { slam = Ease.outExpo(clamp(this.stateT / 0.08, 0, 1)); raise = 1 - slam; }
     else if (this.state === 'recover' && this.stateT < 1.0) { slam = 1 - Ease.outQuart(clamp(this.stateT / 1.0, 0, 1)); }
-    if (this.state === 'broken') kneel = Math.min(1, this.stateT * 4);
+    if (this.state === 'stunned') kneel = Math.min(1, this.stateT * 4);
     const r = clamp(raise, -0.2, 1.2);
     if (r > 0 || slam > 0) {
       setJoint(out, L, J.shL, lerp(-0.2, -2.9, r) + slam * -1.2, 0, 0.3 - r * 0.1);

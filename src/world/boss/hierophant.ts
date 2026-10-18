@@ -8,6 +8,7 @@ import { ARMS, hierophantRig } from '../../gen/chars/hierophant';
 import { Acolyte } from '../enemies/acolyte';
 import { registerEnemy } from '../enemies/factory';
 import type { SpawnOpts } from '../enemy';
+import { resetStunHabit } from '../actor';
 import type { World } from '../world';
 import type { CameraRig } from '../camera';
 import type { BossController } from './bossBase';
@@ -29,8 +30,8 @@ const POSES: PoseLib = {
 };
 
 /**
- * Иерофант Скорби (GDD §11.1): 9 000 HP, стойка 300, фазы 100–55 % / 55–0 %.
- * Учит уклонению сквозь волны, приоритету целей, слому стойки.
+ * Иерофант Скорби (GDD §11.1): 9 000 HP, оглушение 120 / 3.5 с, фазы 100–55 % / 55–0 %.
+ * Учит уклонению сквозь волны, приоритету целей, игре от окон уязвимости.
  */
 export class Hierophant extends ScriptedEnemy {
   ctrl: HierophantController | null = null;
@@ -71,7 +72,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 1.2, do: 'call', fn: 'sermonLine' },
       { t: 1.6, do: 'pose', id: 'idle', blend: 0.4 },
     ], dur: 2.2 },
-    // Падение колокола: тень на земле 1.0 с → падает всем телом в точку игрока; окно 2.0 с (стойка ×2)
+    // Падение колокола: тень на земле 1.0 с → падает всем телом в точку игрока; окно 2.0 с
     { id: 'drop', weight: 2, cooldown: 7, phases: [1, 2], range: [3, 40], unstoppable: true, steps: [
       { t: 0, do: 'pose', id: 'rise', blend: 0.25 },
       { t: 0, do: 'telegraph', shape: { circle: 4 }, at: 'snapshot', dur: 1.05 },
@@ -82,7 +83,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 1.05, do: 'fx', id: 'impact', at: 'self', r: 4 },
       { t: 1.05, do: 'sfx', id: 'boss_bell' }, { t: 1.05, do: 'shake', trauma: 0.7 },
       { t: 1.08, do: 'ringwave', at: 'self', speed: 8, width: 0.7, maxR: 9, gaps: 3, gapW: 1.3, dmg: 0.1 },
-      { t: 1.1, do: 'vulnerable', dur: 2.0, postureMul: 2 },
+      { t: 1.1, do: 'vulnerable', dur: 2.0 },
       { t: 3.0, do: 'pose', id: 'idle', blend: 0.5 },
     ] },
     // Великий Набат: 3 звона подряд с ускорением, последний — с одним разрывом
@@ -137,6 +138,7 @@ export class Hierophant extends ScriptedEnemy {
     this.isGuardian = false;
     this.stationary = true;
     this.approach = 0;
+    this.awakenPoses = ['rise', 'slam'];
     this.restRange = [0.9, 1.6];
     this.idleT = 999; // ждёт конца интро
   }
@@ -287,13 +289,19 @@ export class Hierophant extends ScriptedEnemy {
       setJoint(out, L, L.idx(`c2${a}`), Math.sin(ph - 0.6) * 0.25, 0, Math.cos(ph * 0.8 - 0.5) * 0.2);
     }
     setJoint(out, L, L.idx('clapper'), Math.sin(this.bob * 3) * 0.2, 0, Math.cos(this.bob * 2.6) * 0.2);
-    const float = this.state === 'broken' ? -1.6 : Math.sin(this.bob * 1.3) * 0.25;
+    const float = this.state === 'stunned' ? -1.6 : Math.sin(this.bob * 1.3) * 0.25;
     s.off[L.idx('body') * 3 + 1] = float;
     s.x = this.x; s.z = this.z; s.y = this.y; s.facing = this.facing;
     s.tiltX = this.puppet.springZ * 0.05; s.tiltZ = -this.puppet.springX * 0.05;
     s.update();
     this.puppet.boost = this.coreGlow + (this.vulnerableT > 0 ? 0.6 : 0) + (this.transitioning > 0 ? 1.5 : 0);
     this.coreGlow = Math.max(0, this.coreGlow - dt);
+  }
+
+  /** Звёзды оглушения кружат над колоколом. */
+  override headPoint(out: { x: number; y: number; z: number }): void {
+    this.bellPos(_bell);
+    out.x = _bell.x; out.y = _bell.y + 1.0; out.z = _bell.z;
   }
 
   /** Замах стягивается к колоколу. */
@@ -357,7 +365,7 @@ export class HierophantController implements BossController {
       if (this.t > 0.3 && this.lines === 0) { this.lines++; this.host.say('Пилот, колокол над нами. Это не служба — это охота.', 'kaelis'); }
       if (this.t > 1.6 && this.lines === 1) { this.lines++; this.host.banner(this.name, 'Звонящий по спасению'); w.bus.emit('sfx', { id: 'boss_intro', x: b.x, z: b.z }); w.bus.emit('shake', { trauma: 0.5 }); }
       if (this.t > 2.9 && this.lines === 2) { this.lines++; this.host.say('Звоню… по спасению… твоему.', 'boss'); }
-      if (this.t > 4.4 && this.lines === 3) { this.lines++; this.host.say('Ломай стойку. Колокол — его сердце.', 'kaelis'); }
+      if (this.t > 4.4 && this.lines === 3) { this.lines++; this.host.say('Бей в окна после ударов — оглуши его. Колокол — его сердце.', 'kaelis'); }
       if (this.t > 5.6 || (this.t > 0.8 && this.host.skipRequested())) this.finishIntro();
       return;
     }
@@ -389,6 +397,10 @@ export class HierophantController implements BossController {
     this.transT = 0;
     b.transitioning = 3;
     b.cur = null; b.move = null; b.y = 0;
+    // новая фаза: оглушение обрывается, привыкание сбрасывается
+    if (b.stun) { b.stun.stunned = 0; b.stun.value = 0; b.stun.immune = 0; resetStunHabit(b.stun); }
+    b.stunQueued = false; b.awakenQueued = false; b.vulnerableT = 0;
+    if (b.state === 'stunned') b.setState('chase');
     b.setPose('phase', 0.3);
     for (const e of b.summoned) if (!e.dead) w.killEnemy(e, 0, 1, 3);
     w.projectiles.length = 0;
@@ -450,7 +462,7 @@ export class HierophantController implements BossController {
     this.host.flash(0.55);
     w.projectiles.length = 0; w.ringWaves.length = 0;
     for (const e of w.enemies) if (e !== b && !e.dead) w.killEnemy(e, 0, 1, 3);
-    w.bus.emit('sfx', { id: 'posture_break', x: b.x, z: b.z });
+    w.bus.emit('sfx', { id: 'stun_break', x: b.x, z: b.z });
     w.bus.emit('bossDeath', { x: b.x, z: b.z });
   }
 

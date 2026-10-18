@@ -5,6 +5,7 @@ import { ABILITIES, type AbilityId } from '../data/abilities';
 import type { Input } from '../input/input';
 import type { Abilities } from '../world/abilities';
 import type { Enemy } from '../world/enemy';
+import { STUN_IMMUNE } from '../world/actor';
 import type { World } from '../world/world';
 import { drawTitle, measureTitle, type TitleOpts } from './font';
 import { FONT_BODY, FONT_TECH } from './fonts';
@@ -48,6 +49,11 @@ export class Hud {
   private g: CanvasRenderingContext2D;
   private w = 1; private h = 1; private dpr = 1;
   private nums: DmgNum[] = [];
+  /** Где этим кадром нарисованы звёзды оглушения босса (откуда они срываются к голове). */
+  private starSlots: { x: number; y: number }[] = [];
+  /** Звёзды, летящие с HUD к голове оглушённого (план §5.5). */
+  private starFly: { t: number; e: Enemy; from: { x: number; y: number }[]; r: number }[] = [];
+  private readonly headTmp = { x: 0, y: 0, z: 0 };
   private banners: Banner[] = [];
   private sub: { text: string; t: number; speaker: string } | null = null;
   private hint: { text: string; t: number } | null = null;
@@ -133,6 +139,7 @@ export class Hud {
     this.drawAbilities(f, R, B, s);
     if (f.showTouch) this.drawTouch(f.input, s);
     this.drawNums(dt, f);
+    this.drawStarFly(dt, f);
     this.drawBanners(dt);
     this.drawSubtitle(dt, s);
     if (f.showFps) { g.fillStyle = UI.dim; g.font = `600 ${Math.round(11 * s)}px ${FONT_TECH}`; g.textAlign = 'left'; g.fillText(`${f.fps.toFixed(0)} FPS`, L, B - 70 * s); }
@@ -146,6 +153,90 @@ export class Hud {
     g.moveTo(cx, cy - r); g.lineTo(cx + r, cy); g.lineTo(cx, cy + r); g.lineTo(cx - r, cy); g.closePath();
     if (fill) { g.fillStyle = fill; g.fill(); }
     if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); }
+  }
+
+  /** Острая семиконечная звезда Литургии (как печати на полу). */
+  private star7(cx: number, cy: number, r: number, fill?: string, stroke?: string, lw = 1, rot = 0): void {
+    const g = this.g;
+    g.beginPath();
+    for (let i = 0; i < 14; i++) {
+      const rr = i % 2 ? r * 0.45 : r, a = (i / 14) * Math.PI * 2 + rot;
+      const x = cx + Math.sin(a) * rr, y = cy - Math.cos(a) * rr;
+      if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.closePath();
+    if (fill) { g.fillStyle = fill; g.fill(); }
+    if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); }
+  }
+
+  /**
+   * Шкала оглушения (план §5.5): семь звёзд загораются по мере заполнения. Пробуждение — серые в золотом
+   * кольце-замке (кольцо тает к концу 5 с); очередь за неудержимой атакой — все горят и пульсируют;
+   * оглушён — пустые гнёзда (звёзды кружат над головой).
+   */
+  private stunStars(cx: number, cy: number, r: number, gap: number, e: Enemy, slots?: { x: number; y: number }[]): void {
+    const st = e.stun!, g = this.g;
+    const x0 = cx - gap * 3;
+    const lit = st.stunned > 0 ? 0 : (st.value / st.max) * 7;
+    const locked = st.immune > 0 && st.stunned <= 0;
+    const pulse = e.stunQueued ? 0.75 + 0.25 * Math.sin(this.time * 14) : 1;
+    for (let i = 0; i < 7; i++) {
+      const x = x0 + i * gap;
+      slots?.push({ x, y: cy });
+      if (locked) { this.star7(x, cy, r, '#3d424b', 'rgba(140,148,160,0.8)', 1); continue; }
+      const f = clamp(lit - i, 0, 1);
+      this.star7(x, cy, r, 'rgba(10,13,18,0.85)', 'rgba(227,195,126,0.6)', 1);
+      if (f <= 0) continue;
+      g.save();
+      g.globalAlpha *= (0.3 + 0.7 * f) * pulse;
+      if (f >= 1) { g.shadowColor = UI.glowGold; g.shadowBlur = r * 1.6; }
+      this.star7(x, cy, r * (0.7 + 0.3 * f), f >= 1 ? '#fff1cc' : UI.goldHi);
+      g.restore();
+    }
+    if (!locked) return;
+    // кольцо-замок вокруг ряда: золотая часть тает вместе с пробуждением
+    const rad = r * 1.45, x1 = x0 - gap * 0.55, x2 = x0 + gap * 6.55;
+    const ring = (): void => {
+      g.beginPath();
+      g.moveTo(cx, cy - rad); g.lineTo(x2 - rad, cy - rad); g.arc(x2 - rad, cy, rad, -Math.PI / 2, Math.PI / 2);
+      g.lineTo(x1 + rad, cy + rad); g.arc(x1 + rad, cy, rad, Math.PI / 2, Math.PI * 1.5); g.closePath();
+    };
+    const len = 2 * (x2 - x1 - 2 * rad) + 2 * Math.PI * rad;
+    g.save();
+    g.lineWidth = Math.max(1, r * 0.25);
+    g.strokeStyle = 'rgba(227,195,126,0.25)'; ring(); g.stroke();
+    g.strokeStyle = UI.goldHi; g.setLineDash([len * (st.immune / STUN_IMMUNE), len]); ring(); g.stroke();
+    g.restore();
+    this.diamond(x1 - r * 0.2, cy, r * 0.75, '#10151c', UI.goldHi, 1);
+  }
+
+  /** Оглушение Стража или босса: звёзды срываются с HUD и улетают к голове. */
+  launchStunStars(e: Enemy): void {
+    if (!this.starSlots.length) return;
+    this.starFly.push({ t: 0, e, from: this.starSlots.map((p) => ({ ...p })), r: 7.5 * this.scale });
+  }
+
+  private drawStarFly(dt: number, f: HudFrame): void {
+    if (!this.starFly.length) return;
+    const g = this.g, t = this.tmp, s = this.scale, DUR = 0.45;
+    for (const fl of this.starFly) {
+      fl.t += dt;
+      fl.e.headPoint(this.headTmp);
+      f.project(this.headTmp.x, this.headTmp.y, this.headTmp.z, t);
+      if (!t.visible) continue;
+      fl.from.forEach((p, i) => {
+        const u = clamp((fl.t - i * 0.025) / DUR, 0, 1);
+        if (u <= 0 || u >= 1) return;
+        const e = Ease.inOutQuad(u);
+        const x = p.x + (t.x - p.x) * e, y = p.y + (t.y - p.y) * e - Math.sin(u * Math.PI) * 50 * s;
+        g.save();
+        g.globalAlpha = u > 0.8 ? (1 - u) / 0.2 : 1;
+        g.shadowColor = UI.glowGold; g.shadowBlur = 10 * s;
+        this.star7(x, y, fl.r * (1 + Math.sin(u * Math.PI) * 0.5), '#fff1cc', undefined, 1, u * 6);
+        g.restore();
+      });
+    }
+    this.starFly = this.starFly.filter((fl) => fl.t < DUR + 0.2);
   }
 
   private text(t: string, x: number, y: number, size: number, color: string, font: 'tech' | 'body' | 'bodyBold' = 'tech', align: CanvasTextAlign = 'left'): number {
@@ -294,11 +385,12 @@ export class Hud {
     this.diamond(x - 14 * s, y + 6.5 * s, 5 * s, '#10151c', UI.goldHi, 1.2);
     this.diamond(x + w + 14 * s, y + 6.5 * s, 5 * s, '#10151c', UI.goldHi, 1.2);
     for (const p of phases) this.diamond(x + w * p, y + 6.5 * s, 5 * s, '#0b0f15', UI.goldHi, 1.2);
-    if (boss.posture) {
-      const cracked = boss.posture.broken > 0;
-      const pf = cracked ? boss.posture.broken / boss.posture.breakDur : boss.posture.value / boss.posture.max;
-      this.gothicBar(x + w * 0.2, y + 22 * s, w * 0.6, 5 * s, pf, cracked ? '#d6c08a' : '#7d8a9b', cracked ? '#ffffff' : '#dfe6ef', -1, 0, false);
-      if (cracked) { g.globalAlpha = 0.7 + 0.3 * Math.sin(this.time * 12); this.text('ТРЕСНУЛ — РАСКОЛ!', this.w / 2, y + 40 * s, 10 * s, UI.goldHi, 'bodyBold', 'center'); g.globalAlpha = 0.95; }
+    this.starSlots.length = 0;
+    if (boss.stun) {
+      // семь звёзд оглушения под полосой HP (план §5.5)
+      const sy = y + 31 * s;
+      this.stunStars(this.w / 2, sy, 7.5 * s, 21 * s, boss, this.starSlots);
+      if (boss.shatterable) { g.globalAlpha = 0.7 + 0.3 * Math.sin(this.time * 12); this.text('ОГЛУШЁН — РАСКОЛ!', this.w / 2, sy + 25 * s, 11 * s, UI.goldHi, 'bodyBold', 'center'); g.globalAlpha = 0.95; }
     }
     if (phase > 0) this.text(`ФАЗА ${ROMAN[phase] ?? ''}`, x + w, y - 8 * s, 10 * s, UI.goldHi, 'bodyBold', 'right');
   }
@@ -435,13 +527,13 @@ export class Hud {
     }
   }
 
-  /** Значки над врагами: трещина (Раскол), шкалы элиты. */
+  /** Значки над врагами: Раскол по оглушённому, шкалы элиты (HP и звёзды оглушения). */
   private drawWorldMarks(f: HudFrame): void {
     const g = this.g, t = this.tmp, s = this.scale;
     for (const e of f.world.enemies) {
       if (e.dead || !e.spawned || e.isBoss) continue;
-      if (e.cracked) {
-        f.project(e.x, e.height + 0.6, e.z, t);
+      if (e.shatterable) {
+        f.project(e.x, e.height + 1.3, e.z, t);
         if (!t.visible) continue;
         const k = 1 + 0.12 * Math.sin(this.time * 10);
         g.save();
@@ -454,7 +546,7 @@ export class Hud {
         if (!t.visible) continue;
         const w = 48 * s;
         this.gothicBar(t.x - w / 2, t.y, w, 4 * s, e.hp / e.maxHp, '#9e1420', '#ff5a64', -1, 0, false);
-        if (e.posture) this.gothicBar(t.x - w / 2 + 4 * s, t.y + 6 * s, w - 8 * s, 2.5 * s, e.posture.value / e.posture.max, '#7d8a9b', '#e6ebf2', -1, 0, false);
+        if (e.stun) this.stunStars(t.x, t.y + 10 * s, 2.8 * s, 6.6 * s, e);
       }
     }
   }

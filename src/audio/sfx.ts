@@ -43,6 +43,23 @@ const growl = (ctx: Ctx, out: AudioNode, t: number, dur: number, f0: number, gai
   o.connect(og).connect(sat); o.start(t); o.stop(t + dur + 0.05);
 };
 
+/** Приглушённое гудение колокола: низкие партиалы без удара, медленное вибрато, закрытый фильтр. */
+const hum = (ctx: Ctx, out: AudioNode, t: number, f0: number, dur: number, gain: number): void => {
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 650; lp.Q.value = 0.4;
+  const g = ctx.createGain();
+  env(g.gain, t, gain, 0.18, dur, 0.0001, dur * 0.35);
+  lp.connect(g).connect(out);
+  const lfo = ctx.createOscillator(); lfo.frequency.value = 2.4;
+  lfo.start(t); lfo.stop(t + dur + 0.1);
+  for (const [m, a] of [[1, 1], [2, 0.42], [2.76, 0.2], [3.0, 0.16]] as const) {
+    const o = ctx.createOscillator(); o.frequency.value = f0 * m;
+    const dv = ctx.createGain(); dv.gain.value = f0 * m * 0.011;
+    lfo.connect(dv).connect(o.frequency);
+    const og = ctx.createGain(); og.gain.value = a;
+    o.connect(og).connect(lp); o.start(t); o.stop(t + dur + 0.1);
+  }
+};
+
 export const SFX: Record<string, SfxRecipe> = {
   // взмахи клинка: розовый шум, полосовой фильтр скользит 600 → 3000 Гц за 0.12 с + шипение
   swing_light: { len: 0.25, variants: 5, render: (c, o, t) => { sweep(c, o, t, 400, 1800, 0.12, 0.5); noiseHit(c, o, t, 0.08, 300, 0.22, 'lowpass', 0.7, 'pink'); } },
@@ -62,10 +79,15 @@ export const SFX: Record<string, SfxRecipe> = {
 
 
 
-  posture_break: { reverb: 0.25, len: 2.2, render: (c, o, t) => {
-    for (let i = 0; i < 14; i++) noiseHit(c, o, t + Math.random() * 0.08, 0.004, 3000 + Math.random() * 3000, 0.5, 'highpass', 1);
-    body(c, o, t + 0.05, 110, 32, 0.6, 1); kick(c, o, t + 0.05, 0.6, 30); bell(c, o, t + 0.06, 220, 0.18, 2);
+  // оглушение (план §5.5): удар каменной плиты — низкое тело, хруст, без стекла
+  stun_break: { reverb: 0.2, len: 1.6, render: (c, o, t) => {
+    transient(c, o, t, 1500, 0.6); punch(c, o, t, 120, 38, 0.3, 1, 5); sub(c, o, t + 0.02, 58, 30, 0.6, 0.9);
+    crunch(c, o, t, 320, 0.2, 0.6); noiseHit(c, o, t + 0.03, 0.5, 220, 0.4, 'lowpass', 0.7, 'pink');
   } },
+  // …и приглушённый гул колокола с медленным вибрато — низко, без звона
+  stun_hum: { reverb: 0.3, len: 3.6, render: (c, o, t) => hum(c, o, t, 73.4, 3.1, 0.34) },
+  // погасла звезда: мягкий низкий «тук»
+  stun_tick: { len: 0.3, variants: 3, reverb: 0.12, render: (c, o, t) => { body(c, o, t, 190, 120, 0.12, 0.45); noiseHit(c, o, t, 0.03, 900, 0.12, 'lowpass', 0.8, 'pink'); } },
   // гибель: «осыпание» — хруст, каскад сколов, низкий шорох обломков
   shatter: { len: 0.7, variants: 4, reverb: 0.06, render: (c, o, t) => { crunch(c, o, t, 420, 0.12, 0.5); chips(c, o, t, 8, 0.16, 0.14); noiseHit(c, o, t + 0.05, 0.35, 900, 0.25, 'lowpass', 0.7, 'pink'); osc(c, 'sine', 1800, t, 0.12, o, 0.025, 0.002, 0.12); } },
   shatter_wet: { len: 0.6, variants: 3, reverb: 0.05, render: (c, o, t) => { crunch(c, o, t, 350, 0.1, 0.55); noiseHit(c, o, t + 0.03, 0.3, 500, 0.3, 'lowpass', 0.8, 'pink'); chips(c, o, t, 4, 0.1, 0.1); } },

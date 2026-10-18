@@ -12,7 +12,7 @@ export type PoseLib = Record<string, Record<string, V3>>;
 
 /**
  * Скриптовый враг (стражи, боссы): атаки — таймлайны паттернов (Tech §17), позы — библиотека ключевых поз
- * с плавным переходом, прыжки, призывы, окна наказания (уязвимость, ×2 урона по стойке).
+ * с плавным переходом, прыжки, призывы, окна наказания (уязвимость: оглушение копится полностью).
  */
 export abstract class ScriptedEnemy extends Enemy {
   abstract patterns: Pattern[];
@@ -46,12 +46,39 @@ export abstract class ScriptedEnemy extends Enemy {
     this.dmgUnit = 150 * Math.pow(1.75, o.zone) * (o.mode ?? 1);
     this.isGuardian = true;
     this.heavyWindup = true;
+    // у Стражей и боссов шкала оглушения утекает всегда (план §5.5)
+    if (this.stun) this.stun.alwaysLeak = true;
+  }
+
+  override get inWindow(): boolean { return this.vulnerableT > 0; }
+
+  /** Позы атаки пробуждения: замах и рёв. */
+  protected awakenPoses: [string, string] = ['crouch', 'roar'];
+  /** Пробуждение после оглушения: следующая атака — отталкивающий рёв. */
+  awakenQueued = false;
+
+  /**
+   * Пробуждение (план §5.5, анти-абуз 1): быстрая, но телеграфированная (0.8 с — минимум боссов зон 01–02)
+   * отталкивающая атака — рёв и кольцо вокруг. Отгоняет героя, который ждал у оглушённой цели.
+   */
+  awakenPattern(): Pattern {
+    const r = this.radius + 2.6;
+    return { id: 'awaken', weight: 0, cooldown: 0, phases: [], steps: [
+      { t: 0, do: 'pose', id: this.awakenPoses[0], blend: 0.2 },
+      { t: 0, do: 'telegraphSound', kind: 'roar' },
+      { t: 0, do: 'telegraph', shape: { circle: r }, at: 'self', dur: 0.8 },
+      { t: 0.8, do: 'pose', id: this.awakenPoses[1], blend: 0.06 },
+      { t: 0.8, do: 'hitbox', shape: { circle: r }, at: 'self', dmg: 0.08, kb: 11 },
+      { t: 0.8, do: 'fx', id: 'shockwave', at: 'self', r: r + 2 },
+      { t: 0.8, do: 'sfx', id: 'boss_roar' }, { t: 0.8, do: 'shake', trauma: 0.4 },
+      { t: 1.3, do: 'pose', id: 'idle', blend: 0.35 },
+    ], dur: 1.6 };
   }
 
   /** Замах: прогресс от телеграфа к ближайшему удару таймлайна (для искр и сходящегося кольца). */
   override get windup(): number {
     const p = this.cur;
-    if (!p || this.state === 'broken') return 0;
+    if (!p || this.state === 'stunned') return 0;
     let hit = Infinity;
     for (const s of p.steps) if ((s.do === 'hitbox' || s.do === 'ringwave') && s.t >= this.ct && s.t < hit) hit = s.t;
     if (hit === Infinity) return 0;
@@ -72,7 +99,7 @@ export abstract class ScriptedEnemy extends Enemy {
     this.frenzyT += dt;
     if (!this.frenzy && this.frenzyT > 360) { this.frenzy = true; this.teleMul *= 0.8; this.speed *= 1.25; }
     for (const [k, v] of this.cds) this.cds.set(k, v - dt);
-    if (this.vulnerableT > 0) { this.vulnerableT -= dt; if (this.vulnerableT <= 0) this.postureMul = 1; }
+    if (this.vulnerableT > 0) this.vulnerableT -= dt;
     this.summoned = this.summoned.filter((e) => !e.dead);
 
     if (this.move) this.stepMove(dt);
@@ -99,6 +126,7 @@ export abstract class ScriptedEnemy extends Enemy {
     // между атаками: подойти/развернуться
     if (this.state !== 'chase') this.setState('chase');
     if (this.poseId === 'broken') this.setPose('idle', 0.3);
+    if (this.awakenQueued && !this.move && !h.dead) { this.awakenQueued = false; this.startPattern(this.awakenPattern()); return; }
     const d = this.distTo(h);
     if (!this.stationary && !this.move) this.seek(w, h.x, h.z, this.speed, dt, this.approach);
     else { this.vx *= 0.85; this.vz *= 0.85; }
@@ -205,7 +233,7 @@ export abstract class ScriptedEnemy extends Enemy {
       }
       case 'sfx': w.bus.emit('sfx', { id: s.id, x: this.x, z: this.z }); break;
       case 'shake': w.bus.emit('shake', { trauma: s.trauma }); break;
-      case 'vulnerable': this.vulnerableT = s.dur; this.postureMul = s.postureMul ?? 2; break;
+      case 'vulnerable': this.vulnerableT = s.dur; break;
       case 'move': {
         const t = this.anchor(s.to);
         const o = { x: t.x, z: t.z };
@@ -284,12 +312,17 @@ export abstract class ScriptedEnemy extends Enemy {
   }
 
   override interrupt(): void { /* стражи и боссы не прерываются лёгкими ударами */ }
-  override canBreakNow(): boolean { return !this.cur?.unstoppable; }
-  override onBreak(): void {
-    super.onBreak();
+  override canStunNow(): boolean { return !this.cur?.unstoppable; }
+  override onStun(): void {
+    super.onStun();
     this.cur = null;
     this.move = null;
     this.y = 0;
+    this.vulnerableT = 0;
     this.setPose('broken', 0.12);
+  }
+  override onStunEnd(w: World): void {
+    super.onStunEnd(w);
+    this.awakenQueued = true;
   }
 }

@@ -16,13 +16,14 @@ export type ShapeSpec =
 export type Step =
   | { t: number; do: 'pose'; id: string; blend?: number }
   | { t: number; do: 'telegraph'; shape: ShapeSpec; at: Anchor; dur: number; white?: boolean; tag?: string; dir?: Anchor }
-  | { t: number; do: 'hitbox'; shape: ShapeSpec; at: Anchor; dmg: number; posture?: number; kb?: number; dir?: Anchor }
+  | { t: number; do: 'hitbox'; shape: ShapeSpec; at: Anchor; dmg: number; kb?: number; dir?: Anchor }
   | { t: number; do: 'projectiles'; pattern: 'radial' | 'fan' | 'aimed' | 'rain' | 'spiral'; count: number; speed: number; kind?: 'orb' | 'stone' | 'needle'; dmg: number; spread?: number; at?: Anchor }
   | { t: number; do: 'ringwave'; at: Anchor; speed: number; width: number; maxR: number; gaps: number; gapW: number; dmg: number; accel?: number }
   | { t: number; do: 'fx'; id: 'impact' | 'shockwave' | 'dust'; at: Anchor; r?: number }
   | { t: number; do: 'sfx'; id: string }
   | { t: number; do: 'shake'; trauma: number }
-  | { t: number; do: 'vulnerable'; dur: number; postureMul?: number }
+  /** Окно уязвимости: оглушение копится как у элиты (план §5.5). */
+  | { t: number; do: 'vulnerable'; dur: number }
   | { t: number; do: 'move'; to: Anchor; dur: number; arc?: number; ease?: 'inOutQuad' | 'outCubic' | 'inExpo' }
   | { t: number; do: 'turn'; to: Anchor }
   | { t: number; do: 'summon'; enemy: EnemyKind; count: number; at: Anchor[] | 'edges' }
@@ -40,7 +41,7 @@ export interface Pattern {
   steps: Step[];
   /** Длительность паттерна (если не задана — последний шаг + 0.5 с). */
   dur?: number;
-  /** Фирменная атака: слом стойки не прерывает её — он встаёт в очередь и наступает после паттерна. */
+  /** Фирменная атака: оглушение не прерывает её — оно встаёт в очередь и наступает после паттерна. */
   unstoppable?: boolean;
   /** Динамическая сборка шагов на старте (позиции от героя/босса). */
   build?: () => Step[];

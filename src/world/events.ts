@@ -3,14 +3,22 @@ import type { Actor } from './actor';
 
 /** Типизированные события боя (Tech §9). Звук, частицы, тряска, вибрация — подписчики. */
 export interface GameEvents {
-  hit: { target: Actor; dmg: number; crit: boolean; feel: FeelId; dirX: number; dirZ: number; x: number; y: number; z: number; source: 'blade' | 'ability' | 'proj' | 'env'; shielded?: boolean };
+  hit: { target: Actor; dmg: number; crit: boolean; feel: FeelId; dirX: number; dirZ: number; x: number; y: number; z: number; source: 'blade' | 'ability' | 'proj' | 'env'; shielded?: boolean; weak?: boolean };
   /**
    * Один взмах (или один залп способности) — одно событие на все задетые цели (план §5.1):
    * hitstop, тряска, кик, звук и вибрация — только здесь, а не на каждое попадание.
    */
   strike: { n: number; crit: boolean; feel: FeelId; x: number; z: number; dirX: number; dirZ: number; source: 'blade' | 'ability' | 'proj' | 'env'; moveId?: string; boss: boolean };
   kill: { target: Actor; kind: string; x: number; z: number; dirX: number; dirZ: number; big: boolean; elite: boolean };
-  postureBreak: { target: Actor; x: number; z: number; boss: boolean };
+  /**
+   * Оглушение (план §5.5): шкала заполнилась. boss — Страж или босс (стингер, звёзды с HUD, подъезд камеры);
+   * dur — длительность (с привыканием).
+   */
+  stun: { target: Actor; x: number; z: number; boss: boolean; dur: number };
+  /** Погасла звезда оглушения (left — сколько осталось; 0 — враг очнулся). */
+  stunTick: { target: Actor; x: number; z: number; left: number; boss: boolean };
+  /** Рядовой сбит тяжёлым ударом: две маленькие звезды на 0.6 с. */
+  daze: { target: Actor; x: number; z: number };
   /**
    * Идеальное уклонение (план §5.4). heavy — атака элиты, Стража или босса с телеграфом ≥ 0.7 с («Мгновение Пустоты»);
    * sx, sz — где начался рывок (там остаётся силуэт).
@@ -26,7 +34,7 @@ export interface GameEvents {
   dash: { x: number; z: number; dirX: number; dirZ: number };
   chargeReady: { level: number };
   impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell' };
-  /** Раскол: финишер по треснувшему (сломанная стойка) врагу — взрыв трещин. */
+  /** Раскол: финишер или полный заряд по оглушённому врагу — взрыв трещин, оглушение кончается. */
   shatter: { target: Actor; x: number; y: number; z: number; boss: boolean; dmg: number };
   /** src — вид врага: по нему слышен класс замаха (рой, дуэлянт, тяжёлый, поддержка). */
   telegraph: { kind: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar'; x: number; z: number; src?: string };

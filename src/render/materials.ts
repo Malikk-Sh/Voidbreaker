@@ -185,7 +185,7 @@ void main() {
 
   col += emissiveTerm(vEmissive) * uEmissiveStrength * (1.0 + boost);
 
-  // трещины слома стойки — светящиеся швы по ячейкам
+  // трещины оглушения — светящиеся швы по ячейкам (украденный свет рвётся наружу)
   if (crack > 0.001) {
     float edge = texture2D(uNoise, vLocal.xy * 0.7 + vLocal.z * 0.3).g;
     float c = smoothstep(0.12 * crack, 0.0, edge);

@@ -5,6 +5,7 @@ import { layoutOf } from '../../anim/puppet';
 import { ENEMIES } from '../../data/enemies';
 import { bruteRig } from '../../gen/chars/enemies';
 import type { SpawnOpts } from '../enemy';
+import { resetStunHabit } from '../actor';
 import { registerEnemy } from '../enemies/factory';
 import type { World } from '../world';
 import { ScriptedEnemy, type PoseLib } from './scripted';
@@ -103,6 +104,7 @@ abstract class BruteGuardian extends ScriptedEnemy {
     super.onDamaged(w, dmg, before);
     if (this.phase !== 1 || this.dead || this.hp > this.maxHp * RAGE_AT) return;
     this.phase = 2;
+    if (this.stun) resetStunHabit(this.stun);
     this.teleMul *= 0.9;
     this.speed *= 1.15;
     this.rageQueued = true;
@@ -111,8 +113,9 @@ abstract class BruteGuardian extends ScriptedEnemy {
   private rageQueued = false;
 
   protected override think(w: World, dt: number, tick: boolean): void {
-    // ярость ждёт конца слома стойки — рёв не обрывает окно наказания
-    if (this.rageQueued && this.state !== 'broken' && !this.move) {
+    // ярость ждёт конца оглушения — рёв не обрывает окно наказания (и заменяет рёв пробуждения)
+    if (this.rageQueued && this.state !== 'stunned' && !this.move) {
+      this.awakenQueued = false;
       this.rageQueued = false;
       this.startPattern(RAGE);
       w.bus.emit('guardianRage', { x: this.x, z: this.z, kind: this.kind });
@@ -123,7 +126,7 @@ abstract class BruteGuardian extends ScriptedEnemy {
   protected animate(dt: number, w: World): void {
     const s = this.puppet.skel, L = s.layout, out = s.rot;
     const sp = Math.hypot(this.vx, this.vz);
-    const walking = !this.cur && this.state !== 'broken';
+    const walking = !this.cur && this.state !== 'stunned';
     this.gait.update(sp * dt, walking ? sp : 0, 0, dt);
     this.gait.write(out, L, this.J, false);
     const st = Math.floor(this.gait.phase * 2);
@@ -131,7 +134,7 @@ abstract class BruteGuardian extends ScriptedEnemy {
     const pose = this.blendPose(dt);
     for (const [j, e] of pose) setJoint(out, L, j, e[0], e[1], e[2]);
     s.x = this.x; s.z = this.z; s.facing = this.facing;
-    s.y = this.y + this.gait.bob * 1.4 - (this.state === 'broken' ? 0.7 : 0);
+    s.y = this.y + this.gait.bob * 1.4 - (this.state === 'stunned' ? 0.7 : 0);
     s.tiltX = this.puppet.springZ * 0.06; s.tiltZ = -this.puppet.springX * 0.06;
     s.update();
     this.puppet.boost = this.coreGlow * 1.2 + (this.vulnerableT > 0 ? 0.5 : 0);

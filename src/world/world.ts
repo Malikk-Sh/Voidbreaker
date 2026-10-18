@@ -3,9 +3,10 @@ import { Rng, fxRng } from '../core/rng';
 import { clamp } from '../core/math';
 import { swapRemove } from '../core/pool';
 import { FEEL, type FeelId } from '../data/feel';
+import type { StunKind } from '../data/weapons';
 import { RESONANCE } from '../data/player';
 import type { Input } from '../input/input';
-import { hitPosture, POSTURE_IMMUNE, type Actor } from './actor';
+import { addStun, endStun, triggerStun, type Actor } from './actor';
 import { NavGrid } from './nav';
 import type { Arena } from './arena';
 import { computeDamage, overlaps, type Shape } from './combat';
@@ -18,7 +19,10 @@ import type { AbilityHost } from './abilityHost';
 
 export interface StrikeParams {
   mult: number;
-  posture: number;
+  /** Наполнение шкалы оглушения (план §5.5). */
+  stun: number;
+  /** Источник оглушения; по умолчанию клинок: финишер → 'finisher', иначе 'light'; способности — 'other'. */
+  stunKind?: StunKind;
   knockback: number;
   feel: FeelId;
   finisher?: boolean;
@@ -40,6 +44,15 @@ export interface StrikeParams {
 }
 
 const FEEL_ORDER: Record<FeelId, number> = { light: 0, medium: 1, heavy: 2, break: 3 };
+
+/**
+ * Множитель оглушения у Стражей и боссов (план §5.5): вне окна уязвимости спам почти не копит шкалу,
+ * Контрудар — всегда полностью, украденный снаряд — ×2.5. В окне — как у элиты (украденный снаряд ×2.5).
+ */
+const STUN_OUT: Record<StunKind, number> = { light: 0.25, finisher: 0.25, charged: 1 / 3, counter: 1, stolen: 2.5, other: 0.25 };
+const STUN_IN: Record<StunKind, number> = { light: 1, finisher: 1, charged: 1, counter: 1, stolen: 2.5, other: 1 };
+/** Идеальное уклонение от атаки Стража или босса. */
+export const STUN_PERFECT_DODGE = 10;
 
 /** Итог попадания для сборки события strike. */
 export interface HitResult { crit: boolean; feel: FeelId }
@@ -84,7 +97,7 @@ export class World {
   magnet = false;
   /** Дополнительные «наблюдатели» шага (босс-скрипты, директор волн). */
   readonly stepHooks: ((dt: number) => void)[] = [];
-  /** Бонус урона по сломанным (Сердце Молоха и т.п.). */
+  /** Бонус урона по оглушённым (Сердце Молоха и т.п.). */
   brokenBonus = 0;
   /** Элита опустилась до 50 % HP (подкрепления, Зеркальный аффикс). */
   onEliteHalf: ((e: Enemy) => void) | null = null;
@@ -224,34 +237,28 @@ export class World {
       return null;
     }
     const perfect = (p.source === 'blade' || p.source === 'ability') && h.consumePerfectBuff();
-    // Раскол: финишер/заряженный удар по уже треснувшему врагу
-    const shatter = e.cracked && (!!p.finisher || p.feel === 'heavy') && p.abilityId !== 'shatter';
+    const kind: StunKind = p.stunKind ?? (p.source === 'blade' ? (p.finisher ? 'finisher' : 'light') : 'other');
+    // Раскол: финишер, Контрудар или полный заряд по оглушённому врагу — один раз за оглушение
+    const shatter = e.shatterable && p.source === 'blade' && !!p.finisher && (kind !== 'charged' || p.feel === 'heavy');
+    // слабое место: удар в спину
+    const weak = p.source === 'blade' && Math.sin(e.facing) * p.dirX + Math.cos(e.facing) * p.dirZ > 0.5;
     const S = h.stats;
     const res = computeDamage(
-      { atk: S.atk, critChance: S.critChance, critMul: S.critMul, dmgBonus: S.dmgBonus + (p.source === 'ability' ? S.abilityDmg : 0) + (e.broken ? this.brokenBonus : 0), forceCrit: perfect },
-      p.mult, e.armor, e.broken, () => this.rng.next(), (perfect ? 1.3 : 1) * e.shieldMul * (p.extra ?? 1) * this.abilities.damageMulOn(e),
+      { atk: S.atk, critChance: S.critChance, critMul: S.critMul, dmgBonus: S.dmgBonus + (p.source === 'ability' ? S.abilityDmg : 0) + (e.stunned ? this.brokenBonus : 0), forceCrit: perfect },
+      p.mult, e.armor, e.stunned, () => this.rng.next(), (perfect ? 1.3 : 1) * e.shieldMul * (p.extra ?? 1) * this.abilities.damageMulOn(e),
     );
     const before = e.hp;
     e.hp -= res.dmg;
     this.run.dmgDealt += res.dmg;
     e.onDamaged(this, res.dmg, before);
     let feel: FeelId = res.crit && p.feel === 'light' ? 'medium' : p.feel;
-    let broke = false;
-    if (e.posture && !e.dead) {
-      // Стражи и боссы вне окна уязвимости почти не теряют стойку: ломают её окна, а не спам
-      const heavy = (e.isGuardian || e.isBoss) && e.postureMul <= 1 ? 0.2 : 1;
-      const pm = (perfect ? 2 : 1) * (e.shieldMul < 1 ? 0.5 : 1) * e.postureMul * heavy;
-      if (hitPosture(e.posture, p.posture * pm)) {
-        if (e.canBreakNow()) {
-          broke = true;
-          feel = 'break';
-          this.breakEnemy(e, false);
-        } else {
-          // неудержимая атака: слом ждёт её конца
-          e.posture.broken = 0; e.posture.value = 0;
-          e.breakQueued = true;
-        }
-      }
+    let stunned = false;
+    if (e.stun && !e.dead && !shatter) {
+      const heavy = e.isGuardian || e.isBoss;
+      const k = heavy ? (e.inWindow ? STUN_IN : STUN_OUT)[kind] : 1;
+      const amount = p.stun * k * (perfect ? 2 : 1) * (weak ? 1.5 : 1) * (e.shieldMul < 1 ? 0.5 : 1);
+      if (addStun(e.stun, amount)) stunned = this.stunOrQueue(e);
+      if (stunned) feel = 'break';
     }
     // реакция на попадание: вспышка, пружина, отбрасывание, хитстан рядовых
     e.puppet.flash = 1;
@@ -260,14 +267,19 @@ export class World {
       const kb = p.knockback / Math.max(0.5, e.mass) * (e.isGuardian ? 0.1 : 1);
       e.kbX += p.dirX * kb * 2.2; e.kbZ += p.dirZ * kb * 2.2;
       if (p.launch) e.launch(p.launch);
-      else if (!p.noStagger) e.interrupt(p.feel === 'light' ? 0.22 : 0.35);
+      else if (!p.noStagger) {
+        // тяжёлый удар сбивает рядового с ног: две маленькие звезды на 0.6 с — тот же язык, что у оглушения
+        const knock = p.feel === 'heavy' && !e.stun;
+        e.interrupt(knock ? 0.6 : p.feel === 'light' ? 0.22 : 0.35);
+        if (knock && e.state === 'stagger' && e.dazeT <= 0) { e.dazeT = 0.6; this.bus.emit('daze', { target: e, x: e.x, z: e.z }); }
+      }
     }
     if (!p.noResonance) h.addResonance(RESONANCE.perHit + (p.finisher ? RESONANCE.perFinisher - RESONANCE.perHit : 0));
     this.rank.hit(!!p.finisher);
     if (p.abilityId) this.rank.used(p.abilityId);
     else this.rank.used('blade');
     const crit = res.crit || perfect;
-    this.bus.emit('hit', { target: e, dmg: res.dmg, crit, feel, dirX: p.dirX, dirZ: p.dirZ, x: e.x, y: e.height * 0.55, z: e.z, source: p.source, shielded: e.shieldMul < 1 });
+    this.bus.emit('hit', { target: e, dmg: res.dmg, crit, feel, dirX: p.dirX, dirZ: p.dirZ, x: e.x, y: e.height * 0.55, z: e.z, source: p.source, shielded: e.shieldMul < 1, weak: weak || e.inWindow });
     // жертва висит в кадре удара чуть дольше героя (стопкадр + дрожь)
     e.freeze = Math.max(e.freeze, (FEEL[feel].hitstop + 0.04) * (e.isBoss || e.isGuardian ? 0.5 : 1));
     const b = this.batch;
@@ -275,37 +287,48 @@ export class World {
       b.n++; b.crit ||= crit; b.sx += e.x; b.sz += e.z; b.boss ||= e.isBoss || e.isGuardian;
       if (FEEL_ORDER[feel] > FEEL_ORDER[b.feel]) b.feel = feel;
     }
-    if (e.hp <= 0) this.killEnemy(e, p.dirX, p.dirZ, broke || p.feel === 'heavy' ? 6 : 3.5);
-    else if (shatter && !broke) this.shatterEnemy(e, p.dirX, p.dirZ);
+    if (e.hp <= 0) this.killEnemy(e, p.dirX, p.dirZ, stunned || p.feel === 'heavy' ? 6 : 3.5);
+    else if (shatter) this.shatterEnemy(e, p.dirX, p.dirZ);
     return { crit, feel };
   }
 
-  /** Слом стойки: оглушение врага и событие для реакций. Из очереди — после неудержимой атаки. */
-  breakEnemy(e: Enemy, fromQueue = true): void {
-    if (e.dead || !e.posture) return;
-    e.breakQueued = false;
-    if (fromQueue) { e.posture.value = 0; e.posture.broken = e.posture.breakDur; }
-    e.onBreak();
-    this.bus.emit('postureBreak', { target: e, x: e.x, z: e.z, boss: e.isBoss });
+  /** Шкала заполнилась: оглушить сейчас или, если идёт неудержимая атака, — после неё. true — оглушён. */
+  private stunOrQueue(e: Enemy): boolean {
+    if (e.canStunNow()) { this.stunEnemy(e); return true; }
+    e.stunQueued = true;
+    return false;
+  }
+
+  /** Добавить оглушение напрямую (идеальное уклонение от Стража или босса). */
+  addStunTo(e: Enemy, amount: number): void {
+    if (e.dead || !e.stun) return;
+    if (addStun(e.stun, amount)) this.stunOrQueue(e);
+  }
+
+  /** Оглушение (план §5.5): таймер с привыканием, событие для звёзд, звука и камеры. */
+  stunEnemy(e: Enemy): void {
+    if (e.dead || !e.stun || e.stun.stunned > 0) return;
+    e.stunQueued = false;
+    const dur = triggerStun(e.stun);
+    e.onStun();
+    this.bus.emit('stun', { target: e, x: e.x, z: e.z, boss: e.isBoss || e.isGuardian, dur });
   }
 
   /**
-   * Раскол (замена казни): трещины взрываются — доля HP цели (элита 14 %, стражи 5 %, босс 3.5 %),
-   * волна осколков по соседям, Резонанс; цель выходит из слома. Мгновенных убийств нет.
+   * Раскол (замена казни): трещины взрываются — доля HP цели (элита 14 %, стражи 5 %, босс 4 %),
+   * волна осколков по соседям, Резонанс; оглушение сразу заканчивается (пробуждение 5 с). Мгновенных убийств нет.
    */
   shatterEnemy(e: Enemy, dirX: number, dirZ: number): void {
-    if (e.dead || !e.posture) return;
+    if (e.dead || !e.stun) return;
     const h = this.hero, S = h.stats;
-    const frac = e.isBoss ? 0.035 : e.isGuardian ? 0.05 : 0.14;
+    const frac = e.isBoss ? 0.04 : e.isGuardian ? 0.05 : 0.14;
     const dmg = Math.max(1, Math.round(e.maxHp * frac * (1 + S.dmgBonus) * e.shieldMul));
     const before = e.hp;
     e.hp -= dmg;
     this.run.dmgDealt += dmg;
     this.run.shatters++;
-    // стойка восстанавливается полностью и 5 с неуязвима — следующий слом надо заработать заново
-    e.posture.broken = 0;
-    e.posture.value = e.posture.max;
-    e.posture.immune = POSTURE_IMMUNE;
+    endStun(e.stun);
+    e.onStunEnd(this);
     e.onDamaged(this, dmg, before);
     e.onShattered(this);
     this.rank.shatter();
@@ -318,7 +341,7 @@ export class World {
       if (o === e || !o.targetable) continue;
       const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz);
       if (d > 3.4 + o.radius) continue;
-      this.damageEnemy(o, { mult: 1.6, posture: 6, knockback: 4, feel: 'medium', dirX: dx / (d || 1), dirZ: dz / (d || 1), source: 'ability', noResonance: true, abilityId: 'shatter' });
+      this.damageEnemy(o, { mult: 1.6, stun: 6, knockback: 4, feel: 'medium', dirX: dx / (d || 1), dirZ: dz / (d || 1), source: 'ability', noResonance: true, abilityId: 'shatter' });
     }
     if (e.hp <= 0) this.killEnemy(e, dirX, dirZ, 7);
   }
@@ -346,7 +369,10 @@ export class World {
     const atk = this.enemies.find((x) => x.id === src.id);
     const heavy = !!atk && (atk.elite.length > 0 || atk.isGuardian || atk.isBoss) && atk.lastTeleDur >= 0.7;
     const res = h.receiveAttack(dmg, dx, dz, src.kind, kb, heavy);
-    if (res === 'perfect' && atk && !atk.isGuardian && !atk.isBoss) atk.lagT = 0.2;
+    if (res === 'perfect' && atk) {
+      if (!atk.isGuardian && !atk.isBoss) atk.lagT = 0.2;
+      else this.addStunTo(atk, STUN_PERFECT_DODGE);
+    }
     if (res === 'hit') {
       this.run.hitsTaken++;
       this.run.dmgTaken += dmg;
@@ -416,7 +442,7 @@ export class World {
         for (const e of this.enemies) {
           if (!e.targetable || Math.hypot(e.x - p.x, e.z - p.z) > e.radius + p.r) continue;
           const l = Math.hypot(p.vx, p.vz) || 1;
-          const sp: StrikeParams = { mult: 2.0, posture: 10, knockback: 2, feel: 'medium', dirX: p.vx / l, dirZ: p.vz / l, source: 'proj', abilityId: 'reflect' };
+          const sp: StrikeParams = { mult: 2.0, stun: 10, stunKind: 'stolen', knockback: 2, feel: 'medium', dirX: p.vx / l, dirZ: p.vz / l, source: 'proj', abilityId: 'reflect' };
           this.beginStrike();
           this.damageEnemy(e, sp);
           this.endStrike(sp);
@@ -474,7 +500,7 @@ export class World {
         } else {
           for (const e of this.enemies) {
             if (!e.targetable || !overlaps(hz.shape, e.x, e.z, e.radius)) continue;
-            this.damageEnemy(e, { mult: hz.dmg, posture: 1, knockback: 0, feel: 'light', dirX: 0, dirZ: 0, source: 'ability', noResonance: true, noStagger: true, abilityId: hz.kind });
+            this.damageEnemy(e, { mult: hz.dmg, stun: 1, knockback: 0, feel: 'light', dirX: 0, dirZ: 0, source: 'ability', noResonance: true, noStagger: true, abilityId: hz.kind });
           }
         }
       }

@@ -55,13 +55,13 @@ export interface DamageResult { dmg: number; crit: boolean }
 
 /**
  * Формула урона (GDD §5.9, Tech §15.3):
- * урон = ATK × множитель × (1 + Σ бонусы) × крит × (1 + 0.25 × треснул) × элемент; × (1 − броня/(броня+100)); разброс ±5 %.
+ * урон = ATK × множитель × (1 + Σ бонусы) × крит × (1 + 0.25 × оглушён) × элемент; × (1 − броня/(броня+100)); разброс ±5 %.
  */
-export function computeDamage(a: AttackerStats, mult: number, armor: number, broken: boolean, rng: () => number, extraMul = 1): DamageResult {
+export function computeDamage(a: AttackerStats, mult: number, armor: number, stunned: boolean, rng: () => number, extraMul = 1): DamageResult {
   const crit = a.forceCrit || rng() < a.critChance;
   let dmg = a.atk * mult * (1 + a.dmgBonus) * extraMul;
   if (crit) dmg *= a.critMul;
-  if (broken) dmg *= 1.25;
+  if (stunned) dmg *= 1.25;
   dmg *= 1 - armor / (armor + 100);
   dmg *= 0.95 + rng() * 0.1;
   return { dmg: Math.max(1, Math.round(dmg)), crit };

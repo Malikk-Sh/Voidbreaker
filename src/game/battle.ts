@@ -65,6 +65,8 @@ export class Battle {
   private bladeA = new THREE.Vector3(); private bladeB = new THREE.Vector3();
   /** Доп. отъезд, чтобы голова босса/Стража не уходила под верхний HUD. */
   private bossFrame = 0;
+  /** Подъезд камеры к оглушённому Стражу или боссу (0..1). */
+  private stunZoom = 0;
 
   constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout) {
     const r = ctx.renderer;
@@ -92,6 +94,7 @@ export class Battle {
     this.vfx = new BattleVfx(Q.particles, this.pools);
     this.vfx.quality = r.quality === 'low' ? 0.5 : r.quality === 'medium' ? 0.75 : 1;
     this.vfx.tele.hatch = ctx.settings.hatch;
+    this.vfx.camera = ctx.renderer.camera;
     this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group);
     this.enemies.warm(['husk', 'crawler', 'mantis', 'eye', 'acolyte', 'brute']);
     r.scene.add(this.group);
@@ -185,15 +188,15 @@ export class Battle {
       else if ((e.actor as Enemy).elite?.length && !en.isBoss) this.cine.elite(e.actor as Enemy);
       if (this.stage.tutorial === 'charged' && en.kind === 'golem' && !S.flag('tut_charged')) {
         S.setFlag('tut_charged');
-        hud.showHint('Удерживайте атаку — заряженный удар ломает стойку');
+        hud.showHint('Удерживайте атаку — заряженный удар быстро оглушает');
       }
       if (this.stage.tutorial === 'charged' && en.kind === 'eye' && !S.flag('tut_q')) {
         S.setFlag('tut_q');
         setTimeout(() => hud.showHint('Q — Серп Луны достанет Око издалека'), 1500);
       }
     });
-    b.on('postureBreak', () => {
-      if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Стойка треснула — финишер или заряженный удар: РАСКОЛ'); }
+    b.on('stun', () => {
+      if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Враг оглушён — финишер или заряженный удар: РАСКОЛ'); }
     });
     // подсказки о ветках комбо — по одному разу
     const comboHints: Record<string, [string, string]> = {
@@ -304,6 +307,10 @@ export class Battle {
       if (frac > 0.78) this.bossFrame = Math.min(0.8, this.bossFrame + realDt * 0.9);
       else if (frac < 0.7) this.bossFrame = Math.max(0, this.bossFrame - realDt * 0.4);
       zoom *= 1 + this.bossFrame;
+      // оглушённый Страж или босс: камера подъезжает на 6 % (эталонный эпизод §4.0, п. 5)
+      const stunned = (focusBoss as { stunned?: boolean }).stunned ? 1 : 0;
+      this.stunZoom += (stunned - this.stunZoom) * Math.min(1, realDt * (stunned ? 5 : 2));
+      zoom *= 1 - 0.06 * this.stunZoom;
     } else {
       // боевой зум: только большая толпа (12+ в 13 м) отодвигает камеру, не дальше 1.12
       let near = 0;

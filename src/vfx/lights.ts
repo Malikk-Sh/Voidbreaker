@@ -18,7 +18,7 @@ export class LightManager {
     this.reqs.push({ x, y, z, r: rgb[0], g: rgb[1], b: rgb[2], i: intensity, radius });
   }
 
-  /** Короткая вспышка (взрыв, слом стойки), затухает за life секунд. */
+  /** Короткая вспышка (взрыв, оглушение), затухает за life секунд. */
   flash(x: number, y: number, z: number, rgb: [number, number, number], intensity: number, radius: number, life: number): void {
     this.flashes.push({ x, y, z, r: rgb[0], g: rgb[1], b: rgb[2], i: intensity, radius, t: 0, life });
   }

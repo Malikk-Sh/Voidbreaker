@@ -134,7 +134,7 @@ export class Abilities implements AbilityHost {
     const x1 = x0 + dx * dist, z1 = z0 + dz * dist;
     const hits = new Set<number>();
     this.w.heroStrike({ k: 'line', x: x0, z: z0, dx, dz, len: dist + 0.6, w: 1.8 }, hits, {
-      mult: this.mul('phase'), posture: 8, knockback: 1, feel: 'medium', dirX: dx, dirZ: dz, source: 'ability', abilityId: 'phase', finisher: true,
+      mult: this.mul('phase'), stun: 8, stunKind: 'other', knockback: 1, feel: 'medium', dirX: dx, dirZ: dz, source: 'ability', abilityId: 'phase', finisher: true,
     });
     h.x = x1; h.z = z1;
     h.avatar.puppet.skel.x = x1; h.avatar.puppet.skel.z = z1;
@@ -174,7 +174,7 @@ export class Abilities implements AbilityHost {
       const d = Math.hypot(e.x - h.x, e.z - h.z);
       if (d < 6) {
         const l = d || 1;
-        this.w.damageEnemy(e, { mult: 1.5, posture: 10, knockback: 4, feel: 'heavy', dirX: (e.x - h.x) / l, dirZ: (e.z - h.z) / l, source: 'ability', noResonance: true, abilityId: 'eclipse' });
+        this.w.damageEnemy(e, { mult: 1.5, stun: 10, knockback: 4, feel: 'heavy', dirX: (e.x - h.x) / l, dirZ: (e.z - h.z) / l, source: 'ability', noResonance: true, abilityId: 'eclipse' });
       }
     }
     this.w.endStrike({ dirX: 0, dirZ: 1, source: 'ability' });
@@ -246,7 +246,7 @@ export class Abilities implements AbilityHost {
       }
       const l = Math.hypot(s.vx, s.vz) || 1;
       w.heroStrike({ k: 'circle', x: s.x, z: s.z, r: 0.75 }, s.hits, {
-        mult: this.mul('crescent'), posture: 3, knockback: 0.8, feel: 'light', dirX: s.out ? s.vx / l : -s.vx / l, dirZ: s.out ? s.vz / l : -s.vz / l,
+        mult: this.mul('crescent'), stun: 3, knockback: 0.8, feel: 'light', dirX: s.out ? s.vx / l : -s.vx / l, dirZ: s.out ? s.vz / l : -s.vz / l,
         source: 'ability', abilityId: 'crescent', noStagger: false,
       });
     }
@@ -276,7 +276,7 @@ export class Abilities implements AbilityHost {
             if (!e.targetable || hits.has(e.id) || !overlaps({ k: 'circle', x: wl.x, z: wl.z, r: 3.4 }, e.x, e.z, e.radius)) continue;
             hits.add(e.id);
             const dx = e.x - wl.x, dz = e.z - wl.z, d = Math.hypot(dx, dz) || 1;
-            w.damageEnemy(e, { mult: this.mul('well'), posture: 15, knockback: 4, feel: 'heavy', dirX: dx / d, dirZ: dz / d, source: 'ability', abilityId: 'well', finisher: true });
+            w.damageEnemy(e, { mult: this.mul('well'), stun: 15, stunKind: 'other', knockback: 4, feel: 'heavy', dirX: dx / d, dirZ: dz / d, source: 'ability', abilityId: 'well', finisher: true });
           }
           w.endStrike({ dirX: 0, dirZ: 1, source: 'ability' });
           w.bus.emit('impact', { x: wl.x, z: wl.z, r: 3.4, kind: 'rift' });
@@ -295,7 +295,7 @@ export class Abilities implements AbilityHost {
       wv.x += wv.dx * step; wv.z += wv.dz * step; wv.dist += step;
       const blade = wv.kind === 'blade';
       w.heroStrike({ k: 'circle', x: wv.x, z: wv.z, r: wv.r }, wv.hits, {
-        mult: wv.mult, posture: blade ? 10 : 4, knockback: blade ? 3 : 1.5, feel: blade ? 'medium' : 'light', dirX: wv.dx, dirZ: wv.dz, source: blade ? 'blade' : 'ability', abilityId: blade ? 'bladeWave' : 'eclipseWave', noResonance: !blade,
+        mult: wv.mult, stun: 4, stunKind: 'other', knockback: blade ? 3 : 1.5, feel: blade ? 'medium' : 'light', dirX: wv.dx, dirZ: wv.dz, source: blade ? 'blade' : 'ability', abilityId: blade ? 'bladeWave' : 'eclipseWave', noResonance: !blade,
       });
       if (wv.dist > wv.max || w.arena.blocked(wv.x, wv.z, 0.3)) wv.alive = false;
     }
@@ -307,7 +307,7 @@ export class Abilities implements AbilityHost {
       if (!p.fired && p.t > 0.35) {
         p.fired = true;
         const hits = new Set<number>();
-        w.heroStrike({ k: 'circle', x: p.x, z: p.z, r: 2.6 }, hits, { mult: 1.2, posture: 6, knockback: 2, feel: 'medium', dirX: Math.sin(p.facing), dirZ: Math.cos(p.facing), source: 'ability', abilityId: 'phantom' });
+        w.heroStrike({ k: 'circle', x: p.x, z: p.z, r: 2.6 }, hits, { mult: 1.2, stun: 6, knockback: 2, feel: 'medium', dirX: Math.sin(p.facing), dirZ: Math.cos(p.facing), source: 'ability', abilityId: 'phantom' });
         w.bus.emit('shockwave', { x: p.x, z: p.z, r: 2.6, color: 'void', strength: 0.5 });
       }
       if (p.t > 0.8) p.alive = false;
@@ -319,7 +319,7 @@ export class Abilities implements AbilityHost {
       this.eclipseActive = false;
       if (this.eclipseMut === 'A' && !h.dead) {
         const hits = new Set<number>();
-        w.heroStrike({ k: 'circle', x: h.x, z: h.z, r: 5.5 }, hits, { mult: 8, posture: 40, knockback: 6, feel: 'break', dirX: 0, dirZ: 1, source: 'ability', abilityId: 'eclipseEnd', noResonance: true });
+        w.heroStrike({ k: 'circle', x: h.x, z: h.z, r: 5.5 }, hits, { mult: 8, stun: 40, knockback: 6, feel: 'break', dirX: 0, dirZ: 1, source: 'ability', abilityId: 'eclipseEnd', noResonance: true });
         w.bus.emit('shockwave', { x: h.x, z: h.z, r: 6, color: 'void', strength: 1.2 });
         w.bus.emit('impact', { x: h.x, z: h.z, r: 5.5, kind: 'rift' });
       }

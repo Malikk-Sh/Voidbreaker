@@ -26,10 +26,12 @@ import type { Post } from '../render/post';
 import { C, type BattleVfx } from '../vfx/battleVfx';
 import type { CameraRig } from '../world/camera';
 import type { World } from '../world/world';
+import type { Enemy } from '../world/enemy';
 import type { Hud } from '../ui/hud';
 import type { Settings } from '../meta/settings';
 
 const _v = new THREE.Vector3();
+const _hp = { x: 0, y: 0, z: 0 };
 
 /**
  * Система «сочности» (GDD §14, Tech §9): подписчик событий боя. Стек обратной связи на один удар —
@@ -82,7 +84,7 @@ export class FeelSystem {
         }
         // звон — только броня (неуязвимая цель, щит Аколита); удар в окно уязвимости — чистый тон и резонанс
         if (isEnemy && e.shielded) this.audio.play('hit_armor', { gain: e.dmg > 0 ? 0.45 : 0.7, pan: this.pan(e.x) });
-        else if (isEnemy && e.dmg > 0 && ((e.target as { postureMul?: number }).postureMul ?? 1) > 1) this.audio.play('hit_weak', { gain: 0.6, pan: this.pan(e.x) });
+        else if (isEnemy && e.dmg > 0 && e.weak) this.audio.play('hit_weak', { gain: 0.6, pan: this.pan(e.x) });
         const t = e.target as { elite?: unknown[]; isBoss?: boolean; isGuardian?: boolean; id: number };
         const big = !!(t.isBoss || t.isGuardian);
         const notable = big || (t.elite?.length ?? 0) > 0;
@@ -95,16 +97,24 @@ export class FeelSystem {
         if (e.big && mat) this.audio.play(mat, { pan: this.pan(e.x), gain: 0.8 });
         if (e.big) this.cam.addTrauma(0.25);
       }),
-      b.on('postureBreak', (e) => {
+      // оглушение (план §5.5): удар плиты, гул колокола, у Стражей и боссов — стингер в музыке
+      b.on('stun', (e) => {
         this.time.addHitstop(FEEL.break.hitstop);
-        this.cam.addTrauma(FEEL.break.trauma);
-        this.chroma = Math.max(this.chroma, 0.6);
-        this.vfx.postureBreak(e.x, (e.target.height ?? 2) * 0.6, e.z);
-        this.shockwave(e.x, e.z, 0.6, 0.45);
-        this.audio.play('posture_break');
+        this.cam.addTrauma(e.boss ? 0.5 : FEEL.break.trauma);
+        this.chroma = Math.max(this.chroma, 0.45);
+        this.vfx.stunBurst(e.x, (e.target.height ?? 2) * 0.75, e.z, e.boss);
+        this.shockwave(e.x, e.z, 0.5, 0.4);
+        this.audio.play('stun_hum', { gain: e.boss ? 0.8 : 0.55, pan: this.pan(e.x) });
+        if (e.boss) { this.music.stinger('stunStinger'); this.audio.duck(0.6, 0.5); this.hud.launchStunStars(e.target as Enemy); }
         this.input.vibrate(80);
-        this.voice('Треснул! Добей финишером — Раскол!', 6);
+        this.voice('Оглушён! Финишер или полный заряд — Раскол!', 6);
       }),
+      b.on('stunTick', (e) => {
+        const en = e.target as { headPoint?: (o: { x: number; y: number; z: number }) => void };
+        if (en.headPoint) { en.headPoint(_hp); this.vfx.starOut(_hp.x, _hp.y, _hp.z); }
+        this.audio.play('stun_tick', { gain: e.boss ? 0.55 : 0.4, pitch: 1 + e.left * 0.03, pan: this.pan(e.x) });
+      }),
+      b.on('daze', (e) => { this.audio.play('stun_tick', { gain: 0.3, pitch: 1.3, pan: this.pan(e.x) }); }),
       b.on('perfectDodge', (e) => {
         this.vfx.perfectDodge(e.x, e.z, e.heavy, e.sx, e.sz);
         this.audio.play('perfect_dodge', { gain: 0.6 });

@@ -15,6 +15,7 @@ import { Sprites } from './sprites';
 import { TelegraphView } from './telegraphs';
 import { RibbonTrail } from './trail';
 import { LightPools } from './ambient';
+import { StunStars } from './stunStars';
 
 const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLinear(h); return [c[0] * k, c[1] * k, c[2] * k]; };
 export const C = {
@@ -41,6 +42,10 @@ export class BattleVfx {
   readonly debris = new Debris(240);
   readonly lights = new LightManager();
   readonly pools: LightPools;
+  /** Звёзды оглушения над головами (план §5.5). */
+  readonly stars = new StunStars();
+  /** Камера рендера: звёзды разворачиваются к ней. */
+  camera: THREE.Camera | null = null;
   private sickleMeshes: THREE.Mesh[] = [];
   private wellMeshes: THREE.Mesh[] = [];
   private ambientT = 0;
@@ -52,7 +57,7 @@ export class BattleVfx {
     this.add = new Particles(maxParticles, true);
     this.norm = new Particles(Math.round(maxParticles * 0.35), false);
     this.pools = pools;
-    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.rings.group, this.tele.group, this.sprites.mesh);
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh);
     for (const m of this.debris.meshes) this.group.add(m);
     // серпы: выдавленный полумесяц с эмиссивной кромкой
     const b = new GeomBuilder();
@@ -192,11 +197,21 @@ export class BattleVfx {
     this.lights.flash(x, y, z, [1, 0.92, 0.8], 7, 8, 0.35);
   }
 
-  postureBreak(x: number, y: number, z: number): void {
-    this.rings.spawn(x, z, 0.5, 5, 0.5, C.core, 0.2, 1.3);
-    this.add.emit({ x, y, z, life: 0.3, size: 1.5, size1: 4, color: C.core, alpha: 0.9, frame: 'flare' });
-    this.burst(26, { x, y, z, life: 0.5, size: 0.1, size1: 0.02, color: C.core, gravity: -8, drag: 2, frame: 'spark', stretch: 1.5 }, { v: 12, vy: 5 });
-    this.lights.flash(x, y, z, [1, 0.9, 1], 6, 7, 0.4);
+  /** Оглушение: золотисто-белая вспышка, кольцо и звёздные искры (свет вырывается из твари). */
+  stunBurst(x: number, y: number, z: number, big: boolean): void {
+    const k = big ? 1.4 : 1;
+    this.rings.spawn(x, z, 0.5, 4.5 * k, 0.5, C.core, 0.2, 1.2);
+    this.rings.spawn(x, z, 0.3, 3 * k, 0.4, C.gold, 0.25, 0.9);
+    this.add.emit({ x, y, z, life: 0.3, size: 1.4 * k, size1: 3.6 * k, color: C.core, alpha: 0.85, frame: 'flare' });
+    this.burst(Math.round(18 * k), { x, y, z, life: 0.7, size: 0.13, size1: 0.03, color: C.gold, gravity: -4, drag: 2, frame: 'star' }, { v: 7, vy: 5 });
+    this.burst(Math.round(16 * k), { x, y, z, life: 0.45, size: 0.09, size1: 0.02, color: C.core, gravity: -8, drag: 2, frame: 'spark', stretch: 1.4 }, { v: 11, vy: 4 });
+    this.lights.flash(x, y, z, [1, 0.88, 0.62], 6, 7, 0.4);
+  }
+
+  /** Погасла звезда оглушения: маленькая вспышка там, где она кружила. */
+  starOut(x: number, y: number, z: number): void {
+    this.add.emit({ x, y, z, life: 0.22, size: 0.5, size1: 1.1, color: C.core, alpha: 0.8, frame: 'flare' });
+    this.burst(5, { x, y, z, life: 0.35, size: 0.06, size1: 0.01, color: C.gold, gravity: -6, drag: 2, frame: 'spark' }, { v: 2.5, vy: 1 });
   }
 
   chargeGather(bx: number, by: number, bz: number, level: number): void {
@@ -269,6 +284,13 @@ export class BattleVfx {
           }
         }
       }
+    }
+
+    // звёзды оглушения: инстансы над головами + тонкий шлейф искр
+    if (this.camera) this.stars.sync(w, this.camera, w.time);
+    for (const p of this.stars.pos) {
+      if (!fxRng.chance(0.35 * this.quality)) continue;
+      this.add.emit({ x: p.x, y: p.y, z: p.z, vy: -0.2, life: 0.3, size: p.size * 0.35, size1: 0.01, color: C.gold, drag: 1, frame: 'dot' });
     }
 
     // навесные броски
@@ -411,7 +433,7 @@ export class BattleVfx {
   }
 
   clear(): void {
-    this.add.clear(); this.norm.clear(); this.trail.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear();
+    this.add.clear(); this.norm.clear(); this.trail.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear();
   }
 }
 
