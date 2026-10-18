@@ -145,7 +145,7 @@ export class Battle {
         hud.showHint(S.input.lastDevice === 'touch' ? 'Левый палец — движение • Кнопка — атака' : 'WASD — движение • ЛКМ / J — атака');
       }
     });
-    b.on('waveClear', () => { S.audio.play('wave_clear', { gain: 0.6 }); });
+    b.on('waveClear', () => { S.audio.play('wave_clear', { gain: 0.6 }); this.view.lightConstellations(); });
     b.on('stageClear', () => {
       this.outcome = 'won';
       if (this.stage.boss) { this.endT = 1.8; return; }
@@ -235,6 +235,7 @@ export class Battle {
     this.vfx.trail.update(realDt * T.heroScale);
     this.vfx.sync(this.world, realDt, dtW);
     this.view.syncTiles();
+    this.view.update(realDt);
     this.rune.u.uPulse.value *= Math.exp(-realDt * 4);
     // руны гаснут, когда пол под ними обрушился (вторая фаза босса)
     const runeTarget = this.arena.edge === 'abyss' && this.stage.boss ? 0 : 1;

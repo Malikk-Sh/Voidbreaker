@@ -3,7 +3,7 @@ import { Rng } from '../../core/rng';
 import { hexToLinear } from '../../core/math';
 import { inArenaShape, inOutline, inPart, type ArenaDef, type ShapePart } from '../../data/arenas';
 import { GeomBuilder, mat, matAlong } from '../geom/build';
-import { box, prism, shard, rock, lathe } from '../geom/prims';
+import { box, prism, shard, rock, lathe, starPlate } from '../geom/prims';
 import {
   arcade, candelabra, chain, column, floatingRuin, GOLD, hoodedStatue, OBS, OBS_DEEP, OBS_HI, roseWindow, rubble, spire, vein, WAX,
 } from '../geom/kit';
@@ -20,6 +20,10 @@ export interface ArenaView {
   runeRadius: number;
   /** Обновить матрицы плиток (падение/возрождение). */
   syncTiles(): void;
+  /** Созвездия на полу загораются: свет бежит по линиям от гвоздя к гвоздю (зачистка волны, победа). */
+  lightConstellations(): void;
+  /** Анимация живого декора (реальное время). */
+  update(realDt: number): void;
   dispose(): void;
 }
 
@@ -71,6 +75,39 @@ function partEdge(p: ShapePart, a: number): number {
 }
 
 const CARPET = hexToLinear('#4a1018');
+const BRASS = hexToLinear('#8a6a34');
+
+/** Половина семиконечной звезды (расколотая печать): лучи с одной стороны и линия скола через центр. */
+function starHalf(rO: number, rI: number, depth: number): THREE.BufferGeometry {
+  const sh = new THREE.Shape();
+  for (let i = 0; i <= 7; i++) {
+    const r = i % 2 ? rI : rO, a = (i / 14) * Math.PI * 2;
+    if (i === 0) sh.moveTo(Math.sin(a) * r, Math.cos(a) * r); else sh.lineTo(Math.sin(a) * r, Math.cos(a) * r);
+  }
+  sh.lineTo(0.03, -0.02); sh.lineTo(-0.02, 0.04);
+  sh.closePath();
+  const g = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false });
+  g.rotateX(-Math.PI / 2);
+  return g;
+}
+
+/** Слой созвездий: аддитивные линии и звёзды-гвозди, загораются по порядку пути (aT 0..1). */
+function constellationMaterial(color: string): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) }, uProgress: { value: -1 }, uGlow: { value: 0 } },
+    vertexShader: `attribute float aT; attribute float aKind; varying float vT; varying float vKind; varying vec2 vUv;
+      void main(){ vT = aT; vKind = aKind; vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform vec3 uColor; uniform float uProgress, uGlow; varying float vT; varying float vKind; varying vec2 vUv;
+      void main(){
+        float lit = smoothstep(vT - 0.03, vT + 0.01, uProgress);
+        float fresh = exp(-max(0.0, uProgress - vT) * 4.0);
+        vec2 c = vUv * 2.0 - 1.0;
+        float shape = vKind < 0.5 ? pow(1.0 - abs(c.y), 2.0) : pow(max(0.0, 1.0 - length(c)), 2.2) * 1.6;
+        gl_FragColor = vec4(uColor * shape * lit * uGlow * (1.0 + 2.6 * fresh), 1.0);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+}
 const BANNER = [hexToLinear('#4a1018'), hexToLinear('#14303c')];
 
 /** Знамя: полотнище с ласточкиным хвостом, золотая перекладина и ромб-эмблема. */
@@ -438,7 +475,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
         for (const sx of [-1, 1]) D.add(box(0.1, 0.034, 1.27), { matrix: mat(ax + sx * (w / 2 - 0.16), 0.02, z, 0, yaw), color: GOLD, shade: 0.1 });
       }
     }
-    // надгробные плиты с гравировкой креста
+    // надгробные плиты со звёздной печатью Литургии (у трети — расколотой)
     const slabs: { x: number; z: number }[] = [];
     for (let tries = 0; tries < 60 && slabs.length < Math.round(7 * density); tries++) {
       const x = rng.range(b.minX + 2, b.maxX - 2), z = rng.range(b.minZ + 2, b.maxZ - 3);
@@ -447,8 +484,14 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       place((g) => {
         g.add(box(1.15, 0.05, 2.0), { matrix: mat(0, 0.025, 0), color: OBS_HI, shade: 0.05 });
         g.add(box(0.95, 0.054, 1.8), { matrix: mat(0, 0.027, 0), color: OBS, shade: 0.05 });
-        g.add(box(0.12, 0.06, 1.2), { matrix: mat(0, 0.03, -0.1), color: GOLD, shade: 0.05 });
-        g.add(box(0.7, 0.06, 0.12), { matrix: mat(0, 0.03, -0.4), color: GOLD, shade: 0.05 });
+        if (rng.next() < 0.3) {
+          const sa = rng.spread(0.4);
+          g.add(starHalf(0.42, 0.29, 0.012), { matrix: mat(-0.05, 0.046, -0.12, 0, sa, 0), color: GOLD, shade: 0.05 });
+          g.add(starHalf(0.42, 0.29, 0.012), { matrix: mat(0.07, 0.046, -0.05, 0, sa + Math.PI + rng.spread(0.35), 0), color: GOLD, shade: 0.05 });
+        } else {
+          g.add(starPlate(7, 0.42, 0.29, 0.012), { matrix: mat(0, 0.046, -0.1, 0, rng.spread(0.2), 0), color: GOLD, shade: 0.05 });
+          g.add(prism(14, 0.12, 0.12, 0.012), { matrix: mat(0, 0.048, -0.1), color: OBS_DEEP, emissive: 0.25, shade: 0 });
+        }
         if (rng.next() < 0.5) g.add(box(1.0, 0.07, 0.03), { matrix: mat(rng.spread(0.1), 0.03, rng.spread(0.6), 0, rng.spread(0.6)), color: OBS_DEEP });
       }, x, 0, z, ry);
       slabs.push({ x, z });
@@ -476,6 +519,74 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       D.add(rock(rng.range(0.06, 0.16), 0, 0.3, rng.int(0, 999)), { matrix: mat(x, 0.03, z, rng.next(), rng.next(), 0, 1, 0.5, 1), color: rng.next() < 0.3 ? OBS_HI : OBS });
     }
   }
+
+  // ---------- созвездия: латунные гвозди и линии на полу, по сиду арены ----------
+  const cPos: number[] = [], cUv: number[] = [], cT: number[] = [], cKind: number[] = [], cIdx: number[] = [];
+  const quad = (ax: number, az: number, bx: number, bz: number, w: number, t0: number, t1: number, kind: number) => {
+    const dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz) || 1, nx = (-dz / l) * w / 2, nz = (dx / l) * w / 2;
+    const k = cPos.length / 3, y = 0.035;
+    cPos.push(ax + nx, y, az + nz, ax - nx, y, az - nz, bx - nx, y, bz - nz, bx + nx, y, bz + nz);
+    cUv.push(0, 0, 0, 1, 1, 1, 1, 0); cT.push(t0, t0, t1, t1); cKind.push(kind, kind, kind, kind);
+    cIdx.push(k, k + 1, k + 2, k, k + 2, k + 3);
+  };
+  if (floorStays && style !== 'hub') {
+    const count = rng.chance(0.5) ? 2 : 1;
+    for (let ci = 0; ci < count; ci++) {
+      // центр — свободное место подальше от центра рунного круга
+      let cx = 0, cz = 0, ok = false;
+      for (let tries = 0; tries < 40 && !ok; tries++) {
+        cx = rng.range(b.minX + 3, b.maxX - 3); cz = rng.range(b.minZ + 3, b.maxZ - 3);
+        ok = freeSpot(cx, cz, 1.5) && Math.hypot(cx - def.parts[0].x, cz - def.parts[0].z) > 4;
+      }
+      if (!ok) continue;
+      const n = rng.int(5, 9);
+      const nails: { x: number; z: number }[] = [];
+      for (let tries = 0; tries < 80 && nails.length < n; tries++) {
+        const x = cx + rng.spread(3.8), z = cz + rng.spread(3.0);
+        if (!freeSpot(x, z, 0.35) || nails.some((q) => Math.hypot(q.x - x, q.z - z) < 1.1)) continue;
+        nails.push({ x, z });
+      }
+      if (nails.length < 4) continue;
+      // путь: жадно к ближайшему, плюс одна ветка — у каждой арены свой рисунок
+      const order = [nails[0]], rest = nails.slice(1);
+      while (rest.length) {
+        const last = order[order.length - 1];
+        let bi = 0;
+        rest.forEach((q, i) => { if (Math.hypot(q.x - last.x, q.z - last.z) < Math.hypot(rest[bi].x - last.x, rest[bi].z - last.z)) bi = i; });
+        order.push(rest.splice(bi, 1)[0]);
+      }
+      const segs: [number, number][] = order.slice(1).map((_, i) => [i, i + 1]);
+      if (order.length > 4) segs.push([rng.int(0, 1), order.length - 1 - rng.int(0, 1)]);
+      let total = 0;
+      const tAt = [0];
+      for (let i = 1; i < order.length; i++) { total += Math.hypot(order[i].x - order[i - 1].x, order[i].z - order[i - 1].z); tAt.push(total); }
+      for (let i = 0; i < tAt.length; i++) tAt[i] /= total || 1;
+      for (const [i0, i1] of segs) {
+        const A = order[i0], B = order[i1];
+        const len = Math.hypot(B.x - A.x, B.z - A.z), ang = Math.atan2(B.x - A.x, B.z - A.z);
+        D.add(box(0.035, 0.012, len), { matrix: mat((A.x + B.x) / 2, 0.012, (A.z + B.z) / 2, 0, ang, 0), color: BRASS, shade: 0.05 });
+        quad(A.x, A.z, B.x, B.z, 0.26, tAt[i0], tAt[i1], 0);
+      }
+      order.forEach((q, i) => {
+        D.add(prism(6, 0.06, 0.045, 0.035), { matrix: mat(q.x, 0, q.z), color: BRASS, emissive: -0.35, shade: 0.05 });
+        quad(q.x - 0.4, q.z, q.x + 0.4, q.z, 0.8, tAt[i], tAt[i], 1);
+      });
+    }
+  }
+  let constellations: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null;
+  if (cPos.length) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(cPos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(cUv, 2));
+    g.setAttribute('aT', new THREE.Float32BufferAttribute(cT, 1));
+    g.setAttribute('aKind', new THREE.Float32BufferAttribute(cKind, 1));
+    g.setIndex(cIdx);
+    constellations = new THREE.Mesh(g, constellationMaterial('#ffd29a'));
+    constellations.frustumCulled = false;
+    constellations.renderOrder = 2;
+    root.add(constellations);
+  }
+  let cTime = -1;
 
   const decor = new THREE.Mesh(D.build(), decorMat);
   decor.frustumCulled = false;
@@ -542,6 +653,16 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
 
   return {
     root, floor, flames, pools, runeRadius, syncTiles,
+    lightConstellations() { cTime = 0; },
+    update(realDt: number) {
+      if (!constellations || cTime < 0) return;
+      cTime += realDt;
+      const u = constellations.material.uniforms;
+      // 0.8 с свет бежит по линиям, затем созвездие тлеет и гаснет за ~3 с
+      u.uProgress.value = Math.min(1.05, cTime / 0.8);
+      u.uGlow.value = cTime < 1.2 ? 1 : Math.max(0, 1 - (cTime - 1.2) / 3);
+      if (cTime > 4.5) { cTime = -1; u.uGlow.value = 0; u.uProgress.value = -1; }
+    },
     dispose() {
       root.traverse((o) => {
         if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as ObsidianMaterial).dispose(); }
