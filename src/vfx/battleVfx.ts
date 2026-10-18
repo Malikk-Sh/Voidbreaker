@@ -16,6 +16,7 @@ import { TelegraphView } from './telegraphs';
 import { RibbonTrail } from './trail';
 import { LightPools } from './ambient';
 import { StunStars } from './stunStars';
+import { FloorRiftsView } from './floorRifts';
 
 const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLinear(h); return [c[0] * k, c[1] * k, c[2] * k]; };
 export const C = {
@@ -44,6 +45,8 @@ export class BattleVfx {
   readonly pools: LightPools;
   /** Звёзды оглушения над головами (план §5.5). */
   readonly stars = new StunStars();
+  /** Разломы на полу (план §6.2). */
+  readonly rifts = new FloorRiftsView();
   /** Камера рендера: звёзды разворачиваются к ней. */
   camera: THREE.Camera | null = null;
   private sickleMeshes: THREE.Mesh[] = [];
@@ -57,7 +60,7 @@ export class BattleVfx {
     this.add = new Particles(maxParticles, true);
     this.norm = new Particles(Math.round(maxParticles * 0.35), false);
     this.pools = pools;
-    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh);
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group);
     for (const m of this.debris.meshes) this.group.add(m);
     // серпы: выдавленный полумесяц с эмиссивной кромкой
     const b = new GeomBuilder();
@@ -416,8 +419,14 @@ export class BattleVfx {
       }
     }
 
-    // способности: серпы, колодцы, волны, фазовый разрез
+    // способности: серпы, колодцы, волны, фазовый разрез, трещины на полу
     const ab = w.abilities as Abilities;
+    this.rifts.sync(ab.floorRifts);
+    for (const r of ab.floorRifts) {
+      if (!fxRng.chance(0.5 * this.quality)) continue;
+      const d = fxRng.next() * r.len;
+      this.add.emit({ x: r.x + r.dx * d, y: 0.1, z: r.z + r.dz * d, vy: 1.2, life: 0.4, size: 0.08, size1: 0.01, color: C.voidHot, frame: 'spark', stretch: 0.6 });
+    }
     this.sickleMeshes.forEach((m, i) => {
       const s = ab.sickles[i];
       m.visible = !!s;

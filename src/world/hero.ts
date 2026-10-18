@@ -88,6 +88,9 @@ export class Hero implements Actor {
   /** Внешний запрет управления (появление босса, кат-сцены). */
   locked = false;
   trailOn = false;
+  /** Рывок-скольжение по трещине (план §6.2). */
+  sliding = false;
+  private slideHits = new Set<number>();
 
   constructor(private world: World) {
     this.avatar.puppet.anim.onEvent = (n) => this.onClipEvent(n);
@@ -419,9 +422,11 @@ export class Hero implements Actor {
         const r = m?.hitbox.shape === 'circle' ? m.hitbox.radius : 3;
         const off = 0.7;
         this.world.bus.emit('impact', { x: this.x + Math.sin(this.facing) * off, z: this.z + Math.cos(this.facing) * off, r, kind: 'rift' });
-        if (this.stats.riftCrack) {
-          this.world.abilities.riftCrack(this.x, this.z, this.facing);
-          if (this.stats.tripleRift) for (const s of [-0.45, 0.45]) this.world.abilities.riftCrack(this.x, this.z, this.facing + s);
+        // трещина на полу: Нисходящий разлом, Звездопад, полный заряд (план §6.2)
+        if (m && (m.id === 'rift' || m.id === 'skyfall' || (this.state === 'charged' && m.wave))) {
+          const len = m.hitbox.shape === 'line' ? m.hitbox.length : m.hitbox.shape === 'circle' ? m.hitbox.radius * 2 : 4.5;
+          this.world.abilities.addFloorRift(this.x, this.z, this.facing, len);
+          if (this.stats.tripleRift) for (const s of [-0.45, 0.45]) this.world.abilities.addFloorRift(this.x, this.z, this.facing + s, len * 0.8);
         }
         break;
       }
@@ -500,6 +505,13 @@ export class Hero implements Actor {
     this.dashDirX = dx / l; this.dashDirZ = dz / l;
     this.facing = angleOf(this.dashDirX, this.dashDirZ);
     this.dashCharges--;
+    // скольжение по трещине: +50 % дальности, разрез по пути, заряд рывка не тратится
+    this.sliding = this.world.abilities.riftUnder(this.x, this.z, this.dashDirX, this.dashDirZ);
+    if (this.sliding) {
+      this.dashCharges++;
+      this.slideHits.clear();
+      this.world.bus.emit('slide', { x: this.x, z: this.z, dirX: this.dashDirX, dirZ: this.dashDirZ });
+    }
     this.state = 'dash'; this.stateT = 0;
     this.dashStart = this.clock;
     this.dashFromX = this.x; this.dashFromZ = this.z;
@@ -517,7 +529,8 @@ export class Hero implements Actor {
     const T = PLAYER_BASE.dashTime;
     const u = Math.min(1, this.stateT / T);
     const e = Ease.outQuad(u);
-    const step = (e - this.dashPrevE) * PLAYER_BASE.dashDist * (this.eclipse ? 1.15 : 1);
+    const step = (e - this.dashPrevE) * PLAYER_BASE.dashDist * (this.eclipse ? 1.15 : 1) * (this.sliding ? 1.5 : 1);
+    const px = this.x, pz = this.z;
     this.dashPrevE = e;
     const dx = this.dashDirX * step, dz = this.dashDirZ * step;
     if (this.world.arena.edge === 'abyss') {
@@ -535,7 +548,14 @@ export class Hero implements Actor {
       this.x = o.x; this.z = o.z;
     }
     this.vx = this.dashDirX * this.stats.speed * 0.6; this.vz = this.dashDirZ * this.stats.speed * 0.6;
+    if (this.sliding) {
+      const len = Math.hypot(this.x - px, this.z - pz);
+      if (len > 1e-3) this.world.heroStrike({ k: 'line', x: px - this.dashDirX * 0.5, z: pz - this.dashDirZ * 0.5, dx: this.dashDirX, dz: this.dashDirZ, len: len + 1, w: 1.4 }, this.slideHits, {
+        mult: 1.2, stun: 4, knockback: 2, feel: 'medium', dirX: this.dashDirX, dirZ: this.dashDirZ, source: 'blade', moveId: 'slide',
+      });
+    }
     if (u >= 1) {
+      this.sliding = false;
       this.lastDashEnd = this.clock;
       this.avatar.puppet.anim.stop(0.08);
       this.toMove();

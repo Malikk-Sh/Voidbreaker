@@ -16,6 +16,11 @@ export interface Sickle { x: number; z: number; vx: number; vz: number; out: boo
 export interface Well { x: number; z: number; t: number; dur: number; exploded: boolean; follow: boolean; horizon: boolean; alive: boolean; boom: number }
 export interface Wave { x: number; z: number; dx: number; dz: number; dist: number; hits: Set<number>; alive: boolean; r: number; kind: 'eclipse' | 'blade'; mult: number; max: number; speed: number }
 export interface Phantom { x: number; z: number; facing: number; t: number; fired: boolean; alive: boolean }
+/** Разлом на полу (план §6.2): фиолетовая трещина от финишера; рывок вдоль неё — скольжение. */
+export interface FloorRift { x: number; z: number; dx: number; dz: number; len: number; t: number; dur: number }
+
+/** Скольжение: рывок начат на трещине под углом не больше 35° к ней. */
+const SLIDE_COS = Math.cos((35 * Math.PI) / 180);
 
 /**
  * Способности (GDD §6) поверх стейт-машины героя: Серп Луны, Фазовый шаг, Гравитационный колодец, Затмение.
@@ -30,6 +35,7 @@ export class Abilities implements AbilityHost {
   wells: Well[] = [];
   waves: Wave[] = [];
   phantoms: Phantom[] = [];
+  floorRifts: FloorRift[] = [];
   /** Последний фазовый шаг: от-до (для отрисовки разреза). */
   lastPhase: { x0: number; z0: number; x1: number; z1: number; t: number } | null = null;
   private eclipseActive = false;
@@ -65,7 +71,7 @@ export class Abilities implements AbilityHost {
   resetCooldowns(): void {
     this.cd.q = this.cd.e = this.cd.r = 0;
     this.phaseCharges = this.mut('phase') === 'A' ? 2 : 1;
-    this.sickles = []; this.wells = []; this.waves = []; this.phantoms = [];
+    this.sickles = []; this.wells = []; this.waves = []; this.phantoms = []; this.floorRifts = [];
     this.eclipseActive = false;
   }
 
@@ -193,9 +199,26 @@ export class Abilities implements AbilityHost {
     this.waves.push({ x: x + dx * 1.0, z: z + dz * 1.0, dx, dz, dist: 0, hits: new Set(), alive: true, r, kind: 'blade', mult, max: dist, speed: 20 });
   }
 
-  riftCrack(x: number, z: number, facing: number): void {
-    const dx = Math.sin(facing), dz = Math.cos(facing);
-    this.w.addHazard({ shape: { k: 'line', x: x + dx * 0.5, z: z + dz * 0.5, dx, dz, len: 4.5, w: 1.0 }, dur: 1.6, tick: 0.25, dmg: 0.3, hostile: false, kind: 'crack' });
+  /**
+   * Трещина на полу (план §6.2): Нисходящий разлом, Звездопад, полный заряд. 3 с, не больше 2
+   * (3 — с вехой «тройной разлом»). Веха Силы 6 делает трещины жгучими.
+   */
+  addFloorRift(x: number, z: number, facing: number, len: number): void {
+    const h = this.w.hero, dx = Math.sin(facing), dz = Math.cos(facing);
+    const r: FloorRift = { x: x + dx * 0.4, z: z + dz * 0.4, dx, dz, len, t: 0, dur: 3 };
+    this.floorRifts.push(r);
+    const cap = h.stats.tripleRift ? 3 : 2;
+    while (this.floorRifts.length > cap) this.floorRifts.shift();
+    if (h.stats.riftCrack) this.w.addHazard({ shape: { k: 'line', x: r.x, z: r.z, dx, dz, len, w: 1.0 }, dur: r.dur, tick: 0.25, dmg: 0.3, hostile: false, kind: 'crack' });
+  }
+
+  /** Рывок из точки в направлении (dx, dz) идёт вдоль трещины (в любую сторону, угол < 35°). */
+  riftUnder(x: number, z: number, dx: number, dz: number): boolean {
+    for (const r of this.floorRifts) {
+      if (!overlaps({ k: 'line', x: r.x, z: r.z, dx: r.dx, dz: r.dz, len: r.len, w: 1.3 }, x, z, 0.3)) continue;
+      if (Math.abs(dx * r.dx + dz * r.dz) >= SLIDE_COS) return true;
+    }
+    return false;
   }
 
   onDash(x: number, z: number, dx: number, dz: number): void {
@@ -226,6 +249,8 @@ export class Abilities implements AbilityHost {
       if (this.phaseCharges < maxCh) { this.cdMax.q = this.cooldownFor('phase'); this.cd.q = this.cdMax.q; }
     }
     if (this.lastPhase) { this.lastPhase.t += dtW; if (this.lastPhase.t > 0.4) this.lastPhase = null; }
+    for (const r of this.floorRifts) r.t += dtW;
+    if (this.floorRifts.length && this.floorRifts[0].t >= this.floorRifts[0].dur) this.floorRifts = this.floorRifts.filter((r) => r.t < r.dur);
 
     // серпы
     for (const s of this.sickles) {

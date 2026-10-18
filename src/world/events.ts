@@ -35,6 +35,8 @@ export interface GameEvents {
   /** Начат приём (для подсказок о ветках комбо). */
   moveStart: { id: string };
   dash: { x: number; z: number; dirX: number; dirZ: number };
+  /** Рывок пошёл скольжением по трещине. */
+  slide: { x: number; z: number; dirX: number; dirZ: number };
   chargeReady: { level: number };
   impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell' };
   /** Раскол: финишер или полный заряд по оглушённому врагу — взрыв трещин, оглушение кончается. */

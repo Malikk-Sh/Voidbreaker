@@ -6,6 +6,8 @@ import { VOID_BLADE } from '../src/data/weapons';
 import { Abilities } from '../src/world/abilities';
 import { Reaper } from '../src/world/enemies/reaper';
 import type { Enemy } from '../src/world/enemy';
+import { InputBuffer, type Input } from '../src/input/input';
+import { PLAYER_BASE } from '../src/data/player';
 
 const DT = 1 / 60;
 
@@ -64,5 +66,50 @@ describe('метки Пустоты (план §6.1)', () => {
     e.step(w, DT);
     expect(one).toBeLessThan(0);
     expect(e.puppet.crack).toBeLessThan(one);
+  });
+});
+
+const input = (mx = 0, mz = 0): Input => ({ moveX: mx, moveZ: mz, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
+
+describe('разломы на полу и скольжение (план §6.2)', () => {
+  it('трещина живёт 3 с, одновременно не больше двух', () => {
+    const { w } = setup();
+    const ab = w.abilities as Abilities;
+    ab.addFloorRift(0, 0, 0, 6); ab.addFloorRift(2, 0, 0, 6); ab.addFloorRift(4, 0, 0, 6);
+    expect(ab.floorRifts.length).toBe(2);
+    expect(ab.floorRifts[0].x).toBeCloseTo(2);
+    for (let t = 0; t < 3.05; t += DT) ab.step(DT, DT);
+    expect(ab.floorRifts.length).toBe(0);
+  });
+
+  function dash(along: boolean): { w: World; dist: number; charges: number; max: number; sliding: boolean; hit: boolean } {
+    const { w, e } = setup();
+    const h = w.hero;
+    (w.abilities as Abilities).addFloorRift(0, -6, 0, 7);
+    h.x = 0; h.z = -5;
+    e.x = along ? 0 : 3; e.z = -3;
+    const hp0 = e.hp;
+    const inp = along ? input(0, 1) : input(1, 0);
+    inp.buffer.push('dash', 0);
+    w.step(DT, DT, inp);
+    const sliding = h.sliding;
+    const charges = h.dashCharges;
+    for (let t = 0; t < PLAYER_BASE.dashTime + 0.05; t += DT) w.step(DT, DT, input());
+    return { w, dist: Math.hypot(h.x, h.z + 5), charges, max: h.stats.dashCharges, sliding, hit: e.hp < hp0 };
+  }
+
+  it('рывок вдоль трещины — скольжение: +50 % дальности, заряд не тратится, разрез по пути', () => {
+    const r = dash(true);
+    expect(r.sliding).toBe(true);
+    expect(r.charges).toBe(r.max);
+    expect(r.dist).toBeGreaterThan(PLAYER_BASE.dashDist * 1.4);
+    expect(r.hit).toBe(true);
+  });
+
+  it('рывок поперёк трещины — обычный', () => {
+    const r = dash(false);
+    expect(r.sliding).toBe(false);
+    expect(r.charges).toBe(r.max - 1);
+    expect(r.dist).toBeLessThan(PLAYER_BASE.dashDist * 1.1);
   });
 });

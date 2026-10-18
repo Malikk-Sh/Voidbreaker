@@ -176,6 +176,12 @@ export class FeelSystem {
         // смазанный кадр в кадре удара (уколы — без веера)
         if (e.kind !== 'stab') this.vfx.trail.armSmear(e.hitAt ?? 0.06);
       }),
+      // скольжение по трещине: низкий свист клинка и фиолетовый след
+      b.on('slide', (e) => {
+        this.audio.play('swing_heavy', { pitch: 1.25, gain: 0.7 });
+        this.vfx.lights.flash(e.x, 0.6, e.z, C.void, 3, 5, 0.3);
+        this.vfx.burst(10, { x: e.x, y: 0.2, z: e.z, life: 0.4, size: 0.12, size1: 0.02, color: C.voidHot, drag: 3, frame: 'spark', stretch: 1.6 }, { v: 6, vy: 1, dir: [e.dirX, e.dirZ], cone: 0.3 });
+      }),
       b.on('dash', (e) => {
         this.vfx.dashPuff(e.x, e.z, e.dirX, e.dirZ);
         this.audio.play('dash');
