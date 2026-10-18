@@ -35,7 +35,7 @@ export interface StrikeParams {
 }
 
 export interface RunStats {
-  dmgDealt: number; kills: number; hitsTaken: number; dmgTaken: number; perfectDodges: number; executions: number;
+  dmgDealt: number; kills: number; hitsTaken: number; dmgTaken: number; perfectDodges: number; shatters: number;
   shards: number; ether: number; time: number;
 }
 
@@ -62,7 +62,7 @@ export class World {
   zone = 0;
   stage = 0;
   mode = 1;
-  run: RunStats = { dmgDealt: 0, kills: 0, hitsTaken: 0, dmgTaken: 0, perfectDodges: 0, executions: 0, shards: 0, ether: 0, time: 0 };
+  run: RunStats = { dmgDealt: 0, kills: 0, hitsTaken: 0, dmgTaken: 0, perfectDodges: 0, shatters: 0, shards: 0, ether: 0, time: 0 };
   /** Токены атаки (Tech §16): ≤ 3 врагов в замахе рядом, ≤ 2 одновременных выстрела. */
   meleeTokens = 3;
   rangedTokens = 2;
@@ -133,7 +133,7 @@ export class World {
       e.x = o.x; e.z = o.z;
     }
     const h = this.hero;
-    const heroSolid = h.state !== 'dash' && h.state !== 'execute' && !h.dead && h.state !== 'fall';
+    const heroSolid = h.state !== 'dash' && !h.dead && h.state !== 'fall';
     const list = this.enemies;
     for (let i = 0; i < list.length; i++) {
       const a = list[i];
@@ -165,7 +165,7 @@ export class World {
   heroStrike(shape: Shape, hitList: Set<number>, p: StrikeParams): number {
     let n = 0;
     for (const e of this.enemies) {
-      if (!e.targetable || e.beingExecuted || hitList.has(e.id)) continue;
+      if (!e.targetable || hitList.has(e.id)) continue;
       if (!overlaps(shape, e.x, e.z, e.radius)) continue;
       hitList.add(e.id);
       this.damageEnemy(e, p);
@@ -191,6 +191,8 @@ export class World {
       return;
     }
     const perfect = (p.source === 'blade' || p.source === 'ability') && h.consumePerfectBuff();
+    // Раскол: финишер/заряженный удар по уже треснувшему врагу
+    const shatter = e.cracked && (!!p.finisher || p.feel === 'heavy') && p.abilityId !== 'shatter';
     const S = h.stats;
     const res = computeDamage(
       { atk: S.atk, critChance: S.critChance, critMul: S.critMul, dmgBonus: S.dmgBonus + (p.source === 'ability' ? S.abilityDmg : 0) + (e.broken ? this.brokenBonus : 0), forceCrit: perfect },
@@ -225,6 +227,40 @@ export class World {
     else this.rank.used('blade');
     this.bus.emit('hit', { target: e, dmg: res.dmg, crit: res.crit || perfect, feel, dirX: p.dirX, dirZ: p.dirZ, x: e.x, y: e.height * 0.55, z: e.z, source: p.source, shielded: e.shieldMul < 1 });
     if (e.hp <= 0) this.killEnemy(e, p.dirX, p.dirZ, broke || p.feel === 'heavy' ? 6 : 3.5);
+    else if (shatter && !broke) this.shatterEnemy(e, p.dirX, p.dirZ);
+  }
+
+  /**
+   * Раскол (замена казни): трещины взрываются — доля HP цели (элита 14 %, стражи 5 %, босс 3.5 %),
+   * волна осколков по соседям, Резонанс; цель выходит из слома. Мгновенных убийств нет.
+   */
+  shatterEnemy(e: Enemy, dirX: number, dirZ: number): void {
+    if (e.dead || !e.posture) return;
+    const h = this.hero, S = h.stats;
+    const frac = e.isBoss ? 0.035 : e.isGuardian ? 0.05 : 0.14;
+    const dmg = Math.max(1, Math.round(e.maxHp * frac * (1 + S.dmgBonus) * e.shieldMul));
+    const before = e.hp;
+    e.hp -= dmg;
+    this.run.dmgDealt += dmg;
+    this.run.shatters++;
+    e.posture.broken = 0;
+    e.posture.value = e.posture.max * 0.5;
+    e.posture.regenDelay = 3;
+    e.onDamaged(this, dmg, before);
+    e.onShattered(this);
+    this.rank.shatter();
+    h.addResonance(RESONANCE.perShatter);
+    if (S.shatterHeal > 0) h.hp = Math.min(h.maxHp, h.hp + h.maxHp * S.shatterHeal);
+    this.bus.emit('shatter', { target: e, x: e.x, y: e.height * 0.55, z: e.z, boss: e.isBoss, dmg });
+    this.bus.emit('hit', { target: e, dmg, crit: true, feel: 'break', dirX, dirZ, x: e.x, y: e.height * 0.7, z: e.z, source: 'blade' });
+    // осколки ранят соседей
+    for (const o of this.enemies) {
+      if (o === e || !o.targetable) continue;
+      const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz);
+      if (d > 3.4 + o.radius) continue;
+      this.damageEnemy(o, { mult: 1.6, posture: 6, knockback: 4, feel: 'medium', dirX: dx / (d || 1), dirZ: dz / (d || 1), source: 'ability', noResonance: true, abilityId: 'shatter' });
+    }
+    if (e.hp <= 0) this.killEnemy(e, dirX, dirZ, 7);
   }
 
   killEnemy(e: Enemy, dirX: number, dirZ: number, power: number): void {
@@ -237,26 +273,6 @@ export class World {
     this.dropShards(e.x, e.z, e.def.drop * (e.elite.length ? 3 : 1));
     if (e.elite.includes('explosive')) this.radialProjectiles(e.x, e.z, 10, 6.5, e.dmg * 0.6, 'orb', e.id);
     this.abilities.onKill(e);
-  }
-
-  /** Казнь: мгновенное убийство обычной элиты или 8 % HP босса (GDD §5.6). */
-  executeEnemy(e: Enemy): void {
-    this.run.executions++;
-    this.rank.execution();
-    if (e.isBoss) {
-      const dmg = Math.round(e.maxHp * 0.08);
-      const before = e.hp;
-      e.hp = Math.max(1, e.hp - dmg);
-      e.onDamaged(this, dmg, before);
-      this.run.dmgDealt += dmg;
-      this.bus.emit('hit', { target: e, dmg, crit: true, feel: 'break', dirX: 0, dirZ: -1, x: e.x, y: e.height * 0.6, z: e.z, source: 'blade' });
-      if (e.posture) { e.posture.broken = 0.01; }
-      e.onExecuted(this);
-    } else {
-      this.bus.emit('hit', { target: e, dmg: e.hp, crit: true, feel: 'break', dirX: Math.sin(this.hero.facing), dirZ: Math.cos(this.hero.facing), x: e.x, y: e.height * 0.6, z: e.z, source: 'blade' });
-      this.run.dmgDealt += e.hp;
-      this.killEnemy(e, Math.sin(this.hero.facing), Math.cos(this.hero.facing), 7);
-    }
   }
 
   // ------------------------------------------------------------------ атаки врагов

@@ -36,8 +36,8 @@ export interface PostState {
 export class Post {
   readonly state: PostState = {
     bloom: 0.55, exposure: 1.0, chroma: 0, desat: 0, vignette: 0.55, lowHp: 0, flash: 0, flashColor: new THREE.Color(1, 1, 1),
-    grain: 0.018, saturation: 1.05, lift: new THREE.Vector3(0.004, 0.002, 0.007), gamma: new THREE.Vector3(1, 1, 1),
-    gain: new THREE.Vector3(1, 1, 1), waves: Array.from({ length: MAX_WAVES }, () => new THREE.Vector4(0, 0, 0, 0)),
+    grain: 0.018, saturation: 1.05, lift: new THREE.Vector3(0.002, 0.0035, 0.006), gamma: new THREE.Vector3(1, 1, 1),
+    gain: new THREE.Vector3(1.04, 1.0, 0.95), waves: Array.from({ length: MAX_WAVES }, () => new THREE.Vector4(0, 0, 0, 0)),
     letterbox: 0, frost: 0,
   };
   sceneRT: THREE.WebGLRenderTarget;

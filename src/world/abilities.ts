@@ -313,6 +313,7 @@ export class Abilities implements AbilityHost {
         w.bus.emit('impact', { x: h.x, z: h.z, r: 5.5, kind: 'rift' });
       }
       if (h.stats.ultHeal > 0) h.hp = Math.min(h.maxHp, h.hp + h.maxHp * h.stats.ultHeal);
+      if (h.stats.ultRefund > 0 && !h.dead) h.addResonance(h.stats.ultRefund);
     }
   }
 }

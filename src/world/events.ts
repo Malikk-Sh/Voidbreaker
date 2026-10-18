@@ -14,9 +14,9 @@ export interface GameEvents {
   swing: { kind: 'light' | 'spin' | 'heavy' | 'stab' | 'charged' };
   dash: { x: number; z: number; dirX: number; dirZ: number };
   chargeReady: { level: number };
-  impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'execute' | 'bell' };
-  execute: { target: Actor; x: number; z: number; boss: boolean };
-  executeImpact: { target: Actor; x: number; z: number };
+  impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell' };
+  /** Раскол: финишер по треснувшему (сломанная стойка) врагу — взрыв трещин. */
+  shatter: { target: Actor; x: number; y: number; z: number; boss: boolean; dmg: number };
   telegraph: { kind: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar'; x: number; z: number };
   enemyAttack: { kind: 'bite' | 'slash' | 'slam' | 'shot' | 'beam' | 'bell' | 'swing'; x: number; z: number };
   projectileHit: { x: number; z: number; kind: string };

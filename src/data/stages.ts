@@ -31,7 +31,7 @@ export interface StageDef {
   unlocks?: AbilityId[];
   boss?: boolean;
   /** Подсказки онбординга (GDD §20) — показываются один раз. */
-  tutorial?: 'basics' | 'charged' | 'execute' | 'upgrade' | 'ult';
+  tutorial?: 'basics' | 'charged' | 'shatter' | 'upgrade' | 'ult';
 }
 
 /** Награда за этап (GDD §8.5): осколки_первое = 120 × (1 + 0.35 × g). */
@@ -55,7 +55,7 @@ export const ZONE1: StageDef[] = [
     ],
   },
   {
-    id: '1-3', zone: 0, index: 2, name: 'Врата', arena: 'gate', tutorial: 'execute',
+    id: '1-3', zone: 0, index: 2, name: 'Врата', arena: 'gate', tutorial: 'shatter',
     waves: [
       { spawns: [{ enemy: 'spiker', count: 10, pattern: 'ring', stagger: 0.12 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1.5 }] },
       { spawns: [{ enemy: 'golem', count: 1, pattern: 'far' }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 0.8 }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 2 }] },

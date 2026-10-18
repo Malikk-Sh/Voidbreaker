@@ -146,11 +146,22 @@ export class BattleVfx {
     this.burst(10, { x, y: 1.0, z, life: 0.3, size: 0.06, size1: 0.01, color: C.voidHot, drag: 3, frame: 'spark', stretch: 1 }, { v: 6, vy: 1, dir: [-dx, -dz], cone: 0.8 });
   }
 
+  /** Идеальное уклонение — только лёгкий эффект: тонкое кольцо и россыпь звёздной пыли. */
   perfectDodge(x: number, z: number): void {
-    this.rings.spawn(x, z, 0.4, 4.5, 0.6, C.core, 0.18, 1.2);
-    this.rings.spawn(x, z, 0.2, 2.5, 0.45, C.voidHot, 0.35, 0.8);
-    this.burst(30, { x, y: 1, z, life: 0.7, size: 0.08, size1: 0.01, color: C.core, drag: 2, frame: 'star', gravity: 1 }, { v: 6, vy: 3 });
-    this.lights.flash(x, 1.5, z, C.void, 6, 8, 0.6);
+    this.rings.spawn(x, z, 0.3, 2.6, 0.35, C.voidHot, 0.1, 0.6);
+    this.burst(12, { x, y: 1, z, life: 0.5, size: 0.06, size1: 0.01, color: C.core, drag: 2.5, frame: 'star', gravity: 0.5 }, { v: 3.5, vy: 1.5 });
+    this.lights.flash(x, 1.4, z, C.void, 3, 5, 0.3);
+  }
+
+  /** Раскол: взрыв обсидиановых осколков и светящихся трещин. */
+  shatterBurst(x: number, y: number, z: number, big: boolean): void {
+    const k = big ? 1.5 : 1;
+    this.rings.spawn(x, z, 0.4, 4.2 * k, 0.45, C.core, 0.22, 1.2);
+    this.rings.spawn(x, z, 0.3, 3.2 * k, 0.35, C.gold, 0.3, 0.9);
+    this.add.emit({ x, y, z, life: 0.25, size: 1.2 * k, size1: 3.2 * k, color: C.core, alpha: 0.9, frame: 'flare' });
+    this.burst(Math.round(22 * k), { x, y, z, life: 0.55, size: 0.12, size1: 0.03, color: C.core, gravity: -10, drag: 1.5, frame: 'spark', stretch: 1.6 }, { v: 13, vy: 6 });
+    this.burst(Math.round(14 * k), { x, y, z, life: 0.9, size: 0.16, size1: 0.05, color: C.gold, gravity: -14, drag: 1, frame: 'star' }, { v: 7, vy: 7 });
+    this.lights.flash(x, y, z, [1, 0.92, 0.8], 7, 8, 0.35);
   }
 
   postureBreak(x: number, y: number, z: number): void {

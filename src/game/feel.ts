@@ -70,16 +70,14 @@ export class FeelSystem {
         this.shockwave(e.x, e.z, 0.6, 0.45);
         this.audio.play('posture_break');
         this.input.vibrate(80);
-        this.voice('Стойка сломана — бей!', 6);
+        this.voice('Треснул! Добей финишером — Раскол!', 6);
       }),
       b.on('perfectDodge', (e) => {
-        // «Мгновение Пустоты»: мир ×0.3 на 0.6 с реального времени, герой ×0.8; обесцвечивание
-        this.time.slow(0.3, 0.6 + (this.w.hero.stats.perfectWindow > 0.15 ? 0.3 : 0), 0.8);
-        this.voidMoment = 0.6;
+        // «Мгновение Пустоты» — короткий и сдержанный акцент: лёгкое замедление, остаточный образ, искры
+        this.time.slow(0.6, 0.22, 0.9);
+        this.voidMoment = 0.18;
         this.vfx.perfectDodge(e.x, e.z);
-        this.audio.play('perfect_dodge', { reverb: 0.5 });
-        this.shockwave(e.x, e.z, 0.8, 0.5);
-        this.hud.flashText('ИДЕАЛЬНО', '#B794FF');
+        this.audio.play('perfect_dodge', { gain: 0.55, reverb: 0.3 });
       }),
       b.on('dodge', () => { /* рывок сквозь атаку без бонуса — только звук свиста */ this.audio.play('swing_stab', { pitch: 0.7, gain: 0.4 }); }),
       b.on('playerHurt', (e) => {
@@ -126,7 +124,7 @@ export class FeelSystem {
           this.vfx.burst(4, { x: e.x, y: 0.15, z: e.z, life: 0.6, size: 0.4, size1: 0.9, color: C.dust, alpha: 0.4, drag: 3, frame: 'smoke' }, { v: 1.5, vy: 0.3 }, false);
           return;
         }
-        const hero = e.kind === 'rift' || e.kind === 'execute';
+        const hero = e.kind === 'rift' || e.kind === 'shatter';
         this.vfx.impact(e.x, e.z, e.r, hero ? C.voidHot : C.hungerHot, e.kind === 'slam' || e.kind === 'bell' ? 1.3 : 1);
         this.shockwave(e.x, e.z, hero ? 0.6 : 0.8, 0.4);
         if (!hero) {
@@ -135,26 +133,18 @@ export class FeelSystem {
           this.audio.play('slam', { pan: this.pan(e.x) });
         } else if (e.kind === 'rift') this.audio.play('hit_heavy', { gain: 0.6, pitch: 0.7 });
       }),
-      b.on('execute', (e) => {
-        this.letterbox = 1;
-        this.zoomCine = 0.15;
-        this.audio.play('execute');
-        this.music.setIntensity(this.music.intensity, 0.2);
-        void e;
-      }),
-      b.on('executeImpact', (e) => {
-        this.time.addHitstop(0.22);
-        this.time.cinematic(0.5, 0.3);
-        this.cam.addTrauma(0.6);
-        this.chroma = 0.8;
-        this.flash = this.settings.flashes ? 0.5 : 0.15;
-        this.post.state.flashColor.setRGB(0.9, 0.85, 1);
-        this.vfx.impact(e.x, e.z, 3.5, C.core, 1.6);
-        this.shockwave(e.x, e.z, 1, 0.6);
-        this.audio.play('execute_impact');
-        this.audio.duck(0.4, 0.8);
-        this.input.vibrate(80);
-        setTimeout(() => { this.letterbox = 0; this.zoomCine = 0; }, 600);
+      b.on('shatter', (e) => {
+        // Раскол: резкий, но короткий акцент — без кинематографа и замедления
+        this.time.addHitstop(0.1);
+        this.cam.addTrauma(e.boss ? 0.45 : 0.4);
+        this.cam.zoomPunch += 0.05;
+        this.chroma = Math.max(this.chroma, 0.5);
+        this.vfx.shatterBurst(e.x, e.y, e.z, e.boss || (e.target.radius ?? 1) > 1.2);
+        this.shockwave(e.x, e.z, 0.8, 0.45);
+        this.audio.play('shatter_burst', { pan: this.pan(e.x) });
+        this.audio.duck(0.6, 0.4);
+        this.input.vibrate(70);
+        this.hud.flashText('РАСКОЛ', '#F1E8FF');
       }),
       b.on('telegraph', (e) => {
         const id = e.kind === 'hum' ? 'tele_hum' : e.kind === 'whistle' ? 'tele_whistle' : e.kind === 'chime' ? 'tele_chime' : e.kind === 'bell' ? 'tele_bell' : 'tele_roar';
@@ -235,13 +225,14 @@ export class FeelSystem {
     const P = this.post.state, S = this.settings;
     // «Мгновение Пустоты»
     if (this.voidMoment > 0) this.voidMoment -= realDt;
-    const targetDesat = this.voidMoment > 0 ? 1 : 0;
-    this.desat += (targetDesat - this.desat) * Math.min(1, realDt * (targetDesat ? 14 : 4));
+    // лёгкое приглушение красок на долю секунды — без провала музыки и полного обесцвечивания
+    const targetDesat = this.voidMoment > 0 ? 0.3 : 0;
+    this.desat += (targetDesat - this.desat) * Math.min(1, realDt * (targetDesat ? 14 : 5));
     P.desat = this.desat;
-    this.audio.musicDetune = this.desat > 0.5 ? -400 : 0;
+    this.audio.musicDetune = 0;
     // аберрация по событию
     this.chroma = Math.max(0, this.chroma - realDt * 2.5);
-    P.chroma = S.aberration ? this.chroma + this.desat * 0.4 : 0;
+    P.chroma = S.aberration ? this.chroma + this.desat * 0.2 : 0;
     // вспышка экрана (без вспышек — мягкое затемнение)
     this.flash = Math.max(0, this.flash - realDt * 3);
     P.flash = S.flashes ? this.flash : -this.flash * 0.3;
@@ -252,7 +243,7 @@ export class FeelSystem {
     const h = this.w.hero;
     const low = !h.dead && h.hp / h.maxHp < 0.25;
     P.lowHp += ((low ? 1 : 0) - P.lowHp) * Math.min(1, realDt * 3);
-    this.audio.setMusicFilter(this.desat > 0.5 ? 600 : low ? 800 : 20000);
+    this.audio.setMusicFilter(low ? 800 : 20000);
     if (low) {
       this.lowHpBeat -= realDt;
       if (this.lowHpBeat <= 0) { this.lowHpBeat = 0.85; this.audio.play('heartbeat', { gain: 0.7, reverb: 0 }); }

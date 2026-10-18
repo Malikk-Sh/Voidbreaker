@@ -11,10 +11,10 @@ describe('computeDamage (GDD §5.9)', () => {
     expect(computeDamage(ATK, 1.2, 0, false, mid)).toEqual({ dmg: 120, crit: false });
   });
 
-  it('крит, слом стойки, бонусы и броня перемножаются', () => {
+  it('крит, трещина стойки, бонусы и броня перемножаются', () => {
     const r = computeDamage({ ...ATK, forceCrit: true, dmgBonus: 0.2 }, 1, 100, true, mid);
-    // 100 × 1.2 × 1.5 (крит) × 1.5 (сломан) × 0.5 (броня 100) = 135
-    expect(r).toEqual({ dmg: 135, crit: true });
+    // 100 × 1.2 × 1.5 (крит) × 1.25 (треснул) × 0.5 (броня 100) = 112.5
+    expect(r).toEqual({ dmg: 113, crit: true });
   });
 
   it('разброс не выходит за ±5 % и урон не меньше 1', () => {
@@ -70,7 +70,7 @@ describe('RankTracker (GDD §5.7)', () => {
     const r = new RankTracker();
     for (let i = 0; i < 15; i++) r.hit(false);
     expect(r.rank).toBe('C');
-    r.perfectDodge(); r.perfectDodge(); r.execution();
+    r.perfectDodge(); r.perfectDodge(); r.shatter();
     expect(r.rank).toBe('B');
     r.hurt();
     expect(r.rank).toBe('D');

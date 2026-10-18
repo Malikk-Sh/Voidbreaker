@@ -5,12 +5,12 @@ import { G } from './materials';
 const v3 = (hex: string) => new THREE.Vector3(...hexToLinear(hex));
 
 export interface SkyPreset {
-  deep: string; nebula: string; nebula2: string; corona: string; moonCore: string;
+  deep: string; nebula: string; nebula2: string; nebula3: string; corona: string; moonCore: string;
   moonDir: [number, number, number]; moonSize: number; starDensity: number;
 }
 
 export const SKY_NEBULA_MOON: SkyPreset = {
-  deep: '#06040c', nebula: '#2b1659', nebula2: '#a04ae0', corona: '#b794ff', moonCore: '#050309',
+  deep: '#03060a', nebula: '#10293b', nebula2: '#4aa3c8', nebula3: '#3d2238', corona: '#ffd29a', moonCore: '#020305',
   moonDir: [0.42, -0.5, -0.76], moonSize: 0.075, starDensity: 1,
 };
 
@@ -26,6 +26,7 @@ export class Sky {
     uDeep: { value: v3(SKY_NEBULA_MOON.deep) },
     uNebula: { value: v3(SKY_NEBULA_MOON.nebula) },
     uNebula2: { value: v3(SKY_NEBULA_MOON.nebula2) },
+    uNebula3: { value: v3(SKY_NEBULA_MOON.nebula3) },
     uCorona: { value: v3(SKY_NEBULA_MOON.corona) },
     uMoonCore: { value: v3(SKY_NEBULA_MOON.moonCore) },
     uMoonDir: { value: new THREE.Vector3(...SKY_NEBULA_MOON.moonDir).normalize() },
@@ -51,7 +52,7 @@ export class Sky {
       fragmentShader: /* glsl */ `
         uniform mat4 uInvVP; uniform vec3 uCam; uniform float uTime;
         uniform sampler2D uNoise;
-        uniform vec3 uDeep, uNebula, uNebula2, uCorona, uMoonCore, uMoonDir, uBoltDir;
+        uniform vec3 uDeep, uNebula, uNebula2, uNebula3, uCorona, uMoonCore, uMoonDir, uBoltDir;
         uniform float uMoonSize, uStars, uPulse, uBolt, uStarFlare;
         varying vec2 vNdc;
 
@@ -66,7 +67,7 @@ export class Sky {
           float d = length(f - o * 0.7);
           float tw = 0.55 + 0.45 * sin(uTime * (1.0 + r * 4.0) + r * 40.0);
           float b = smoothstep(0.08, 0.0, d) * tw * (r - 0.92) * 14.0;
-          vec3 tint = mix(vec3(0.8, 0.75, 1.0), vec3(1.0, 0.85, 0.9), h21(id + 1.3));
+          vec3 tint = mix(vec3(0.78, 0.88, 1.0), vec3(1.0, 0.9, 0.78), h21(id + 1.3));
           return tint * b;
         }
 
@@ -82,6 +83,9 @@ export class Sky {
           vec3 col = uDeep;
           col = mix(col, uNebula, neb * 0.9);
           col += uNebula2 * pow(max(n * n2v, 0.0), 3.0) * 1.6;
+          // тёплые розово-винные облака — контрапункт холодной бирюзе
+          float rose = smoothstep(0.6, 0.9, n2(w * 0.6 + vec2(0.71, 0.13)));
+          col += uNebula3 * rose * (0.3 + 0.7 * n2v) * 0.55;
           // тёмные пылевые прожилки
           col *= 0.65 + 0.35 * smoothstep(0.2, 0.6, n2(w * 3.3 + 1.7));
           col += stars(uv * 60.0) * uStars + stars(uv * 130.0 + 3.0) * 0.6 * uStars;
@@ -91,10 +95,10 @@ export class Sky {
             float bd = 1.0 - dot(dir, uBoltDir);
             float glow = exp(-bd * 60.0);
             float branch = smoothstep(0.03, 0.0, abs(n2(uv * 3.0 + uTime * 0.5) - 0.5)) * exp(-bd * 25.0);
-            col += (uNebula2 * glow * 2.0 + vec3(0.9, 0.8, 1.0) * branch * 3.0) * uBolt;
+            col += (uNebula2 * glow * 2.0 + vec3(0.85, 0.92, 1.0) * branch * 3.0) * uBolt;
           }
 
-          // чёрная луна с фиолетовой короной
+          // чёрная луна с золотой короной (затмение)
           float md = acos(clamp(dot(dir, uMoonDir), -1.0, 1.0));
           float rr = md / uMoonSize;
           vec3 side = normalize(cross(uMoonDir, vec3(0.0, 1.0, 0.0)));
@@ -122,6 +126,7 @@ export class Sky {
     this.u.uDeep.value.copy(v3(p.deep));
     this.u.uNebula.value.copy(v3(p.nebula));
     this.u.uNebula2.value.copy(v3(p.nebula2));
+    this.u.uNebula3.value.copy(v3(p.nebula3));
     this.u.uCorona.value.copy(v3(p.corona));
     this.u.uMoonCore.value.copy(v3(p.moonCore));
     this.u.uMoonDir.value.set(...p.moonDir).normalize();

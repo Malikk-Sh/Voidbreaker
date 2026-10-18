@@ -11,13 +11,13 @@ import { HeroAvatar } from './heroAvatar';
 import { baseStats, type HeroStats } from './heroStats';
 import type { World } from './world';
 
-export type HeroState = 'move' | 'attack' | 'charge' | 'charged' | 'dash' | 'cast' | 'execute' | 'dead' | 'fall' | 'victory' | 'frozen';
+export type HeroState = 'move' | 'attack' | 'charge' | 'charged' | 'dash' | 'cast' | 'dead' | 'fall' | 'victory' | 'frozen';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
 
 /**
  * Пилот: стейт-машина атаки (Tech §15.2), комбо из клипов-поз, рывок с зарядами, заряженный удар,
- * идеальное уклонение, автоприцел с магнетизмом, казнь (GDD §4–§5).
+ * идеальное уклонение, автоприцел с магнетизмом; Раскол треснувших врагов финишером (GDD §4–§5).
  * Время героя — своё: в «Мгновении Пустоты» он замедлен меньше мира.
  */
 export class Hero implements Actor {
@@ -70,8 +70,6 @@ export class Hero implements Actor {
   perfectBuff = false;
   secondWindUsed = false;
   eclipseUntil = 0;
-  // казнь
-  execTarget: Enemy | null = null;
   // падение в бездну
   safeX = 0; safeZ = 0;
   private safeTimer = 0;
@@ -115,7 +113,7 @@ export class Hero implements Actor {
     this.avatar.update(0, x, 0, facing, 0, 0, 0, true);
   }
 
-  get invulnerable(): boolean { return this.clock < this.invulnUntil || this.state === 'execute' || this.state === 'dead'; }
+  get invulnerable(): boolean { return this.clock < this.invulnUntil || this.state === 'dead'; }
   get dashIframes(): boolean { return this.state === 'dash' && this.clock - this.dashStart <= PLAYER_BASE.dashIframes; }
   get eclipse(): boolean { return this.clock < this.eclipseUntil; }
   get alive(): boolean { return !this.dead; }
@@ -168,7 +166,6 @@ export class Hero implements Actor {
         this.updateMove(dt, mvx * 0.3, mvz * 0.3, S.speed, true);
         if (this.avatar.puppet.anim.done) this.toMove();
         break;
-      case 'execute': this.updateExecute(dt); break;
       case 'fall': this.updateFall(dt); break;
       case 'victory': case 'frozen':
         this.vx *= 0.8; this.vz *= 0.8;
@@ -210,7 +207,7 @@ export class Hero implements Actor {
   private handleInput(input: Input, mvx: number, mvz: number, hasStick: boolean): void {
     const now = input.now, buf = input.buffer;
     const st = this.state;
-    if (st === 'dead' || st === 'execute' || st === 'fall' || st === 'victory' || st === 'frozen') return;
+    if (st === 'dead' || st === 'fall' || st === 'victory' || st === 'frozen') return;
 
     // рывок: из движения, заряда, после активных кадров удара или в первые 60 мс («спасительная отмена»)
     if (buf.peek('dash', now) && this.dashCharges >= 1) {
@@ -304,10 +301,6 @@ export class Hero implements Actor {
 
   // ------------------------------------------------------------------ атаки
   private startAttack(input: Input, mvx: number, mvz: number, hasStick: boolean): void {
-    // казнь сломанного врага рядом
-    const ex = this.findExecutable();
-    if (ex) { this.startExecute(ex); return; }
-
     const W = this.weapon;
     let next: MoveDef;
     const since = this.clock - this.lastMoveStart;
@@ -385,11 +378,13 @@ export class Hero implements Actor {
       case 'trailOn': this.trailOn = true; break;
       case 'trailOff': this.trailOn = false; break;
       case 'impact': {
-        if (this.state === 'execute') { this.executeImpact(); break; }
         const r = this.move?.hitbox.shape === 'circle' ? this.move.hitbox.radius : 3;
         const off = 0.7;
         this.world.bus.emit('impact', { x: this.x + Math.sin(this.facing) * off, z: this.z + Math.cos(this.facing) * off, r, kind: 'rift' });
-        if (this.stats.riftCrack) this.world.abilities.riftCrack(this.x, this.z, this.facing);
+        if (this.stats.riftCrack) {
+          this.world.abilities.riftCrack(this.x, this.z, this.facing);
+          if (this.stats.tripleRift) for (const s of [-0.45, 0.45]) this.world.abilities.riftCrack(this.x, this.z, this.facing + s);
+        }
         break;
       }
       case 'release': this.castRelease?.(); this.castRelease = null; break;
@@ -509,56 +504,6 @@ export class Hero implements Actor {
     return this.state === 'dash' && this.clock - this.dashStart <= this.stats.perfectWindow + 0.03 && this.dashIframes;
   }
 
-  // ------------------------------------------------------------------ казнь (GDD §5.6)
-  findExecutable(): Enemy | null {
-    let best: Enemy | null = null, bd = 2.6;
-    for (const e of this.world.enemies) {
-      if (!e.executable) continue;
-      const d = Math.hypot(e.x - this.x, e.z - this.z) - e.radius;
-      if (d < bd) { bd = d; best = e; }
-    }
-    return best;
-  }
-
-  private startExecute(e: Enemy): void {
-    this.state = 'execute'; this.stateT = 0;
-    this.execTarget = e;
-    this.hitActive = false; this.move = null;
-    this.facing = angleOf(e.x - this.x, e.z - this.z);
-    // встать на дистанцию удара
-    const d = Math.hypot(e.x - this.x, e.z - this.z);
-    const want = e.radius + 0.6;
-    if (d > want) {
-      const k = (d - want) / d;
-      const o = { x: this.x, z: this.z };
-      this.world.arena.move(this.x, this.z, (e.x - this.x) * k, (e.z - this.z) * k, this.radius, o);
-      this.x = o.x; this.z = o.z;
-    }
-    e.beingExecuted = true;
-    this.avatar.puppet.play('execute', 1, 0.05);
-    this.world.bus.emit('execute', { target: e, x: e.x, z: e.z, boss: e.isBoss });
-  }
-
-  private updateExecute(_dt: number): void {
-    this.vx = this.vz = 0;
-    if (this.stateT >= 0.85) {
-      if (this.execTarget) this.execTarget.beingExecuted = false;
-      this.execTarget = null;
-      this.avatar.puppet.anim.stop(0.12);
-      this.toMove();
-      this.invulnUntil = Math.max(this.invulnUntil, this.clock + 0.3);
-    }
-  }
-
-  private executeImpact(): void {
-    const e = this.execTarget;
-    if (!e) return;
-    this.world.executeEnemy(e);
-    this.hp = Math.min(this.maxHp, this.hp + this.maxHp * this.stats.executionHeal);
-    this.addResonance(RESONANCE.perExecution);
-    this.world.bus.emit('executeImpact', { target: e, x: e.x, z: e.z });
-  }
-
   // ------------------------------------------------------------------ урон по герою (GDD §5.8)
   /** Возвращает 'hit' | 'perfect' | 'dodge' | 'immune'. */
   receiveAttack(dmg: number, dirX: number, dirZ: number, source: string, kb = 3): 'hit' | 'perfect' | 'dodge' | 'immune' {
@@ -580,8 +525,9 @@ export class Hero implements Actor {
     this.hp -= final;
     this.invulnUntil = this.clock + PLAYER_BASE.hurtInvuln;
     this.blinkUntil = this.clock + PLAYER_BASE.hurtInvuln;
-    this.kbX += dirX * kb; this.kbZ += dirZ * kb;
-    this.avatar.puppet.kickSpring(dirX, dirZ, 1.2);
+    const stable = this.stats.comboStable && (this.state === 'attack' || this.state === 'charged');
+    if (!stable) { this.kbX += dirX * kb; this.kbZ += dirZ * kb; }
+    this.avatar.puppet.kickSpring(dirX, dirZ, stable ? 0.5 : 1.2);
     this.avatar.puppet.flash = 0.6;
     this.addResonance(-RESONANCE.lossOnHurt);
     if (this.stats.hurtShield) this.shieldUntil = this.clock + 1;
@@ -612,7 +558,7 @@ export class Hero implements Actor {
 
   // ------------------------------------------------------------------ пропасть (coyote 0.1 с)
   private checkGround(dt: number): void {
-    if (this.state === 'dash' || this.state === 'fall' || this.state === 'dead' || this.state === 'execute') return;
+    if (this.state === 'dash' || this.state === 'fall' || this.state === 'dead') return;
     const ground = this.world.arena.walkable(this.x, this.z);
     if (ground) {
       this.coyote = 0;

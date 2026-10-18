@@ -129,8 +129,8 @@ export const HERO_CLIPS: ClipDef[] = [
     events: [{ t: 0.28, name: 'release' }],
   },
   {
-    // Казнь: взлёт и пронзающий удар сверху вниз
-    id: 'execute', dur: 0.85, mask: 'full',
+    // «Звездопад»: взлёт с переворотом и пронзающий удар сверху вниз (финишер ветки комбо)
+    id: 'skyfall', dur: 0.85, mask: 'full',
     keys: [
       { t: 0, rootOffset: [0, 0, 0], pose: { chest: [0.2, 0, 0], shR: [-0.6, 0, -0.4], blade: [0.4, 0, 0], hipL: [-0.3, 0, 0], kneeL: [0.5, 0, 0], hipR: [0.2, 0, 0], kneeR: [0.4, 0, 0] } },
       { t: 0.12, ease: 'outQuad', rootOffset: [0, -0.25, 0], pose: { chest: [0.5, 0, 0], hipL: [-0.9, 0, 0.1], kneeL: [1.5, 0, 0], hipR: [-0.8, 0, -0.1], kneeR: [1.4, 0, 0], shR: [0.6, 0, -0.5], shL: [0.6, 0, 0.5] } },

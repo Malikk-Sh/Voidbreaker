@@ -11,7 +11,7 @@ export function makeMatcap(c0: string, highlight: string, rim: string, size = 25
   g.fillStyle = base; g.beginPath(); g.arc(r, r, r, 0, Math.PI * 2); g.fill();
   // широкий мягкий отблеск неба
   const sky = g.createRadialGradient(r, r * 0.35, 0, r, r * 0.35, r * 0.9);
-  sky.addColorStop(0, `rgba(120,100,170,${skySheen})`); sky.addColorStop(1, 'rgba(0,0,0,0)');
+  sky.addColorStop(0, `rgba(105,130,165,${skySheen})`); sky.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = sky; g.fill();
   // узкий яркий блик
   const hl = g.createRadialGradient(r * 0.42, r * 0.78, 0, r * 0.42, r * 0.78, r * 0.2);
@@ -21,7 +21,7 @@ export function makeMatcap(c0: string, highlight: string, rim: string, size = 25
   g.save();
   g.translate(r * 1.35, r * 1.2); g.rotate(-0.6); g.scale(1, 0.25);
   const hl2 = g.createRadialGradient(0, 0, 0, 0, 0, r * 0.35);
-  hl2.addColorStop(0, 'rgba(200,190,255,0.5)'); hl2.addColorStop(1, 'rgba(0,0,0,0)');
+  hl2.addColorStop(0, 'rgba(200,215,240,0.5)'); hl2.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = hl2; g.beginPath(); g.arc(0, 0, r * 0.35, 0, Math.PI * 2); g.fill();
   g.restore();
   g.globalCompositeOperation = 'lighter';

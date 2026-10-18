@@ -51,7 +51,7 @@ export class RankTracker {
     this.add(RANK_POINTS.hit + (finisher ? RANK_POINTS.finisher : 0));
   }
   perfectDodge(): void { this.add(RANK_POINTS.perfectDodge); }
-  execution(): void { this.add(RANK_POINTS.execution); }
+  shatter(): void { this.add(RANK_POINTS.shatter); }
   /** Разнообразие: разные способности/приёмы за 5 с. */
   used(kind: string): void {
     this.lastKinds = this.lastKinds.filter((k) => this.time - k.t < 5);

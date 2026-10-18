@@ -150,7 +150,7 @@ export class Battle {
       }
     });
     b.on('postureBreak', () => {
-      if (!S.flag('tut_execute')) { S.setFlag('tut_execute'); hud.showHint('Атака рядом со сломанным врагом — КАЗНЬ'); }
+      if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Стойка треснула — финишер или заряженный удар: РАСКОЛ'); }
     });
     b.on('resonanceFull', () => {
       if (this.abilities.loadout.r && !S.flag('tut_ult')) { S.setFlag('tut_ult'); hud.showHint('Резонанс полон — R: ЗАТМЕНИЕ'); }

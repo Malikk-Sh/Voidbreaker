@@ -6,47 +6,53 @@ import type { SaveData } from './save';
 
 export type Branch = 'power' | 'agility' | 'fortitude' | 'resonance';
 
-/** Созвездие статов (GDD §8.2): 4 ветки по 40 уровней, вехи на 5 / 10 / 20 / 30. */
+/**
+ * Созвездие статов (GDD §8.2, пересмотрено): 4 ветки по 20 уровней. Уровень дорогой, но ощутимый;
+ * вехи на 3 / 6 / 10 / 15.
+ */
 export const BRANCHES: Record<Branch, { name: string; per: string; icon: 'power' | 'agility' | 'fortitude' | 'resonance'; milestones: [number, string][] }> = {
-  power: { name: 'Сила', per: '+5 % ATK', icon: 'power', milestones: [[5, '+15 % крит. урона'], [10, 'Удар 4 оставляет трещину'], [20, '+10 % урона'], [30, 'Финишер — двойная волна']] },
-  agility: { name: 'Ловкость', per: '+1.5 % скорости атаки, +0.5 % крита', icon: 'agility', milestones: [[5, 'Окно идеального уклонения +30 мс'], [10, '+1 заряд рывка'], [20, 'Рывок оставляет след с уроном'], [30, 'КД рывка −20 %']] },
-  fortitude: { name: 'Стойкость', per: '+6 % HP, +2 брони', icon: 'fortitude', milestones: [[5, 'Второе дыхание'], [10, 'Лечение от казней ×2'], [20, 'После удара 1 с щита'], [30, 'Иммунитет к отбрасыванию в комбо']] },
-  resonance: { name: 'Резонанс', per: '+4 % урона способностей, +2 % набора Резонанса', icon: 'resonance', milestones: [[5, 'Старт этапа с 20 Резонанса'], [10, '−10 % КД'], [20, 'Ульта восстанавливает 15 % HP'], [30, 'Скидка на вторую ульту']] },
+  power: { name: 'Сила', per: '+10 % ATK', icon: 'power', milestones: [[3, '+25 % крит. урона'], [6, 'Финишер оставляет трещину'], [10, '+15 % урона'], [15, 'Финишер — тройной разлом']] },
+  agility: { name: 'Ловкость', per: '+3 % скорости атаки, +1 % крита', icon: 'agility', milestones: [[3, 'Окно идеального уклонения +40 мс'], [6, '+1 заряд рывка'], [10, 'Рывок оставляет след с уроном'], [15, 'Перезарядка рывка −25 %']] },
+  fortitude: { name: 'Стойкость', per: '+12 % HP, +4 брони', icon: 'fortitude', milestones: [[3, 'Второе дыхание'], [6, 'Раскол лечит 5 % HP'], [10, 'После удара 1 с щита'], [15, 'Не отбрасывает во время комбо']] },
+  resonance: { name: 'Резонанс', per: '+8 % урона способностей, +4 % набора Резонанса', icon: 'resonance', milestones: [[3, 'Старт этапа с 25 Резонанса'], [6, '−15 % КД способностей'], [10, 'Затмение лечит 15 % HP'], [15, 'После Затмения остаётся 30 Резонанса']] },
 };
 
-export const MAX_STAT = 40;
+export const MAX_STAT = 20;
 
-/** Стоимость уровня статов (GDD §8.3): 40 × 1.16^n. */
-export function statCost(n: number): number { return Math.round(40 * Math.pow(1.16, n + 1)); }
+/** Стоимость уровня (пересмотрено): 100 × 1.22^(n+1) — 122, 270, 730 … 5 336 Осколков. */
+export function statCost(n: number): number { return Math.round(100 * Math.pow(1.22, n + 1)); }
 
 /** Итоговые характеристики героя из прокачки. */
 export function computeStats(s: SaveData, autoAim = 2): HeroStats {
   const st = baseStats();
   const { power: P, agility: A, fortitude: F, resonance: R } = s.stats;
-  st.atk = st.atk * (1 + 0.05 * P);
-  if (P >= 5) st.critMul += 0.15;
-  if (P >= 10) st.riftCrack = true;
-  if (P >= 20) st.dmgBonus += 0.1;
-  st.atkSpeed = 1 + 0.015 * A;
-  st.critChance += 0.005 * A;
-  if (A >= 5) st.perfectWindow += 0.03;
-  if (A >= 10) st.dashCharges += 1;
-  if (A >= 20) st.dashTrail = true;
-  if (A >= 30) st.dashRecharge *= 0.8;
-  st.maxHp = Math.round(st.maxHp * (1 + 0.06 * F));
-  st.armor += 2 * F;
-  if (F >= 5) st.secondWind = true;
-  if (F >= 10) st.executionHeal *= 2;
-  if (F >= 20) st.hurtShield = true;
-  st.abilityDmg += 0.04 * R;
-  st.resGain += 0.02 * R;
-  if (R >= 5) st.startResonance = 20;
-  if (R >= 10) st.cdr += 0.1;
-  if (R >= 20) st.ultHeal = 0.15;
-  // Кузня: +8 % урона за уровень оружия, перки на 5 и 10 (GDD §7.1)
+  st.atk = st.atk * (1 + 0.1 * P);
+  if (P >= 3) st.critMul += 0.25;
+  if (P >= 6) st.riftCrack = true;
+  if (P >= 10) st.dmgBonus += 0.15;
+  if (P >= 15) st.tripleRift = true;
+  st.atkSpeed = 1 + 0.03 * A;
+  st.critChance += 0.01 * A;
+  if (A >= 3) st.perfectWindow += 0.04;
+  if (A >= 6) st.dashCharges += 1;
+  if (A >= 10) st.dashTrail = true;
+  if (A >= 15) st.dashRecharge *= 0.75;
+  st.maxHp = Math.round(st.maxHp * (1 + 0.12 * F));
+  st.armor += 4 * F;
+  if (F >= 3) st.secondWind = true;
+  if (F >= 6) st.shatterHeal = 0.05;
+  if (F >= 10) st.hurtShield = true;
+  if (F >= 15) st.comboStable = true;
+  st.abilityDmg += 0.08 * R;
+  st.resGain += 0.04 * R;
+  if (R >= 3) st.startResonance = 25;
+  if (R >= 6) st.cdr += 0.15;
+  if (R >= 10) st.ultHeal = 0.15;
+  if (R >= 15) st.ultRefund = 30;
+  // Кузня: +12 % урона за уровень оружия, перки на 5 и 10 (GDD §7.1, пересмотрено)
   const wl = s.weapons[s.loadout.weapon]?.level ?? 1;
-  st.atk *= 1 + 0.08 * (wl - 1);
-  if (wl >= 5) st.critChance += 0.05;
+  st.atk *= 1 + 0.12 * (wl - 1);
+  if (wl >= 5) st.critChance += 0.06;
   if (wl >= 10) st.riftCrack = true;
   // реликвии
   for (const id of s.loadout.relics) applyRelic(st, id);
@@ -203,7 +209,7 @@ export function anyUpgradeAffordable(s: SaveData): boolean {
 
 // ------------------------------------------------------------------ Кузня (GDD §7.1)
 export const WEAPON_MAX = 10;
-export function weaponCost(level: number): number { return Math.round(220 * Math.pow(1.45, level - 1)); }
+export function weaponCost(level: number): number { return Math.round(320 * Math.pow(1.5, level - 1)); }
 export function upgradeWeapon(s: SaveData, id: string): boolean {
   const w = s.weapons[id];
   if (!w || !w.unlocked || w.level >= WEAPON_MAX) return false;

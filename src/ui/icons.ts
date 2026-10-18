@@ -1,8 +1,9 @@
 /**
- * Векторные иконки (Tech §22): пути в коде → Canvas 2D, золотая обводка и фиолетовое свечение, кэш в offscreen-канвасах.
+ * Векторные иконки (Tech §22): пути в коде → Canvas 2D, золотая обводка и мягкое свечение, кэш в offscreen-канвасах.
  */
 export type IconId = 'crescent' | 'rift' | 'spiral' | 'eclipse' | 'power' | 'agility' | 'fortitude' | 'resonance' | 'shard' | 'ether'
-  | 'lock' | 'star' | 'pause' | 'blade' | 'altar' | 'forge' | 'relic' | 'map' | 'skull' | 'execute' | 'eye' | 'gear' | 'back';
+  | 'lock' | 'star' | 'pause' | 'blade' | 'altar' | 'forge' | 'relic' | 'map' | 'skull' | 'shatter' | 'eye' | 'gear' | 'back'
+  | 'fullscreen' | 'heart' | 'crit' | 'armor' | 'dash';
 
 type Draw = (g: CanvasRenderingContext2D) => void;
 
@@ -30,7 +31,16 @@ const ICONS: Record<IconId, Draw> = {
   relic: (g) => { g.beginPath(); g.moveTo(0, -0.9); g.lineTo(0.6, -0.2); g.lineTo(0.35, 0.8); g.lineTo(-0.35, 0.8); g.lineTo(-0.6, -0.2); g.closePath(); g.moveTo(-0.6, -0.2); g.lineTo(0.6, -0.2); g.moveTo(0, -0.9); g.lineTo(0, 0.8); },
   map: (g) => { g.beginPath(); const p = [[-0.7, 0.5], [-0.2, -0.3], [0.3, 0.1], [0.75, -0.6]]; g.moveTo(p[0][0], p[0][1]); for (const q of p.slice(1)) g.lineTo(q[0], q[1]); for (const q of p) { g.moveTo(q[0] + 0.12, q[1]); g.arc(q[0], q[1], 0.12, 0, Math.PI * 2); } },
   skull: (g) => { g.beginPath(); g.arc(0, -0.15, 0.6, Math.PI * 0.85, Math.PI * 0.15); g.lineTo(0.35, 0.75); g.lineTo(-0.35, 0.75); g.closePath(); g.moveTo(-0.15, -0.1); g.arc(-0.25, -0.1, 0.12, 0, Math.PI * 2); g.moveTo(0.35, -0.1); g.arc(0.25, -0.1, 0.12, 0, Math.PI * 2); },
-  execute: (g) => { g.beginPath(); g.moveTo(0, -0.9); g.lineTo(0.18, 0.2); g.lineTo(0, 0.9); g.lineTo(-0.18, 0.2); g.closePath(); g.moveTo(-0.6, 0); g.lineTo(0.6, 0); },
+  shatter: (g) => {
+    g.beginPath();
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + 0.2, r0 = 0.22, r1 = i % 2 ? 0.62 : 0.92; g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); g.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); }
+    g.moveTo(0.18, 0); g.lineTo(0, 0.18); g.lineTo(-0.18, 0); g.lineTo(0, -0.18); g.closePath();
+  },
+  fullscreen: (g) => { g.beginPath(); for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { g.moveTo(sx * 0.8, sy * 0.3); g.lineTo(sx * 0.8, sy * 0.8); g.lineTo(sx * 0.3, sy * 0.8); } },
+  heart: (g) => { g.beginPath(); g.moveTo(0, 0.8); g.bezierCurveTo(-0.95, 0.1, -0.7, -0.85, 0, -0.35); g.bezierCurveTo(0.7, -0.85, 0.95, 0.1, 0, 0.8); g.closePath(); },
+  crit: (g) => { g.beginPath(); for (let i = 0; i < 8; i++) { const a = -Math.PI / 2 + (i / 8) * Math.PI * 2, r = i % 2 ? 0.3 : 0.9; const x = Math.cos(a) * r, y = Math.sin(a) * r; if (i) g.lineTo(x, y); else g.moveTo(x, y); } g.closePath(); },
+  armor: (g) => { g.beginPath(); g.moveTo(-0.7, -0.6); g.lineTo(0, -0.85); g.lineTo(0.7, -0.6); g.lineTo(0.55, 0.3); g.lineTo(0, 0.85); g.lineTo(-0.55, 0.3); g.closePath(); g.moveTo(-0.35, -0.2); g.lineTo(0.35, -0.2); },
+  dash: (g) => { g.beginPath(); g.moveTo(-0.85, -0.5); g.lineTo(0.1, -0.5); g.moveTo(-0.6, 0); g.lineTo(0.35, 0); g.moveTo(-0.85, 0.5); g.lineTo(0.1, 0.5); g.moveTo(0.3, -0.75); g.lineTo(0.85, 0); g.lineTo(0.3, 0.75); },
   eye: (g) => { g.beginPath(); g.moveTo(-0.9, 0); g.quadraticCurveTo(0, -0.75, 0.9, 0); g.quadraticCurveTo(0, 0.75, -0.9, 0); g.moveTo(0.28, 0); g.arc(0, 0, 0.28, 0, Math.PI * 2); },
   gear: (g) => { g.beginPath(); for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2, r = i % 2 ? 0.62 : 0.85; if (i) g.lineTo(Math.cos(a) * r, Math.sin(a) * r); else g.moveTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); g.moveTo(0.3, 0); g.arc(0, 0, 0.3, 0, Math.PI * 2); },
   back: (g) => { g.beginPath(); g.moveTo(0.5, -0.7); g.lineTo(-0.3, 0); g.lineTo(0.5, 0.7); },
@@ -39,7 +49,7 @@ const ICONS: Record<IconId, Draw> = {
 const cache = new Map<string, HTMLCanvasElement>();
 
 /** Иконка в канвасе size × size (CSS px): обводка золотом/фиолетом + свечение. */
-export function iconCanvas(id: IconId, size: number, color = '#B8954E', glow = 'rgba(139,92,246,0.9)', fill = false): HTMLCanvasElement {
+export function iconCanvas(id: IconId, size: number, color = '#e3c37e', glow = 'rgba(240,200,120,0.55)', fill = false): HTMLCanvasElement {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const key = `${id}|${size}|${color}|${glow}|${fill}|${dpr}`;
   let cv = cache.get(key);
@@ -58,7 +68,7 @@ export function iconCanvas(id: IconId, size: number, color = '#B8954E', glow = '
   return out;
 }
 
-export function drawIcon(g: CanvasRenderingContext2D, id: IconId, cx: number, cy: number, r: number, color = '#B8954E', glow = 'rgba(139,92,246,0.9)', fill = false): void {
+export function drawIcon(g: CanvasRenderingContext2D, id: IconId, cx: number, cy: number, r: number, color = '#e3c37e', glow = 'rgba(240,200,120,0.55)', fill = false): void {
   g.save();
   g.translate(cx, cy);
   g.scale(r, r);

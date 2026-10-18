@@ -135,7 +135,7 @@ export class LightPools {
 /** Рунический круг на полу (SDF-шейдер): золотые кольца, глифы-засечки, фиолетовые линии. */
 export class RuneCircle {
   readonly mesh: THREE.Mesh;
-  readonly u = { uPulse: { value: 0 }, uGold: { value: new THREE.Vector3(...hexToLinear('#B8954E')) }, uVoid: { value: new THREE.Vector3(...hexToLinear('#8B5CF6')) }, uAlpha: { value: 1 } };
+  readonly u = { uPulse: { value: 0 }, uGold: { value: new THREE.Vector3(...hexToLinear('#B8954E')) }, uVoid: { value: new THREE.Vector3(...hexToLinear('#5cc4e0')) }, uAlpha: { value: 1 } };
   constructor(radius: number) {
     const g = new THREE.PlaneGeometry(radius * 2, radius * 2);
     g.rotateX(-Math.PI / 2);

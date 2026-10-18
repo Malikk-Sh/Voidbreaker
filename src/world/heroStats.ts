@@ -16,13 +16,20 @@ export interface HeroStats {
   resGain: number;
   perfectWindow: number;
   cdr: number;
-  executionHeal: number;
+  /** Лечение за Раскол (доля HP; Стойкость 10). */
+  shatterHeal: number;
   secondWind: boolean;
   startResonance: number;
   /** Ловкость 10: рывок оставляет фиолетовый след с уроном. */
   dashTrail: boolean;
-  /** Сила 10: удар 4 оставляет трещину. */
+  /** Сила 6: финишер оставляет трещину. */
   riftCrack: boolean;
+  /** Сила 15: финишер — три расходящихся разлома. */
+  tripleRift: boolean;
+  /** Стойкость 15: во время комбо не отбрасывает. */
+  comboStable: boolean;
+  /** Резонанс 15: Резонанс после окончания Затмения. */
+  ultRefund: number;
   /** Стойкость 20: после удара 1 с щита. */
   hurtShield: boolean;
   ultHeal: number;
@@ -35,7 +42,7 @@ export function baseStats(): HeroStats {
   return {
     maxHp: B.hp, atk: B.atk, critChance: B.critChance, critMul: B.critMul, speed: B.speed, atkSpeed: 1,
     dashCharges: B.dashCharges, dashRecharge: B.dashRecharge, armor: B.armor, dmgBonus: 0, abilityDmg: 0, resGain: 0,
-    perfectWindow: B.perfectWindow, cdr: 0, executionHeal: 0.05, secondWind: false, startResonance: 0,
-    dashTrail: false, riftCrack: false, hurtShield: false, ultHeal: 0, shardBonus: 0, autoAim: 1,
+    perfectWindow: B.perfectWindow, cdr: 0, shatterHeal: 0, secondWind: false, startResonance: 0,
+    dashTrail: false, riftCrack: false, tripleRift: false, comboStable: false, ultRefund: 0, hurtShield: false, ultHeal: 0, shardBonus: 0, autoAim: 1,
   };
 }

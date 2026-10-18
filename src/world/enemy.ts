@@ -48,7 +48,6 @@ export abstract class Enemy implements Actor {
   postureMul = 1;
   shieldFrom: Enemy | null = null;
   stagger = 0;
-  beingExecuted = false;
   deathT = 0;
   token: 'melee' | 'ranged' | null = null;
   tele: Telegraph | null = null;
@@ -77,8 +76,8 @@ export abstract class Enemy implements Actor {
     this.height = def.height * (eliteK ? ELITE.scale : 1);
     this.armor = def.armor ?? 0;
     this.scale = eliteK ? ELITE.scale : 1;
-    if (def.posture) this.posture = makePosture(def.posture * (eliteK ? 1.5 : 1), def.breakDur ?? 3);
-    else if (eliteK) this.posture = makePosture(ELITE.posture, 3);
+    if (def.posture) this.posture = makePosture(def.posture * (eliteK ? 1.5 : 1), def.breakDur ?? 1.8);
+    else if (eliteK) this.posture = makePosture(ELITE.posture, 1.8);
     if (this.elite.includes('hasted')) { this.speed *= 1.4; this.teleMul = 0.7; }
     this.puppet = new Puppet(layout, clips);
     this.puppet.skel.size = this.scale;
@@ -86,9 +85,10 @@ export abstract class Enemy implements Actor {
   }
 
   get targetable(): boolean { return !this.dead && this.state !== 'spawn'; }
-  get executable(): boolean { return !this.dead && !this.beingExecuted && !!this.posture && this.posture.broken > 0 && this.canExecute; }
-  /** Боссы разрешают казнь только в окне слома (переопределяется). */
-  get canExecute(): boolean { return true; }
+  /** Треснул (стойка сломана): финишер или заряженный удар вызовет Раскол. */
+  get cracked(): boolean { return !this.dead && !!this.posture && this.posture.broken > 0 && this.canShatter; }
+  /** Боссы запрещают Раскол в переходах фаз (переопределяется). */
+  get canShatter(): boolean { return true; }
   get broken(): boolean { return !!this.posture && this.posture.broken > 0; }
   get spawned(): boolean { return this.state !== 'spawn'; }
 
@@ -136,12 +136,10 @@ export abstract class Enemy implements Actor {
       if (!this.posture || this.posture.broken <= 0) this.setState('recover');
     } else if (this.state === 'stagger') {
       if (this.stateT >= this.stagger) this.setState('recover');
-    } else if (!this.beingExecuted) {
+    } else {
       this.brainT -= dt;
       this.think(w, dt, this.brainT <= 0);
       if (this.brainT <= 0) this.brainT = 1 / 18;
-    } else {
-      this.vx = this.vz = 0;
     }
     this.animate(dt, w);
   }
@@ -199,7 +197,7 @@ export abstract class Enemy implements Actor {
     this.setState('stagger');
   }
 
-  /** Слом стойки: оглушение (боссы 4–5 с), +50 % урона. */
+  /** Слом стойки: короткое оглушение (элита 1.8 с, стражи 2.4 с, босс 2.8 с), +25 % урона, Раскол финишером. */
   onBreak(): void {
     this.cancelTelegraph();
     this.token = null;
@@ -234,8 +232,8 @@ export abstract class Enemy implements Actor {
   /** Смертельный урон: false — враг не умирает (босс ждёт перехода фазы). */
   onLethal(_w: World): boolean { return true; }
 
-  /** Казнь применена (боссы: кинематографичный удар, выход из слома). */
-  onExecuted(_w: World): void {}
+  /** Раскол применён: трещины взорваны, враг выходит из слома. */
+  onShattered(_w: World): void {}
 
   /** Сколько кадров удалить после распада. */
   get removable(): boolean { return this.dead && this.deathT > 1.0; }

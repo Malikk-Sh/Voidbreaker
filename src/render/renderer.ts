@@ -30,7 +30,7 @@ export class Renderer {
     this.quality = quality;
     this.gl = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance', stencil: false, depth: true });
     this.gl.autoClear = false;
-    this.gl.setClearColor(0x07060b, 1);
+    this.gl.setClearColor(0x05070a, 1);
     initSharedTextures();
     this.camera = new THREE.PerspectiveCamera(30, 16 / 9, 1, 900);
     this.scene.add(this.sky.mesh);

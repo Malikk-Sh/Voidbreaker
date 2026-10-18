@@ -267,7 +267,6 @@ export abstract class ScriptedEnemy extends Enemy {
     return this.poseCur;
   }
 
-  override get canExecute(): boolean { return true; }
   override interrupt(): void { /* стражи и боссы не прерываются лёгкими ударами */ }
   override onBreak(): void {
     super.onBreak();

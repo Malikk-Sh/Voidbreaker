@@ -117,7 +117,7 @@ export class Hierophant extends ScriptedEnemy {
   protected poses(): PoseLib { return POSES; }
 
   override get invulnerable(): boolean { return this.transitioning > 0 || this.dying || this.state === 'spawn' || this.idleT > 100; }
-  override get canExecute(): boolean { return !this.dying && this.transitioning <= 0; }
+  override get canShatter(): boolean { return !this.dying && this.transitioning <= 0; }
 
   private censerSteps(): Step[] {
     const h = this.w_.hero;
@@ -191,10 +191,9 @@ export class Hierophant extends ScriptedEnemy {
     return false;
   }
 
-  override onExecuted(w: World): void {
-    // Казнь: клинок в колокол, звон глохнет, экран вздрагивает
-    w.bus.emit('sfx', { id: 'execute_impact', x: this.x, z: this.z });
-    if (this.posture) this.posture.broken = 0.6;
+  override onShattered(w: World): void {
+    // Раскол: клинок в колокол, звон глохнет, Иерофант на миг оседает
+    w.bus.emit('sfx', { id: 'bell_crack', x: this.x, z: this.z, gain: 0.8 });
   }
 
   protected override think(w: World, dt: number, tick: boolean): void {

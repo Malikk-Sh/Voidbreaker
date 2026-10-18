@@ -27,7 +27,8 @@ export interface ZoneLook {
   rim: string; veins: string; warm: string; floorTint: string; decorDensity: number;
 }
 
-export const ZONE1_LOOK: ZoneLook = { rim: '#5b3fb8', veins: '#8B5CF6', warm: '#FFB866', floorTint: '#14121C', decorDensity: 1 };
+/** Зона 01: холодный сланец, прожилки звёздного света, тёплые свечи. Фиолет оставлен Пилоту. */
+export const ZONE1_LOOK: ZoneLook = { rim: '#3d6688', veins: '#5cc4e0', warm: '#FFB866', floorTint: '#151a22', decorDensity: 1 };
 
 /** Плитка пола со скошенной кромкой; вариант — с прожилкой. */
 function tileGeometry(t: number, variant: number, seed: number): THREE.BufferGeometry {

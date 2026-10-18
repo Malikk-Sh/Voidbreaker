@@ -5,10 +5,10 @@ import { GeomBuilder, mat, matAlong, type RGB } from './build';
 import { bipyramid, box, gothicArch, jitter, lathe, prism, rock, shard } from './prims';
 
 /** Базовые цвета огранённой готики (линейные). Геймплейные цвета всегда ярче (GDD §16.3). */
-export const OBS: RGB = hexToLinear('#14121C');
-export const OBS_DEEP: RGB = hexToLinear('#0a0910');
-export const OBS_HI: RGB = hexToLinear('#2A2635');
-export const GOLD: RGB = hexToLinear('#8a6d34');
+export const OBS: RGB = hexToLinear('#151a22');
+export const OBS_DEEP: RGB = hexToLinear('#080a0e');
+export const OBS_HI: RGB = hexToLinear('#2a313c');
+export const GOLD: RGB = hexToLinear('#9a7838');
 export const WAX: RGB = hexToLinear('#5a4a3a');
 
 /** Эмиссия «прожилкой»: тонкий светящийся осколок, вдавленный в поверхность. */

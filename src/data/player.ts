@@ -27,7 +27,7 @@ export const RESONANCE = {
   perHit: 2,
   perFinisher: 6,
   perPerfectDodge: 15,
-  perExecution: 10,
+  perShatter: 12,
   perSecondAtS: 1,
   lossOnHurt: 5,
 };
@@ -43,6 +43,6 @@ export const RANKS = [
 ] as const;
 export type RankId = (typeof RANKS)[number]['id'];
 
-export const RANK_POINTS = { hit: 1, finisher: 4, perfectDodge: 10, execution: 15, variety: 5 };
+export const RANK_POINTS = { hit: 1, finisher: 4, perfectDodge: 10, shatter: 12, variety: 5 };
 /** Сброс счётчика через 3 с без ударов или при уроне. */
 export const RANK_TIMEOUT = 3;

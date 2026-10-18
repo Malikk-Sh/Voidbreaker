@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { exportSave, importSave, migrate, newSave, type SaveData } from '../src/meta/save';
 import {
-  applyReward, buyStat, computeReward, computeStats, globalIndex, stageUnlocked, statCost, upgradeWeapon, weaponCost, zoneStars,
+  applyReward, buyStat, computeReward, computeStats, globalIndex, MAX_STAT, stageUnlocked, statCost, upgradeWeapon, weaponCost, zoneStars,
   type StageResult,
 } from '../src/meta/progression';
 import { stageById, stageShards, ZONE1 } from '../src/data/stages';
@@ -11,10 +11,9 @@ const result = (o: Partial<StageResult> = {}): StageResult => ({
 });
 
 describe('формулы прогрессии (GDD §8)', () => {
-  it('statCost совпадает с таблицей GDD §8.3 (±0.5 %)', () => {
-    const table: [number, number][] = [[1, 46], [5, 84], [10, 176], [20, 777], [30, 3430], [40, 15140]];
-    for (const [lvl, cost] of table) expect(Math.abs(statCost(lvl - 1) - cost) / cost).toBeLessThan(0.005);
-    for (let n = 1; n < 40; n++) expect(statCost(n)).toBeGreaterThan(statCost(n - 1));
+  it('statCost = 100 × 1.22^(n+1): дорогие, но ощутимые уровни', () => {
+    expect([0, 4, 9, 14, 19].map(statCost)).toEqual([122, 270, 730, 1974, 5336]);
+    for (let n = 1; n < MAX_STAT; n++) expect(statCost(n)).toBeGreaterThan(statCost(n - 1));
   });
 
   it('stageShards совпадает с таблицей GDD §8.5', () => {
@@ -22,8 +21,8 @@ describe('формулы прогрессии (GDD §8)', () => {
   });
 
   it('weaponCost растёт геометрически', () => {
-    expect(weaponCost(1)).toBe(220);
-    expect(weaponCost(2)).toBe(319);
+    expect(weaponCost(1)).toBe(320);
+    expect(weaponCost(2)).toBe(480);
     expect(weaponCost(3)).toBeGreaterThan(weaponCost(2));
   });
 
@@ -35,15 +34,15 @@ describe('формулы прогрессии (GDD §8)', () => {
     expect(buyStat(s, 'power')).toBe(true);
     expect(s.currencies.shards).toBe(1000 - statCost(0));
     expect(s.stats.power).toBe(1);
-    expect(computeStats(s).atk).toBeGreaterThan(before.atk);
+    expect(computeStats(s).atk).toBeCloseTo(before.atk * 1.1);
   });
 
   it('улучшение оружия', () => {
     const s = newSave();
-    s.currencies.shards = 300;
+    s.currencies.shards = 500;
     expect(upgradeWeapon(s, 'void_blade')).toBe(true);
     expect(s.weapons.void_blade.level).toBe(2);
-    expect(upgradeWeapon(s, 'void_blade')).toBe(false); // 80 < 319
+    expect(upgradeWeapon(s, 'void_blade')).toBe(false); // 180 < 480
     expect(upgradeWeapon(s, 'nope')).toBe(false);
   });
 });
@@ -112,10 +111,13 @@ describe('награды этапа (GDD §3.3)', () => {
 
 describe('сохранение (Tech §24)', () => {
   it('migrate дополняет старые сохранения значениями по умолчанию', () => {
-    const old = { currencies: { shards: 500 }, stats: { power: 3 } } as unknown as Partial<SaveData>;
+    const old = { version: 1, currencies: { shards: 500 }, stats: { power: 3, agility: 40 } } as unknown as Partial<SaveData>;
     const s = migrate(old);
+    expect(s.version).toBe(2);
     expect(s.currencies).toEqual({ shards: 500, ether: 0 });
-    expect(s.stats).toEqual({ power: 3, agility: 0, fortitude: 0, resonance: 0 });
+    // v1 → v2: уровни статов пересчитаны ⌈n/2⌉
+    expect(s.stats).toEqual({ power: 2, agility: 20, fortitude: 0, resonance: 0 });
+    expect(migrate(s).stats.power).toBe(2);
     expect(s.loadout.weapon).toBe('void_blade');
     expect(s.abilities.crescent?.level).toBe(1);
     expect(s.settings).toBeTruthy();

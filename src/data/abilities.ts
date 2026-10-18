@@ -43,11 +43,11 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   },
 };
 
-/** Уровни способностей (GDD §8.4): I → II: +35 % урона, −10 % КД; II → III: +35 % урона, открытие мутации. */
+/** Уровни способностей (GDD §8.4, пересмотрено): I → II: +45 % урона, −10 % КД; II → III: +45 % урона, открытие мутации. */
 export const ABILITY_LEVEL = {
-  costs: [0, 600, 2400],
+  costs: [0, 900, 3200],
   etherCost: [0, 0, 3],
   mutationSwap: 2,
-  dmgPerLevel: 0.35,
+  dmgPerLevel: 0.45,
   cdLevel2: 0.9,
 };

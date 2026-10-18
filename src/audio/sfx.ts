@@ -103,8 +103,9 @@ export const SFX: Record<string, SfxRecipe> = {
     const { f } = noiseHit(c, g, t, 0.5, 400, 1, 'bandpass', 1.2, 'pink'); f.frequency.exponentialRampToValueAtTime(5000, t + 0.48);
     kick(c, o, t + 0.48, 1, 25); bell(c, o, t + 0.48, mtof(50), 0.22, 3); choir(c, o, t + 0.45, [50, 57, 62, 65, 69], 2.2, 0.07, 'a', 'u'); glassTail(c, o, t + 0.5, 12, 0.06);
   } },
-  execute: { len: 1.0, render: (c, o, t) => { sweep(c, o, t, 200, 1500, 0.6, 0.6, 0.8); osc(c, 'sine', 55, t, 0.6, o, 0.3, 0.2, 0.4); } },
-  execute_impact: { len: 3.0, render: (c, o, t) => { kick(c, o, t, 1.1, 25); body(c, o, t, 45, 30, 0.6, 0.8); bell(c, o, t, 110, 0.25, 2.8); glassTail(c, o, t, 16, 0.08); noiseHit(c, o, t, 0.4, 500, 0.6, 'lowpass', 1); } },
+  // Раскол: хруст обсидиана + стеклянный хвост осколков
+  shatter_burst: { len: 2.2, render: (c, o, t) => { kick(c, o, t, 0.9, 32); noiseHit(c, o, t, 0.25, 3200, 0.55, 'highpass', 0.8); body(c, o, t, 70, 32, 0.35, 0.6); glassTail(c, o, t, 20, 0.07); noiseHit(c, o, t, 0.35, 450, 0.45, 'lowpass', 1); } },
+  bell_crack: { len: 2.6, render: (c, o, t) => { bell(c, o, t, 103, 0.22, 2.4); noiseHit(c, o, t, 0.2, 2400, 0.4, 'bandpass', 1.5); glassTail(c, o, t, 12, 0.06); } },
   ui_click: { len: 0.2, render: (c, o, t) => { osc(c, 'sine', 1568, t, 0.1, o, 0.05, 0.001, 0.1); osc(c, 'sine', 2350, t, 0.06, o, 0.02, 0.001, 0.06); } },
   ui_confirm: { len: 0.6, render: (c, o, t) => { bell(c, o, t, mtof(74), 0.06, 0.6); bell(c, o, t + 0.07, mtof(81), 0.05, 0.6); } },
   ui_back: { len: 0.25, render: (c, o, t) => { osc(c, 'triangle', 440, t, 0.1, o, 0.06, 0.001, 0.12); noiseHit(c, o, t, 0.03, 2000, 0.05, 'bandpass', 2); } },

@@ -12,7 +12,7 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
   const apply = () => { app.game.applySettings(); writeSave(app.ctx.save); };
 
   const slider = (label: string, key: keyof Settings, min = 0, max = 1, step = 0.05) => {
-    const val = h('span', { class: 'vb-gold', style: { width: '44px', textAlign: 'right', fontSize: '12px' } }, `${Math.round((S[key] as number) * 100)}%`);
+    const val = h('span', { class: 'vb-gold vb-tech', style: { width: '48px', textAlign: 'right', fontSize: '12px' } }, `${Math.round((S[key] as number) * 100)}%`);
     const inp = h('input', { type: 'range', class: 'vb-slider', min, max, step, value: S[key] as number }) as HTMLInputElement;
     inp.addEventListener('input', () => { (S as unknown as Record<string, number>)[key] = Number(inp.value); val.textContent = `${Math.round(Number(inp.value) * 100)}%`; apply(); });
     return h('div', { class: 'vb-row' }, h('span', { style: { width: '42%', fontSize: '13px' } }, label), inp, val);
@@ -23,9 +23,9 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
     render();
     return h('div', { class: 'vb-row', style: { justifyContent: 'space-between', flexWrap: 'wrap' } }, h('span', { style: { fontSize: '13px' } }, label), box);
   };
-  const section = (t: string) => h('div', { class: 'vb-caps vb-gold', style: { marginTop: '10px' } }, t);
+  const section = (t: string) => h('div', { class: 'vb-row', style: { marginTop: '12px', gap: '10px' } }, h('span', { class: 'vb-diamond' }), h('span', { class: 'vb-caps vb-gold' }, t), h('div', { class: 'vb-rule vb-grow', style: { margin: '0' } }));
 
-  const io = h('textarea', { rows: 2, style: { width: '100%', background: 'rgba(10,8,16,.8)', color: '#cbbfe0', border: '1px solid rgba(184,149,78,.4)', fontSize: '10px', fontFamily: 'monospace' } }) as HTMLTextAreaElement;
+  const io = h('textarea', { rows: 2, style: { width: '100%', background: 'rgba(6,9,13,.85)', color: '#d9d3c7', border: '1px solid rgba(201,162,83,.4)', fontSize: '10px', fontFamily: 'monospace' } }) as HTMLTextAreaElement;
   let resetConfirm = false;
   const resetBtn = h('button', { class: 'vb-btn small', onClick: () => {
     if (!resetConfirm) { resetConfirm = true; resetBtn.textContent = 'Стереть всё?'; return; }
@@ -78,11 +78,11 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
     io,
   );
 
-  return h('div', { class: 'vb-screen vb-fade', style: { display: 'grid', placeItems: 'center', background: 'rgba(7,6,11,.7)' } },
+  return h('div', { class: 'vb-screen vb-fade', style: { display: 'grid', placeItems: 'center', background: 'rgba(5,7,10,.72)' } },
     h('div', { class: 'vb-panel vb-col', style: { width: 'min(640px, 94vw)', height: 'min(560px, 92vh)', gap: '6px' } },
       h('div', { class: 'vb-row', style: { justifyContent: 'space-between' } },
-        titleCanvas('НАСТРОЙКИ', 22, { color: 'gold', glow: 0.6 }),
-        h('button', { class: 'vb-iconbtn', 'aria-label': 'Назад', onClick: () => { app.sfx('ui_back'); back(); } }, iconCanvas('back', 26, '#e2c27a', 'rgba(139,92,246,.6)'))),
+        titleCanvas('Настройки', 26, { color: 'gold', glow: 0.6, spacing: 0.08 }),
+        h('button', { class: 'vb-iconbtn', 'aria-label': 'Назад', onClick: () => { app.sfx('ui_back'); back(); } }, iconCanvas('back', 22, '#f0d9a0', 'rgba(240,200,120,.5)'))),
       content,
     ),
   );

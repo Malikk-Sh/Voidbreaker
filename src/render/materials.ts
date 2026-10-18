@@ -9,13 +9,13 @@ const v3 = (hex: string) => new THREE.Vector3(...hexToLinear(hex));
 
 export const G = {
   uTime: { value: 0 },
-  uFogColor: { value: v3('#0d0a18') },
+  uFogColor: { value: v3('#0a0f16') },
   uFogRange: { value: new THREE.Vector2(40, 260) },
   uFogHeight: { value: new THREE.Vector2(-4, -120) },
   uMoonDir: { value: new THREE.Vector3(-0.4, 0.8, 0.45).normalize() },
-  uMoonColor: { value: v3('#5b5480') },
-  uHemiTop: { value: v3('#1c1632') },
-  uHemiBot: { value: v3('#050308') },
+  uMoonColor: { value: v3('#6f86a6') },
+  uHemiTop: { value: v3('#1a2330') },
+  uHemiBot: { value: v3('#050608') },
   uPLPos: { value: Array.from({ length: MAX_POINT_LIGHTS }, () => new THREE.Vector4(0, -999, 0, 1)) },
   uPLCol: { value: Array.from({ length: MAX_POINT_LIGHTS }, () => new THREE.Vector4(0, 0, 0, 0)) },
   uMatcap: { value: null as THREE.Texture | null },
@@ -26,8 +26,8 @@ export const G = {
 export const FLOOR_MATCAP = { value: null as THREE.Texture | null };
 
 export function initSharedTextures(): void {
-  G.uMatcap.value = makeMatcap('#2a2440', '#ffffff', 'rgba(140,110,220,0.5)', 256, 0.14);
-  FLOOR_MATCAP.value = makeMatcap('#100c1c', 'rgba(170,150,230,0.3)', 'rgba(110,80,200,0.35)', 256, 0.32);
+  G.uMatcap.value = makeMatcap('#27303c', '#ffffff', 'rgba(110,165,215,0.45)', 256, 0.14);
+  FLOOR_MATCAP.value = makeMatcap('#0d1218', 'rgba(185,200,225,0.3)', 'rgba(90,140,200,0.3)', 256, 0.32);
   G.uNoise.value = makeNoiseTexture(256);
 }
 
@@ -249,7 +249,7 @@ export function obsidianMaterial(o: ObsidianOpts = {}): ObsidianMaterial {
     defines,
     uniforms: {
       ...G,
-      uRimColor: { value: v3(o.rim ?? '#6d4bd8') },
+      uRimColor: { value: v3(o.rim ?? '#4a76a0') },
       uRimPower: { value: o.rimPower ?? 2.6 },
       uRimStrength: { value: o.rimStrength ?? 0.55 },
       uEmissiveColor: { value: v3(o.emissive ?? '#8B5CF6') },

@@ -3,7 +3,8 @@ import { DEFAULT_SETTINGS, type Settings } from './settings';
 
 /** Сохранение (Tech §24). */
 export interface SaveData {
-  version: 1;
+  /** 2 — ветки статов по 20 уровней (старые уровни пересчитаны: ⌈n/2⌉). */
+  version: 2;
   createdAt: number;
   updatedAt: number;
   currencies: { shards: number; ether: number };
@@ -25,7 +26,7 @@ const TMP = 'voidbreaker.save.tmp';
 export function newSave(): SaveData {
   const now = Date.now();
   return {
-    version: 1, createdAt: now, updatedAt: now,
+    version: 2, createdAt: now, updatedAt: now,
     currencies: { shards: 0, ether: 0 },
     stats: { power: 0, agility: 0, fortitude: 0, resonance: 0 },
     abilities: { crescent: { level: 1 } },
@@ -59,9 +60,12 @@ function parse(raw: string | null): SaveData | null {
 /** Миграции по version + заполнение новых полей значениями по умолчанию. */
 export function migrate(d: Partial<SaveData>): SaveData {
   const base = newSave();
-  const s: SaveData = { ...base, ...d, version: 1 } as SaveData;
+  const from = (d as { version?: number }).version ?? 1;
+  const s: SaveData = { ...base, ...d, version: 2 } as SaveData;
   s.currencies = { ...base.currencies, ...d.currencies };
   s.stats = { ...base.stats, ...d.stats };
+  // v1 → v2: уровень статов стал вдвое сильнее, а ветка — вдвое короче
+  if (from < 2) for (const k of Object.keys(s.stats) as (keyof SaveData['stats'])[]) s.stats[k] = Math.min(20, Math.ceil(s.stats[k] / 2));
   s.loadout = { ...base.loadout, ...d.loadout };
   s.settings = { ...DEFAULT_SETTINGS, ...d.settings };
   s.abilities = { ...base.abilities, ...d.abilities };
