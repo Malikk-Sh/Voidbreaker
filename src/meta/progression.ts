@@ -105,6 +105,15 @@ export function upgradeAbility(s: SaveData, id: AbilityId, mutation?: 'A' | 'B')
   return true;
 }
 
+/** Дар босса: способность сразу на III уровень (мутация А, сменить можно в Святилище). */
+export function grantLevel3(s: SaveData, id: AbilityId): boolean {
+  const a = s.abilities[id];
+  if (!a || a.level >= 3) return false;
+  a.level = 3;
+  a.mutation = 'A';
+  return true;
+}
+
 export function swapMutation(s: SaveData, id: AbilityId): boolean {
   const a = s.abilities[id];
   if (!a || a.level < 3 || s.currencies.ether < ABILITY_LEVEL.mutationSwap) return false;
@@ -135,6 +144,8 @@ export interface Reward {
   first: boolean;
   unlocks: AbilityId[];
   relic?: string;
+  /** Победа над боссом: бесплатный III уровень одной способности на выбор (план §6.7). */
+  freeLevel3: boolean;
 }
 
 export const RANK_ORDER: RankId[] = ['D', 'C', 'B', 'A', 'S', 'SS'];
@@ -161,6 +172,7 @@ export function computeReward(s: SaveData, def: StageDef, r: StageResult, shardB
     stars, newStars: Math.max(0, stars - prevStars), shards, ether, first: first && r.cleared,
     unlocks: first && r.cleared ? def.unlocks ?? [] : [],
     relic: def.boss && first && r.cleared ? 'hierophant_eye' : undefined,
+    freeLevel3: !!def.boss && first && r.cleared,
   };
 }
 

@@ -157,6 +157,11 @@ export class Battle {
         S.setFlag('tut_move');
         hud.showHint(S.input.lastDevice === 'touch' ? 'Левый палец — движение • Кнопка — атака' : 'WASD — движение • ЛКМ / J — атака');
       }
+      // обучение ульты (план §6.7): в толпе второй волны Свечного зала Резонанс сразу полон
+      if (this.stage.tutorial === 'ult' && e.index === 1 && this.abilities.loadout.r && !S.flag('tut_ult_crowd')) {
+        S.setFlag('tut_ult_crowd');
+        setTimeout(() => this.world.hero.addResonance(100), 2500);
+      }
     });
     b.on('waveClear', () => { S.audio.play('wave_clear', { gain: 0.6 }); this.view.lightConstellations(); });
     b.on('stageClear', () => {

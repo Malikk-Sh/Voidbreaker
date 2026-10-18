@@ -1,8 +1,8 @@
 import type { App, ResultsData } from '../../game/app';
-import { ABILITIES } from '../../data/abilities';
+import { ABILITIES, type AbilityId } from '../../data/abilities';
 import { LORE } from '../../data/lore';
 import { stageById } from '../../data/stages';
-import { RELICS } from '../../meta/progression';
+import { grantLevel3, RELICS } from '../../meta/progression';
 import { fmtNum, fmtTime, h } from '../dom';
 import { titleCanvas } from '../font';
 import { iconCanvas } from '../icons';
@@ -47,8 +47,27 @@ export function resultsScreen(app: App, d: ResultsData): HTMLElement {
     const R = RELICS[d.reward.relic];
     extras.push(h('div', { class: 'vb-card vb-row sel' }, iconCanvas('relic', 36, UI.goldHi, UI.glowGold), h('div', { class: 'vb-col', style: { gap: '2px' } }, h('span', { class: 'vb-caps vb-gold' }, 'Реликвия'), h('span', {}, `${R.name} — ${R.desc}`))));
   }
+  // дар босса (план §6.7): бесплатный III уровень одной способности на выбор
+  if (d.reward.freeLevel3) {
+    const sv = app.ctx.save;
+    const pick = h('div', { class: 'vb-row', style: { gap: '8px', flexWrap: 'wrap' } });
+    const card = h('div', { class: 'vb-card vb-col sel', style: { gap: '6px' } },
+      h('span', { class: 'vb-caps vb-void' }, 'Дар звезды'),
+      h('span', { style: { fontSize: '13px' } }, 'Одна способность — сразу на III уровень (мутация А, сменить можно в Святилище).'),
+      pick);
+    const ids = (Object.keys(sv.abilities) as AbilityId[]).filter((id) => (sv.abilities[id]?.level ?? 3) < 3);
+    for (const id of ids) {
+      const A = ABILITIES[id];
+      pick.appendChild(h('button', { class: 'vb-btn small', onClick: () => {
+        if (!grantLevel3(sv, id)) return;
+        app.sfx('ui_upgrade'); app.save();
+        pick.replaceChildren(h('span', { class: 'vb-gold' }, `${A.name} — III уровень`));
+      } }, iconCanvas(A.icon, 18, UI.ivory, UI.none), ` ${A.name}`));
+    }
+    if (ids.length) extras.push(card);
+  }
   if (d.lore) extras.push(h('div', { class: 'vb-card' }, h('span', { class: 'vb-caps vb-gold' }, 'Запись найдена: '), h('span', { class: 'vb-name', style: { fontSize: '13px' } }, LORE[d.lore].title)));
-  if (d.stageId === '1-4' && won && app.ctx.flag('freePower')) extras.push(h('div', { class: 'vb-card' }, h('span', { class: 'vb-caps vb-void' }, 'Каэлис: '), h('span', {}, '«Загляни в Святилище — я влила в Созвездие немного силы. Бесплатно. На этот раз».')));
+  if (def.tutorial === 'upgrade' && won && app.ctx.flag('freePower')) extras.push(h('div', { class: 'vb-card' }, h('span', { class: 'vb-caps vb-void' }, 'Каэлис: '), h('span', {}, '«Загляни в Святилище — я влила в Созвездие немного силы. Бесплатно. На этот раз».')));
 
   const kv = (k: string, v: string) => [h('span', {}, k), h('span', {}, v)];
   const body = won

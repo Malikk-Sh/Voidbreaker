@@ -155,13 +155,13 @@ export class App {
       time: w.run.time, pickedShards: w.run.shards, pickedEther: w.run.ether, bestCombo: w.rank.bestHits, story,
     };
     const stats = computeStats(s, this.ctx.settings.autoAim);
-    const reward = o.cleared ? computeReward(s, o.stage, result, stats.shardBonus) : { stars: 0 as const, newStars: 0, shards: Math.round(w.run.shards * 0.5), ether: 0, first: false, unlocks: [] };
+    const reward = o.cleared ? computeReward(s, o.stage, result, stats.shardBonus) : { stars: 0 as const, newStars: 0, shards: Math.round(w.run.shards * 0.5), ether: 0, first: false, unlocks: [], freeLevel3: false };
     const firstClear = o.cleared && !(s.stages[o.stage.id]?.clears);
     applyReward(s, o.stage, result, reward);
     let lore: string | undefined;
     if (firstClear && LORE[o.stage.id] && !s.lore.includes(o.stage.id)) { s.lore.push(o.stage.id); lore = o.stage.id; }
-    // онбординг: после 1-4 — заход в Святилище с бесплатным уровнем Силы (GDD §20)
-    if (o.stage.id === '1-4' && firstClear && !s.flags.freePower) { s.flags.freePower = true; s.stats.power++; }
+    // онбординг: после этапа с обучением прокачке (1-5) — заход в Святилище с бесплатным уровнем Силы (GDD §20)
+    if (o.stage.tutorial === 'upgrade' && firstClear && !s.flags.freePower) { s.flags.freePower = true; s.stats.power++; }
     writeSave(s, true);
     this.ctx.input.enabled = false;
     this.pauseBtn.style.display = 'none';

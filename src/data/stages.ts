@@ -47,7 +47,7 @@ export const ZONE1: StageDef[] = [
     ],
   },
   {
-    id: '1-2', zone: 0, index: 1, name: 'Нефы', arena: 'naves', tutorial: 'charged',
+    id: '1-2', zone: 0, index: 1, name: 'Нефы', arena: 'naves', tutorial: 'charged', unlocks: ['well'],
     waves: [
       { spawns: [{ enemy: 'husk', count: 12, pattern: 'ring', stagger: 0.1 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 1.5 }, { enemy: 'eye', count: 1, at: ['top'], delay: 2 }] },
       { spawns: [{ enemy: 'golem', count: 1, pattern: 'far' }, { enemy: 'husk', count: 10, pattern: 'edges', delay: 1, stagger: 0.1 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 3 }] },
@@ -55,7 +55,7 @@ export const ZONE1: StageDef[] = [
     ],
   },
   {
-    id: '1-3', zone: 0, index: 2, name: 'Врата', arena: 'gate', tutorial: 'shatter',
+    id: '1-3', zone: 0, index: 2, name: 'Врата', arena: 'gate', tutorial: 'shatter', unlocks: ['eclipse'],
     waves: [
       { spawns: [{ enemy: 'husk', count: 14, pattern: 'ring', stagger: 0.08 }, { enemy: 'spiker', count: 6, pattern: 'ring', delay: 1.2 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 2.5 }] },
       { spawns: [{ enemy: 'golem', count: 1, pattern: 'far' }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 0.8 }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 2 }, { enemy: 'husk', count: 8, pattern: 'edges', delay: 3 }] },
@@ -64,7 +64,7 @@ export const ZONE1: StageDef[] = [
     ],
   },
   {
-    id: '1-4', zone: 0, index: 3, name: 'Свечной зал', arena: 'candles', tutorial: 'upgrade', unlocks: ['phase'],
+    id: '1-4', zone: 0, index: 3, name: 'Свечной зал', arena: 'candles', tutorial: 'ult', unlocks: ['phase'],
     waves: [
       { spawns: [{ enemy: 'husk', count: 16, pattern: 'ring', stagger: 0.07 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1.5 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 3 }] },
       { spawns: [{ enemy: 'eye', count: 2, at: ['left', 'right'] }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 1 }, { enemy: 'husk', count: 10, pattern: 'ring', delay: 1.5 }, { enemy: 'spiker', count: 6, pattern: 'ring', delay: 3 }] },
@@ -74,7 +74,7 @@ export const ZONE1: StageDef[] = [
     ],
   },
   {
-    id: '1-5', zone: 0, index: 4, name: 'Мост над бездной', arena: 'bridge',
+    id: '1-5', zone: 0, index: 4, name: 'Мост над бездной', arena: 'bridge', tutorial: 'upgrade',
     waves: [
       { spawns: [{ enemy: 'husk', count: 14, pattern: 'ring', stagger: 0.08 }, { enemy: 'spiker', count: 6, pattern: 'ring', delay: 1 }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 2 }] },
       { spawns: [{ enemy: 'reaper', count: 3, pattern: 'edges' }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 1 }, { enemy: 'husk', count: 12, pattern: 'ring', delay: 2.5 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 3.5 }] },
@@ -83,7 +83,7 @@ export const ZONE1: StageDef[] = [
     ],
   },
   {
-    id: '1-6', zone: 0, index: 5, name: 'Колокольня', arena: 'belfry', tutorial: 'ult', unlocks: ['eclipse'],
+    id: '1-6', zone: 0, index: 5, name: 'Колокольня', arena: 'belfry',
     waves: [
       { spawns: [{ enemy: 'husk', count: 18, pattern: 'ring', stagger: 0.06 }, { enemy: 'spiker', count: 8, pattern: 'ring', delay: 1 }, { enemy: 'acolyte', count: 2, at: ['left', 'right'], delay: 2 }] },
       { spawns: [{ enemy: 'golem', count: 2, pattern: 'far' }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 1 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 2.5 }, { enemy: 'husk', count: 14, pattern: 'ring', delay: 4 }] },
@@ -95,7 +95,7 @@ export const ZONE1: StageDef[] = [
     ],
   },
   {
-    id: 'boss1', zone: 0, index: 6, name: 'Иерофант Скорби', arena: 'hierophant', boss: true, unlocks: ['well'],
+    id: 'boss1', zone: 0, index: 6, name: 'Иерофант Скорби', arena: 'hierophant', boss: true,
     waves: [{ spawns: [{ enemy: 'hierophant', count: 1, at: ['top'] }] }],
   },
 ];

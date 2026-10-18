@@ -30,13 +30,13 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     mutB: { name: 'Расщепление', desc: 'Оставляет фантома, который повторяет следующий удар.' },
   },
   well: {
-    id: 'well', slot: 'e', name: 'Гравитационный колодец', icon: 'spiral', cd: 10, dmg: 2.5, unlock: 'boss1',
+    id: 'well', slot: 'e', name: 'Гравитационный колодец', icon: 'spiral', cd: 10, dmg: 2.5, unlock: '1-2',
     desc: 'Сфера стягивает врагов в радиусе 5 м на 2 с, затем взрыв 2.5×.',
     mutA: { name: 'Горизонт событий', desc: 'Враги внутри получают +30 % урона.' },
     mutB: { name: 'Коллапс', desc: 'Сфера движется за героем.' },
   },
   eclipse: {
-    id: 'eclipse', slot: 'r', name: 'Затмение', icon: 'eclipse', cd: 0, dmg: 1.0, unlock: '1-6',
+    id: 'eclipse', slot: 'r', name: 'Затмение', icon: 'eclipse', cd: 0, dmg: 1.0, unlock: '1-3',
     desc: '6 с трансформации: клинок ×2, каждый удар выпускает волну, скорость +30 %, неуязвимость к станам.',
     mutA: { name: 'Полное затмение', desc: '+2 с, в конце взрыв 8×.' },
     mutB: { name: 'Кровавая луна', desc: 'Вампиризм 4 % от урона.' },

@@ -331,3 +331,27 @@ describe('ранг как ритм (план §6.6)', () => {
     expect(w.rank.points - before).toBe(80);
   });
 });
+
+describe('порядок открытия способностей (план §6.7)', () => {
+  it('E (Колодец) на 1-2, R (Затмение) на 1-3, Фазовый шаг на 1-4; босс — III уровень на выбор', async () => {
+    const { stageById } = await import('../src/data/stages');
+    const { newSave } = await import('../src/meta/save');
+    const { applyReward, computeReward, grantLevel3 } = await import('../src/meta/progression');
+    expect(stageById('1-2')!.unlocks).toEqual(['well']);
+    expect(stageById('1-3')!.unlocks).toEqual(['eclipse']);
+    expect(stageById('1-4')!.unlocks).toEqual(['phase']);
+    expect(stageById('1-4')!.tutorial).toBe('ult');
+    expect(stageById('1-5')!.tutorial).toBe('upgrade');
+    expect(stageById('boss1')!.unlocks ?? []).toEqual([]);
+    const s = newSave();
+    const res = (id: string) => ({ stageId: id, cleared: true, hpFrac: 1, rank: 'A' as const, rankMul: 1, time: 60, pickedShards: 0, pickedEther: 0, bestCombo: 10, story: false });
+    for (const id of ['1-1', '1-2', '1-3']) applyReward(s, stageById(id)!, res(id), computeReward(s, stageById(id)!, res(id)));
+    expect(s.loadout.e).toBe('well');
+    expect(s.loadout.r).toBe('eclipse');
+    const bossReward = computeReward(s, stageById('boss1')!, res('boss1'));
+    expect(bossReward.freeLevel3).toBe(true);
+    expect(grantLevel3(s, 'well')).toBe(true);
+    expect(s.abilities.well).toEqual({ level: 3, mutation: 'A' });
+    expect(grantLevel3(s, 'well')).toBe(false);
+  });
+});
