@@ -16,27 +16,42 @@ export interface ArenaDef {
   decor: DecorStyle;
   /** Крест-мост для второй фазы Иерофанта: плитки вне креста обрушиваются. */
   cross?: { w: number };
+  /** Рунный круг на полу: по умолчанию в центре первой части; false — нет (в центре провал). */
+  rune?: { x: number; z: number } | false;
+  /** Ковровая дорожка вдоль оси нефа (декор). */
+  aisle?: boolean;
 }
 
 export const ARENAS: Record<string, ArenaDef> = {
+  // 1-1: базилика — неф и полукруглая апсида за ним
   fall: {
-    id: 'fall', tile: 1.5, edge: 'wall', decor: 'nave',
-    parts: [{ kind: 'oct', x: 0, z: 0, w: 24, h: 17 }],
+    id: 'fall', tile: 1.5, edge: 'wall', decor: 'nave', aisle: true,
+    parts: [{ kind: 'rect', x: 0, z: 1, w: 26, h: 13 }, { kind: 'circle', x: 0, z: -5.5, w: 17, h: 12 }],
+    cover: [{ x: -8.5, z: -2.6, r: 0.7 }, { x: 8.5, z: -2.6, r: 0.7 }],
   },
+  // 1-2: крестовый план — неф и трансепт, колонны в углах средокрестия
   naves: {
-    id: 'naves', tile: 1.5, edge: 'wall', decor: 'nave',
-    parts: [{ kind: 'rect', x: 0, z: 0, w: 27, h: 15 }],
-    cover: [{ x: -6, z: -2.5, r: 0.75 }, { x: 6, z: -2.5, r: 0.75 }, { x: -6, z: 3.5, r: 0.75 }, { x: 6, z: 3.5, r: 0.75 }],
+    id: 'naves', tile: 1.5, edge: 'wall', decor: 'nave', aisle: true,
+    parts: [{ kind: 'rect', x: 0, z: 0, w: 31, h: 12 }, { kind: 'rect', x: 0, z: 0, w: 11, h: 23 }],
+    cover: [
+      { x: -5.6, z: -6.1, r: 0.75 }, { x: 5.6, z: -6.1, r: 0.75 }, { x: -5.6, z: 6.1, r: 0.75 }, { x: 5.6, z: 6.1, r: 0.75 },
+      { x: -11.5, z: -3, r: 0.65 }, { x: 11.5, z: -3, r: 0.65 }, { x: -11.5, z: 3, r: 0.65 }, { x: 11.5, z: 3, r: 0.65 },
+    ],
   },
+  // 1-3: двор перед Вратами — два провала делят его на три прохода
   gate: {
     id: 'gate', tile: 1.5, edge: 'wall', decor: 'gate',
-    parts: [{ kind: 'oct', x: 0, z: 0, w: 25, h: 19 }],
+    parts: [{ kind: 'oct', x: 0, z: 0, w: 27, h: 20 }],
+    holes: [{ kind: 'rect', x: -7.5, z: -0.5, w: 4.5, h: 7.5 }, { kind: 'rect', x: 7.5, z: -0.5, w: 4.5, h: 7.5 }],
   },
+  // 1-4: кольцо вокруг свечного колодца
   candles: {
-    id: 'candles', tile: 1.5, edge: 'wall', decor: 'candles',
-    parts: [{ kind: 'circle', x: 0, z: 0, w: 24, h: 18 }],
-    cover: [{ x: -5, z: 0, r: 0.6 }, { x: 5, z: 0, r: 0.6 }],
+    id: 'candles', tile: 1.5, edge: 'wall', decor: 'candles', rune: false,
+    parts: [{ kind: 'circle', x: 0, z: 0, w: 27, h: 21 }],
+    holes: [{ kind: 'circle', x: 0, z: -0.5, w: 8, h: 6 }],
+    cover: [{ x: -8.5, z: -0.5, r: 0.6 }, { x: 8.5, z: -0.5, r: 0.6 }],
   },
+  // 1-5: три острова и дальняя площадка над бездной
   bridge: {
     id: 'bridge', tile: 1.5, edge: 'abyss', decor: 'bridge',
     parts: [
@@ -45,12 +60,18 @@ export const ARENAS: Record<string, ArenaDef> = {
       { kind: 'rect', x: 11, z: 0, w: 10, h: 4.5 },
       { kind: 'oct', x: -19, z: 0, w: 9, h: 9 },
       { kind: 'oct', x: 19, z: 0, w: 9, h: 9 },
+      { kind: 'rect', x: 0, z: -8, w: 4, h: 5 },
+      { kind: 'oct', x: 0, z: -13.5, w: 10, h: 8 },
     ],
   },
+  // 1-6: колокольня — пол проломлен в четырёх местах
   belfry: {
     id: 'belfry', tile: 1.5, edge: 'wall', decor: 'belfry',
-    parts: [{ kind: 'oct', x: 0, z: 0, w: 22, h: 19 }],
-    cover: [{ x: -7, z: -5, r: 0.7 }, { x: 7, z: -5, r: 0.7 }],
+    parts: [{ kind: 'oct', x: 0, z: 0, w: 25, h: 21 }],
+    holes: [
+      { kind: 'oct', x: -6.8, z: -4.2, w: 4, h: 3.4 }, { kind: 'oct', x: 6.8, z: -4.2, w: 4, h: 3.4 },
+      { kind: 'oct', x: -6.8, z: 4.6, w: 3.6, h: 3 }, { kind: 'oct', x: 6.8, z: 4.6, w: 3.6, h: 3 },
+    ],
   },
   hierophant: {
     id: 'hierophant', tile: 1.5, edge: 'wall', decor: 'boss',
@@ -72,6 +93,18 @@ export function inPart(p: ShapePart, x: number, z: number, margin = 0): boolean 
     case 'circle': return (dx * dx) / (hw * hw) + (dz * dz) / (hh * hh) <= 1;
     case 'oct': return dx <= hw && dz <= hh && dx / hw + dz / hh <= 1.45;
   }
+}
+
+/** Точка над провалом внутри арены (яма в полу). */
+export function inHole(a: ArenaDef, x: number, z: number, margin = 0): boolean {
+  if (a.holes) for (const h of a.holes) if (inPart(h, x, z, margin)) return true;
+  return false;
+}
+
+/** Внутри внешнего контура (без учёта провалов) — для периметра и декора. */
+export function inOutline(a: ArenaDef, x: number, z: number, margin = 0): boolean {
+  for (const p of a.parts) if (inPart(p, x, z, margin)) return true;
+  return false;
 }
 
 export function inArenaShape(a: ArenaDef, x: number, z: number, margin = 0): boolean {

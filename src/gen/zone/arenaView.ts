@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
 import { hexToLinear } from '../../core/math';
-import { inArenaShape, type ArenaDef } from '../../data/arenas';
+import { inArenaShape, inOutline, inPart, type ArenaDef, type ShapePart } from '../../data/arenas';
 import { GeomBuilder, mat, matAlong } from '../geom/build';
 import { box, prism, shard, rock, lathe } from '../geom/prims';
 import {
-  arcade, candelabra, chain, column, crackLine, floatingRuin, GOLD, hoodedStatue, OBS, OBS_DEEP, roseWindow, rubble, spire, vein,
+  arcade, candelabra, chain, column, floatingRuin, GOLD, hoodedStatue, OBS, OBS_DEEP, OBS_HI, roseWindow, rubble, spire, vein, WAX,
 } from '../geom/kit';
 import { obsidianMaterial, type ObsidianMaterial } from '../../render/materials';
 import { TileState, type Arena } from '../../world/arena';
@@ -55,12 +55,51 @@ function tileGeometry(t: number, variant: number, seed: number): THREE.BufferGeo
   return b.build();
 }
 
-/** Граница выпуклой формы: расстояние от центра до края по направлению. */
+/** Граница внешнего контура (провалы не в счёт): расстояние от центра до края по направлению. */
 function boundaryAt(def: ArenaDef, a: number, cx = 0, cz = 0): number {
   const dx = Math.sin(a), dz = Math.cos(a);
   let r = 0.5;
-  while (r < 60 && inArenaShape(def, cx + dx * r, cz + dz * r)) r += 0.25;
+  while (r < 60 && inOutline(def, cx + dx * r, cz + dz * r)) r += 0.25;
   return r;
+}
+
+/** Граница выпуклой части (провала) от её центра. */
+function partEdge(p: ShapePart, a: number): number {
+  let r = 0.1;
+  while (r < 30 && inPart(p, p.x + Math.sin(a) * r, p.z + Math.cos(a) * r)) r += 0.1;
+  return r;
+}
+
+const CARPET = hexToLinear('#4a1018');
+const BANNER = [hexToLinear('#4a1018'), hexToLinear('#14303c')];
+
+/** Знамя: полотнище с ласточкиным хвостом, золотая перекладина и ромб-эмблема. */
+function banner(g: GeomBuilder, h: number, color: [number, number, number], seed: number): void {
+  const rng = new Rng(seed);
+  const s = new THREE.Shape();
+  const w = 0.55, tail = rng.range(0.25, 0.45);
+  s.moveTo(-w, 0); s.lineTo(w, 0); s.lineTo(w, -h); s.lineTo(0.0, -h + tail); s.lineTo(-w, -h); s.closePath();
+  g.add(new THREE.ExtrudeGeometry(s, { depth: 0.03, bevelEnabled: false }), { color, shade: 0.12 });
+  g.add(box(w * 2 + 0.3, 0.07, 0.07), { matrix: mat(0, 0.03, 0.02), color: GOLD });
+  g.add(prism(4, 0.17, 0.17, 0.02), { matrix: mat(0, -h * 0.42, 0.045, Math.PI / 2, 0, 0), color: GOLD, shade: 0.05 });
+  g.add(prism(4, 0.08, 0.08, 0.025), { matrix: mat(0, -h * 0.42, 0.05, Math.PI / 2, 0, 0), emissive: 1.2 });
+  g.add(box(w * 2 - 0.12, 0.035, 0.04), { matrix: mat(0, -0.16, 0.03), color: GOLD });
+}
+
+/** Лучи света из окон фасада: аддитивные полосы, гаснущие к полу. */
+function godRayMaterial(color: string): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform vec3 uColor; varying vec2 vUv;
+      void main(){
+        float edge = smoothstep(0.0, 0.4, vUv.x) * smoothstep(1.0, 0.6, vUv.x);
+        float len = smoothstep(0.0, 0.3, vUv.y) * smoothstep(1.0, 0.45, vUv.y);
+        float streak = 0.75 + 0.25 * sin(vUv.x * 19.0 + vUv.y * 3.0);
+        gl_FragColor = vec4(uColor * edge * len * streak, 1.0);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
 }
 
 export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, density = 1): ArenaView {
@@ -131,6 +170,9 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   const style = def.decor;
   const wall = def.edge === 'wall';
   const nearZ = b.maxZ, farZ = b.minZ;
+  const farPart = def.parts.reduce((m, p) => (p.z - p.h / 2 < m.z - m.h / 2 ? p : m), def.parts[0]);
+  const floorStays = style !== 'boss';
+  const freeSpot = (x: number, z: number, m: number) => inArenaShape(def, x, z, m) && !arena.covers.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + m);
 
   // бортик-кромка и фундамент: огромные осколки, уходящие вниз из-под арены
   const ringN = Math.round(((b.maxX - b.minX) + (b.maxZ - b.minZ)) * 1.4);
@@ -166,7 +208,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       const x = p0.x + Math.sin(a) * (r + 1.2), z = p0.z + Math.cos(a) * (r + 1.2);
       const near = z > nearZ - 3.5;
       const far = z < farZ + 2.5;
-      if (far && Math.abs(x) < p0.w * 0.36) continue; // там стоит аркада-фасад
+      if (far && Math.abs(x - farPart.x) < farPart.w * 0.36) continue; // там стоит аркада-фасад
       if (near) {
         if (rng.next() < 0.6 * density) place((g) => column(g, { h: rng.range(1.2, 2.6), r: 0.5, sides: 8, broken: true, seed: rng.int(0, 1e5) }), x, 0, z);
         else if (rng.next() < 0.7 * density) {
@@ -182,7 +224,14 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
         const broken = rng.next() < 0.18;
         // по бокам колонны ниже — ближе к камере они не должны закрывать арену
         const side = Math.abs(Math.sin(a)) > 0.75 && z > farZ + 4;
-        place((g) => column(g, { h: side ? rng.range(5.5, 7) : rng.range(8.5, 11.5), r: 0.55, sides: 8, broken, seed: rng.int(0, 1e5) }), x, 0, z);
+        const ch = side ? rng.range(5.5, 7) : rng.range(8.5, 11.5);
+        place((g) => column(g, { h: ch, r: 0.55, sides: 8, broken, seed: rng.int(0, 1e5) }), x, 0, z);
+        // знамёна на колоннах — лицом к арене
+        if (!broken && rng.next() < 0.55 * density) {
+          const top = Math.min(ch - 0.8, rng.range(5.2, 6.8));
+          const col = BANNER[rng.int(0, 1)];
+          place((g) => banner(g, rng.range(2.0, 2.8), col, rng.int(0, 1e5)), x - Math.sin(a) * 0.66, top, z - Math.cos(a) * 0.66, Math.atan2(-Math.sin(a), -Math.cos(a)));
+        }
       }
       if (rng.next() < 0.5 * density || style === 'candles') {
         const ia = a + 0.32;
@@ -195,20 +244,20 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
         }
       }
     }
-    // фасад на дальней стороне: аркада + розетка
-    const fw = p0.w * 0.72;
+    // фасад на дальней стороне: аркада + розетка (ширина — по самой дальней части: апсида, рукав трансепта)
+    const fw = farPart.w * 0.72;
     const count = Math.max(3, Math.round(fw / 4.4));
     const glass = style === 'candles' || style === 'boss' ? 0.9 : 0.5;
-    place((g) => arcade(g, count, 3.2, 4.2, rng.int(0, 1e5), glass), p0.x, 0, farZ - 1.6);
+    place((g) => arcade(g, count, 3.2, 4.2, rng.int(0, 1e5), glass), farPart.x, 0, farZ - 1.6);
     place((g) => {
       roseWindow(g, 2.6, 12, rng.int(0, 1e5), 1.0);
-    }, p0.x, 11.2, farZ - 1.9);
+    }, farPart.x, 11.2, farZ - 1.9);
     place((g) => {
       g.color = OBS;
       g.add(box(fw + 3, 6.5, 0.8), { matrix: mat(0, 11.2, 0) });
       for (let k = -1; k <= 1; k += 2) g.add(prism(4, 0.6, 0, 6.5), { matrix: mat(k * (fw / 2 + 1), 14.4, 0, 0, Math.PI / 4) });
       g.add(prism(4, 1.0, 0, 7), { matrix: mat(0, 14.4, 0, 0, Math.PI / 4) });
-    }, p0.x, 0, farZ - 2.4);
+    }, farPart.x, 0, farZ - 2.4);
     if (style === 'gate') {
       // Врата: огромная арка с решёткой
       place((g) => gateArch(g), p0.x, 0, farZ - 1.0);
@@ -260,13 +309,18 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
         }
       }
       if (p.kind === 'rect') {
-        for (let x = p.x - p.w / 2 + 0.8; x <= p.x + p.w / 2 - 0.8; x += 1.6) {
-          for (const sz of [-1, 1]) {
-            const z = p.z + sz * (p.h / 2 + 0.15);
+        // балюстрада вдоль длинной стороны моста
+        const alongX = p.w >= p.h;
+        const len = alongX ? p.w : p.h, half = (alongX ? p.h : p.w) / 2 + 0.15;
+        for (let u = -len / 2 + 0.8; u <= len / 2 - 0.8; u += 1.6) {
+          for (const sd of [-1, 1]) {
+            const x = alongX ? p.x + u : p.x + sd * half, z = alongX ? p.z + sd * half : p.z + u;
             D.add(prism(4, 0.18, 0.14, 0.9), { matrix: mat(x, 0, z, 0, Math.PI / 4), color: OBS });
           }
         }
-        for (const sz of [-1, 1]) D.add(box(p.w, 0.14, 0.32), { matrix: mat(p.x, 0.95, p.z + sz * (p.h / 2 + 0.15)), color: GOLD, shade: 0.2 });
+        for (const sd of [-1, 1]) {
+          D.add(box(alongX ? p.w : 0.32, 0.14, alongX ? 0.32 : p.h), { matrix: mat(alongX ? p.x : p.x + sd * half, 0.95, alongX ? p.z + sd * half : p.z), color: GOLD, shade: 0.2 });
+        }
       }
     }
     // отдельные столбы-шпили по краям
@@ -300,17 +354,157 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       chain(D, x, 22, z, x + rng.spread(3), rng.range(4, 9), z + rng.spread(2), 0.5);
     }
   }
-  // прожилки по полу у стен
-  for (let i = 0; i < 0; i++) {
-    const g = new GeomBuilder(); g.rng = new Rng(rng.int(0, 1e6));
-    const p0 = def.parts[0];
-    crackLine(g, 0.01, 0, 0.01, 0, g.rng, 0.4);
-    D.append(g, mat(p0.x + rng.spread(p0.w * 0.3), 0, p0.z + rng.spread(p0.h * 0.3)));
+  // ---------- укрытия: обломанные колонны посреди зала (невысокие — не заслоняют бой), на части — свечи ----------
+  for (const c of arena.covers) {
+    // низкая колонна-постамент: капитель на высоте h + 0.08 (см. column)
+    const h = rng.range(2.9, 3.4);
+    place((g) => column(g, { h, r: c.r * 0.8, sides: 8, broken: false, seed: rng.int(0, 1e5) }), c.x, 0, c.z, rng.range(0, Math.PI));
+    D.add(prism(8, c.r * 1.25, c.r * 1.15, 0.2), { matrix: mat(c.x, 0, c.z, 0, Math.PI / 8), color: OBS_HI, shade: 0.08 });
+    rubble(D, c.x + rng.spread(1.2), c.z + rng.spread(1.2), 0.6, 3, rng.int(0, 1e5));
+    if (rng.next() < 0.6) {
+      for (let k = 0; k < 3; k++) {
+        const a = rng.range(0, Math.PI * 2), rr = c.r * 0.45;
+        const ch = rng.range(0.12, 0.3);
+        const x = c.x + Math.sin(a) * rr, z = c.z + Math.cos(a) * rr;
+        D.add(prism(6, 0.06, 0.05, ch), { matrix: mat(x, h + 0.08, z), color: WAX });
+        flames.push([x, h + 0.08 + ch + 0.07, z]);
+      }
+      pools.push({ x: c.x, z: c.z, r: 2.6, color: look.warm, intensity: 0.4, flicker: 1 });
+    }
+  }
+
+  // ---------- провалы в полу: обломанная кромка, сталактиты в глубине, свет из бездны ----------
+  for (const hole of def.holes ?? []) {
+    const per = Math.PI * (hole.w + hole.h) / 2;
+    const n = Math.round(per / 0.55);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rng.spread(0.05);
+      const r = partEdge(hole, a);
+      const x = hole.x + Math.sin(a) * r, z = hole.z + Math.cos(a) * r;
+      // зубцы разбитых плит по краю, наклонены в яму
+      D.add(box(rng.range(0.35, 0.7), rng.range(0.25, 0.5), rng.range(0.25, 0.45)), {
+        matrix: mat(x - Math.sin(a) * 0.05, -0.22, z - Math.cos(a) * 0.05, rng.spread(0.5), a, rng.spread(0.4)), color: i % 3 ? OBS : OBS_HI, shade: 0.12,
+      });
+      if (i % 2 === 0) D.add(shard(rng.range(0.8, 2.2), rng.range(0.15, 0.3), 4, 0.3, rng.int(0, 999)), { matrix: matAlong(x, -0.3, z, -Math.sin(a) * 0.4, -1, -Math.cos(a) * 0.4), color: OBS });
+      if (i % 5 === 0) vein(D, x, 0.012, z, Math.sin(a), 0, Math.cos(a), rng.range(0.8, 1.6), 0.03, 1.0, rng.int(0, 99));
+    }
+    // светящаяся кромка — чтобы край ямы читался даже в бою
+    const rimN = Math.round(per / 0.35);
+    for (let i = 0; i < rimN; i++) {
+      const a0 = (i / rimN) * Math.PI * 2, a1 = ((i + 1) / rimN) * Math.PI * 2;
+      const r0 = partEdge(hole, a0) + 0.08, r1 = partEdge(hole, a1) + 0.08;
+      const x0 = hole.x + Math.sin(a0) * r0, z0 = hole.z + Math.cos(a0) * r0;
+      const x1 = hole.x + Math.sin(a1) * r1, z1 = hole.z + Math.cos(a1) * r1;
+      vein(D, x0, 0.014, z0, x1 - x0, 0, z1 - z0, Math.hypot(x1 - x0, z1 - z0) + 0.02, 0.03, 0.75, i);
+    }
+    // далеко внизу — светящееся дно бездны по форме провала
+    const sides = hole.kind === 'rect' ? 4 : hole.kind === 'oct' ? 8 : 18;
+    const sr = hole.kind === 'rect' ? Math.SQRT1_2 : 0.5;
+    D.add(prism(sides, sr, sr, 0.1), { matrix: mat(hole.x, -6.5, hole.z, 0, hole.kind === 'rect' ? Math.PI / 4 : Math.PI / 8, 0, hole.w * 0.95, 1, hole.h * 0.95), color: OBS_DEEP, emissive: 0.45, shade: 0 });
+    // глубина: сияющие кристаллы и сталагмиты — видно, что под полом бездна
+    for (let k = 0; k < 7; k++) {
+      const a = rng.range(0, Math.PI * 2), rr = partEdge(hole, a) * rng.range(0.1, 0.7);
+      const x = hole.x + Math.sin(a) * rr, z = hole.z + Math.cos(a) * rr;
+      D.add(shard(rng.range(2, 4.5), rng.range(0.3, 0.7), 5, 0.3, rng.int(0, 999)), { matrix: matAlong(x, rng.range(-9, -6), z, rng.spread(0.3), 1, rng.spread(0.3)), color: OBS_DEEP, emissive: k % 3 === 0 ? 0.9 : 0 });
+    }
+    for (let k = 0; k < 2; k++) {
+      const a = rng.range(0, Math.PI * 2), r = partEdge(hole, a);
+      chain(D, hole.x + Math.sin(a) * r, -0.1, hole.z + Math.cos(a) * r, hole.x + rng.spread(0.6), -7, hole.z + rng.spread(0.6), 0.3);
+    }
+    pools.push({ x: hole.x, z: hole.z, r: Math.max(hole.w, hole.h) * 0.75, color: look.veins, intensity: 0.45, flicker: 0.3 });
+    if (style === 'candles') {
+      // свечи по краю колодца
+      for (let i = 0; i < 18; i++) {
+        const a = (i / 18) * Math.PI * 2 + rng.spread(0.08);
+        const r = partEdge(hole, a) + rng.range(0.3, 0.6);
+        const x = hole.x + Math.sin(a) * r, z = hole.z + Math.cos(a) * r;
+        const h = rng.range(0.12, 0.45);
+        D.add(prism(6, 0.075, 0.065, h), { matrix: mat(x, 0, z), color: WAX });
+        flames.push([x, h + 0.08, z]);
+      }
+      pools.push({ x: hole.x, z: hole.z, r: Math.max(hole.w, hole.h) * 0.9, color: look.warm, intensity: 0.35, flicker: 1 });
+    }
+  }
+
+  // ---------- детали пола: дорожка, надгробные плиты, трещины со звёздным светом, обломки ----------
+  if (wall && floorStays) {
+    if (def.aisle) {
+      // ковровая дорожка от входа к фасаду, местами истлела
+      const ax = def.parts[0].x;
+      for (let z = nearZ - 1.2; z > farZ + 2.2; z -= 1.25) {
+        if (!inArenaShape(def, ax, z, 0.5) || rng.next() < 0.07) continue;
+        const yaw = rng.spread(0.025), w = 2.3 + rng.spread(0.08);
+        D.add(box(w, 0.03, 1.27), { matrix: mat(ax + rng.spread(0.04), 0.018, z, 0, yaw), color: CARPET, shade: 0.08 });
+        for (const sx of [-1, 1]) D.add(box(0.1, 0.034, 1.27), { matrix: mat(ax + sx * (w / 2 - 0.16), 0.02, z, 0, yaw), color: GOLD, shade: 0.1 });
+      }
+    }
+    // надгробные плиты с гравировкой креста
+    const slabs: { x: number; z: number }[] = [];
+    for (let tries = 0; tries < 60 && slabs.length < Math.round(7 * density); tries++) {
+      const x = rng.range(b.minX + 2, b.maxX - 2), z = rng.range(b.minZ + 2, b.maxZ - 3);
+      if (!freeSpot(x, z, 1.4) || Math.abs(x - def.parts[0].x) < 2.2 || slabs.some((q) => Math.hypot(q.x - x, q.z - z) < 2.6)) continue;
+      const ry = (rng.int(0, 1) * Math.PI) / 2 + rng.spread(0.06);
+      place((g) => {
+        g.add(box(1.15, 0.05, 2.0), { matrix: mat(0, 0.025, 0), color: OBS_HI, shade: 0.05 });
+        g.add(box(0.95, 0.054, 1.8), { matrix: mat(0, 0.027, 0), color: OBS, shade: 0.05 });
+        g.add(box(0.12, 0.06, 1.2), { matrix: mat(0, 0.03, -0.1), color: GOLD, shade: 0.05 });
+        g.add(box(0.7, 0.06, 0.12), { matrix: mat(0, 0.03, -0.4), color: GOLD, shade: 0.05 });
+        if (rng.next() < 0.5) g.add(box(1.0, 0.07, 0.03), { matrix: mat(rng.spread(0.1), 0.03, rng.spread(0.6), 0, rng.spread(0.6)), color: OBS_DEEP });
+      }, x, 0, z, ry);
+      slabs.push({ x, z });
+    }
+    // трещины, в которых светится звёздная бездна
+    for (let i = 0; i < Math.round(6 * density); i++) {
+      let x = rng.range(b.minX + 2, b.maxX - 2), z = rng.range(b.minZ + 2, b.maxZ - 2);
+      if (!freeSpot(x, z, 0.8)) continue;
+      let a = rng.range(0, Math.PI * 2);
+      const segs = rng.int(4, 9);
+      for (let k = 0; k < segs; k++) {
+        a += rng.spread(0.9);
+        const len = rng.range(0.4, 0.9);
+        const nx = x + Math.sin(a) * len, nz = z + Math.cos(a) * len;
+        if (!inArenaShape(def, nx, nz, 0.4)) break;
+        vein(D, x, 0.012, z, nx - x, 0, nz - z, len, 0.035 - k * 0.003, 1.1 - k * 0.08, rng.int(0, 99));
+        if (rng.next() < 0.3) vein(D, nx, 0.012, nz, Math.sin(a + 1.2), 0, Math.cos(a + 1.2), len * 0.5, 0.02, 0.8, rng.int(0, 99));
+        x = nx; z = nz;
+      }
+    }
+    // мелкие обломки плит по всей арене
+    for (let i = 0; i < Math.round(18 * density); i++) {
+      const x = rng.range(b.minX + 1, b.maxX - 1), z = rng.range(b.minZ + 1, b.maxZ - 1);
+      if (!freeSpot(x, z, 0.6)) continue;
+      D.add(rock(rng.range(0.06, 0.16), 0, 0.3, rng.int(0, 999)), { matrix: mat(x, 0.03, z, rng.next(), rng.next(), 0, 1, 0.5, 1), color: rng.next() < 0.3 ? OBS_HI : OBS });
+    }
   }
 
   const decor = new THREE.Mesh(D.build(), decorMat);
   decor.frustumCulled = false;
   root.add(decor);
+
+  // ---------- лучи света из окон фасада ----------
+  if (wall) {
+    const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    const nRays = Math.round(rng.range(3, 5));
+    const fw = farPart.w * 0.72;
+    for (let i = 0; i < nRays; i++) {
+      const tx = farPart.x + ((i + 0.5) / nRays - 0.5) * fw + rng.spread(0.6);
+      const top = new THREE.Vector3(tx, rng.range(9, 12), farZ - 1.4);
+      const bot = new THREE.Vector3(tx + rng.range(1.2, 2.6), 0.05, farZ + rng.range(5, 9));
+      const w = rng.range(1.4, 2.6);
+      const k = pos.length / 3;
+      pos.push(top.x - w * 0.35, top.y, top.z, top.x + w * 0.35, top.y, top.z, bot.x + w / 2, bot.y, bot.z, bot.x - w / 2, bot.y, bot.z);
+      uv.push(0, 0, 1, 0, 1, 1, 0, 1);
+      idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    const rays = new THREE.Mesh(g, godRayMaterial(style === 'candles' ? '#2a2112' : '#13262e'));
+    rays.frustumCulled = false;
+    rays.renderOrder = 5;
+    root.add(rays);
+  }
 
   // ---------- дальний фон: шпили из бездны, парящие руины ----------
   const F = new GeomBuilder();
@@ -343,7 +537,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   far.frustumCulled = false;
   root.add(far);
 
-  const runeRadius = Math.min(b.maxX - b.minX, b.maxZ - b.minZ) * 0.3;
+  const p0 = def.parts[0];
+  const runeRadius = Math.min(b.maxX - b.minX, b.maxZ - b.minZ, p0.w * 1.2, p0.h * 1.2) * 0.3;
 
   return {
     root, floor, flames, pools, runeRadius, syncTiles,

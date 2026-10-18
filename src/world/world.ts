@@ -127,8 +127,10 @@ export class World {
     for (const e of this.enemies) {
       if (e.dead || e.state === 'spawn') continue;
       this.arena.move(e.x, e.z, e.vx * dtW, e.vz * dtW, e.radius, o);
-      // пропасть: враг, сброшенный ударом с края, падает
-      if (this.arena.edge === 'abyss' && (e.kbX || e.kbZ) && !e.isBoss && !this.arena.walkable(e.x + e.vx * dtW, e.z + e.vz * dtW)) {
+      // пропасть или провал в полу: враг, сброшенный ударом с края, падает (стражи в ямы не помещаются)
+      const nx = e.x + e.vx * dtW, nz = e.z + e.vz * dtW;
+      const drop = this.arena.edge === 'abyss' || (this.arena.inPit(nx, nz) && !e.isGuardian);
+      if (drop && (e.kbX || e.kbZ) && !e.isBoss && !this.arena.walkable(nx, nz)) {
         e.x += e.vx * dtW; e.z += e.vz * dtW;
         this.bus.emit('fall', { x: e.x, z: e.z, hero: false });
         this.killEnemy(e, e.kbX, e.kbZ, 2);

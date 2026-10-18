@@ -78,7 +78,9 @@ export class Battle {
     this.pools = new LightPools(320);
     this.pools.setStatic(this.view.pools);
     this.rune = new RuneCircle(this.view.runeRadius);
-    this.rune.mesh.position.set(ARENAS[stage.arena].parts[0].x, 0, ARENAS[stage.arena].parts[0].z);
+    const runeAt = ARENAS[stage.arena].rune ?? ARENAS[stage.arena].parts[0];
+    if (runeAt) this.rune.mesh.position.set(runeAt.x, 0, runeAt.z);
+    this.rune.mesh.visible = runeAt !== false;
     this.vfx = new BattleVfx(Q.particles, this.pools);
     this.vfx.quality = r.quality === 'low' ? 0.5 : r.quality === 'medium' ? 0.75 : 1;
     this.vfx.tele.hatch = ctx.settings.hatch;

@@ -1,4 +1,4 @@
-import { arenaBounds, inArenaShape, type ArenaDef } from '../data/arenas';
+import { arenaBounds, inArenaShape, inHole, type ArenaDef } from '../data/arenas';
 
 export enum TileState { Gone = 0, Alive = 1, Falling = 2, Rising = 3, Warning = 4 }
 
@@ -62,6 +62,9 @@ export class Arena {
     if (this.edge === 'wall') return inArenaShape(this.def, x, z, 0.35);
     return true;
   }
+
+  /** Над провалом в полу (яма внутри арены со стенами). */
+  inPit(x: number, z: number): boolean { return inHole(this.def, x, z); }
 
   /** Перемещение с «скольжением» по краю: сначала полный шаг, затем по осям. */
   move(x: number, z: number, dx: number, dz: number, r: number, out: { x: number; z: number }): void {
