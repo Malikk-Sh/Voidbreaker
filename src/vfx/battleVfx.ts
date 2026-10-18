@@ -210,7 +210,7 @@ export class BattleVfx {
       h.avatar.bladePoints(_v, _w);
       const glow = 0.3 + (h.trailOn ? 1.0 : 0) + (h.eclipse ? 2 : 0) + h.chargeLevel * 0.8;
       this.lights.add((_v.x + _w.x) / 2, (_v.y + _w.y) / 2 + 0.3, (_v.z + _w.z) / 2, C.void, glow * 1.6, 4 + (h.eclipse ? 3 : 0));
-      this.pools.addDynamic(h.x, h.z, 2.0 + (h.eclipse ? 1.5 : 0), C.void, 0.05 + glow * 0.04);
+      this.pools.addDynamic(h.x, h.z, 2.4 + (h.eclipse ? 1.5 : 0), C.void, 0.1 + glow * 0.08);
       if (h.eclipse) {
         if (fxRng.chance(0.6)) this.add.emit({ x: h.x + fxRng.spread(0.6), y: fxRng.range(0, 1.8), z: h.z + fxRng.spread(0.6), vy: 2.5, life: 0.7, size: 0.1, size1: 0.02, color: C.voidHot, drag: 1, frame: 'star' });
       }

@@ -25,8 +25,9 @@ import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
 
 
-/** Базовая дистанция боевой камеры (м) при «Дистанции камеры» = 100 %. */
-const CAM_DIST = 22;
+const _top = new THREE.Vector3();
+/** Базовая дистанция боевой камеры (м) при «Дистанции камеры» = 100 %. Герой ~13 % высоты экрана (план §5.3). */
+const CAM_DIST = 17;
 export const STEP = 1 / 60;
 /** Dev: ?nav — оверлей поля потоков (план §4.4, п. 9). */
 const DEBUG_NAV = typeof location !== 'undefined' && new URLSearchParams(location.search).has('nav');
@@ -62,6 +63,8 @@ export class Battle {
   private tutorialReaperDone = false;
   private intensityT = 0;
   private bladeA = new THREE.Vector3(); private bladeB = new THREE.Vector3();
+  /** Доп. отъезд, чтобы голова босса/Стража не уходила под верхний HUD. */
+  private bossFrame = 0;
 
   constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout) {
     const r = ctx.renderer;
@@ -295,11 +298,18 @@ export class Battle {
       tx = h.x * 0.65 + focusBoss.x * 0.35; tz = h.z * 0.65 + focusBoss.z * 0.35;
       const d = Math.hypot(focusBoss.x - h.x, focusBoss.z - h.z);
       zoom = Math.max(1, Math.min(1.35, 0.85 + d / 22)) * (this.boss?.zoomMul ?? 1);
+      // рамка босса (план §5.3, п. 4): верх модели не выше 78 % высоты экрана — иначе отъезжаем
+      _top.set(focusBoss.x, (focusBoss as { height?: number }).height ?? 4, focusBoss.z).project(this.ctx.renderer.camera);
+      const frac = (_top.y + 1) / 2;
+      if (frac > 0.78) this.bossFrame = Math.min(0.8, this.bossFrame + realDt * 0.9);
+      else if (frac < 0.7) this.bossFrame = Math.max(0, this.bossFrame - realDt * 0.4);
+      zoom *= 1 + this.bossFrame;
     } else {
-      // боевой зум: 6+ врагов рядом → отдалить на 10 %
+      // боевой зум: только большая толпа (12+ в 13 м) отодвигает камеру, не дальше 1.12
       let near = 0;
       for (const e of this.world.enemies) if (!e.dead && Math.hypot(e.x - h.x, e.z - h.z) < 13) near++;
-      if (near >= 6) zoom = 1.1;
+      if (near >= 12) zoom = 1 + Math.min(0.12, (near - 11) * 0.02);
+      this.bossFrame = 0;
     }
     this.feel.baseZoom = zoom;
     const lead = this.world.hero.state === 'move' ? 0.18 : 0;

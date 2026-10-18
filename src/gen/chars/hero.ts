@@ -155,8 +155,9 @@ export function buildHeroGeometry(look: HeroLook = HERO_DEFAULT, seed = 7): THRE
   b.add(dome, { matrix: mat(0, 0.0, -0.005, 0, 0, 0, 1, 1, 1.12), color: armor });
   // забрало: клин вперёд
   plate(b, [[-0.12, 0.2], [0.12, 0.2], [0.11, 0.06], [0.04, -0.02], [-0.04, -0.02], [-0.11, 0.06]], 0.05, mat(0, 0.0, 0.11, -0.12, 0, 0), 0, dark);
-  b.add(box(0.2, 0.026, 0.03), { matrix: mat(0, 0.135, 0.14, -0.12), emissive: 1.7, color: dark });
-  b.add(box(0.24, 0.05, 0.02), { matrix: mat(0, 0.135, 0.128, -0.12), emissive: 0.45, color: dark });
+  // визор: белая сердцевина и фиолетовый ореол
+  b.add(box(0.2, 0.026, 0.03), { matrix: mat(0, 0.135, 0.14, -0.12), emissive: 2.0, color: dark });
+  b.add(box(0.26, 0.06, 0.02), { matrix: mat(0, 0.135, 0.128, -0.12), emissive: 0.9, color: dark });
   for (const sx of [1, -1]) {
     plate(b, [[0, 0], [0.06, 0.02], [0.05, -0.1], [0, -0.12]], 0.02, mat(sx * 0.125, 0.12, 0.05, 0, sx * 0.35, 0), 0, armor);
     // откинутые назад плавники

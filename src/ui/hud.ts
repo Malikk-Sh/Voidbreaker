@@ -34,6 +34,8 @@ export interface HudFrame {
   debugNav?: boolean;
 }
 
+/** Кто целится издалека — им шевроны у края экрана. */
+const CHEVRON_KINDS = new Set(['eye', 'spiker', 'acolyte']);
 const RANK_COLOR: Record<string, NonNullable<TitleOpts['color']>> = { D: 'steel', C: 'white', B: 'gold', A: 'gold', S: 'ether', SS: 'void' };
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 
@@ -120,6 +122,7 @@ export class Hud {
     const L = 20 * s + this.safe.l, R = this.w - 20 * s - this.safe.r, T = 14 * s + this.safe.t, B = this.h - 16 * s - this.safe.b;
     g.globalAlpha = 0.95;
     this.drawWorldMarks(f);
+    this.drawChevrons(f);
     if (f.debugNav) this.drawNav(f);
     this.drawHeroPanel(f, L, T, s);
     if (f.boss) this.drawBossBar(s, T, f.boss, f.bossName, f.bossPhases, f.bossPhase);
@@ -485,6 +488,36 @@ export class Hud {
   }
 
   /** Баннеры: въезжают с разрезом (маска-полоса), висят, уходят (GDD §15.9). */
+  /**
+   * Шевроны у края экрана (план §5.3, п. 5): целящиеся враги вне кадра (Око, Шипник, Аколит);
+   * во время их замаха шеврон пульсирует.
+   */
+  private drawChevrons(f: HudFrame): void {
+    const g = this.g, t = this.tmp, s = this.scale;
+    const m = 30 * s, cx = this.w / 2, cy = this.h / 2;
+    for (const e of f.world.enemies) {
+      if (e.dead || !e.spawned || !CHEVRON_KINDS.has(e.kind)) continue;
+      f.project(e.x, e.height * 0.5, e.z, t);
+      if (t.visible && t.x > m * 0.5 && t.x < this.w - m * 0.5 && t.y > m * 0.5 && t.y < this.h - m * 0.5) continue;
+      let dx = t.x - cx, dy = t.y - cy;
+      if (!t.visible) { dx = -dx; dy = -dy; }
+      const k = Math.min((this.w / 2 - m) / Math.max(1e-3, Math.abs(dx)), (this.h / 2 - m) / Math.max(1e-3, Math.abs(dy)));
+      const px = cx + dx * k, py = cy + dy * k, ang = Math.atan2(dy, dx);
+      const wu = e.windup;
+      const pulse = wu > 0 ? 1 + 0.35 * Math.sin(this.time * 18) * (0.4 + wu) : 1;
+      const sz = 11 * s * pulse;
+      g.save();
+      g.translate(px, py); g.rotate(ang);
+      g.globalAlpha = wu > 0 ? 0.95 : 0.6;
+      g.fillStyle = wu > 0 ? '#ff4a57' : '#c0303c';
+      g.strokeStyle = 'rgba(10,4,6,0.85)'; g.lineWidth = 2 * s;
+      g.beginPath(); g.moveTo(sz, 0); g.lineTo(-sz * 0.7, -sz * 0.75); g.lineTo(-sz * 0.25, 0); g.lineTo(-sz * 0.7, sz * 0.75); g.closePath();
+      g.stroke(); g.fill();
+      g.restore();
+    }
+    g.globalAlpha = 0.95;
+  }
+
   private readonly navA = { x: 0, y: 0, visible: false };
   private readonly navB = { x: 0, y: 0, visible: false };
   private readonly navO = { x: 0, z: 0 };

@@ -93,7 +93,7 @@ export class Cinematics {
         const e = Ease.inOutSine(u);
         const cx = arenaCenter.x + (h.x - arenaCenter.x) * e, cz = arenaCenter.z + (h.z - arenaCenter.z) * e;
         const sweep = (1 - e) * 0.5;
-        const dist = extent * 1.5 * (1 - e) + 21 * e;
+        const dist = extent * 1.5 * (1 - e) + 17 * e;
         pos.set(cx + Math.sin(sweep) * dist * 0.5, dist * 0.82, cz + Math.cos(sweep) * dist * 0.62);
         look.set(cx, 0.6 * e, cz - (1 - e) * 2);
       },

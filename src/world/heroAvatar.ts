@@ -46,9 +46,10 @@ export class HeroAvatar {
     this.J = bipedJoints(layout);
     const geo = buildHeroGeometry();
     // холодный контровой свет — силуэт читается на любом фоне; фиолет — только в швах, визоре и клинке
-    this.batch = new RigBatch(geo, layout.n, 1, { rim: '#a9c4ec', rimStrength: 0.7, rimPower: 3.2, emissive: '#a07cff', emissiveStrength: 1.9, emissive2: '#ffd29a' });
+    // герой заметнее своим светом (план §5.3): фиолетовый контур — только у Пилота
+    this.batch = new RigBatch(geo, layout.n, 1, { rim: '#b49cff', rimStrength: 1.05, rimPower: 2.8, emissive: '#a07cff', emissiveStrength: 2.1, emissive2: '#ffd29a' });
     this.ghostBatch = RigBatch.sibling(this.batch, GHOSTS, { ghost: true, rim: '#9b6cff', emissive: '#b794ff' });
-    this.cloakMesh = new ClothMesh(this.cloak, '#121823', { rim: '#7d93b0', rimStrength: 0.3, emissive: '#8B5CF6', emissiveStrength: 1.4 }, 1, 0.6);
+    this.cloakMesh = new ClothMesh(this.cloak, '#121823', { rim: '#9b7cff', rimStrength: 1.0, emissive: '#8B5CF6', emissiveStrength: 1.6 }, 1, 1.2);
     this.scarfMesh = new ClothMesh(this.scarf, '#5a1420', { rim: '#ff8a8a', rimStrength: 0.25, emissive: '#c9a253', emissiveStrength: 1.2 }, 1, 0.5);
     this.group.add(this.batch.mesh, this.ghostBatch.mesh, this.cloakMesh.mesh, this.scarfMesh.mesh);
     this.iChest = layout.idx('chest'); this.iNeck = layout.idx('neck'); this.iPelvis = layout.idx('pelvis');

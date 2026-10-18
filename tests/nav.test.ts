@@ -115,3 +115,20 @@ describe('навигация врагов (план §4.4)', () => {
     expect(r.dist).toBeLessThan(4);
   });
 });
+
+describe('камера и заметность героя (план §5.3)', () => {
+  it('на экране 1280×600 герой (1.9 м) не меньше 75 px', async () => {
+    const THREE = await import('three');
+    const { CameraRig } = await import('../src/world/camera');
+    const src = import.meta.glob('../src/game/battle.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+    const dist = Number(/const CAM_DIST = (\d+(?:\.\d+)?);/.exec(src['../src/game/battle.ts'])![1]);
+    const cam = new THREE.PerspectiveCamera(30, 1280 / 600, 0.1, 500);
+    const rig = new CameraRig();
+    rig.baseDist = dist;
+    rig.snap(0, 0);
+    rig.update(1 / 60, 0, 0, 0, 0, cam);
+    cam.updateMatrixWorld();
+    const a = new THREE.Vector3(0, 0, 0).project(cam), b = new THREE.Vector3(0, 1.9, 0).project(cam);
+    expect(((b.y - a.y) / 2) * 600).toBeGreaterThanOrEqual(75);
+  });
+});
