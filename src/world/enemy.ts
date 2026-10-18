@@ -116,7 +116,9 @@ export abstract class Enemy implements Actor {
   /** Оглушён (план §5.5): +25 % урона, финишер или полный заряд вызовет Раскол. */
   get stunned(): boolean { return !!this.stun && this.stun.stunned > 0; }
   /** Раскол возможен: оглушён и не в переходе фаз. Раскол заканчивает оглушение — один на оглушение. */
-  get shatterable(): boolean { return !this.dead && this.stunned && this.canShatter; }
+  get shatterable(): boolean { return !this.dead && this.stunned && !this.shatterPending && this.canShatter; }
+  /** Идёт отложенный разрез Раскола 2.0 по этой цели. */
+  shatterPending = false;
   /** Боссы запрещают Раскол в переходах фаз (переопределяется). */
   get canShatter(): boolean { return true; }
   /** Окно уязвимости после атаки (Стражи и боссы): оглушение копится полностью. */
@@ -171,7 +173,7 @@ export abstract class Enemy implements Actor {
       if (left === this.starsLeft - 1) w.bus.emit('stunTick', { target: this, x: this.x, z: this.z, left, boss: this.isBoss || this.isGuardian });
       this.starsLeft = left;
       // ядро мерцает: украденный свет рвётся наружу трещинами
-      this.puppet.crack = this.stun.stunned > 0 ? 0.6 + 0.3 * Math.sin(this.time * 11) : Math.max(0, this.puppet.crack - dt * 2);
+      this.puppet.crack = this.shatterPending ? -1 : this.stun.stunned > 0 ? 0.6 + 0.3 * Math.sin(this.time * 11) : Math.max(0, Math.abs(this.puppet.crack) - dt * 2);
       if (this.stunQueued && this.canStunNow()) w.stunEnemy(this);
     }
     if (this.dazeT > 0) this.dazeT -= dt;

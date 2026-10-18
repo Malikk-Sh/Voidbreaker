@@ -36,6 +36,14 @@ export interface GameEvents {
   impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell' };
   /** Раскол: финишер или полный заряд по оглушённому врагу — взрыв трещин, оглушение кончается. */
   shatter: { target: Actor; x: number; y: number; z: number; boss: boolean; dmg: number };
+  /**
+   * Раскол 2.0 (план §5.6), отложенный разрез — в реальных секундах: cut — удар-вспышка, impact — разлёт,
+   * dur — конец. Линия разреза — от цели по (dirX, dirZ) на len м. big — Страж или босс.
+   */
+  shatterStart: { target: Actor; x: number; z: number; dirX: number; dirZ: number; len: number; cut: number; impact: number; dur: number; big: boolean; short: boolean };
+  shatterCut: { x: number; z: number; dirX: number; dirZ: number; len: number; silence: number };
+  /** Конец Раскола; skipped — пропущен рывком. */
+  shatterEnd: { skipped: boolean };
   /** src — вид врага: по нему слышен класс замаха (рой, дуэлянт, тяжёлый, поддержка). */
   telegraph: { kind: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar'; x: number; z: number; src?: string };
   enemyAttack: { kind: 'bite' | 'slash' | 'slam' | 'shot' | 'beam' | 'bell' | 'swing' | 'throw'; x: number; z: number; dir?: number; r?: number };

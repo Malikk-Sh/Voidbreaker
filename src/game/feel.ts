@@ -51,6 +51,10 @@ export class FeelSystem {
   private motifStep = 0;
   private waveSlots: { x: number; z: number; t: number; life: number; r: number; s: number }[] = [];
   private lastVoice = -99;
+  /** Раскол 2.0: сколько ещё длится (реальные с), замедление после разлёта, линия разреза. */
+  private shatterLeft = 0;
+  private shatterAfter = 0;
+  private shatterLine: { x: number; z: number; dx: number; dz: number; len: number } | null = null;
 
   constructor(
     private w: World, private time: Time, private cam: CameraRig, private post: Post, private vfx: BattleVfx,
@@ -184,8 +188,38 @@ export class FeelSystem {
           this.audio.play('slam', { pan: this.pan(e.x) });
         } else if (e.kind === 'rift') this.audio.play('hit_heavy', { gain: 0.6, pitch: 0.7 });
       }),
+      // Раскол 2.0 (план §5.6): мир почти стоит, клинок вспыхивает, по линии разреза бегут трещины
+      b.on('shatterStart', (e) => {
+        this.time.cinematic(e.impact, 0.05);
+        this.shatterLeft = e.dur;
+        this.shatterAfter = e.dur - e.impact;
+        this.shatterLine = { x: e.x, z: e.z, dx: e.dirX, dz: e.dirZ, len: e.len };
+        const h = this.w.hero;
+        h.avatar.puppet.flash = 0.3;
+        this.vfx.lights.flash(h.x, 1.4, h.z, C.voidHot, 2, 4, 0.4);
+        this.input.vibrate(30);
+      }),
+      // один удар: смазанный кадр, вспышка; затем тишина −24 дБ, слышен только тонкий звон
+      b.on('shatterCut', (e) => {
+        this.whiteFlash(0.35);
+        this.vfx.shatterCut(e.x, e.z, e.dirX, e.dirZ, e.len);
+        this.cam.addKick(e.dirX, e.dirZ, 0.18);
+        this.audio.play('shatter_cut', { gain: 0.9, clear: true, vary: 0 });
+        this.audio.silence(e.silence);
+        this.audio.play('shatter_ring', { gain: 0.75, clear: true, vary: 0, delay: 0.04 });
+      }),
+      b.on('shatterEnd', (e) => {
+        this.shatterLeft = 0;
+        if (e.skipped) { this.time.endSlow(); this.audio.unsilence(); }
+      }),
       b.on('shatter', (e) => {
-        // Раскол: резкий, но короткий акцент — без кинематографа и замедления
+        // разлёт: всё по линии — осколками, низкий удар с сабом, ударная волна; после — короткое замедление
+        if (this.shatterLine) {
+          const l = this.shatterLine;
+          this.vfx.shatterLine(l.x, l.z, l.dx, l.dz, l.len);
+          this.shatterLine = null;
+        }
+        if (this.shatterAfter > 0) { this.time.cinematic(this.shatterAfter, 0.3); this.shatterAfter = 0; }
         this.time.addHitstop(0.1);
         this.cam.addTrauma(e.boss ? 0.45 : 0.4);
         this.cam.zoomPunch += 0.05;
@@ -286,7 +320,8 @@ export class FeelSystem {
     // «Мгновение Пустоты»
     if (this.voidMoment > 0) this.voidMoment -= realDt;
     // лёгкое приглушение красок на долю секунды — без провала музыки и полного обесцвечивания
-    const targetDesat = this.voidMoment > 0 ? 0.85 : 0;
+    if (this.shatterLeft > 0) this.shatterLeft -= realDt;
+    const targetDesat = this.voidMoment > 0 ? 0.85 : this.shatterLeft > 0 ? 0.6 : 0;
     this.desat += (targetDesat - this.desat) * Math.min(1, realDt * (targetDesat ? 14 : 5));
     P.desat = this.desat;
     // «Мгновение Пустоты»: −400 центов и ФНЧ 1200 Гц только на его время
@@ -300,6 +335,8 @@ export class FeelSystem {
     P.flash = S.flashes ? this.flash : -this.flash * 0.3;
     // летербокс и кинематографичное приближение
     P.letterbox += (this.letterbox - P.letterbox) * Math.min(1, realDt * 10);
+    // Раскол: камера подъезжает на 6 %
+    this.zoomCine += ((this.shatterLeft > 0 ? 0.06 : 0) - this.zoomCine) * Math.min(1, realDt * 8);
     this.cam.zoomTarget = this.baseZoom * (1 - this.zoomCine);
     // низкое HP: лёгкая виньетка, слой напряжения (низкие струнные + дыхание) и сердцебиение;
     // музыку не глушим (план §5.2, п. 9)

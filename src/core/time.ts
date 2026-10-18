@@ -55,6 +55,9 @@ export class Time {
   /** Длинные замирания (казнь, смерть босса) — без лимита hitstop. */
   cinematic(sec: number, scale: number): void { this.slow(scale, sec, scale); }
 
+  /** Снять все замедления (пропуск Раскола). */
+  endSlow(): void { this.slowmos.length = 0; }
+
   get slowmoActive(): boolean { return this.slowmos.length > 0; }
 
   reset(): void {

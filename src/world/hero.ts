@@ -542,7 +542,8 @@ export class Hero implements Actor {
   // ------------------------------------------------------------------ урон по герою (GDD §5.8)
   /** Возвращает 'hit' | 'perfect' | 'dodge' | 'immune'. */
   receiveAttack(dmg: number, dirX: number, dirZ: number, source: string, kb = 3, heavy = false): 'hit' | 'perfect' | 'dodge' | 'immune' {
-    if (this.dead) return 'immune';
+    // на время Раскола герой неуязвим (план §5.6)
+    if (this.dead || this.world.shatterSeq) return 'immune';
     if (this.state === 'dash' && this.dashIframes) {
       if (this.inPerfectWindow && this.clock >= this.perfectReadyAt) {
         this.perfectReadyAt = this.clock + PLAYER_BASE.perfectCooldown;

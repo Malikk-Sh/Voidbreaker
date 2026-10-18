@@ -158,7 +158,13 @@ export const SFX: Record<string, SfxRecipe> = {
     kick(c, o, t + 0.48, 1, 25); bell(c, o, t + 0.48, mtof(50), 0.22, 3); choir(c, o, t + 0.45, [50, 57, 62, 65, 69], 2.2, 0.07, 'a', 'u'); 
   } },
   // Раскол: хруст обсидиана + стеклянный хвост осколков
-  shatter_burst: { reverb: 0.25, len: 2.2, render: (c, o, t) => { kick(c, o, t, 0.9, 32); noiseHit(c, o, t, 0.25, 3200, 0.55, 'highpass', 0.8); body(c, o, t, 70, 32, 0.35, 0.6); chips(c, o, t, 14, 0.2, 0.25); noiseHit(c, o, t, 0.35, 450, 0.45, 'lowpass', 1); } },
+  // Раскол 2.0 (план §5.6): разрез — один чистый высокий удар; затем тишина и тонкий звон; затем разлёт с сабом
+  shatter_cut: { reverb: 0.05, len: 0.4, render: (c, o, t) => { transient(c, o, t, 3200, 0.8); sweep(c, o, t, 2400, 7000, 0.07, 0.5, 2.5); osc(c, 'sine', 1760, t, 0.08, o, 0.05, 0.001, 0.08); } },
+  shatter_ring: { len: 1.2, render: (c, o, t) => { osc(c, 'sine', 2637, t, 0.9, o, 0.07, 0.004, 0.9); osc(c, 'sine', 3951, t + 0.01, 0.6, o, 0.025, 0.004, 0.6); osc(c, 'sine', 5274, t + 0.02, 0.35, o, 0.012, 0.004, 0.35); } },
+  shatter_burst: { reverb: 0.25, len: 2.4, render: (c, o, t) => {
+    sub(c, o, t, 64, 28, 0.9, 1); kick(c, o, t, 0.9, 32); punch(c, o, t, 110, 36, 0.3, 0.9, 5); crunch(c, o, t, 360, 0.22, 0.6);
+    chips(c, o, t, 16, 0.2, 0.3); noiseHit(c, o, t, 0.5, 420, 0.5, 'lowpass', 0.9, 'pink'); voidHiss(c, o, t + 0.02, 0.3, 0.14, 1600);
+  } },
   bell_crack: { reverb: 0.25, len: 2.6, render: (c, o, t) => { bell(c, o, t, 103, 0.22, 2.4); noiseHit(c, o, t, 0.2, 2400, 0.4, 'bandpass', 1.5); crunch(c, o, t, 400, 0.15, 0.4); } },
   ui_click: { len: 0.2, render: (c, o, t) => { osc(c, 'sine', 1568, t, 0.1, o, 0.05, 0.001, 0.1); osc(c, 'sine', 2350, t, 0.06, o, 0.02, 0.001, 0.06); } },
   ui_confirm: { len: 0.6, render: (c, o, t) => { bell(c, o, t, mtof(74), 0.06, 0.6); bell(c, o, t + 0.07, mtof(81), 0.05, 0.6); } },

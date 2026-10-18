@@ -99,13 +99,12 @@ abstract class BruteGuardian extends ScriptedEnemy {
 
   override get invulnerable(): boolean { return this.cur?.id === 'rage'; }
 
-  /** Ярость (50 % HP): рёв, ударная волна, ускорение замахов и шага, новые приёмы второй фазы. */
+  /** Ярость (50 % HP): рёв, ударная волна, ускорение шага, новые приёмы второй фазы. */
   override onDamaged(w: World, dmg: number, before: number): void {
     super.onDamaged(w, dmg, before);
     if (this.phase !== 1 || this.dead || this.hp > this.maxHp * RAGE_AT) return;
     this.phase = 2;
     if (this.stun) resetStunHabit(this.stun);
-    this.teleMul *= 0.9;
     this.speed *= 1.15;
     this.rageQueued = true;
   }

@@ -1,13 +1,18 @@
 import { makeImpulse, mtof } from './synth';
 import { SFX } from './sfx';
 
-export interface PlayOpts { pitch?: number; gain?: number; pan?: number; reverb?: number; delay?: number; vary?: number }
+export interface PlayOpts {
+  pitch?: number; gain?: number; pan?: number; reverb?: number; delay?: number; vary?: number;
+  /** Мимо «тишины» (звон Раскола слышен, когда всё остальное приглушено). */
+  clear?: boolean;
+}
 
 /**
  * Аудио-граф (Tech §21.1):
  *   SFX → sfxBus ─┐
- *   голоса → voiceBus ├→ master → компрессор → выход
- *   секвенсор → musicBus (lowpass, gain) ┘;  reverbSend → Convolver (импульс из кода)
+ *   голоса → voiceBus ├→ hush (тишина Раскола) → master → компрессор → выход
+ *   секвенсор → musicBus (lowpass, gain) ┘;  reverbSend → Convolver (импульс из кода) → hush
+ *   «чистые» звуки → clearBus → master (мимо тишины)
  * Тяжёлые звуки «запекаются» в буферы при загрузке (OfflineAudioContext).
  */
 export class AudioEngine {
@@ -22,6 +27,9 @@ export class AudioEngine {
   voiceBus!: GainNode;
   reverb!: ConvolverNode;
   reverbSend!: GainNode;
+  /** Общий узел всего, кроме «чистых» звуков: тишина Раскола (−24 дБ). */
+  hush!: GainNode;
+  clearBus!: GainNode;
   private buffers = new Map<string, AudioBuffer[]>();
   private recent = new Map<string, number[]>();
   /** Варианты по кругу, без повтора подряд (план §5.2, п. 6). */
@@ -50,16 +58,18 @@ export class AudioEngine {
       this.limiter.attack.value = 0.001; this.limiter.release.value = 0.1;
       this.master = ctx.createGain();
       this.master.connect(this.comp).connect(this.limiter).connect(ctx.destination);
-      this.sfxBus = ctx.createGain(); this.sfxBus.connect(this.master);
-      this.voiceBus = ctx.createGain(); this.voiceBus.connect(this.master);
+      this.hush = ctx.createGain(); this.hush.connect(this.master);
+      this.clearBus = ctx.createGain(); this.clearBus.connect(this.master);
+      this.sfxBus = ctx.createGain(); this.sfxBus.connect(this.hush);
+      this.voiceBus = ctx.createGain(); this.voiceBus.connect(this.hush);
       this.musicFilter = ctx.createBiquadFilter(); this.musicFilter.type = 'lowpass'; this.musicFilter.frequency.value = 20000; this.musicFilter.Q.value = 0.7;
       this.musicDuck = ctx.createGain();
       this.musicBus = ctx.createGain();
-      this.musicBus.connect(this.musicFilter).connect(this.musicDuck).connect(this.master);
+      this.musicBus.connect(this.musicFilter).connect(this.musicDuck).connect(this.hush);
       this.reverb = ctx.createConvolver();
       this.reverb.buffer = makeImpulse(ctx, 3.2, 2.4, 0.025);
       this.reverbSend = ctx.createGain(); this.reverbSend.gain.value = 0.9;
-      this.reverbSend.connect(this.reverb).connect(this.master);
+      this.reverbSend.connect(this.reverb).connect(this.hush);
       this.applyVolumes();
       // iOS: короткий тихий буфер «разблокирует» вывод
       const b = ctx.createBuffer(1, 1, ctx.sampleRate), s = ctx.createBufferSource();
@@ -75,6 +85,7 @@ export class AudioEngine {
     this.master.gain.setTargetAtTime(this.volumes.master, t, 0.05);
     this.musicBus.gain.setTargetAtTime(this.volumes.music * 0.55, t, 0.05);
     this.sfxBus.gain.setTargetAtTime(this.volumes.sfx * 0.7, t, 0.05);
+    this.clearBus.gain.setTargetAtTime(this.volumes.sfx * 0.7, t, 0.05);
     this.voiceBus.gain.setTargetAtTime(this.volumes.voice * 0.6, t, 0.05);
   }
 
@@ -126,8 +137,8 @@ export class AudioEngine {
     let node: AudioNode = src;
     node.connect(g); node = g;
     if (o.pan) { const p = ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, o.pan)); node.connect(p); node = p; }
-    node.connect(this.sfxBus);
-    const rv = o.reverb ?? SFX[id]?.reverb ?? 0.08;
+    node.connect(o.clear ? this.clearBus : this.sfxBus);
+    const rv = o.clear ? 0 : o.reverb ?? SFX[id]?.reverb ?? 0.08;
     if (rv > 0) { const s = ctx.createGain(); s.gain.value = rv; node.connect(s).connect(this.reverbSend); }
     this.active++;
     src.onended = () => { this.active--; };
@@ -142,6 +153,29 @@ export class AudioEngine {
     g.setValueAtTime(g.value, t);
     g.linearRampToValueAtTime(amount, t + 0.02);
     g.linearRampToValueAtTime(1, t + dur);
+  }
+
+  /**
+   * Тишина (Раскол 2.0, план §5.6): музыка, звуки, голоса и хвосты реверберации −24 дБ на sec секунд;
+   * «чистые» звуки (clear) слышны поверх.
+   */
+  silence(sec: number, depth = 0.063): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, g = this.hush.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(depth, t + 0.015);
+    g.setValueAtTime(depth, t + Math.max(0.015, sec));
+    g.linearRampToValueAtTime(1, t + sec + 0.05);
+  }
+
+  /** Снять тишину сразу (пропуск Раскола). */
+  unsilence(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, g = this.hush.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(1, t + 0.04);
   }
 
   /**

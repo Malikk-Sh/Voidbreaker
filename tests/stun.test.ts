@@ -9,6 +9,7 @@ import { GateGuardian } from '../src/world/boss/guardians';
 import { validatePattern } from '../src/world/boss/timeline';
 import type { Enemy } from '../src/world/enemy';
 import { Abilities } from '../src/world/abilities';
+import { InputBuffer, type Input } from '../src/input/input';
 
 const DT = 1 / 60;
 
@@ -32,6 +33,13 @@ function hit(w: World, e: Enemy, m: MoveDef, feel = m.feel): void {
   w.damageEnemy(e, { mult: m.dmg, stun: m.stun, stunKind: m.stunKind, knockback: m.knockback, feel, dirX: 0, dirZ: -1, source: 'blade', finisher: !!m.finisher });
 }
 const strike = (w: World, e: Enemy, i: number): void => hit(w, e, VOID_BLADE.combo[i]);
+const idleInput = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
+/** Прогнать отложенный разрез: мир почти стоит (×0.05), Раскол идёт по реальному времени. Возвращает реальные секунды. */
+function runShatter(w: World, input = idleInput(), onStep?: (t: number) => void): number {
+  let t = 0;
+  while (w.shatterSeq && t < 3) { w.step(DT * 0.05, DT * 0.05, input, DT); t += DT; onStep?.(t); }
+  return t;
+}
 /** Полный (или частичный) заряженный удар. */
 function charged(w: World, e: Enemy, full = true): void {
   const C = VOID_BLADE.charged;
@@ -158,17 +166,21 @@ describe('оглушение (план §5.5)', () => {
   it('Раскол — только по оглушённой цели, один раз за оглушение; частичный заряд не раскалывает', () => {
     const { w, e, shatters } = setup(() => new GateGuardian({ zone: 0, stage: 2 }), 'gate');
     strike(w, e, 3);
-    expect(shatters()).toBe(0);
+    expect(w.shatterSeq).toBeNull();
     w.stunEnemy(e);
     charged(w, e, false);
-    expect(shatters()).toBe(0);
+    expect(w.shatterSeq).toBeNull();
     expect(e.stunned).toBe(true);
     strike(w, e, 3);
+    expect(w.shatterSeq?.target).toBe(e);
+    strike(w, e, 3); // второй финишер во время разреза — не второй Раскол
+    expect(runShatter(w)).toBeCloseTo(0.8, 1);
     expect(shatters()).toBe(1);
     expect(e.stunned).toBe(false);
-    expect(e.stun!.immune).toBe(STUN_IMMUNE);
+    expect(e.stun!.immune).toBeGreaterThan(STUN_IMMUNE - 0.1);
     charged(w, e, true);
     strike(w, e, 3);
+    expect(w.shatterSeq).toBeNull();
     expect(shatters()).toBe(1);
   });
 
@@ -232,5 +244,91 @@ describe('идеальное уклонение — уровни (план §5.4
     expect(got).toEqual([true, false]);
     expect(hk.lagT).toBeCloseTo(0.2);
     expect(g.lagT).toBe(0);
+  });
+});
+
+describe('Раскол 2.0 — отложенный разрез (план §5.6)', () => {
+  async function line(): Promise<{ w: World; g: Enemy; on: Enemy[]; off: Enemy; g2: Enemy; shatters: () => number; impactAt: () => number }> {
+    const { Golem } = await import('../src/world/enemies/golem');
+    const { Husk } = await import('../src/world/enemies/husk');
+    const w = new World(new Arena(ARENAS.fall), 'shatter2');
+    w.abilities = new Abilities(w);
+    w.hero.spawn(0, 2, Math.PI);
+    const put = (e: Enemy, x: number, z: number): Enemy => { e.x = x; e.z = z; w.addEnemy(e); e.setState('idle'); return e; };
+    const g = put(new Golem({ zone: 0, stage: 0 }), 0, 0);
+    const on = [put(new Husk({ zone: 0, stage: 0 }), 0.3, -3), put(new Husk({ zone: 0, stage: 0 }), -0.2, -6)];
+    const off = put(new Husk({ zone: 0, stage: 0 }), 3, -3);
+    const g2 = put(new Golem({ zone: 0, stage: 0 }), 0, -4.5);
+    let n = 0, at = -1, t = 0;
+    w.bus.on('shatter', () => { n++; if (at < 0) at = t; });
+    w.bus.on('shatterStart', () => { t = 0; });
+    w.stepHooks.push(() => { t += DT; });
+    return { w, g, on, off, g2, shatters: () => n, impactAt: () => at };
+  }
+
+  it('урон через 0.45 с; линия 7 × 1.5 м — 2.5× и отброс, оглушённые на линии раскалываются цепочкой', async () => {
+    const { w, g, on, off, g2, shatters, impactAt } = await line();
+    w.stunEnemy(g); w.stunEnemy(g2);
+    const hp0 = g.hp;
+    hit(w, g, VOID_BLADE.combo[3]);
+    const afterHit = g.hp;
+    expect(hp0).toBeGreaterThan(afterHit);
+    expect(shatters()).toBe(0);
+    runShatter(w);
+    expect(impactAt()).toBeGreaterThan(0.44);
+    expect(impactAt()).toBeLessThan(0.5);
+    expect(shatters()).toBe(2);
+    expect(afterHit - g.hp).toBeGreaterThanOrEqual(Math.round(g.maxHp * 0.14) - 1);
+    for (const h of on) expect(h.hp < h.maxHp || h.dead).toBe(true);
+    expect(off.hp).toBe(off.maxHp);
+    expect(g2.stunned).toBe(false);
+  });
+
+  it('герой неуязвим, пока идёт Раскол', async () => {
+    const { w, g } = await line();
+    w.stunEnemy(g);
+    hit(w, g, VOID_BLADE.combo[3]);
+    expect(w.enemyStrike(g, { k: 'circle', x: 0, z: 2, r: 3 }, 50, 3)).toBe('immune');
+    runShatter(w);
+    w.hero.invulnUntil = 0;
+    expect(w.enemyStrike(g, { k: 'circle', x: 0, z: 2, r: 3 }, 1, 3)).toBe('hit');
+  });
+
+  it('первые два — полная версия, дальше короткая; «Короткие казни» — всегда коротко', async () => {
+    const { w, g } = await line();
+    const durs: number[] = [];
+    w.bus.on('shatterStart', (e) => durs.push(e.dur));
+    for (let i = 0; i < 3; i++) {
+      g.stun!.stunned = 0; g.stun!.immune = 0;
+      w.stunEnemy(g);
+      hit(w, g, VOID_BLADE.combo[3]);
+      runShatter(w);
+    }
+    w.shortShatters = true; w.fullShatters = 2;
+    g.stun!.immune = 0; w.stunEnemy(g); hit(w, g, VOID_BLADE.combo[3]); runShatter(w);
+    expect(durs).toEqual([0.6, 0.6, 0.4, 0.4]);
+  });
+
+  it('босс — всегда полная версия (1 с), пропуск рывком', () => {
+    const { w, e, shatters } = setup(() => new Hierophant({ zone: 0, stage: 0 }));
+    e.idleT = 50;
+    w.shortShatters = true;
+    w.stunEnemy(e);
+    strike(w, e, 3);
+    expect(w.shatterSeq?.dur).toBe(1.0);
+    const input = idleInput();
+    const t = runShatter(w, input, (t) => { if (t > 0.2 && t < 0.2 + DT) input.buffer.push('dash', input.now); });
+    expect(t).toBeLessThan(0.3);
+    expect(shatters()).toBe(1);
+  });
+
+  it('Страж после Раскола встаёт на колено, следующие 2 с атакует медленнее', () => {
+    const { w, e } = setup(() => new GateGuardian({ zone: 0, stage: 2 }), 'gate');
+    const g = e as GateGuardian;
+    w.stunEnemy(g);
+    strike(w, g, 3);
+    runShatter(w);
+    expect(g.kneelT).toBeGreaterThan(0.5);
+    expect(g.slowT).toBeGreaterThan(2);
   });
 });

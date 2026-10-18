@@ -38,6 +38,9 @@ export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef
  * Бой на этапе: мир + арена + директор волн + VFX + камера + «сочность». Цикл — фиксированный шаг 60 Гц
  * в реальном времени, каждая система получает своё масштабированное dt (мир/герой).
  */
+/** Полных Расколов на сессию (план §5.6): первые два — полная версия, дальше — короткая. */
+let fullShattersLeft = 2;
+
 export class Battle {
   readonly world: World;
   readonly arena: Arena;
@@ -76,6 +79,8 @@ export class Battle {
     this.world.zone = stage.zone;
     this.world.stage = stage.boss ? 0 : Math.min(5, stage.index);
     this.world.damageTakenMul = ctx.settings.story ? 0.6 : 1;
+    this.world.shortShatters = ctx.settings.shortExec;
+    this.world.fullShatters = fullShattersLeft;
     this.world.shardPerDrop = 3 + stage.index * 0.6;
     this.abilities = new Abilities(this.world);
     this.abilities.loadout = loadout;
@@ -195,6 +200,7 @@ export class Battle {
         setTimeout(() => hud.showHint('Q — Серп Луны достанет Око издалека'), 1500);
       }
     });
+    b.on('shatterStart', () => { fullShattersLeft = this.world.fullShatters; });
     b.on('stun', () => {
       if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Враг оглушён — финишер или заряженный удар: РАСКОЛ'); }
     });
@@ -230,7 +236,7 @@ export class Battle {
     let steps = 0;
     while (this.acc >= STEP && steps < 6) {
       this.acc -= STEP; steps++;
-      if (!T.paused) this.step(STEP * T.worldScale, STEP * T.heroScale);
+      if (!T.paused) this.step(STEP * T.worldScale, STEP * T.heroScale, STEP);
     }
     if (steps >= 6) this.acc = 0;
     const dtW = realDt * T.worldScale;
@@ -266,8 +272,8 @@ export class Battle {
     }
   }
 
-  private step(dtW: number, dtH: number): void {
-    this.world.step(dtW, dtH, this.ctx.input);
+  private step(dtW: number, dtH: number, dtR: number): void {
+    this.world.step(dtW, dtH, this.ctx.input, dtR);
     if (!this.boss && this.runner.boss instanceof Hierophant) this.boss = new HierophantController(this.bossHost(), this.runner.boss);
     this.boss?.step(dtW);
   }

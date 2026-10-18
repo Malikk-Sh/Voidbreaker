@@ -185,11 +185,14 @@ void main() {
 
   col += emissiveTerm(vEmissive) * uEmissiveStrength * (1.0 + boost);
 
-  // трещины оглушения — светящиеся швы по ячейкам (украденный свет рвётся наружу)
-  if (crack > 0.001) {
+  // трещины оглушения — светящиеся швы по ячейкам (украденный свет рвётся наружу);
+  // отрицательные — трещины Раскола героя: бело-фиолетовые, шире
+  if (abs(crack) > 0.001) {
+    float ck = abs(crack);
+    vec3 cc = crack < 0.0 ? vec3(1.1, 0.95, 1.6) : uEmissiveColor;
     float edge = texture2D(uNoise, vLocal.xy * 0.7 + vLocal.z * 0.3).g;
-    float c = smoothstep(0.12 * crack, 0.0, edge);
-    col += uEmissiveColor * c * 3.0 * crack;
+    float c = smoothstep((crack < 0.0 ? 0.18 : 0.12) * ck, 0.0, edge);
+    col += cc * c * 3.0 * ck;
   }
 
   if (dissolve > 0.001) col += uEmissiveColor * smoothstep(dissolve + 0.07, dissolve, nz) * 5.0;

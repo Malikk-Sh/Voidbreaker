@@ -208,6 +208,28 @@ export class BattleVfx {
     this.lights.flash(x, y, z, [1, 0.88, 0.62], 6, 7, 0.4);
   }
 
+  /** Раскол 2.0: разрез — длинный бело-фиолетовый смазанный след по линии (висит, пока мир стоит). */
+  shatterCut(x: number, z: number, dx: number, dz: number, len: number): void {
+    const n = Math.round(26 * this.quality) + 8;
+    for (let k = 0; k < n; k++) {
+      const f = k / (n - 1), d = -1 + f * (len + 1);
+      this.add.emit({ x: x + dx * d, y: 1.1 + Math.sin(f * Math.PI) * 0.4, z: z + dz * d, vx: dx * 2, vz: dz * 2, life: 0.35, size: 0.55 * (1 - Math.abs(f - 0.3)), size1: 0.05, color: f < 0.5 ? C.core : C.voidHot, frame: 'spark', stretch: 2.5 });
+    }
+    this.add.emit({ x, y: 1.2, z, life: 0.2, size: 1.6, size1: 3.2, color: C.core, alpha: 0.9, frame: 'flare' });
+    this.lights.flash(x + dx * len * 0.4, 1.2, z + dz * len * 0.4, [1, 0.92, 1], 3.5, 7, 0.3);
+  }
+
+  /** Раскол 2.0: разлёт — осколки и искры по всей линии разреза. */
+  shatterLine(x: number, z: number, dx: number, dz: number, len: number): void {
+    const n = Math.max(3, Math.round(len));
+    for (let k = 1; k <= n; k++) {
+      const d = (k / n) * len, px = x + dx * d, pz = z + dz * d;
+      this.debris.burst(px, 0.6, pz, dx, dz, Math.round(3 * this.quality) + 1, 6, 0.16);
+      this.burst(4, { x: px, y: 0.7, z: pz, life: 0.5, size: 0.1, size1: 0.02, color: C.voidHot, gravity: -10, drag: 1.5, frame: 'spark', stretch: 1.2 }, { v: 6, vy: 5, dir: [dx, dz], cone: 1.2 });
+    }
+    this.rings.spawn(x + dx * len * 0.5, z + dz * len * 0.5, 0.4, len * 0.6, 0.35, C.voidHot, 0.2, 1);
+  }
+
   /** Погасла звезда оглушения: маленькая вспышка там, где она кружила. */
   starOut(x: number, y: number, z: number): void {
     this.add.emit({ x, y, z, life: 0.22, size: 0.5, size1: 1.1, color: C.core, alpha: 0.8, frame: 'flare' });
@@ -282,6 +304,19 @@ export class BattleVfx {
             const jx = fxRng.spread(0.15), jz = fxRng.spread(0.15);
             this.sprites.add(e.x + (tg.x - e.x) * f + jx, 1.6 + Math.sin(f * Math.PI) * 0.6, e.z + (tg.z - e.z) * f + jz, t ? 0.18 : 0.12, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], t ? 0.8 : 0.45, 'dot');
           }
+        }
+      }
+    }
+
+    // Раскол 2.0: до удара по линии будущего разреза бегут бело-фиолетовые трещины
+    const sq = w.shatterSeq;
+    if (sq && !sq.cutDone) {
+      const L = sq.line;
+      if (L.k === 'line') {
+        const f = Math.min(1, sq.t / Math.max(0.01, sq.cut));
+        for (let k = 0; k < 3; k++) {
+          const d = fxRng.next() * L.len * f, side = fxRng.spread(0.35);
+          this.add.emit({ x: L.x + L.dx * d - L.dz * side, y: 0.08, z: L.z + L.dz * d + L.dx * side, life: 0.5, size: 0.16, size1: 0.04, color: fxRng.chance(0.5) ? C.core : C.voidHot, frame: 'spark', stretch: 2, vx: L.dx * 0.5, vz: L.dz * 0.5 });
         }
       }
     }

@@ -57,6 +57,21 @@ export const STUN_PERFECT_DODGE = 10;
 /** Итог попадания для сборки события strike. */
 export interface HitResult { crit: boolean; feel: FeelId }
 
+/** Раскол 2.0 (план §5.6): отложенный разрез. Время — реальные секунды, мир почти стоит. */
+export interface ShatterSeq {
+  target: Enemy;
+  dirX: number; dirZ: number;
+  /** Линия разреза от цели по направлению удара: 7 × 1.5 м. */
+  line: Shape;
+  t: number;
+  /** Удар-вспышка, разлёт осколков, конец. */
+  cut: number; impact: number; dur: number;
+  cutDone: boolean; hit: boolean; skipped: boolean;
+}
+
+/** Линия Раскола: длина и ширина (м); урон задетым на ней. */
+export const SHATTER_LINE = { len: 7, w: 1.5, mult: 2.5 };
+
 export interface RunStats {
   dmgDealt: number; kills: number; hitsTaken: number; dmgTaken: number; perfectDodges: number; shatters: number;
   shards: number; ether: number; time: number;
@@ -99,6 +114,12 @@ export class World {
   readonly stepHooks: ((dt: number) => void)[] = [];
   /** Бонус урона по оглушённым (Сердце Молоха и т.п.). */
   brokenBonus = 0;
+  /** Идущий Раскол 2.0: герой неуязвим, урон — по таймеру (план §5.6). */
+  shatterSeq: ShatterSeq | null = null;
+  /** Полных Расколов, оставшихся на сессию: первые два — полная версия, дальше — короткая. */
+  fullShatters = 2;
+  /** Настройка «Короткие казни». */
+  shortShatters = false;
   /** Элита опустилась до 50 % HP (подкрепления, Зеркальный аффикс). */
   onEliteHalf: ((e: Enemy) => void) | null = null;
 
@@ -126,9 +147,11 @@ export class World {
   }
 
   // ------------------------------------------------------------------ шаг
-  step(dtW: number, dtH: number, input: Input): void {
+  /** dtR — реальная длительность шага: по ней идёт Раскол 2.0, когда мир почти стоит. */
+  step(dtW: number, dtH: number, input: Input, dtR = dtW): void {
     this.time += dtW;
     this.run.time += dtW;
+    if (this.shatterSeq) this.stepShatter(dtR, input);
     this.hero.update(dtH, input);
     this.nav.update(dtW, this.hero.x, this.hero.z);
     for (const e of this.enemies) e.step(this, dtW);
@@ -288,7 +311,7 @@ export class World {
       if (FEEL_ORDER[feel] > FEEL_ORDER[b.feel]) b.feel = feel;
     }
     if (e.hp <= 0) this.killEnemy(e, p.dirX, p.dirZ, stunned || p.feel === 'heavy' ? 6 : 3.5);
-    else if (shatter) this.shatterEnemy(e, p.dirX, p.dirZ);
+    else if (shatter) this.startShatter(e, p.dirX, p.dirZ);
     return { crit, feel };
   }
 
@@ -315,8 +338,59 @@ export class World {
   }
 
   /**
-   * Раскол (замена казни): трещины взрываются — доля HP цели (элита 14 %, стражи 5 %, босс 4 %),
-   * волна осколков по соседям, Резонанс; оглушение сразу заканчивается (пробуждение 5 с). Мгновенных убийств нет.
+   * Раскол 2.0 (план §5.6): цель и линия разреза застывают, урон — через 0.45 с (короткая версия — быстрее).
+   * Элита и Голем 0.6 с (коротко 0.4), Страж 0.8 (0.5), босс 1.0 — всегда полная, пропуск рывком.
+   */
+  startShatter(e: Enemy, dirX: number, dirZ: number): void {
+    if (this.shatterSeq) { this.shatterEnemy(e, dirX, dirZ); return; }
+    const boss = e.isBoss, guard = e.isGuardian && !boss;
+    const short = !boss && (this.shortShatters || this.fullShatters <= 0);
+    if (!short && !boss) this.fullShatters--;
+    const dur = boss ? 1.0 : guard ? (short ? 0.5 : 0.8) : short ? 0.4 : 0.6;
+    const k = short ? (guard ? 0.83 : 0.67) : 1;
+    const l = Math.hypot(dirX, dirZ) || 1;
+    dirX /= l; dirZ /= l;
+    e.shatterPending = true;
+    // вспышка попадания не висит белым пятном, пока мир стоит: видны трещины Раскола
+    e.puppet.flash = 0;
+    e.puppet.crack = -1;
+    const line: Shape = { k: 'line', x: e.x, z: e.z, dx: dirX, dz: dirZ, len: SHATTER_LINE.len, w: SHATTER_LINE.w };
+    this.shatterSeq = { target: e, dirX, dirZ, line, t: 0, cut: 0.15 * k, impact: 0.45 * k, dur, cutDone: false, hit: false, skipped: false };
+    this.bus.emit('shatterStart', { target: e, x: e.x, z: e.z, dirX, dirZ, len: SHATTER_LINE.len, cut: 0.15 * k, impact: 0.45 * k, dur, big: boss || guard, short });
+  }
+
+  private stepShatter(dtR: number, input: Input): void {
+    const s = this.shatterSeq!;
+    // пропуск рывком: сразу к разлёту и конец
+    if (!s.hit && s.t > 0.1 && input.buffer.peek('dash', input.now)) { s.skipped = true; s.t = Math.max(s.t, s.impact); }
+    else s.t += dtR;
+    if (!s.cutDone && s.t >= s.cut) {
+      s.cutDone = true;
+      this.bus.emit('shatterCut', { x: s.line.x, z: s.line.z, dirX: s.dirX, dirZ: s.dirZ, len: SHATTER_LINE.len, silence: s.impact - s.cut });
+    }
+    if (!s.hit && s.t >= s.impact) { s.hit = true; this.shatterImpact(s); }
+    if (s.t >= s.dur || (s.skipped && s.hit)) {
+      this.shatterSeq = null;
+      this.bus.emit('shatterEnd', { skipped: s.skipped });
+    }
+  }
+
+  /** Разлёт: удар по цели, затем всё по линии — 2.5× и отброс; другие оглушённые на линии раскалываются цепочкой. */
+  private shatterImpact(s: ShatterSeq): void {
+    const e = s.target;
+    e.shatterPending = false;
+    if (!e.dead) this.shatterEnemy(e, s.dirX, s.dirZ);
+    for (const o of this.enemies) {
+      if (o === e || !o.targetable || !overlaps(s.line, o.x, o.z, o.radius)) continue;
+      if (o.shatterable) { this.shatterEnemy(o, s.dirX, s.dirZ); continue; }
+      // метка Пустоты (§6.1) добавится вместе с метками
+      this.damageEnemy(o, { mult: SHATTER_LINE.mult, stun: 6, stunKind: 'other', knockback: 7, feel: 'heavy', dirX: s.dirX, dirZ: s.dirZ, source: 'ability', noResonance: true, abilityId: 'shatter' });
+    }
+  }
+
+  /**
+   * Удар Раскола по цели: доля HP (элита и Голем 14 %, Страж 5 %, босс 4 %), Резонанс, лечение вехой Стойкости;
+   * оглушение сразу заканчивается (пробуждение 5 с). Мгновенных убийств нет.
    */
   shatterEnemy(e: Enemy, dirX: number, dirZ: number): void {
     if (e.dead || !e.stun) return;
@@ -327,6 +401,7 @@ export class World {
     e.hp -= dmg;
     this.run.dmgDealt += dmg;
     this.run.shatters++;
+    e.shatterPending = false;
     endStun(e.stun);
     e.onStunEnd(this);
     e.onDamaged(this, dmg, before);
@@ -336,13 +411,6 @@ export class World {
     if (S.shatterHeal > 0) h.hp = Math.min(h.maxHp, h.hp + h.maxHp * S.shatterHeal);
     this.bus.emit('shatter', { target: e, x: e.x, y: e.height * 0.55, z: e.z, boss: e.isBoss, dmg });
     this.bus.emit('hit', { target: e, dmg, crit: true, feel: 'break', dirX, dirZ, x: e.x, y: e.height * 0.7, z: e.z, source: 'blade' });
-    // осколки ранят соседей
-    for (const o of this.enemies) {
-      if (o === e || !o.targetable) continue;
-      const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz);
-      if (d > 3.4 + o.radius) continue;
-      this.damageEnemy(o, { mult: 1.6, stun: 6, knockback: 4, feel: 'medium', dirX: dx / (d || 1), dirZ: dz / (d || 1), source: 'ability', noResonance: true, abilityId: 'shatter' });
-    }
     if (e.hp <= 0) this.killEnemy(e, dirX, dirZ, 7);
   }
 

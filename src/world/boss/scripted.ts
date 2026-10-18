@@ -40,6 +40,12 @@ export abstract class ScriptedEnemy extends Enemy {
   stationary = false;
   frenzy = false;
   private frenzyT = 0;
+  /** После Раскола Страж стоит на колене (с). */
+  kneelT = 0;
+  /** Ещё столько секунд новые атаки медленнее (×0.7, план §5.6). */
+  slowT = 0;
+  /** Темп текущего паттерна: фиксируется на старте, чтобы удар не обогнал телеграф. */
+  private tempo = 1;
 
   constructor(def: EnemyDef, layout: RigLayout, o: SpawnOpts) {
     super(def, layout, [], o);
@@ -97,15 +103,17 @@ export abstract class ScriptedEnemy extends Enemy {
     const h = w.hero;
     // Неистовство: через 6 минут ускорение на 25 % (GDD §11.0)
     this.frenzyT += dt;
-    if (!this.frenzy && this.frenzyT > 360) { this.frenzy = true; this.teleMul *= 0.8; this.speed *= 1.25; }
+    if (!this.frenzy && this.frenzyT > 360) { this.frenzy = true; this.speed *= 1.25; }
     for (const [k, v] of this.cds) this.cds.set(k, v - dt);
     if (this.vulnerableT > 0) this.vulnerableT -= dt;
+    if (this.slowT > 0) this.slowT -= dt;
     this.summoned = this.summoned.filter((e) => !e.dead);
+    if (this.kneelT > 0) { this.kneelT -= dt; this.vx *= 0.8; this.vz *= 0.8; if (this.kneelT <= 0) this.setPose('idle', 0.35); return; }
 
     if (this.move) this.stepMove(dt);
 
     if (this.cur) {
-      this.ct += dt * (this.frenzy ? 1.25 : 1);
+      this.ct += dt * this.tempo;
       const steps = this.cur.steps;
       while (this.stepIdx < steps.length && steps[this.stepIdx].t <= this.ct) {
         this.exec(w, steps[this.stepIdx]);
@@ -144,6 +152,7 @@ export abstract class ScriptedEnemy extends Enemy {
     if (p.build) p = { ...p, steps: p.build().sort((a, b) => a.t - b.t) };
     this.cur = p; this.ct = 0; this.stepIdx = 0;
     this.snapX = h.x; this.snapZ = h.z;
+    this.tempo = (this.frenzy ? 1.25 : 1) * (this.slowT > 0 ? 0.7 : 1);
     this.setState('attack');
   }
 
@@ -179,8 +188,10 @@ export abstract class ScriptedEnemy extends Enemy {
       case 'pose': this.setPose(s.id, s.blend ?? 0.08); break;
       case 'telegraph': {
         const sh = this.shapeOf(s.shape, s.at, s.dir);
-        w.addTelegraph(sh, s.dur * this.teleMul, !!s.white, false);
-        this.lastTeleDur = s.dur * this.teleMul;
+        // метка на полу заполняется в такт паттерну (неистовство быстрее, после Раскола медленнее)
+        const td = s.dur / this.tempo;
+        w.addTelegraph(sh, td, !!s.white, false);
+        this.lastTeleDur = td;
         this.coreGlow = 1.2;
         break;
       }
@@ -324,5 +335,13 @@ export abstract class ScriptedEnemy extends Enemy {
   override onStunEnd(w: World): void {
     super.onStunEnd(w);
     this.awakenQueued = true;
+  }
+  /** Раскол: Страж падает на колено, следующие 2 с его удары медленнее. Боссы переопределяют. */
+  override onShattered(_w: World): void {
+    if (this.isBoss) return;
+    this.cur = null; this.move = null;
+    this.kneelT = 0.9;
+    this.slowT = 2 + this.kneelT;
+    this.setPose('crouch', 0.08);
   }
 }
