@@ -61,6 +61,8 @@ export interface GameEvents {
   bossIntro: { name: string; title: string };
   bossDeath: { x: number; z: number };
   resonanceFull: Record<string, never>;
+  /** Способность снова готова (кольцо вокруг иконки, короткий звук). */
+  abilityReady: { slot: 'q' | 'e' };
   pickup: { kind: 'shard' | 'ether' | 'heal'; amount: number; x: number; z: number };
   ability: { id: string; x: number; z: number };
   ultimate: { id: string; x: number; z: number };

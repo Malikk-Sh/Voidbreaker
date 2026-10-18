@@ -13,7 +13,9 @@ import { drawIcon, type IconId } from './icons';
 import { UI } from './theme';
 
 interface DmgNum { x: number; y: number; z: number; v: number; crit: boolean; shield: boolean; t: number; dx: number; key: number; big: boolean }
-interface Banner { text: string; sub?: string; t: number; dur: number; color: NonNullable<TitleOpts['color']>; size: number; y: number }
+interface Banner { text: string; sub?: string; t: number; dur: number; color: NonNullable<TitleOpts['color']>; size: number }
+/** Короткая надпись в мире у цели («РАСКОЛ», «В БЕЗДНУ»), над героем — не дольше 0.5 с. */
+interface WorldText { text: string; color: string; x: number; y: number; z: number; t: number; dur: number }
 
 export interface HudFrame {
   world: World;
@@ -54,7 +56,16 @@ export class Hud {
   /** Звёзды, летящие с HUD к голове оглушённого (план §5.5). */
   private starFly: { t: number; e: Enemy; from: { x: number; y: number }[]; r: number }[] = [];
   private readonly headTmp = { x: 0, y: 0, z: 0 };
+  /** Очередь титулов: следующий ждёт ухода текущего (план §5.7). */
   private banners: Banner[] = [];
+  private worldTexts: WorldText[] = [];
+  /** Нижняя граница верхнего HUD этого кадра — титулы ниже неё. */
+  private topEdge = 0;
+  /** Кольцо готовности способности: время с момента готовности по слотам. */
+  private readyT: Record<'q' | 'e' | 'r', number> = { q: 9, e: 9, r: 9 };
+  /** Руны Резонанса: время с момента, как зажглась каждая. */
+  private runeLit = [9, 9, 9, 9, 9];
+  private lastRes = 0;
   private sub: { text: string; t: number; speaker: string } | null = null;
   private hint: { text: string; t: number } | null = null;
   private hpTrail = 1; private hpTrailDelay = 0; private lastHp = 1;
@@ -97,29 +108,37 @@ export class Hud {
     this.nums.push({ x, y, z, v, crit, shield, t: 0, dx: (Math.random() - 0.5) * 30, key, big });
     if (this.nums.length > 48) this.nums.shift();
   }
-  flashText(text: string, color: string): void {
-    const c: Banner['color'] = color === '#FF4A57' ? 'hunger' : color === '#F1E8FF' ? 'white' : 'void';
-    this.banners.push({ text, t: 0, dur: 0.85, color: c, size: 26, y: 0.34 });
+  /** Надпись в мире у цели, мелко (план §5.7, п. 3). hero — над героем: 0.5 с. */
+  flashText(text: string, color: string, x: number, y: number, z: number, hero = false): void {
+    this.worldTexts.push({ text, color, x, y, z, t: 0, dur: hero ? 0.5 : 0.8 });
+    if (this.worldTexts.length > 6) this.worldTexts.shift();
   }
   subtitle(text: string, speaker: string): void { this.sub = { text, t: 0, speaker }; }
   showHint(text: string): void { this.hint = { text, t: 0 }; }
-  pulseUlt(): void { this.ultPulse = 1; }
+  pulseUlt(): void { this.ultPulse = 1; this.readyT.r = 0; }
+  /** Способность снова готова: вокруг иконки за 0.25 с замыкается кольцо. */
+  abilityReady(slot: 'q' | 'e' | 'r'): void { this.readyT[slot] = 0; }
   waveBanner(index: number, total: number): void {
-    this.pushBanner({ text: `Волна ${ROMAN[index] ?? index + 1}`, sub: index + 1 === total ? 'финальная' : undefined, t: 0, dur: 1.6, color: 'gold', size: 40, y: 0.28 });
+    this.pushBanner({ text: `Волна ${ROMAN[index] ?? index + 1}`, sub: index + 1 === total ? 'финальная' : undefined, t: 0, dur: 1.6, color: 'gold', size: 30 });
   }
+  /** Титул: на 25 % меньше прежнего и выше боя (0.12–0.16 высоты, под верхним HUD). */
   bigBanner(text: string, sub: string | undefined, color: Banner['color'], dur = 2.4, size = 56): void {
-    this.pushBanner({ text, sub, t: 0, dur, color, size, y: 0.3 });
+    this.pushBanner({ text, sub, t: 0, dur, color, size: size * 0.75 });
   }
-  /** Новый титул вытесняет прежние: те быстро уходят, а не накладываются буквами друг на друга. */
+  /** Очередь: новый титул ждёт ухода текущего; текущий, если за ним очередь, сразу начинает уходить. */
   private pushBanner(b: Banner): void {
-    for (const o of this.banners) o.t = Math.max(o.t, o.dur - 0.3);
+    const cur = this.banners[0];
+    if (cur) cur.t = Math.max(cur.t, cur.dur - 0.3);
     this.banners.push(b);
+    if (this.banners.length > 3) this.banners.splice(1, 1);
   }
-  clear(): void { this.nums = []; this.banners = []; this.sub = null; this.hint = null; this.hpTrail = 1; this.lastHp = 1; }
+  clear(): void { this.nums = []; this.banners = []; this.worldTexts = []; this.sub = null; this.hint = null; this.hpTrail = 1; this.lastHp = 1; }
 
   // ------------------------------------------------------------------ кадр
   draw(dt: number, f: HudFrame): void {
     this.time += dt;
+    this.readyT.q += dt; this.readyT.e += dt; this.readyT.r += dt;
+    for (let i = 0; i < 5; i++) this.runeLit[i] += dt;
     const g = this.g;
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.clearRect(0, 0, this.w, this.h);
@@ -134,14 +153,16 @@ export class Hud {
     if (f.boss) this.drawBossBar(s, T, f.boss, f.bossName, f.bossPhases, f.bossPhase);
     else if (f.guardian && !f.guardian.dead) this.drawBossBar(s, T, f.guardian, f.guardian.def.name, [], 0);
     else this.drawStageTop(f, s, T);
+    this.topEdge = T + (f.boss || (f.guardian && !f.guardian.dead) ? 92 : 52) * s;
     this.drawPause(R, T, s);
     this.drawRank(f, R, s);
     this.drawAbilities(f, R, B, s);
     if (f.showTouch) this.drawTouch(f.input, s);
     this.drawNums(dt, f);
+    this.drawWorldTexts(dt, f);
     this.drawStarFly(dt, f);
     this.drawBanners(dt);
-    this.drawSubtitle(dt, s);
+    this.drawSubtitle(dt, s, L, T);
     if (f.showFps) { g.fillStyle = UI.dim; g.font = `600 ${Math.round(11 * s)}px ${FONT_TECH}`; g.textAlign = 'left'; g.fillText(`${f.fps.toFixed(0)} FPS`, L, B - 70 * s); }
     g.globalAlpha = 1;
   }
@@ -319,6 +340,19 @@ export class Hud {
     const res = h.eclipse ? (h.eclipseUntil - h.clock) / 6 : h.resonance / 100;
     const full = h.resonance >= 100 || h.eclipse;
     this.gothicBar(bx - 5 * s, ey + 3 * s, bw * 0.82, 7 * s, clamp(res, 0, 1), '#5b3fb8', full ? '#e8dcff' : '#b794ff', -1, 4, true, full);
+    // руны на кромке полосы загораются каждые 20 % (план §5.7, п. 7) — вспыхивают в момент зажигания
+    const resNow = clamp(h.resonance / 100, 0, 1);
+    for (let i = 0; i < 5; i++) {
+      const at = (i + 1) / 5 - 1e-6, lit = resNow >= at || h.eclipse;
+      if (resNow >= at && this.lastRes < at) this.runeLit[i] = 0;
+      const pop = Math.max(0, 1 - this.runeLit[i] / 0.3);
+      const rx = bx - 5 * s + bw * 0.82 * ((i + 0.5) / 5), ry = ey + 3 * s;
+      g.save();
+      if (lit) { g.shadowColor = UI.glowVoid; g.shadowBlur = (4 + pop * 8) * s; }
+      this.diamond(rx, ry, (2.3 + pop * 1.6) * s, lit ? '#e8dcff' : '#1b1530', lit ? '#b794ff' : 'rgba(139,92,246,0.45)', 1);
+      g.restore();
+    }
+    this.lastRes = resNow;
     if (full && !h.eclipse) {
       g.globalAlpha = 0.6 + 0.4 * Math.sin(this.time * 6);
       this.text('R', bx + bw * 0.82 + 4 * s, ey + 10.5 * s, 11 * s, '#e8dcff', 'bodyBold');
@@ -478,6 +512,16 @@ export class Hud {
         const left = ab.cd[slot];
         if (left > 0) this.text(left.toFixed(left < 1 ? 1 : 0), p.x, p.y + r * 0.22, r * 0.62, '#ffffff', 'tech', 'center');
       }
+      // готова: вокруг иконки за 0.25 с замыкается тонкое кольцо и гаснет
+      const rt = this.readyT[slot];
+      if (full && rt < 0.6) {
+        const close = clamp(rt / 0.25, 0, 1), fade = rt > 0.25 ? 1 - (rt - 0.25) / 0.35 : 1;
+        g.save(); g.globalAlpha = 0.95 * fade;
+        g.strokeStyle = ult ? '#e8dcff' : '#fff1cc'; g.lineWidth = 1.8 * s;
+        g.shadowColor = ult ? UI.glowVoid : UI.glowGold; g.shadowBlur = 6 * s;
+        g.beginPath(); g.arc(p.x, p.y, r * 0.88, -Math.PI / 2, -Math.PI / 2 + close * Math.PI * 2); g.stroke();
+        g.restore();
+      }
       if (ult && full) {
         g.save(); g.globalAlpha = 0.45 * pulse + this.ultPulse * 0.6;
         this.diamond(p.x, p.y, r * (1.3 + this.ultPulse * 0.6), undefined, UI.void, 2);
@@ -636,33 +680,66 @@ export class Hud {
 
   private drawBanners(dt: number): void {
     const g = this.g, s = this.scale;
-    for (const b of this.banners) {
-      b.t += dt;
-      const inT = 0.22, outT = 0.3;
-      const size = b.size * s;
-      const y = this.h * b.y;
-      let prog = 1, alpha = 1, slide = 0;
-      if (b.t < inT) { prog = Ease.outCubic(b.t / inT); slide = (1 - prog) * 60 * s; }
-      else if (b.t > b.dur - outT) { const k = (b.t - (b.dur - outT)) / outT; alpha = 1 - k; slide = -k * 40 * s; }
-      g.save();
-      g.globalAlpha = alpha;
-      const w = measureTitle(b.text, size) + 70 * s;
-      const cx = this.w / 2 + slide;
-      // орнаментальная линия под заголовком
-      const ly = y + size * 1.35;
-      const lg = g.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
-      lg.addColorStop(0, 'rgba(201,162,83,0)'); lg.addColorStop(0.5, 'rgba(240,217,160,0.9)'); lg.addColorStop(1, 'rgba(201,162,83,0)');
-      g.strokeStyle = lg; g.lineWidth = 1;
-      g.beginPath(); g.moveTo(cx - w / 2 * prog, ly); g.lineTo(cx + w / 2 * prog, ly); g.stroke();
-      this.diamond(cx, ly, 3.5 * s, UI.goldHi);
-      drawTitle(g, b.text, cx, y, size, { align: 'center', color: b.color, glow: 0.8, progress: Math.min(1, b.t / (inT * 1.6)), spacing: 0.1 });
-      if (b.sub) this.text(b.sub.toUpperCase(), cx, ly + size * 0.42, Math.max(10, size * 0.26), UI.text, 'bodyBold', 'center');
-      g.restore();
-    }
-    this.banners = this.banners.filter((b) => b.t < b.dur);
+    const b = this.banners[0];
+    if (!b) return;
+    b.t += dt;
+    const inT = 0.22, outT = 0.3;
+    const size = b.size * s;
+    const y = Math.max(this.h * 0.13, this.topEdge + 6 * s);
+    let prog = 1, alpha = 1, slide = 0;
+    if (b.t < inT) { prog = Ease.outCubic(b.t / inT); slide = (1 - prog) * 60 * s; }
+    else if (b.t > b.dur - outT) { const k = (b.t - (b.dur - outT)) / outT; alpha = 1 - k; slide = -k * 40 * s; }
+    g.save();
+    g.globalAlpha = clamp(alpha, 0, 1);
+    const w = measureTitle(b.text, size) + 70 * s;
+    const cx = this.w / 2 + slide;
+    // орнаментальная линия под заголовком
+    const ly = y + size * 1.35;
+    const lg = g.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
+    lg.addColorStop(0, 'rgba(201,162,83,0)'); lg.addColorStop(0.5, 'rgba(240,217,160,0.9)'); lg.addColorStop(1, 'rgba(201,162,83,0)');
+    g.strokeStyle = lg; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(cx - w / 2 * prog, ly); g.lineTo(cx + w / 2 * prog, ly); g.stroke();
+    this.diamond(cx, ly, 3 * s, UI.goldHi);
+    drawTitle(g, b.text, cx, y, size, { align: 'center', color: b.color, glow: 0.8, progress: Math.min(1, b.t / (inT * 1.6)), spacing: 0.1 });
+    if (b.sub) this.text(b.sub.toUpperCase(), cx, ly + size * 0.42, Math.max(10, size * 0.26), UI.text, 'bodyBold', 'center');
+    g.restore();
+    if (b.t >= b.dur) this.banners.shift();
   }
 
-  private drawSubtitle(dt: number, s: number): void {
+  /** Надписи у целей: всплывают на 30 px и гаснут; над героем — не дольше 0.5 с. */
+  private drawWorldTexts(dt: number, f: HudFrame): void {
+    const g = this.g, t = this.tmp, s = this.scale;
+    for (const wt of this.worldTexts) {
+      wt.t += dt;
+      f.project(wt.x, wt.y, wt.z, t);
+      if (!t.visible || wt.t >= wt.dur) continue;
+      const u = wt.t / wt.dur;
+      const pop = wt.t < 0.1 ? 1.3 - Ease.outBack(wt.t / 0.1) * 0.3 : 1;
+      g.save();
+      g.globalAlpha = u > 0.6 ? (1 - u) / 0.4 : 1;
+      this.text(wt.text, t.x, t.y - u * 30 * s, 15 * s * pop, wt.color, 'bodyBold', 'center');
+      g.restore();
+    }
+    this.worldTexts = this.worldTexts.filter((wt) => wt.t < wt.dur);
+  }
+
+  /** Перенос строки по ширине (реплики Каэлис). */
+  private wrap(text: string, maxW: number): string[] {
+    const g = this.g, out: string[] = [];
+    let line = '';
+    for (const word of text.split(' ')) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && g.measureText(next).width > maxW) { out.push(line); line = word; } else line = next;
+    }
+    if (line) out.push(line);
+    return out;
+  }
+
+  /**
+   * Реплики — в левом верхнем углу под HP, с портретом-ромбом (Каэлис — фиолетовый, голос из тьмы — багровый);
+   * подсказки обучения — в левом нижнем углу над стиком (план §5.7, п. 4–5).
+   */
+  private drawSubtitle(dt: number, s: number, L: number, T: number): void {
     const g = this.g;
     const k = s * this.subtitleScale;
     if (this.sub) {
@@ -673,17 +750,27 @@ export class Hud {
       else {
         g.save();
         g.globalAlpha = clamp(a, 0, 1) * 0.96;
-        const y = this.h - 108 * s - this.safe.b;
         const boss = this.sub.speaker === 'boss';
-        g.font = `400 ${Math.round(16 * k)}px ${FONT_BODY}`;
-        const tw = g.measureText(this.sub.text).width;
-        const name = boss ? 'ГОЛОС ИЗ ТЬМЫ' : 'КАЭЛИС';
-        const pad = 22 * s, bx = this.w / 2 - tw / 2 - pad, bw = tw + pad * 2;
-        const bg = g.createLinearGradient(bx, 0, bx + bw, 0);
-        bg.addColorStop(0, 'rgba(6,9,13,0)'); bg.addColorStop(0.12, 'rgba(6,9,13,0.75)'); bg.addColorStop(0.88, 'rgba(6,9,13,0.75)'); bg.addColorStop(1, 'rgba(6,9,13,0)');
-        g.fillStyle = bg; g.fillRect(bx, y - 30 * k, bw, 44 * k);
-        this.text(name, this.w / 2, y - 14 * k, 9 * k, boss ? UI.redHi : UI.void, 'bodyBold', 'center');
-        this.text(this.sub.text, this.w / 2, y + 6 * k, 16 * k, boss ? '#ffc9cc' : UI.ivory, 'body', 'center');
+        const pr = 15 * k, px = L + pr, py = T + 74 * s + pr;
+        const tx = px + pr + 10 * k, maxW = Math.min(this.w * 0.36, 380 * s);
+        g.font = `400 ${Math.round(14 * k)}px ${FONT_BODY}`;
+        const lines = this.wrap(this.sub.text, maxW);
+        const lh = 17 * k, bh = 18 * k + lines.length * lh;
+        let tw = 0;
+        for (const l of lines) tw = Math.max(tw, g.measureText(l).width);
+        const bg = g.createLinearGradient(px, 0, tx + tw + 30 * k, 0);
+        bg.addColorStop(0, 'rgba(6,9,13,0.8)'); bg.addColorStop(0.85, 'rgba(6,9,13,0.6)'); bg.addColorStop(1, 'rgba(6,9,13,0)');
+        g.fillStyle = bg; g.fillRect(px - pr * 0.4, py - pr, tx - px + tw + 30 * k, Math.max(bh, pr * 2));
+        // портрет-ромб: двойная рамка, глиф говорящего
+        const glow = boss ? UI.redHi : UI.void;
+        this.diamond(px, py, pr * 1.15, 'rgba(8,11,16,0.95)', boss ? UI.redHi : UI.gold, 1.4);
+        this.diamond(px, py, pr * 0.85, undefined, 'rgba(227,195,126,0.4)', 1);
+        g.save(); g.shadowColor = glow; g.shadowBlur = 8 * k;
+        if (boss) this.diamond(px, py, pr * 0.35, UI.redHi);
+        else this.star7(px, py, pr * 0.5, '#d9c8ff');
+        g.restore();
+        this.text(boss ? 'ГОЛОС ИЗ ТЬМЫ' : 'КАЭЛИС', tx, py - pr + 10 * k, 9 * k, boss ? UI.redHi : UI.void, 'bodyBold', 'left');
+        lines.forEach((l, i) => this.text(l, tx, py - pr + 10 * k + 14 * k + i * lh, 14 * k, boss ? '#ffc9cc' : UI.ivory, 'body', 'left'));
         g.restore();
       }
     }
@@ -694,16 +781,17 @@ export class Hud {
         const a = this.hint.t < 0.3 ? this.hint.t / 0.3 : this.hint.t > 4 ? (4.5 - this.hint.t) / 0.5 : 1;
         g.save();
         g.globalAlpha = a;
-        const y = this.h * 0.7;
-        g.font = `700 ${Math.round(14 * s)}px ${FONT_BODY}`;
-        const tw = g.measureText(this.hint.text).width;
-        const x0 = this.w / 2 - tw / 2 - 30 * s, x1 = this.w / 2 + tw / 2 + 30 * s;
-        g.beginPath(); g.moveTo(x0, y - 15 * s); g.lineTo(x1, y - 15 * s); g.lineTo(x1 - 10 * s, y + 11 * s); g.lineTo(x0 + 10 * s, y + 11 * s); g.closePath();
+        g.font = `700 ${Math.round(13 * s)}px ${FONT_BODY}`;
+        const lines = this.wrap(this.hint.text, Math.min(this.w * 0.4, 400 * s));
+        let tw = 0;
+        for (const l of lines) tw = Math.max(tw, g.measureText(l).width);
+        const lh = 17 * s, x0 = L, y1 = this.h - 150 * s - this.safe.b, y0 = y1 - 12 * s - lines.length * lh;
+        const x1 = x0 + tw + 34 * s;
+        g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y0); g.lineTo(x1 - 10 * s, y1); g.lineTo(x0, y1); g.closePath();
         g.fillStyle = 'rgba(8,11,16,0.82)'; g.fill();
         g.strokeStyle = UI.gold; g.lineWidth = 1; g.stroke();
-        this.diamond(x0 + 4 * s, y - 2 * s, 3 * s, UI.goldHi);
-        this.diamond(x1 - 4 * s, y - 2 * s, 3 * s, UI.goldHi);
-        this.text(this.hint.text, this.w / 2, y + 3 * s, 14 * s, UI.goldHi, 'bodyBold', 'center');
+        this.diamond(x0 + 9 * s, y0 + (y1 - y0) / 2, 3 * s, UI.goldHi);
+        lines.forEach((l, i) => this.text(l, x0 + 18 * s, y0 + 6 * s + (i + 0.85) * lh, 13 * s, UI.goldHi, 'bodyBold', 'left'));
         g.restore();
       }
     }

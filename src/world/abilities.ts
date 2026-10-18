@@ -212,7 +212,11 @@ export class Abilities implements AbilityHost {
   // ------------------------------------------------------------------ шаг
   step(dtW: number, dtH: number): void {
     const w = this.w, h = w.hero;
-    for (const s of ['q', 'e'] as const) if (this.cd[s] > 0) this.cd[s] = Math.max(0, this.cd[s] - dtH);
+    for (const s of ['q', 'e'] as const) {
+      if (this.cd[s] <= 0) continue;
+      this.cd[s] = Math.max(0, this.cd[s] - dtH);
+      if (this.cd[s] <= 0 && this.loadout[s]) w.bus.emit('abilityReady', { slot: s });
+    }
     // заряды Фазового шага (Двойная фаза)
     const maxCh = this.mut('phase') === 'A' ? 2 : 1;
     if (this.loadout.q === 'phase' && this.phaseCharges < maxCh && this.cd.q <= 0) {

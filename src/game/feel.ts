@@ -32,6 +32,7 @@ import type { Settings } from '../meta/settings';
 
 const _v = new THREE.Vector3();
 const _hp = { x: 0, y: 0, z: 0 };
+const UI_GOLD = '#f0d9a0';
 
 /**
  * Система «сочности» (GDD §14, Tech §9): подписчик событий боя. Стек обратной связи на один удар —
@@ -157,7 +158,7 @@ export class FeelSystem {
         this.vfx.impact(e.x, e.z, 5, C.voidHot, 1.5);
         this.shockwave(e.x, e.z, 1, 0.6);
         this.audio.play('ult', { gain: 0.6 });
-        this.hud.flashText('ВТОРОЕ ДЫХАНИЕ', '#F1E8FF');
+        this.hud.flashText('ВТОРОЕ ДЫХАНИЕ', '#F1E8FF', e.x, 2.4, e.z, true);
         for (const en of this.w.enemies) if (en.targetable && Math.hypot(en.x - e.x, en.z - e.z) < 5) { const d = Math.hypot(en.x - e.x, en.z - e.z) || 1; en.kbX += (en.x - e.x) / d * 12; en.kbZ += (en.z - e.z) / d * 12; }
       }),
       b.on('swing', (e) => {
@@ -229,7 +230,7 @@ export class FeelSystem {
         this.audio.play('shatter_burst', { pan: this.pan(e.x) });
         this.audio.duck(0.6, 0.4);
         this.input.vibrate(70);
-        this.hud.flashText('РАСКОЛ', '#F1E8FF');
+        this.hud.flashText('РАСКОЛ', UI_GOLD, e.x, (e.target.height ?? 2) + 0.4, e.z);
       }),
       b.on('telegraph', (e) => {
         const id = e.kind === 'hum' ? 'tele_hum' : e.kind === 'whistle' ? 'tele_whistle' : e.kind === 'chime' ? 'tele_chime' : e.kind === 'bell' ? 'tele_bell' : 'tele_roar';
@@ -279,11 +280,11 @@ export class FeelSystem {
         if (e.color === 'void') this.audio.play('well_boom', { gain: 0.6 * e.strength });
       }),
       b.on('fall', (e) => {
-        if (e.hero) { this.audio.play('swing_heavy', { pitch: 0.5 }); this.hud.flashText('ПАДЕНИЕ', '#FF4A57'); }
+        if (e.hero) { this.audio.play('swing_heavy', { pitch: 0.5 }); this.hud.flashText('ПАДЕНИЕ', '#FF4A57', e.x, 2, e.z, true); }
         else {
           this.audio.play('shatter', { pitch: 0.6, gain: 0.5 });
           // сброшен в бездну — отдельная похвала, не чаще раза в секунду
-          if (this.time.real - this.lastAbyssText > 1.2) { this.lastAbyssText = this.time.real; this.hud.flashText('В БЕЗДНУ', '#8fd8ef'); }
+          if (this.time.real - this.lastAbyssText > 1.2) { this.lastAbyssText = this.time.real; this.hud.flashText('В БЕЗДНУ', '#8fd8ef', e.x, 1.2, e.z); }
         }
       }),
       b.on('rank', (e) => { if (e.up) this.audio.play('rank_up', { gain: 0.5, pitch: 0.9 + ['C', 'B', 'A', 'S', 'SS'].indexOf(e.rank) * 0.06 }); }),
@@ -291,6 +292,7 @@ export class FeelSystem {
       b.on('sfx', (e) => this.audio.play(e.id, { gain: e.gain ?? 1, pan: this.pan(e.x) })),
       b.on('shake', (e) => this.cam.addTrauma(e.trauma)),
       b.on('resonanceFull', () => { this.audio.play('charge2', { gain: 0.6 }); this.hud.pulseUlt(); }),
+      b.on('abilityReady', (e) => { this.audio.play('ability_ready', { gain: 0.35, vary: 0 }); this.hud.abilityReady(e.slot); }),
     );
   }
 
