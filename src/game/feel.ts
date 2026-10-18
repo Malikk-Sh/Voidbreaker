@@ -124,6 +124,10 @@ export class FeelSystem {
         if (en.headPoint) { en.headPoint(_hp); this.vfx.starOut(_hp.x, _hp.y, _hp.z); }
         this.audio.play('stun_tick', { gain: e.boss ? 0.55 : 0.4, pitch: 1 + e.left * 0.03, pan: this.pan(e.x) });
       }),
+      b.on('detonate', (e) => {
+        this.vfx.detonate(e.x, e.y, e.z, e.stacks);
+        this.audio.play('detonate', { gain: 0.35 + e.stacks * 0.08, pitch: 1.2 - e.stacks * 0.05, pan: this.pan(e.x) });
+      }),
       b.on('daze', (e) => { this.audio.play('stun_tick', { gain: 0.3, pitch: 1.3, pan: this.pan(e.x) }); }),
       b.on('perfectDodge', (e) => {
         this.vfx.perfectDodge(e.x, e.z, e.heavy, e.sx, e.sz);

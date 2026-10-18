@@ -41,6 +41,8 @@ export interface StrikeParams {
   launch?: number;
   /** Приём героя (высота звука по шагу комбо). */
   moveId?: string;
+  /** Детонатор меток Пустоты: +доля урона за стопку, стопки снимаются (Серп, Колодец 0.2; линия Раскола 0.1). */
+  detonate?: number;
 }
 
 const FEEL_ORDER: Record<FeelId, number> = { light: 0, medium: 1, heavy: 2, break: 3 };
@@ -265,16 +267,25 @@ export class World {
     const shatter = e.shatterable && p.source === 'blade' && !!p.finisher && (kind !== 'charged' || p.feel === 'heavy');
     // слабое место: удар в спину
     const weak = p.source === 'blade' && Math.sin(e.facing) * p.dirX + Math.cos(e.facing) * p.dirZ > 0.5;
+    // детонация меток Пустоты (план §6.1)
+    let markMul = 1;
+    if (p.detonate && e.marks > 0) {
+      markMul = 1 + p.detonate * e.marks;
+      this.bus.emit('detonate', { target: e, x: e.x, y: e.height * 0.55, z: e.z, stacks: e.marks });
+      e.marks = 0;
+    }
     const S = h.stats;
     const res = computeDamage(
       { atk: S.atk, critChance: S.critChance, critMul: S.critMul, dmgBonus: S.dmgBonus + (p.source === 'ability' ? S.abilityDmg : 0) + (e.stunned ? this.brokenBonus : 0), forceCrit: perfect },
-      p.mult, e.armor, e.stunned, () => this.rng.next(), (perfect ? 1.3 : 1) * e.shieldMul * (p.extra ?? 1) * this.abilities.damageMulOn(e),
+      p.mult, e.armor, e.stunned, () => this.rng.next(), (perfect ? 1.3 : 1) * e.shieldMul * (p.extra ?? 1) * markMul * this.abilities.damageMulOn(e),
     );
     const before = e.hp;
     e.hp -= res.dmg;
     this.run.dmgDealt += res.dmg;
     e.onDamaged(this, res.dmg, before);
     let feel: FeelId = res.crit && p.feel === 'light' ? 'medium' : p.feel;
+    // удар клинка кладёт метку Пустоты
+    if (p.source === 'blade' && !e.dead) e.addMark();
     let stunned = false;
     if (e.stun && !e.dead && !shatter) {
       const heavy = e.isGuardian || e.isBoss;
@@ -383,8 +394,9 @@ export class World {
     for (const o of this.enemies) {
       if (o === e || !o.targetable || !overlaps(s.line, o.x, o.z, o.radius)) continue;
       if (o.shatterable) { this.shatterEnemy(o, s.dirX, s.dirZ); continue; }
-      // метка Пустоты (§6.1) добавится вместе с метками
-      this.damageEnemy(o, { mult: SHATTER_LINE.mult, stun: 6, stunKind: 'other', knockback: 7, feel: 'heavy', dirX: s.dirX, dirZ: s.dirZ, source: 'ability', noResonance: true, abilityId: 'shatter' });
+      // 2.5× и +10 % за каждую метку Пустоты; затем — свежая метка
+      this.damageEnemy(o, { mult: SHATTER_LINE.mult, stun: 6, stunKind: 'other', knockback: 7, feel: 'heavy', dirX: s.dirX, dirZ: s.dirZ, source: 'ability', noResonance: true, abilityId: 'shatter', detonate: 0.1 });
+      if (!o.dead) o.addMark();
     }
   }
 

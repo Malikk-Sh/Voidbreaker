@@ -83,6 +83,9 @@ export abstract class Enemy implements Actor {
   freeze = 0;
   /** Рядовой сбит с ног тяжёлым ударом: две маленькие звезды (с). */
   dazeT = 0;
+  /** Метки Пустоты (план §6.1): удары клинка кладут до 5 стопок; гаснут через 4 с без ударов. */
+  marks = 0;
+  private markT = 0;
   /** Звёзд оглушения над головой в прошлом шаге. */
   private starsLeft = 0;
   /** Сколько секунд герой недостижим из клетки врага. */
@@ -127,6 +130,8 @@ export abstract class Enemy implements Actor {
   stunQueued = false;
   /** Можно ли оглушить прямо сейчас (неудержимые атаки Стражей и боссов — нет). */
   canStunNow(): boolean { return true; }
+  /** Положить метки Пустоты (не больше 5), таймер угасания — заново. */
+  addMark(n = 1): void { this.marks = Math.min(5, this.marks + n); this.markT = 0; }
   get spawned(): boolean { return this.state !== 'spawn'; }
 
   setState(s: EState): void { this.state = s; this.stateT = 0; }
@@ -172,10 +177,15 @@ export abstract class Enemy implements Actor {
       const left = this.stun.stunned > 0 ? Math.min(7, Math.ceil(this.stun.stunned / STUN_STAR_SEC)) : 0;
       if (left === this.starsLeft - 1) w.bus.emit('stunTick', { target: this, x: this.x, z: this.z, left, boss: this.isBoss || this.isGuardian });
       this.starsLeft = left;
-      // ядро мерцает: украденный свет рвётся наружу трещинами
-      this.puppet.crack = this.shatterPending ? -1 : this.stun.stunned > 0 ? 0.6 + 0.3 * Math.sin(this.time * 11) : Math.max(0, Math.abs(this.puppet.crack) - dt * 2);
       if (this.stunQueued && this.canStunNow()) w.stunEnemy(this);
     }
+    if (this.marks > 0 && (this.markT += dt) > 4) this.marks = 0;
+    // трещины: Раскол (бело-фиолетовые) → оглушение (ядро мерцает своим светом) → метки Пустоты (фиолетовые по стопкам)
+    const c = this.puppet.crack;
+    if (this.shatterPending) this.puppet.crack = -1;
+    else if (this.stunned) this.puppet.crack = 0.6 + 0.3 * Math.sin(this.time * 11);
+    else if (this.marks > 0) this.puppet.crack = -(0.12 + 0.12 * this.marks);
+    else this.puppet.crack = Math.sign(c) * Math.max(0, Math.abs(c) - dt * 2);
     if (this.dazeT > 0) this.dazeT -= dt;
     if (this.shieldFrom && (this.shieldFrom.dead || !this.shieldFrom.spawned)) { this.shieldFrom = null; this.shieldMul = 1; }
     if (this.airDur > 0) {

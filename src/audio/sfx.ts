@@ -166,6 +166,8 @@ export const SFX: Record<string, SfxRecipe> = {
     chips(c, o, t, 16, 0.2, 0.3); noiseHit(c, o, t, 0.5, 420, 0.5, 'lowpass', 0.9, 'pink'); voidHiss(c, o, t + 0.02, 0.3, 0.14, 1600);
   } },
   bell_crack: { reverb: 0.25, len: 2.6, render: (c, o, t) => { bell(c, o, t, 103, 0.22, 2.4); noiseHit(c, o, t, 0.2, 2400, 0.4, 'bandpass', 1.5); crunch(c, o, t, 400, 0.15, 0.4); } },
+  // детонация меток Пустоты: короткий «хруст» трещин и шипение
+  detonate: { len: 0.4, variants: 3, reverb: 0.06, render: (c, o, t) => { crunch(c, o, t, 900, 0.06, 0.45); chips(c, o, t, 5, 0.14, 0.05); voidHiss(c, o, t, 0.12, 0.12, 2600); } },
   // способность готова: короткий двойной блик
   ability_ready: { len: 0.5, reverb: 0.12, render: (c, o, t) => { pluck(c, o, t, 1175, 0.2, 0.05); pluck(c, o, t + 0.06, 1760, 0.25, 0.04); } },
   ui_click: { len: 0.2, render: (c, o, t) => { osc(c, 'sine', 1568, t, 0.1, o, 0.05, 0.001, 0.1); osc(c, 'sine', 2350, t, 0.06, o, 0.02, 0.001, 0.06); } },

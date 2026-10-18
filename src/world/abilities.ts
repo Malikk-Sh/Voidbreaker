@@ -175,6 +175,8 @@ export class Abilities implements AbilityHost {
       if (d < 6) {
         const l = d || 1;
         this.w.damageEnemy(e, { mult: 1.5, stun: 10, knockback: 4, feel: 'heavy', dirX: (e.x - h.x) / l, dirZ: (e.z - h.z) / l, source: 'ability', noResonance: true, abilityId: 'eclipse' });
+        // ульта ставит всем рядом полные 5 меток Пустоты
+        if (d < 5 && !e.dead) e.addMark(5);
       }
     }
     this.w.endStrike({ dirX: 0, dirZ: 1, source: 'ability' });
@@ -251,7 +253,7 @@ export class Abilities implements AbilityHost {
       const l = Math.hypot(s.vx, s.vz) || 1;
       w.heroStrike({ k: 'circle', x: s.x, z: s.z, r: 0.75 }, s.hits, {
         mult: this.mul('crescent'), stun: 3, knockback: 0.8, feel: 'light', dirX: s.out ? s.vx / l : -s.vx / l, dirZ: s.out ? s.vz / l : -s.vz / l,
-        source: 'ability', abilityId: 'crescent', noStagger: false,
+        source: 'ability', abilityId: 'crescent', noStagger: false, detonate: 0.2,
       });
     }
     this.sickles = this.sickles.filter((s) => s.alive);
@@ -280,7 +282,7 @@ export class Abilities implements AbilityHost {
             if (!e.targetable || hits.has(e.id) || !overlaps({ k: 'circle', x: wl.x, z: wl.z, r: 3.4 }, e.x, e.z, e.radius)) continue;
             hits.add(e.id);
             const dx = e.x - wl.x, dz = e.z - wl.z, d = Math.hypot(dx, dz) || 1;
-            w.damageEnemy(e, { mult: this.mul('well'), stun: 15, stunKind: 'other', knockback: 4, feel: 'heavy', dirX: dx / d, dirZ: dz / d, source: 'ability', abilityId: 'well', finisher: true });
+            w.damageEnemy(e, { mult: this.mul('well'), stun: 15, stunKind: 'other', knockback: 4, feel: 'heavy', dirX: dx / d, dirZ: dz / d, source: 'ability', abilityId: 'well', finisher: true, detonate: 0.2 });
           }
           w.endStrike({ dirX: 0, dirZ: 1, source: 'ability' });
           w.bus.emit('impact', { x: wl.x, z: wl.z, r: 3.4, kind: 'rift' });

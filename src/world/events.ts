@@ -17,6 +17,8 @@ export interface GameEvents {
   stun: { target: Actor; x: number; z: number; boss: boolean; dur: number };
   /** Погасла звезда оглушения (left — сколько осталось; 0 — враг очнулся). */
   stunTick: { target: Actor; x: number; z: number; left: number; boss: boolean };
+  /** Детонация меток Пустоты: салют фиолетовых трещин и «хруст» (stacks — сколько стопок взорвано). */
+  detonate: { target: Actor; x: number; y: number; z: number; stacks: number };
   /** Рядовой сбит тяжёлым ударом: две маленькие звезды на 0.6 с. */
   daze: { target: Actor; x: number; z: number };
   /**

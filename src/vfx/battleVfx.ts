@@ -234,6 +234,14 @@ export class BattleVfx {
     this.rings.spawn(x + dx * len * 0.5, z + dz * len * 0.5, 0.4, len * 0.6, 0.35, C.voidHot, 0.2, 1);
   }
 
+  /** Детонация меток Пустоты: салют фиолетовых трещин от цели, сильнее за каждую стопку. */
+  detonate(x: number, y: number, z: number, stacks: number): void {
+    const k = 0.6 + stacks * 0.2;
+    this.burst(Math.round(6 + stacks * 4), { x, y, z, life: 0.35, size: 0.11, size1: 0.02, color: C.voidHot, gravity: -4, drag: 3, frame: 'spark', stretch: 1.8 }, { v: 9 * k, vy: 3 });
+    this.add.emit({ x, y, z, life: 0.18, size: 0.6 * k, size1: 1.8 * k, color: C.core, alpha: 0.8, frame: 'flare', rot: fxRng.next() * 3 });
+    this.rings.spawn(x, z, 0.3, 1.6 * k, 0.3, C.voidHot, 0.12, 0.8);
+  }
+
   /** Погасла звезда оглушения: маленькая вспышка там, где она кружила. */
   starOut(x: number, y: number, z: number): void {
     this.add.emit({ x, y, z, life: 0.22, size: 0.5, size1: 1.1, color: C.core, alpha: 0.8, frame: 'flare' });
