@@ -49,6 +49,8 @@ export class BattleVfx {
   readonly rifts = new FloorRiftsView();
   /** Ступень ранга (план §6.6): 0 — ниже A, 1 — A, 2 — S, 3 — SS. Только визуал, без бонуса к урону. */
   rankTier = 0;
+  /** Раскалённые следы тяжёлых (план §7.1). */
+  private prints: { x: number; z: number; r: number; t: number }[] = [];
   /** Фиолетовые отпечатки шагов на ранге S+. */
   private steps: { x: number; z: number; t: number }[] = [];
   private stepAcc = 0; private stepSide = 1; private lastHX = 0; private lastHZ = 0;
@@ -249,6 +251,12 @@ export class BattleVfx {
     this.rings.spawn(x + dx * len * 0.5, z + dz * len * 0.5, 0.4, len * 0.6, 0.35, C.voidHot, 0.2, 1);
   }
 
+  /** След тяжёлого шага: тусклое раскалённое пятно на полу, гаснет за 2 с. */
+  footprint(x: number, z: number, r: number): void {
+    this.prints.push({ x, z, r: Math.min(1.2, 0.3 + r * 0.25), t: 0 });
+    if (this.prints.length > 24) this.prints.shift();
+  }
+
   /** Детонация меток Пустоты: салют фиолетовых трещин от цели, сильнее за каждую стопку. */
   detonate(x: number, y: number, z: number, stacks: number): void {
     const k = 0.6 + stacks * 0.2;
@@ -328,6 +336,11 @@ export class BattleVfx {
     }
     this.pools.tintNear(tx, tz, 14, C.hunger, tintK);
 
+    for (const pr of this.prints) {
+      pr.t += dtW;
+      this.pools.addDynamic(pr.x, pr.z, pr.r, C.ember, 0.35 * Math.max(0, 1 - pr.t / 2));
+    }
+    if (this.prints.length && this.prints[0].t > 2) this.prints = this.prints.filter((pr) => pr.t <= 2);
     for (const st of this.steps) {
       st.t += dtW;
       this.pools.addDynamic(st.x, st.z, 0.32, C.voidHot, 0.55 * Math.max(0, 1 - st.t / 1.4));

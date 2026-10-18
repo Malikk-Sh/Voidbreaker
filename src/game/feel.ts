@@ -133,6 +133,11 @@ export class FeelSystem {
         if (en.headPoint) { en.headPoint(_hp); this.vfx.starOut(_hp.x, _hp.y, _hp.z); }
         this.audio.play('stun_tick', { gain: e.boss ? 0.55 : 0.4, pitch: 1 + e.left * 0.03, pan: this.pan(e.x) });
       }),
+      // реакции на удар (план §7.1): пыль у ног роя, камни с плеч тяжёлых
+      b.on('hitReact', (e) => {
+        if (e.kind === 'dust') this.vfx.burst(5, { x: e.x, y: e.y, z: e.z, life: 0.6, size: 0.35, size1: 0.8, color: C.dust, alpha: 0.45, drag: 3, frame: 'smoke' }, { v: 2, vy: 0.4 }, false);
+        else this.vfx.debris.burst(e.x, e.y, e.z, 0, 0, 3, 3, 0.12);
+      }),
       b.on('detonate', (e) => {
         this.vfx.detonate(e.x, e.y, e.z, e.stacks);
         this.audio.play('detonate', { gain: 0.35 + e.stacks * 0.08, pitch: 1.2 - e.stacks * 0.05, pan: this.pan(e.x) });
@@ -207,8 +212,11 @@ export class FeelSystem {
       }),
       b.on('impact', (e) => {
         if (e.kind === 'land') {
-          this.cam.addTrauma(0.05);
-          this.audio.play('step_heavy', { gain: 0.5, pan: this.pan(e.x) });
+          // вес: тяжёлые трясут камеру только вблизи (8 м) и оставляют раскалённые следы
+          const near = Math.hypot(this.w.hero.x - e.x, this.w.hero.z - e.z) < 8;
+          if (near) this.cam.addTrauma(0.03);
+          this.vfx.footprint(e.x, e.z, e.r);
+          this.audio.play('step_heavy', { gain: near ? 0.5 : 0.25, pan: this.pan(e.x) });
           this.vfx.burst(4, { x: e.x, y: 0.15, z: e.z, life: 0.6, size: 0.4, size1: 0.9, color: C.dust, alpha: 0.4, drag: 3, frame: 'smoke' }, { v: 1.5, vy: 0.3 }, false);
           return;
         }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { angleOf, clamp, dampAngle } from '../core/math';
+import { Ease } from '../core/ease';
 import type { Affix, EnemyDef } from '../data/enemies';
 import { ELITE, scaleDmg, scaleHp } from '../data/enemies';
 import { Puppet } from '../anim/puppet';
@@ -12,6 +13,8 @@ import type { World } from './world';
 import { BIG_RADIUS } from './nav';
 
 const _nav = { x: 0, z: 0 };
+/** Дуэлянты: поворот корпуса от лёгкого удара, опрокидывание от тяжёлого. */
+const DUELISTS = new Set(['reaper', 'crucifier']);
 const _head = new THREE.Vector3();
 
 export type EState = 'spawn' | 'idle' | 'chase' | 'orbit' | 'telegraph' | 'attack' | 'recover' | 'stagger' | 'stunned' | 'dead' | 'special' | 'warp';
@@ -134,7 +137,11 @@ export abstract class Enemy implements Actor {
   addMark(n = 1): void { this.marks = Math.min(5, this.marks + n); this.markT = 0; }
   get spawned(): boolean { return this.state !== 'spawn'; }
 
-  setState(s: EState): void { this.state = s; this.stateT = 0; }
+  setState(s: EState): void {
+    // удар с инерцией: корпус уходит вперёд за конечностью и возвращается (пружина)
+    if (s === 'attack' && this.state === 'telegraph') this.puppet.kickSpring(Math.sin(this.facing), Math.cos(this.facing), 0.7);
+    this.state = s; this.stateT = 0;
+  }
 
   /** Общий шаг: спаун через портал, хитстан, оглушение, отбрасывание; затем мозг. */
   step(w: World, dt: number): void {
@@ -147,7 +154,9 @@ export abstract class Enemy implements Actor {
       this.deathT += dt;
       this.puppet.skel.stepDebris(dt);
       this.puppet.skel.update();
-      this.puppet.dissolve = clamp((this.deathT - 0.35) / 0.6, 0, 1);
+      // ядро трескается и гаснет первым (100 мс), потом растворяется остальное
+      this.puppet.crack = this.deathT < 0.1 ? 1 : Math.max(0, 1 - (this.deathT - 0.1) * 5);
+      this.puppet.dissolve = clamp((this.deathT - 0.45) / 0.6, 0, 1);
       return;
     }
     if (this.state === 'warp') {
@@ -226,16 +235,81 @@ export abstract class Enemy implements Actor {
       if (this.brainT <= 0) this.brainT = 1 / 18;
       this.stepNav(w, dt);
     }
+    // наклон тела — заново каждый кадр (не все позы его выставляют, а эффекты ниже его добавляют)
+    this.puppet.skel.tiltX = 0; this.puppet.skel.tiltZ = 0;
     this.animate(dt, w);
-    if (this.stunned) this.applySway();
+    this.applyBodyFx(dt);
     if (shiver) this.applyShiver();
   }
 
-  /** Оглушение: тело «плывёт» — наклон ±9° кружит в такт звёздам (1.6 об/с). */
-  private applySway(): void {
-    const s = this.puppet.skel, a = this.time * Math.PI * 2 * 1.6;
-    s.tiltX += Math.sin(a) * 0.15; s.tiltZ += Math.cos(a) * 0.15;
-    s.update();
+  /**
+   * Общие приёмы тела (план §7.1) поверх позы врага: сжатие перед ударом (до 8 %), «плывущее» тело оглушения
+   * (наклон ±9° кружит 1.6 об/с), опрокидывание дуэлянта с подъёмом прыжком.
+   */
+  private applyBodyFx(dt: number): void {
+    const s = this.puppet.skel;
+    let touched = false;
+    // сжатие за 80–150 мс до удара: последние ~20 % замаха
+    const wu = this.windup;
+    const sq = wu > 0.8 ? 0.08 * Ease.inBack(clamp((wu - 0.8) / 0.2, 0, 1)) : 0;
+    if (sq !== 0 || s.sy !== 1) { s.sy = 1 - sq; s.sx = s.sz = 1 + sq * 0.5; touched = true; }
+    if (this.stunned) {
+      const a = this.time * Math.PI * 2 * 1.6;
+      s.tiltX += Math.sin(a) * 0.15; s.tiltZ += Math.cos(a) * 0.15;
+      touched = true;
+    }
+    if (this.toppleT > 0) {
+      this.toppleT = Math.max(0, this.toppleT - dt);
+      const u = 1 - this.toppleT / 0.6;
+      const fall = u < 0.25 ? u / 0.25 : u > 0.75 ? (1 - u) / 0.25 : 1;
+      s.tiltX -= 1.1 * Ease.outQuad(fall);
+      if (u > 0.75) s.y += Math.sin((u - 0.75) / 0.25 * Math.PI) * 0.35;
+      touched = true;
+    }
+    if (touched) s.update();
+  }
+
+  /** Опрокинут тяжёлым ударом (дуэлянт): секунды до подъёма. */
+  toppleT = 0;
+
+  /** Класс реакции на удар (план §7.1). */
+  get reactClass(): 'swarm' | 'duelist' | 'heavy' | 'elite' | 'boss' {
+    if (this.isBoss || this.isGuardian) return 'boss';
+    if (this.elite.length) return 'elite';
+    if (this.mass > 3) return 'heavy';
+    return DUELISTS.has(this.kind) ? 'duelist' : 'swarm';
+  }
+
+  /**
+   * Реакция на удар по классу: рой отшатывается (тяжёлый — отлёт и пыль), дуэлянт теряет равновесие
+   * (тяжёлый — опрокидывается на 0.6 с), Голем едва сдвигается (тяжёлый — шаг назад и камни с плеч),
+   * элита почти не двигается (тяжёлый — сильная пружина), босс вздрагивает (тяжёлый — пружина всего тела, обломки).
+   */
+  react(w: World, heavy: boolean, spring: number, dirX: number, dirZ: number): void {
+    const p = this.puppet;
+    switch (this.reactClass) {
+      case 'swarm':
+        p.kickSpring(dirX, dirZ, spring * 1.1);
+        if (heavy) { this.kbX += dirX * 3; this.kbZ += dirZ * 3; w.bus.emit('hitReact', { x: this.x, y: 0.1, z: this.z, kind: 'dust' }); }
+        break;
+      case 'duelist':
+        p.kickSpring(dirX, dirZ, spring * 0.9);
+        if (heavy && this.state === 'stagger') this.toppleT = 0.6;
+        else this.facing += (this.id % 2 ? 0.3 : -0.3);
+        break;
+      case 'heavy':
+        p.kickSpring(dirX, dirZ, spring * 0.35);
+        this.kbX += dirX * (heavy ? 1.6 : 0.4); this.kbZ += dirZ * (heavy ? 1.6 : 0.4);
+        if (heavy) w.bus.emit('hitReact', { x: this.x, y: this.height * 0.85, z: this.z, kind: 'stones' });
+        break;
+      case 'elite':
+        p.kickSpring(dirX, dirZ, heavy ? spring * 1.6 : spring * 0.4);
+        break;
+      case 'boss':
+        p.kickSpring(dirX, dirZ, heavy ? spring * 0.9 : spring * 0.25);
+        if (heavy) w.bus.emit('hitReact', { x: this.x, y: this.height * 0.6, z: this.z, kind: 'stones' });
+        break;
+    }
   }
 
   /** Точка над головой: там кружат звёзды оглушения. */
@@ -465,5 +539,5 @@ export abstract class Enemy implements Actor {
   onShattered(_w: World): void {}
 
   /** Сколько кадров удалить после распада. */
-  get removable(): boolean { return this.dead && this.deathT > 1.0; }
+  get removable(): boolean { return this.dead && this.deathT > 1.1; }
 }

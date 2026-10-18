@@ -308,7 +308,6 @@ export class World {
     }
     // реакция на попадание: вспышка, пружина, отбрасывание, хитстан рядовых
     e.puppet.flash = 1;
-    e.puppet.kickSpring(p.dirX, p.dirZ, FEEL[feel].spring);
     if (!e.isBoss) {
       const kb = p.knockback / Math.max(0.5, e.mass) * (e.isGuardian ? 0.1 : 1);
       e.kbX += p.dirX * kb * 2.2; e.kbZ += p.dirZ * kb * 2.2;
@@ -320,6 +319,8 @@ export class World {
         if (knock && e.state === 'stagger' && e.dazeT <= 0) { e.dazeT = 0.6; this.bus.emit('daze', { target: e, x: e.x, z: e.z }); }
       }
     }
+    // реакция по классу врага (план §7.1)
+    e.react(this, p.feel === 'heavy' || feel === 'break', FEEL[feel].spring, p.dirX, p.dirZ);
     if (!p.noResonance) h.addResonance(RESONANCE.perHit + (p.finisher ? RESONANCE.perFinisher - RESONANCE.perHit : 0));
     this.rank.hit(!!p.finisher);
     if (p.abilityId) this.rank.used(p.abilityId);

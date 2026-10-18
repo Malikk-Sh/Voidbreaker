@@ -41,7 +41,7 @@ export class RigLayout {
   has(name: string): boolean { return this.map.has(name); }
 }
 
-interface Debris { vx: number; vy: number; vz: number; ax: number; ay: number; az: number; w: number; px: number; py: number; pz: number; q: THREE.Quaternion; s: THREE.Vector3; rest: boolean }
+interface Debris { vx: number; vy: number; vz: number; ax: number; ay: number; az: number; w: number; px: number; py: number; pz: number; q: THREE.Quaternion; s: THREE.Vector3; rest: boolean; delay: number }
 
 /**
  * Экземпляр скелета: локальные повороты суставов (кватернионы) → мировые матрицы.
@@ -112,12 +112,17 @@ export class Skeleton {
     this.rot.set([_q.x, _q.y, _q.z, _q.w], i * 4);
   }
 
-  /** Распад (GDD §15.2): детали отрываются от суставов и разлетаются с физикой. */
+  /**
+   * Распад (GDD §15.2, план §7.1): детали отрываются от суставов и разлетаются с физикой — по сегментам:
+   * корпус сразу (ядро уже треснуло и погасло), дальше от корня — позже (броня, затем конечности), до ~0.3 с.
+   */
   shatter(dirX: number, dirZ: number, power: number, rng: Rng): void {
     if (this.broken) return;
     this.update();
     this.broken = true;
     this.debris.length = 0;
+    const depth = new Int16Array(this.n);
+    for (let i = 0; i < this.n; i++) { const p = this.layout.parent[i]; depth[i] = p >= 0 ? depth[p] + 1 : 0; }
     for (let i = 0; i < this.n; i++) {
       _pm.fromArray(this.world, i * 16);
       const q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
@@ -133,7 +138,7 @@ export class Skeleton {
         vy: 2 + rng.next() * 4 * Math.min(1.5, power / 4),
         vz: dirZ * k + (rz / rl) * power * 0.5 * rng.next(),
         ax: ax / al, ay: ay / al, az: az / al, w: rng.range(4, 14),
-        q, s, rest: false,
+        q, s, rest: false, delay: Math.min(0.3, Math.max(0, depth[i] - 2) * 0.06) + rng.next() * 0.03,
       });
     }
   }
@@ -142,6 +147,8 @@ export class Skeleton {
     if (!this.broken) return;
     for (const d of this.debris) {
       if (d.rest) continue;
+      // сегмент ещё держится: конечности отрываются после корпуса
+      if (d.delay > 0) { d.delay -= dt; continue; }
       d.vy -= 18 * dt;
       d.px += d.vx * dt; d.py += d.vy * dt; d.pz += d.vz * dt;
       if (d.py < 0.05) {

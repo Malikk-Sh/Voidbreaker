@@ -198,6 +198,7 @@ export abstract class ScriptedEnemy extends Enemy {
       case 'telegraphSound': w.bus.emit('telegraph', { kind: s.kind, x: this.x, z: this.z, src: this.kind }); break;
       case 'hitbox': {
         const sh = this.shapeOf(s.shape, s.at, s.dir);
+        this.puppet.kickSpring(Math.sin(this.facing), Math.cos(this.facing), 0.5);
         w.enemyStrike(this, sh, s.dmg * this.dmgUnit, s.kb ?? 4);
         break;
       }
