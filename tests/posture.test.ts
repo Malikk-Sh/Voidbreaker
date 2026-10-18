@@ -96,3 +96,26 @@ describe('заплатка стойки (план §4.1)', () => {
     expect(g.broken).toBe(true);
   });
 });
+
+describe('один отклик на взмах (план §5.1)', () => {
+  it('взмах по 6 целям — ровно одно событие strike', async () => {
+    const { Husk } = await import('../src/world/enemies/husk');
+    const w = new World(new Arena(ARENAS.fall), 'strike');
+    w.abilities = new Abilities(w);
+    w.hero.spawn(0, 0, 0);
+    for (let k = 0; k < 6; k++) {
+      const e = new Husk({ zone: 0, stage: 0 });
+      const a = (k / 6) * Math.PI * 2;
+      e.x = Math.sin(a) * 1.2; e.z = Math.cos(a) * 1.2;
+      w.addEnemy(e); e.setState('idle');
+    }
+    let strikes = 0, hits = 0, n = 0;
+    w.bus.on('strike', (e) => { strikes++; n = e.n; });
+    w.bus.on('hit', () => hits++);
+    const got = w.heroStrike({ k: 'circle', x: 0, z: 0, r: 3 }, new Set(), { mult: 1, posture: 4, knockback: 1, feel: 'light', dirX: 0, dirZ: 1, source: 'blade', moveId: 'spin' });
+    expect(got).toBe(6);
+    expect(strikes).toBe(1);
+    expect(n).toBe(6);
+    expect(hits).toBe(6);
+  });
+});

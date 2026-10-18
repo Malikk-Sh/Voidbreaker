@@ -75,6 +75,8 @@ export abstract class Enemy implements Actor {
   private stuckT = 0;
   /** Секунды принудительного следования по полю (после застревания). */
   protected navForceT = 0;
+  /** Стопкадр после попадания (мировые с): поза и тело стоят, модель дрожит (план §5.1, п. 4). */
+  freeze = 0;
   /** Сколько секунд герой недостижим из клетки врага. */
   unreachT = 0;
   private warpX = 0; private warpZ = 0;
@@ -166,6 +168,15 @@ export abstract class Enemy implements Actor {
     }
     if (this.cooldown > 0) this.cooldown -= dt;
 
+    // стопкадр: рядовые вне замаха стоят целиком; у замахов, Стражей и боссов таймлайн идёт — только дрожь,
+    // иначе удар отставал бы от заполнившегося телеграфа
+    const shiver = this.freeze > 0 && this.state !== 'dead';
+    if (shiver) this.freeze -= dt;
+    if (shiver && !this.isBoss && !this.isGuardian && this.state !== 'telegraph' && this.state !== 'attack') {
+      this.vx = 0; this.vz = 0;
+      this.applyShiver();
+      return;
+    }
     // отбрасывание
     if (this.kbX || this.kbZ) {
       this.vx = this.kbX; this.vz = this.kbZ;
@@ -187,6 +198,14 @@ export abstract class Enemy implements Actor {
       this.stepNav(w, dt);
     }
     this.animate(dt, w);
+    if (shiver) this.applyShiver();
+  }
+
+  /** Дрожь ±2.5 см вокруг позиции тела (стопкадр попадания). */
+  private applyShiver(): void {
+    const s = this.puppet.skel, j = 0.025 * Math.min(1, this.freeze * 20 + 0.3);
+    s.x = this.x + Math.sin(this.time * 97 + this.id) * j; s.z = this.z + Math.cos(this.time * 83 + this.id) * j;
+    s.update();
   }
 
   /** Застревание и недостижимость: принудительно по полю, затем — уход порталом (план §4.4, п. 6–7). */

@@ -43,14 +43,20 @@ describe('Rng', () => {
 });
 
 describe('Time: hitstop и замедления', () => {
-  it('ограничивает суммарный hitstop 120 мс за 250 мс', () => {
+  it('каждый взмах замирает одинаково; повтор вплотную — вдвое короче; не дольше 140 мс (план §5.1)', () => {
     const t = new Time();
-    expect(t.addHitstop(0.08)).toBeCloseTo(0.08);
-    expect(t.addHitstop(0.08)).toBeCloseTo(0.04);
-    expect(t.addHitstop(0.05)).toBe(0);
-    // окно сдвигается: через 0.3 с лимит снова доступен
-    for (let i = 0; i < 18; i++) t.update(1 / 60);
-    expect(t.addHitstop(0.06)).toBeCloseTo(0.06);
+    expect(t.addHitstop(0.05)).toBeCloseTo(0.05);
+    // взмахи с интервалом 0.26 с — каждое замирание полное
+    for (let k = 0; k < 4; k++) {
+      for (let i = 0; i < 16; i++) t.update(1 / 60);
+      expect(t.addHitstop(0.05)).toBeCloseTo(0.05);
+    }
+    // вплотную к концу прошлого замирания — половина
+    for (let i = 0; i < 4; i++) t.update(1 / 60);
+    expect(t.addHitstop(0.06)).toBeCloseTo(0.03);
+    // потолок
+    for (let i = 0; i < 30; i++) t.update(1 / 60);
+    expect(t.addHitstop(0.5)).toBeCloseTo(0.14);
   });
 
   it('во время hitstop мир почти замирает, но не стоит', () => {

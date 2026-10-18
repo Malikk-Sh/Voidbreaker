@@ -4,6 +4,11 @@ import type { Actor } from './actor';
 /** Типизированные события боя (Tech §9). Звук, частицы, тряска, вибрация — подписчики. */
 export interface GameEvents {
   hit: { target: Actor; dmg: number; crit: boolean; feel: FeelId; dirX: number; dirZ: number; x: number; y: number; z: number; source: 'blade' | 'ability' | 'proj' | 'env'; shielded?: boolean };
+  /**
+   * Один взмах (или один залп способности) — одно событие на все задетые цели (план §5.1):
+   * hitstop, тряска, кик, звук и вибрация — только здесь, а не на каждое попадание.
+   */
+  strike: { n: number; crit: boolean; feel: FeelId; x: number; z: number; dirX: number; dirZ: number; source: 'blade' | 'ability' | 'proj' | 'env'; moveId?: string; boss: boolean };
   kill: { target: Actor; kind: string; x: number; z: number; dirX: number; dirZ: number; big: boolean; elite: boolean };
   postureBreak: { target: Actor; x: number; z: number; boss: boolean };
   perfectDodge: { x: number; z: number };

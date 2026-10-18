@@ -5,8 +5,8 @@
 interface Slowmo { scale: number; hero: number; left: number }
 
 const HITSTOP_SCALE = 0.08;          // не 0: частицы «дышат»
-const HITSTOP_CAP = 0.12;            // суммарно не больше 120 мс…
-const HITSTOP_WINDOW = 0.25;         // …за любые 250 мс
+const HITSTOP_CAP = 0.14;            // одно замирание не длиннее 140 мс
+const HITSTOP_CLOSE = 0.06;          // повтор вплотную (< 60 мс после конца прошлого) — вдвое короче
 
 export class Time {
   real = 0;          // секунды реального времени с запуска
@@ -16,7 +16,7 @@ export class Time {
   paused = false;
   hitstop = 0;
   private slowmos: Slowmo[] = [];
-  private hitstopLog: { t: number; v: number }[] = [];
+  private lastHitstopEnd = -1;
 
   update(realDt: number): void {
     this.real += realDt;
@@ -34,16 +34,16 @@ export class Time {
     this.world += realDt * this.worldScale;
   }
 
-  /** Возвращает фактически добавленное замирание (с учётом лимита 120 мс / 250 мс). */
+  /**
+   * Замирание удара (план §5.1): без скользящего окна — каждый взмах замирает одинаково.
+   * Повтор вплотную к прошлому замиранию вдвое короче. Возвращает фактическую длительность.
+   */
   addHitstop(sec: number): number {
-    const now = this.real;
-    while (this.hitstopLog.length && now - this.hitstopLog[0].t > HITSTOP_WINDOW) this.hitstopLog.shift();
-    let used = 0;
-    for (const h of this.hitstopLog) used += h.v;
-    const v = Math.max(0, Math.min(sec, HITSTOP_CAP - used));
+    const since = this.real - this.lastHitstopEnd;
+    const v = Math.max(0, Math.min(HITSTOP_CAP, since < HITSTOP_CLOSE ? sec * 0.5 : sec));
     if (v <= 0) return 0;
-    this.hitstopLog.push({ t: now, v });
     this.hitstop = Math.max(this.hitstop, v);
+    this.lastHitstopEnd = this.real + this.hitstop;
     return v;
   }
 
@@ -58,7 +58,7 @@ export class Time {
   get slowmoActive(): boolean { return this.slowmos.length > 0; }
 
   reset(): void {
-    this.slowmos.length = 0; this.hitstopLog.length = 0; this.hitstop = 0;
+    this.slowmos.length = 0; this.lastHitstopEnd = -1; this.hitstop = 0;
     this.worldScale = 1; this.heroScale = 1; this.paused = false;
   }
 }

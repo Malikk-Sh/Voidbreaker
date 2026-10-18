@@ -11,7 +11,7 @@ import { FONT_BODY, FONT_TECH } from './fonts';
 import { drawIcon, type IconId } from './icons';
 import { UI } from './theme';
 
-interface DmgNum { x: number; y: number; z: number; v: number; crit: boolean; shield: boolean; t: number; dx: number }
+interface DmgNum { x: number; y: number; z: number; v: number; crit: boolean; shield: boolean; t: number; dx: number; key: number; big: boolean }
 interface Banner { text: string; sub?: string; t: number; dur: number; color: NonNullable<TitleOpts['color']>; size: number; y: number }
 
 export interface HudFrame {
@@ -77,9 +77,16 @@ export class Hud {
   }
 
   // ------------------------------------------------------------------ события
-  damageNumber(x: number, y: number, z: number, v: number, crit: boolean, shield: boolean): void {
+  /**
+   * Цифра урона. key ≥ 0 — сливать попадания по одной цели за взмах (0.3 с) в одну цифру; big — крупно (Страж, босс).
+   */
+  damageNumber(x: number, y: number, z: number, v: number, crit: boolean, shield: boolean, key = -1, big = false): void {
     if (v <= 0 && !shield) return;
-    this.nums.push({ x, y, z, v, crit, shield, t: 0, dx: (Math.random() - 0.5) * 30 });
+    if (key >= 0) {
+      const prev = this.nums.find((n) => n.key === key && n.t < 0.3);
+      if (prev) { prev.v += v; prev.crit ||= crit; prev.t = Math.min(prev.t, 0.05); prev.x = x; prev.z = z; return; }
+    }
+    this.nums.push({ x, y, z, v, crit, shield, t: 0, dx: (Math.random() - 0.5) * 30, key, big });
     if (this.nums.length > 48) this.nums.shift();
   }
   flashText(text: string, color: string): void {
@@ -461,14 +468,14 @@ export class Hud {
       // «прыжок» с overshoot: 1.4 → 1.0 за 120 мс
       const pop = n.t < 0.12 ? 1.4 - Ease.outBack(n.t / 0.12) * 0.4 : 1;
       const a = n.t > life - 0.25 ? (life - n.t) / 0.25 : 1;
-      const size = (n.crit ? 22 : 15) * s * pop;
+      const size = (n.crit ? 22 : 15) * (n.big ? 1.35 : 1) * s * pop;
       const y = t.y - n.t * 40 * s - (n.crit ? 10 : 0) * s;
       g.globalAlpha = a;
       g.font = `600 ${Math.round(size)}px ${FONT_TECH}`;
       g.lineWidth = n.crit ? 4 : 3;
       g.lineJoin = 'round';
       g.strokeStyle = n.crit ? 'rgba(60,36,8,0.95)' : 'rgba(4,6,10,0.9)';
-      const txt = n.shield && n.v <= 0 ? 'ЩИТ' : String(n.v);
+      const txt = n.shield && n.v <= 0 ? 'ЩИТ' : String(Math.round(n.v));
       g.strokeText(txt, t.x + n.dx * n.t, y);
       g.fillStyle = n.shield ? '#9aa6b5' : n.crit ? UI.goldHi : UI.ivory;
       g.fillText(txt, t.x + n.dx * n.t, y);

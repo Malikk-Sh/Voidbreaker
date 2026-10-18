@@ -168,6 +168,7 @@ export class Abilities implements AbilityHost {
     this.w.bus.emit('ultimate', { id: 'eclipse', x: h.x, z: h.z });
     this.w.bus.emit('shockwave', { x: h.x, z: h.z, r: 8, color: 'void', strength: 1 });
     // волна активации
+    this.w.beginStrike();
     for (const e of this.w.enemies) {
       if (!e.targetable) continue;
       const d = Math.hypot(e.x - h.x, e.z - h.z);
@@ -176,6 +177,7 @@ export class Abilities implements AbilityHost {
         this.w.damageEnemy(e, { mult: 1.5, posture: 10, knockback: 4, feel: 'heavy', dirX: (e.x - h.x) / l, dirZ: (e.z - h.z) / l, source: 'ability', noResonance: true, abilityId: 'eclipse' });
       }
     }
+    this.w.endStrike({ dirX: 0, dirZ: 1, source: 'ability' });
   }
 
   eclipseWave(x: number, z: number, facing: number): void {
@@ -269,12 +271,14 @@ export class Abilities implements AbilityHost {
         if (wl.t >= wl.dur) {
           wl.exploded = true;
           const hits = new Set<number>();
+          w.beginStrike();
           for (const e of w.enemies) {
             if (!e.targetable || hits.has(e.id) || !overlaps({ k: 'circle', x: wl.x, z: wl.z, r: 3.4 }, e.x, e.z, e.radius)) continue;
             hits.add(e.id);
             const dx = e.x - wl.x, dz = e.z - wl.z, d = Math.hypot(dx, dz) || 1;
             w.damageEnemy(e, { mult: this.mul('well'), posture: 15, knockback: 4, feel: 'heavy', dirX: dx / d, dirZ: dz / d, source: 'ability', abilityId: 'well', finisher: true });
           }
+          w.endStrike({ dirX: 0, dirZ: 1, source: 'ability' });
           w.bus.emit('impact', { x: wl.x, z: wl.z, r: 3.4, kind: 'rift' });
           w.bus.emit('shockwave', { x: wl.x, z: wl.z, r: 4, color: 'void', strength: 1 });
         }

@@ -35,7 +35,14 @@ export interface StrikeParams {
   abilityId?: string;
   /** Подбросить цель (м). */
   launch?: number;
+  /** Приём героя (высота звука по шагу комбо). */
+  moveId?: string;
 }
+
+const FEEL_ORDER: Record<FeelId, number> = { light: 0, medium: 1, heavy: 2, break: 3 };
+
+/** Итог попадания для сборки события strike. */
+export interface HitResult { crit: boolean; feel: FeelId }
 
 export interface RunStats {
   dmgDealt: number; kills: number; hitsTaken: number; dmgTaken: number; perfectDodges: number; shatters: number;
@@ -176,6 +183,7 @@ export class World {
   /** Хитбокс героя: возвращает число задетых целей. hitList — одна цель получает урон один раз за взмах. */
   heroStrike(shape: Shape, hitList: Set<number>, p: StrikeParams): number {
     let n = 0;
+    this.beginStrike();
     for (const e of this.enemies) {
       if (!e.targetable || hitList.has(e.id)) continue;
       if (!overlaps(shape, e.x, e.z, e.radius)) continue;
@@ -183,6 +191,7 @@ export class World {
       this.damageEnemy(e, p);
       n++;
     }
+    this.endStrike(p);
     // отражённые снаряды и Искры можно отбивать — проверка снарядов
     if (p.source === 'blade') {
       for (const pr of this.projectiles) {
@@ -195,12 +204,24 @@ export class World {
     return n;
   }
 
-  damageEnemy(e: Enemy, p: StrikeParams): void {
-    if (e.dead || !e.targetable) return;
+  private batch: { n: number; crit: boolean; feel: FeelId; sx: number; sz: number; boss: boolean } | null = null;
+
+  /** Начать сбор попаданий одного взмаха/залпа: все damageEnemy до endStrike дадут одно событие strike. */
+  beginStrike(): void { this.batch = { n: 0, crit: false, feel: 'light', sx: 0, sz: 0, boss: false }; }
+
+  endStrike(p: Pick<StrikeParams, 'dirX' | 'dirZ' | 'source' | 'moveId'>): void {
+    const b = this.batch;
+    this.batch = null;
+    if (!b || !b.n) return;
+    this.bus.emit('strike', { n: b.n, crit: b.crit, feel: b.feel, x: b.sx / b.n, z: b.sz / b.n, dirX: p.dirX, dirZ: p.dirZ, source: p.source, moveId: p.moveId, boss: b.boss });
+  }
+
+  damageEnemy(e: Enemy, p: StrikeParams): HitResult | null {
+    if (e.dead || !e.targetable) return null;
     const h = this.hero;
     if (e.invulnerable) {
       this.bus.emit('hit', { target: e, dmg: 0, crit: false, feel: 'light', dirX: p.dirX, dirZ: p.dirZ, x: e.x, y: e.height * 0.6, z: e.z, source: p.source, shielded: true });
-      return;
+      return null;
     }
     const perfect = (p.source === 'blade' || p.source === 'ability') && h.consumePerfectBuff();
     // Раскол: финишер/заряженный удар по уже треснувшему врагу
@@ -245,9 +266,18 @@ export class World {
     this.rank.hit(!!p.finisher);
     if (p.abilityId) this.rank.used(p.abilityId);
     else this.rank.used('blade');
-    this.bus.emit('hit', { target: e, dmg: res.dmg, crit: res.crit || perfect, feel, dirX: p.dirX, dirZ: p.dirZ, x: e.x, y: e.height * 0.55, z: e.z, source: p.source, shielded: e.shieldMul < 1 });
+    const crit = res.crit || perfect;
+    this.bus.emit('hit', { target: e, dmg: res.dmg, crit, feel, dirX: p.dirX, dirZ: p.dirZ, x: e.x, y: e.height * 0.55, z: e.z, source: p.source, shielded: e.shieldMul < 1 });
+    // жертва висит в кадре удара чуть дольше героя (стопкадр + дрожь)
+    e.freeze = Math.max(e.freeze, (FEEL[feel].hitstop + 0.04) * (e.isBoss || e.isGuardian ? 0.5 : 1));
+    const b = this.batch;
+    if (b) {
+      b.n++; b.crit ||= crit; b.sx += e.x; b.sz += e.z; b.boss ||= e.isBoss || e.isGuardian;
+      if (FEEL_ORDER[feel] > FEEL_ORDER[b.feel]) b.feel = feel;
+    }
     if (e.hp <= 0) this.killEnemy(e, p.dirX, p.dirZ, broke || p.feel === 'heavy' ? 6 : 3.5);
     else if (shatter && !broke) this.shatterEnemy(e, p.dirX, p.dirZ);
+    return { crit, feel };
   }
 
   /** Слом стойки: оглушение врага и событие для реакций. Из очереди — после неудержимой атаки. */
@@ -382,7 +412,10 @@ export class World {
         for (const e of this.enemies) {
           if (!e.targetable || Math.hypot(e.x - p.x, e.z - p.z) > e.radius + p.r) continue;
           const l = Math.hypot(p.vx, p.vz) || 1;
-          this.damageEnemy(e, { mult: 2.0, posture: 10, knockback: 2, feel: 'medium', dirX: p.vx / l, dirZ: p.vz / l, source: 'proj', abilityId: 'reflect' });
+          const sp: StrikeParams = { mult: 2.0, posture: 10, knockback: 2, feel: 'medium', dirX: p.vx / l, dirZ: p.vz / l, source: 'proj', abilityId: 'reflect' };
+          this.beginStrike();
+          this.damageEnemy(e, sp);
+          this.endStrike(sp);
           p.alive = false;
           this.bus.emit('projectileHit', { x: p.x, z: p.z, kind: p.kind });
           break;

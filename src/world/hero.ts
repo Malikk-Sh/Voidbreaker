@@ -444,6 +444,7 @@ export class Hero implements Actor {
     const n = this.world.heroStrike(shape, this.hitList, {
       mult, posture, knockback: m.knockback * (charged ? 2 : 1), feel, finisher: !!m.finisher || charged,
       dirX: Math.sin(this.facing), dirZ: Math.cos(this.facing), pierce: true, source: 'blade', launch: m.launch,
+      moveId: charged ? 'charged' : m.id,
     });
     if (n > 0 && this.eclipse && !this.hitWaveDone) {
       this.hitWaveDone = true;

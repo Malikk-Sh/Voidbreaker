@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 import { CRIT_HITSTOP, FEEL } from '../data/feel';
+
+/** Высота звука удара по шагам комбо: финишеры ниже и тяжелее (план §5.1, п. 5). */
+const STEP_PITCH: Record<string, number> = {
+  slash1: 1.0, slash2: 1.06, spin: 0.94, rift: 0.8, flurry: 1.08, lunge: 1.0, rising: 0.96, skyfall: 0.78, cross: 0.85, counter: 0.9, charged: 0.82,
+};
 import type { AudioEngine } from '../audio/engine';
 import type { Sequencer } from '../audio/music';
 import type { Time } from '../core/time';
@@ -37,26 +42,35 @@ export class FeelSystem {
   ) {
     const b = w.bus;
     this.offs.push(
-      b.on('hit', (e) => {
+      // один взмах — один отклик (план §5.1): замирание, тряска, кик, звук, вибрация
+      b.on('strike', (e) => {
         const f = FEEL[e.feel];
+        const crowd = 1 + 0.25 * Math.log2(e.n);
+        let hs = (f.hitstop + (e.crit ? CRIT_HITSTOP : 0)) * crowd;
+        if (e.source === 'ability' && e.feel === 'light') hs *= 0.5;
+        this.time.addHitstop(Math.min(0.14, hs));
+        if (e.feel !== 'light') this.cam.addTrauma(f.trauma * Math.min(1.5, crowd) * (e.source === 'ability' ? 0.6 : 1));
+        this.cam.addKick(e.dirX, e.dirZ, f.kick * 0.5);
+        if (f.zoomPunch) this.cam.zoomPunch += f.zoomPunch;
+        if (f.chroma) this.chroma = Math.max(this.chroma, f.chroma);
+        this.audio.play(f.sfx, { gain: Math.min(1.25, 0.85 + 0.1 * e.n), pitch: STEP_PITCH[e.moveId ?? ''] ?? 1, pan: this.pan(e.x) });
+        if (e.n >= 3) this.audio.play('hit_crowd', { gain: Math.min(1, 0.25 * e.n), pan: this.pan(e.x) });
+        if (e.feel === 'heavy' || e.feel === 'break') this.audio.duck(0.7, 0.3);
+        this.input.vibrate(f.vibrate);
+      }),
+      // попадание по цели: искры и цифры (рядовые без крита — без цифр, элита — сумма за взмах)
+      b.on('hit', (e) => {
         const isEnemy = e.target.faction === 'enemy';
         if (isEnemy && e.dmg > 0) {
-          let hs = f.hitstop + (e.crit ? CRIT_HITSTOP : 0);
-          if (e.source === 'ability' && e.feel === 'light') hs *= 0.5;
-          this.time.addHitstop(hs);
-          this.cam.addTrauma(f.trauma * (e.source === 'ability' ? 0.6 : 1));
-          this.cam.addKick(e.dirX, e.dirZ, f.kick * 0.5);
-          if (f.zoomPunch) this.cam.zoomPunch += f.zoomPunch;
-          if (f.chroma) this.chroma = Math.max(this.chroma, f.chroma);
           const heavy = e.feel === 'heavy' || e.feel === 'break' ? 1 : e.feel === 'medium' ? 0.5 : 0;
           this.vfx.hitSparks(e.x, e.y, e.z, e.dirX, e.dirZ, heavy, e.crit);
-          this.audio.play(f.sfx, { gain: e.shielded ? 0.6 : 1, pitch: e.shielded ? 0.8 : 1, pan: this.pan(e.x) });
-          if (e.feel === 'heavy' || e.feel === 'break') { this.audio.duck(0.7, 0.3); }
-          this.input.vibrate(f.vibrate);
         } else if (isEnemy && e.shielded) {
           this.audio.play('proj_hit', { pitch: 1.5, gain: 0.5 });
         }
-        this.hud.damageNumber(e.x, e.y + 0.6, e.z, e.dmg, e.crit, e.shielded ?? false);
+        const t = e.target as { elite?: unknown[]; isBoss?: boolean; isGuardian?: boolean; id: number };
+        const big = !!(t.isBoss || t.isGuardian);
+        const notable = big || (t.elite?.length ?? 0) > 0;
+        if (!isEnemy || e.crit || notable || e.shielded) this.hud.damageNumber(e.x, e.y + 0.6, e.z, e.dmg, e.crit, e.shielded ?? false, notable ? t.id : -1, big);
       }),
       b.on('kill', (e) => {
         this.vfx.shatter(e.x, e.target.height * 0.45, e.z, e.dirX, e.dirZ, e.big ? 1 : e.elite ? 0.6 : 0);
