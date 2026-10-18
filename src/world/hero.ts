@@ -72,6 +72,9 @@ export class Hero implements Actor {
   perfectBuff = false;
   /** До этого момента атака превращается в Контрудар (после идеального уклонения). */
   counterUntil = 0;
+  /** До этого момента удержание атаки даёт мгновенный полный заряд (после идеального уклонения). */
+  instantChargeUntil = 0;
+  private instantCharge = false;
   secondWindUsed = false;
   eclipseUntil = 0;
   // падение в бездну
@@ -156,7 +159,7 @@ export class Hero implements Actor {
       case 'charge': {
         this.updateMove(dt, mvx, mvz, S.speed * 0.4, true);
         const held = input.now - input.attackHeldSince;
-        const lvl = held >= this.weapon.charged.fullHold ? 2 : held >= this.weapon.charged.minHold ? 1 : 0;
+        const lvl = this.instantCharge || held >= this.weapon.charged.fullHold ? 2 : held >= this.weapon.charged.minHold ? 1 : 0;
         if (lvl > this.chargeLevel) { this.chargeLevel = lvl; this.world.bus.emit('chargeReady', { level: lvl }); }
         // ручное наведение: стик/мышь
         const ax = input.aimActive ? input.aimX : mvx, az = input.aimActive ? input.aimZ : mvz;
@@ -376,6 +379,8 @@ export class Hero implements Actor {
     this.vx *= 0.2; this.vz *= 0.2;
     this.avatar.puppet.play(m.clip, this.atkSpeed, m.id === 'slash1' ? 0.04 : 0.03);
     this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(m.clip) / this.atkSpeed });
+    // удар клинка отправляет украденные осколки в цель автоприцела
+    this.world.fireStolen(this.target);
     this.world.bus.emit('moveStart', { id: m.id });
   }
 
@@ -481,6 +486,13 @@ export class Hero implements Actor {
     this.state = 'charge'; this.stateT = 0; this.chargeLevel = 0;
     this.hitActive = false;
     this.avatar.puppet.play('charge', 1, 0.12);
+    // украденный момент: заряд сразу полный (план §6.3)
+    this.instantCharge = this.clock < this.instantChargeUntil;
+    if (this.instantCharge) {
+      this.instantChargeUntil = 0;
+      this.chargeLevel = 2;
+      this.world.bus.emit('chargeReady', { level: 2 });
+    }
   }
 
   private releaseCharge(): void {
@@ -577,6 +589,8 @@ export class Hero implements Actor {
         this.perfectReadyAt = this.clock + PLAYER_BASE.perfectCooldown;
         this.perfectBuff = true;
         this.counterUntil = this.clock + 0.8;
+        // окно после уклонения: удержание атаки — мгновенный полный заряд (Контрудар, затем заряд)
+        this.instantChargeUntil = this.clock + 1.3;
         this.addResonance(RESONANCE.perPerfectDodge);
         this.world.bus.emit('perfectDodge', { x: this.x, z: this.z, heavy, sx: this.dashFromX, sz: this.dashFromZ });
         this.avatar.shatterSilhouette();

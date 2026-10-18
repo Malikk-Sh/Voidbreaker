@@ -279,6 +279,15 @@ export class BattleVfx {
         if (fxRng.chance(0.6)) this.add.emit({ x: h.x + fxRng.spread(0.6), y: fxRng.range(0, 1.8), z: h.z + fxRng.spread(0.6), vy: 2.5, life: 0.7, size: 0.1, size1: 0.02, color: C.voidHot, drag: 1, frame: 'star' });
       }
       if (h.state === 'charge') this.chargeGather(_w.x, _w.y, _w.z, h.chargeLevel);
+      // украденный импульс: фиолетовые осколки кружат вокруг Пилота
+      for (const st of w.stolen) {
+        const k = st.t > 1.6 ? 0.5 + 0.5 * Math.sin(st.t * 30) : 1;
+        const x = h.x + Math.sin(st.a) * 0.9, z = h.z + Math.cos(st.a) * 0.9, y = 1.25 + Math.sin(st.t * 6) * 0.12;
+        this.sprites.add(x, y, z, 0.42 * k, C.voidHot[0], C.voidHot[1], C.voidHot[2], 1, 'star', st.t * 6);
+        this.sprites.add(x, y, z, 0.18 * k, 2.4, 2.2, 2.6, 1, 'dot');
+        if (fxRng.chance(0.6)) this.add.emit({ x, y, z, life: 0.2, size: 0.12, size1: 0.01, color: C.voidHot, frame: 'dot' });
+      }
+      if (w.stolen.length) this.lights.add(h.x, 1.3, h.z, C.void, 1 + w.stolen.length * 0.5, 4);
     }
 
     // босс готовит красную атаку: ближние источники света слегка багровеют

@@ -71,6 +71,11 @@ export interface ShatterSeq {
   cutDone: boolean; hit: boolean; skipped: boolean;
 }
 
+/** Снаряды, которые можно украсть идеальным уклонением (план §6.3): иглы, залпы Ока, Аколита, камни. */
+const STEALABLE: ReadonlySet<ProjectileKind> = new Set<ProjectileKind>(['orb', 'acolyteOrb', 'needle', 'stone']);
+/** Украденный осколок кружит вокруг героя столько секунд. */
+export const STOLEN_LIFE = 2;
+
 /** Линия Раскола: длина и ширина (м); урон задетым на ней. */
 export const SHATTER_LINE = { len: 7, w: 1.5, mult: 2.5 };
 
@@ -116,6 +121,8 @@ export class World {
   readonly stepHooks: ((dt: number) => void)[] = [];
   /** Бонус урона по оглушённым (Сердце Молоха и т.п.). */
   brokenBonus = 0;
+  /** Украденный импульс (план §6.3): фиолетовые осколки вокруг героя; следующий удар клинка их отправляет. */
+  stolen: { kind: ProjectileKind; t: number; a: number }[] = [];
   /** Идущий Раскол 2.0: герой неуязвим, урон — по таймеру (план §5.6). */
   shatterSeq: ShatterSeq | null = null;
   /** Полных Расколов, оставшихся на сессию: первые два — полная версия, дальше — короткая. */
@@ -496,8 +503,30 @@ export class World {
     }
   }
 
+  /** Удар клинка: украденные осколки летят в цель автоприцела (или в ближайшего врага); 2× и оглушение «украденный». */
+  fireStolen(target: Enemy | null): void {
+    if (!this.stolen.length) return;
+    const h = this.hero;
+    let t = target;
+    if (!t || !t.targetable) {
+      let bd = 14;
+      for (const e of this.enemies) { if (!e.targetable) continue; const d = Math.hypot(e.x - h.x, e.z - h.z); if (d < bd) { bd = d; t = e; } }
+    }
+    for (const s of this.stolen) {
+      const sx = h.x + Math.sin(s.a) * 0.9, sz = h.z + Math.cos(s.a) * 0.9;
+      const a = t ? Math.atan2(t.x - sx, t.z - sz) : h.facing;
+      const p = this.spawnProjectile(s.kind, sx, sz, Math.sin(a) * 24, Math.cos(a) * 24, 0, h.id, 0.4, 1.2);
+      p.reflected = true;
+    }
+    this.stolen.length = 0;
+    this.bus.emit('stolenFire', { x: h.x, z: h.z });
+  }
+
   private stepProjectiles(dt: number): void {
     const h = this.hero;
+    // украденные осколки кружат 2 с
+    for (const s of this.stolen) { s.t += dt; s.a += dt * 5; }
+    if (this.stolen.length && this.stolen[0].t > STOLEN_LIFE) this.stolen = this.stolen.filter((s) => s.t <= STOLEN_LIFE);
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       p.age += dt;
@@ -531,8 +560,15 @@ export class World {
           break;
         }
       } else if (!p.spent && !h.dead && Math.hypot(h.x - p.x, h.z - p.z) < h.radius + p.r) {
-        const res = h.receiveAttack(p.dmg, p.vx / (Math.hypot(p.vx, p.vz) || 1), p.vz / (Math.hypot(p.vx, p.vz) || 1), 'projectile', 1.5);
-        if (res === 'hit') {
+        // окно после идеального уклонения: снаряд не бьёт, а становится украденным осколком
+        const stealable = STEALABLE.has(p.kind);
+        const res = stealable && h.clock < h.counterUntil ? 'steal' : h.receiveAttack(p.dmg, p.vx / (Math.hypot(p.vx, p.vz) || 1), p.vz / (Math.hypot(p.vx, p.vz) || 1), 'projectile', 1.5);
+        if (stealable && (res === 'steal' || res === 'perfect' || (res === 'dodge' && h.clock < h.counterUntil))) {
+          p.alive = false;
+          this.stolen.push({ kind: p.kind, t: 0, a: Math.atan2(p.x - h.x, p.z - h.z) });
+          if (this.stolen.length > 6) this.stolen.shift();
+          this.bus.emit('steal', { x: p.x, z: p.z });
+        } else if (res === 'hit') {
           this.run.hitsTaken++; this.run.dmgTaken += p.dmg;
           p.alive = false;
           this.bus.emit('projectileHit', { x: p.x, z: p.z, kind: p.kind });

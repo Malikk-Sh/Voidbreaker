@@ -35,6 +35,10 @@ export interface GameEvents {
   /** Начат приём (для подсказок о ветках комбо). */
   moveStart: { id: string };
   dash: { x: number; z: number; dirX: number; dirZ: number };
+  /** Украденный импульс: снаряд в окне идеального уклонения стал осколком героя. */
+  steal: { x: number; z: number };
+  /** Удар клинка отправил украденные осколки. */
+  stolenFire: { x: number; z: number };
   /** Рывок пошёл скольжением по трещине. */
   slide: { x: number; z: number; dirX: number; dirZ: number };
   chargeReady: { level: number };

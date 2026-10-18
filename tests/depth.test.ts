@@ -113,3 +113,68 @@ describe('разломы на полу и скольжение (план §6.2)'
     expect(r.dist).toBeLessThan(PLAYER_BASE.dashDist * 1.1);
   });
 });
+
+describe('украденный импульс и мгновенный заряд (план §6.3)', () => {
+  type HeroPriv = { state: string; dashStart: number; clock: number; perfectReadyAt: number; startCharge(): void; chargeLevel: number };
+  const dodge = (w: World): void => { const h = w.hero as unknown as HeroPriv; h.state = 'dash'; h.dashStart = h.clock; h.perfectReadyAt = 0; };
+
+  it('без идеального уклонения снаряд просто бьёт — украсть нельзя', () => {
+    const { w } = setup();
+    const h = w.hero;
+    h.invulnUntil = 0;
+    const hp = h.hp;
+    w.spawnProjectile('needle', h.x, h.z + 0.2, 0, -1, 10, 999);
+    w.step(DT, DT, input());
+    expect(w.stolen.length).toBe(0);
+    expect(h.hp).toBeLessThan(hp);
+  });
+
+  it('в окне идеального уклонения снаряд становится осколком; удар клинка отправляет его: 2× и +25 оглушения Стражу', async () => {
+    const { GateGuardian } = await import('../src/world/boss/guardians');
+    const { w, e } = setup();
+    e.x = 8; // Жнец не на пути осколков
+    const h = w.hero;
+    h.invulnUntil = 0;
+    const g = new GateGuardian({ zone: 0, stage: 2 });
+    g.x = 0; g.z = -6; w.addEnemy(g); g.setState('idle'); g.idleT = 50;
+    let perfect = 0;
+    w.bus.on('perfectDodge', () => perfect++);
+    dodge(w);
+    w.spawnProjectile('needle', h.x, h.z + 0.2, 0, -1, 10, 999);
+    w.step(DT, DT, input());
+    expect(perfect).toBe(1);
+    expect(w.stolen.length).toBe(1);
+    // второй снаряд в окне после уклонения — тоже украден
+    w.spawnProjectile('orb', h.x + 0.2, h.z, -1, 0, 10, 999);
+    w.step(DT, DT, input());
+    expect(w.stolen.length).toBe(2);
+    const hp0 = g.hp;
+    w.fireStolen(g);
+    for (let t = 0; t < 1 && w.projectiles.some((p) => p.reflected); t += DT) w.step(DT, DT, input());
+    expect(g.hp).toBeLessThan(hp0);
+    expect(g.stun!.value).toBeGreaterThanOrEqual(49);
+  });
+
+  it('осколки гаснут через 2 с без удара', () => {
+    const { w } = setup();
+    w.stolen.push({ kind: 'needle', t: 0, a: 0 });
+    for (let t = 0; t < 2.1; t += DT) w.step(DT, DT, input());
+    expect(w.stolen.length).toBe(0);
+  });
+
+  it('после идеального уклонения удержание атаки — сразу полный заряд', () => {
+    const { w } = setup();
+    const h = w.hero as unknown as HeroPriv;
+    dodge(w);
+    w.spawnProjectile('needle', w.hero.x, w.hero.z + 0.2, 0, -1, 10, 999);
+    w.step(DT, DT, input());
+    h.state = 'move';
+    h.startCharge();
+    expect(h.chargeLevel).toBe(2);
+    // без уклонения — с нуля
+    const { w: w2 } = setup();
+    const h2 = w2.hero as unknown as HeroPriv;
+    h2.startCharge();
+    expect(h2.chargeLevel).toBe(0);
+  });
+});

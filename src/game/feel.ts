@@ -176,6 +176,12 @@ export class FeelSystem {
         // смазанный кадр в кадре удара (уколы — без веера)
         if (e.kind !== 'stab') this.vfx.trail.armSmear(e.hitAt ?? 0.06);
       }),
+      // украденный импульс: снаряд стал осколком Пилота; удар клинка их отправляет
+      b.on('steal', (e) => {
+        this.audio.play('ability_ready', { gain: 0.5, pitch: 1.4, vary: 0 });
+        this.vfx.burst(8, { x: e.x, y: 1.2, z: e.z, life: 0.3, size: 0.1, size1: 0.02, color: C.voidHot, drag: 3, frame: 'spark', stretch: 1.2 }, { v: 5, vy: 2 });
+      }),
+      b.on('stolenFire', () => { this.audio.play('swing_stab', { pitch: 1.5, gain: 0.6 }); }),
       // скольжение по трещине: низкий свист клинка и фиолетовый след
       b.on('slide', (e) => {
         this.audio.play('swing_heavy', { pitch: 1.25, gain: 0.7 });
