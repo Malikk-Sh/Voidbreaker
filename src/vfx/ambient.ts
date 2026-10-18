@@ -157,14 +157,14 @@ export class RuneCircle {
           float lr = fract(rot * 12.0 / 6.2831);
           float glyph = smoothstep(0.012, 0.0, abs(r - (0.66 + 0.12 * fract(seg * 0.618)))) * step(0.15, lr) * step(lr, 0.85)
                       + smoothstep(0.02, 0.0, abs(lr - 0.5)) * step(0.62, r) * step(r, 0.84) * step(0.5, fract(seg * 0.37));
-          // гексаграмма из двух треугольников
-          float tri = 0.0;
-          for (int k = 0; k < 6; k++) {
-            float ang = float(k) * 1.0472 - uTime * 0.03;
+          // семиконечная звезда Литургии {7/2}: 7 хорд на расстоянии R·cos(2π/7) от центра, R = 0.55
+          float star = 0.0;
+          for (int k = 0; k < 7; k++) {
+            float ang = float(k) * 0.8976 - uTime * 0.03;
             vec2 n = vec2(cos(ang), sin(ang));
-            tri += smoothstep(0.006, 0.0, abs(dot(vUv, n) - 0.275)) * step(r, 0.55);
+            star += smoothstep(0.006, 0.0, abs(dot(vUv, n) - 0.343)) * step(r, 0.55);
           }
-          vec3 col = uGold * (g * 1.4 + ticks * 0.9 + glyph * 0.25) + uVoid * (tri * 0.9 + glyph * 0.5) * (0.6 + 0.4 * sin(uTime * 1.3));
+          vec3 col = uGold * (g * 1.4 + ticks * 0.9 + glyph * 0.25) + uVoid * (star * 0.9 + glyph * 0.5) * (0.6 + 0.4 * sin(uTime * 1.3));
           col += uVoid * uPulse * smoothstep(1.0, 0.0, r) * 1.5;
           gl_FragColor = vec4(col * 0.18 * uAlpha, 1.0);
         }

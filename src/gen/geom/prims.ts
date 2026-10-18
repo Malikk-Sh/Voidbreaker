@@ -94,6 +94,26 @@ export function extrude(shape: THREE.Shape, depth: number, bevel = 0): THREE.Buf
   return g;
 }
 
+/**
+ * Семиконечная звезда Литургии (план §4.2) — плита, лежащая в плоскости XZ: низ y = 0, верх y = depth,
+ * один луч смотрит в −Z. rInner = 0.69·rOuter — классическая {7/2}, 0.36–0.45 — острая.
+ */
+export function starPlate(points = 7, rOuter = 0.5, rInner = rOuter * 0.69, depth = 0.05): THREE.BufferGeometry {
+  const s = new THREE.Shape();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 ? rInner : rOuter;
+    const a = (i / (points * 2)) * Math.PI * 2;
+    const x = Math.sin(a) * r, y = Math.cos(a) * r;
+    if (i === 0) s.moveTo(x, y); else s.lineTo(x, y);
+  }
+  s.closePath();
+  const bevel = Math.min(depth * 0.35, rOuter * 0.06);
+  const g = new THREE.ExtrudeGeometry(s, { depth: Math.max(1e-4, depth - bevel * 2), bevelEnabled: bevel > 0, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 1 });
+  g.translate(0, 0, bevel);
+  g.rotateX(-Math.PI / 2);
+  return g;
+}
+
 /** Стрельчатая (готическая) арка — две дуги радиусом в пролёт, выдавленные в толщину (Tech §5.1). */
 export function gothicArch(span = 3, springH = 3, wall = 0.6, depth = 0.8): THREE.BufferGeometry {
   const outer = new THREE.Shape();
