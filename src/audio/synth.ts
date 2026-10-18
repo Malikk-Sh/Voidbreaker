@@ -37,16 +37,21 @@ export function pink(ctx: Ctx): AudioBuffer {
   return b;
 }
 
-/** «Соборная» реверберация без единого файла: затухающий шум (Tech §21.2). */
-export function makeImpulse(ctx: Ctx, sec = 3, decay = 2.6): AudioBuffer {
-  const len = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, len, ctx.sampleRate);
+/**
+ * «Соборная» реверберация без единого файла (план §5.2): предзадержка и хвост, который темнеет —
+ * ФНЧ по шуму закрывается к концу, высокие гаснут первыми (без металлического шипения).
+ */
+export function makeImpulse(ctx: Ctx, sec = 3, decay = 2.6, predelay = 0.02): AudioBuffer {
+  const sr = ctx.sampleRate, len = Math.floor(sr * sec), pre = Math.floor(sr * predelay);
+  const b = ctx.createBuffer(2, len, sr);
   for (let c = 0; c < 2; c++) {
     const d = b.getChannelData(c);
-    for (let i = 0; i < len; i++) {
-      const t = i / len;
-      // ранние отражения + диффузный хвост
-      const early = i < ctx.sampleRate * 0.08 && Math.random() < 0.004 ? (Math.random() * 2 - 1) * 2 : 0;
-      d[i] = ((Math.random() * 2 - 1) * Math.pow(1 - t, decay) + early) * (1 - Math.exp(-i / (ctx.sampleRate * 0.01)));
+    let lp = 0;
+    for (let i = pre; i < len; i++) {
+      const t = (i - pre) / (len - pre);
+      const a = 0.65 * Math.pow(1 - t, 1.5) + 0.03;
+      lp += a * ((Math.random() * 2 - 1) - lp);
+      d[i] = lp * Math.pow(1 - t, decay) * 1.8;
     }
   }
   return b;
@@ -80,7 +85,63 @@ export function noiseHit(ctx: Ctx, out: AudioNode, t: number, dur: number, freq:
   return { f, s };
 }
 
-/** «Стеклянный» хвост: 3–5 коротких высоких синусов (осколки). */
+// ------------------------------------------------------------------ блоки удара (план §5.2)
+/** Атака: короткий шумовой контакт 1.5–3 кГц без «иголки». */
+export function transient(ctx: Ctx, out: AudioNode, t: number, f = 2200, gain = 0.5): void {
+  noiseHit(ctx, out, t, 0.012, f, gain, 'bandpass', 0.9);
+}
+/** Удар: треугольник с падением высоты через перегруз — вес. */
+export function punch(ctx: Ctx, out: AudioNode, t: number, f0 = 180, f1 = 55, dur = 0.12, gain = 0.9, drive = 4): void {
+  const o = ctx.createOscillator(), g = ctx.createGain(), sat = saturator(ctx, drive);
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.6);
+  env(g.gain, t, gain, 0.001, dur);
+  o.connect(sat).connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
+}
+/** Хруст: розовый шум 400–900 Гц через сильный перегруз — «мясо», материал. */
+export function crunch(ctx: Ctx, out: AudioNode, t: number, f = 650, dur = 0.07, gain = 0.5): void {
+  const sat = saturator(ctx, 6), g = ctx.createGain();
+  g.gain.value = gain; sat.connect(g).connect(out);
+  noiseHit(ctx, sat, t, dur, f, 1, 'bandpass', 1.1, 'pink');
+}
+/** Сколы обсидиана: 3–6 узких щелчков 700–1800 Гц, разнесённых по панораме. */
+export function chips(ctx: Ctx, out: AudioNode, t: number, n = 4, gain = 0.22, spread = 0.03): void {
+  for (let i = 0; i < n; i++) {
+    const p = ctx.createStereoPanner(); p.pan.value = (Math.random() * 2 - 1) * 0.4; p.connect(out);
+    noiseHit(ctx, p, t + Math.random() * spread, 0.01, 700 + Math.random() * 1100, gain, 'bandpass', 6);
+  }
+}
+/** Шипение Пустоты: шум 1–2 кГц с амплитудной модуляцией 35–50 Гц — фирменный след клинка. */
+export function voidHiss(ctx: Ctx, out: AudioNode, t: number, dur = 0.14, gain = 0.16, f = 1500): void {
+  const am = ctx.createGain(); am.gain.value = 0.5; am.connect(out);
+  const lfo = ctx.createOscillator(), lg = ctx.createGain();
+  lfo.frequency.value = 35 + Math.random() * 15; lg.gain.value = 0.5;
+  lfo.connect(lg).connect(am.gain); lfo.start(t); lfo.stop(t + dur + 0.05);
+  noiseHit(ctx, am, t, dur, f, gain, 'bandpass', 2.5);
+}
+/** Суб: удар в грудь (только тяжёлые). */
+export function sub(ctx: Ctx, out: AudioNode, t: number, f0 = 60, f1 = 38, dur = 0.24, gain = 0.7): void {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  env(g.gain, t, gain, 0.002, dur);
+  o.connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
+}
+/** Металлический акцент брони: неровные партиалы 1.3–3.4 кГц, короткий звон (только «броня»). */
+export function metal(ctx: Ctx, out: AudioNode, t: number, f = 1450, gain = 0.12, dur = 0.35): void {
+  for (const [r, k] of [[1, 1], [1.47, 0.6], [2.31, 0.35]] as const) osc(ctx, 'sine', f * r, t, dur, out, gain * k, 0.001, dur / (1 + r * 0.4));
+  noiseHit(ctx, out, t, 0.01, 3500, gain * 1.2, 'bandpass', 3);
+}
+/** Щипок: треугольник + быстро закрывающийся ФНЧ — мягкий «тинь» без стекла. */
+export function pluck(ctx: Ctx, out: AudioNode, t: number, f: number, dur = 0.25, gain = 0.08): void {
+  const fl = ctx.createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = 2;
+  fl.frequency.setValueAtTime(f * 6, t); fl.frequency.exponentialRampToValueAtTime(f * 1.2, t + dur * 0.5);
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'triangle'; o.frequency.value = f;
+  env(g.gain, t, gain, 0.002, dur);
+  o.connect(fl).connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
+}
+
+/** «Стеклянный» хвост: 3–5 коротких высоких синусов. Только там, где звон — смысл (стекло витража, энергия Ока). */
 export function glassTail(ctx: Ctx, out: AudioNode, t: number, n: number, gain = 0.08): void {
   for (let i = 0; i < n; i++) {
     const tt = t + Math.random() * 0.06;

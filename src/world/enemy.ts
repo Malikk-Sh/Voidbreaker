@@ -315,7 +315,7 @@ export abstract class Enemy implements Actor {
   /** Начать телеграф атаки: метка на полу + ядро вспыхивает. */
   telegraph(w: World, shape: Shape, dur: number, white = false, sound: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar' = 'hum'): Telegraph {
     this.tele = w.addTelegraph(shape, dur * this.teleMul, white);
-    w.bus.emit('telegraph', { kind: sound, x: this.x, z: this.z });
+    w.bus.emit('telegraph', { kind: sound, x: this.x, z: this.z, src: this.kind });
     return this.tele;
   }
 

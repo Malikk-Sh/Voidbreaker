@@ -1,6 +1,16 @@
 import * as THREE from 'three';
 import { CRIT_HITSTOP, FEEL } from '../data/feel';
 
+/** Материал гибели: мокрая Шелуха, каменные големы и Стражи, энергетическое Око (план §5.2.1). */
+const DEATH_SOUND: Record<string, string> = {
+  husk: 'shatter_wet', golem: 'shatter_stone', gateGuardian: 'shatter_stone', bellRinger: 'shatter_stone', eye: 'shatter_energy',
+};
+/** Слой замаха по классу: рой — щелчки, дуэлянт — сталь, тяжёлый — скрежет, поддержка — хоровой тон. */
+const WINDUP_LAYER: Record<string, string> = {
+  husk: 'tele_click', spiker: 'tele_click', reaper: 'tele_steel', golem: 'tele_grind', gateGuardian: 'tele_grind', bellRinger: 'tele_grind',
+  acolyte: 'tele_choir', eye: 'tele_choir',
+};
+
 /** Высота звука удара по шагам комбо: финишеры ниже и тяжелее (план §5.1, п. 5). */
 const STEP_PITCH: Record<string, number> = {
   slash1: 1.0, slash2: 1.06, spin: 0.94, rift: 0.8, flurry: 1.08, lunge: 1.0, rising: 0.96, skyfall: 0.78, cross: 0.85, counter: 0.9, charged: 0.82,
@@ -64,9 +74,10 @@ export class FeelSystem {
         if (isEnemy && e.dmg > 0) {
           const heavy = e.feel === 'heavy' || e.feel === 'break' ? 1 : e.feel === 'medium' ? 0.5 : 0;
           this.vfx.hitSparks(e.x, e.y, e.z, e.dirX, e.dirZ, heavy, e.crit);
-        } else if (isEnemy && e.shielded) {
-          this.audio.play('proj_hit', { pitch: 1.5, gain: 0.5 });
         }
+        // звон — только броня (неуязвимая цель, щит Аколита); удар в окно уязвимости — чистый тон и резонанс
+        if (isEnemy && e.shielded) this.audio.play('hit_armor', { gain: e.dmg > 0 ? 0.45 : 0.7, pan: this.pan(e.x) });
+        else if (isEnemy && e.dmg > 0 && ((e.target as { postureMul?: number }).postureMul ?? 1) > 1) this.audio.play('hit_weak', { gain: 0.6, pan: this.pan(e.x) });
         const t = e.target as { elite?: unknown[]; isBoss?: boolean; isGuardian?: boolean; id: number };
         const big = !!(t.isBoss || t.isGuardian);
         const notable = big || (t.elite?.length ?? 0) > 0;
@@ -74,7 +85,9 @@ export class FeelSystem {
       }),
       b.on('kill', (e) => {
         this.vfx.shatter(e.x, e.target.height * 0.45, e.z, e.dirX, e.dirZ, e.big ? 1 : e.elite ? 0.6 : 0);
-        this.audio.play(e.big || e.elite ? 'shatter_big' : 'shatter', { pan: this.pan(e.x) });
+        const mat = DEATH_SOUND[e.kind];
+        this.audio.play(e.big ? 'shatter_big' : mat ?? (e.elite ? 'shatter_big' : 'shatter'), { pan: this.pan(e.x) });
+        if (e.big && mat) this.audio.play(mat, { pan: this.pan(e.x), gain: 0.8 });
         if (e.big) this.cam.addTrauma(0.25);
       }),
       b.on('postureBreak', (e) => {
@@ -163,7 +176,10 @@ export class FeelSystem {
       }),
       b.on('telegraph', (e) => {
         const id = e.kind === 'hum' ? 'tele_hum' : e.kind === 'whistle' ? 'tele_whistle' : e.kind === 'chime' ? 'tele_chime' : e.kind === 'bell' ? 'tele_bell' : 'tele_roar';
-        this.audio.play(id, { gain: 0.6, pan: this.pan(e.x) });
+        this.audio.play(id, { gain: 0.45, pan: this.pan(e.x) });
+        // класс замаха узнаётся краем уха (план §5.2.1)
+        const layer = e.src ? WINDUP_LAYER[e.src] : undefined;
+        if (layer) this.audio.play(layer, { gain: 0.5, pan: this.pan(e.x) });
       }),
       b.on('enemyAttack', (e) => {
         if (e.kind === 'shot') this.audio.play('shot', { gain: 0.5, pan: this.pan(e.x) });
@@ -260,11 +276,12 @@ export class FeelSystem {
     // летербокс и кинематографичное приближение
     P.letterbox += (this.letterbox - P.letterbox) * Math.min(1, realDt * 10);
     this.cam.zoomTarget = this.baseZoom * (1 - this.zoomCine);
-    // низкое HP: виньетка, low-pass, сердцебиение (GDD §5.8)
+    // низкое HP: лёгкая виньетка, слой напряжения (низкие струнные + дыхание) и сердцебиение;
+    // музыку не глушим (план §5.2, п. 9)
     const h = this.w.hero;
     const low = !h.dead && h.hp / h.maxHp < 0.25;
-    P.lowHp += ((low ? 1 : 0) - P.lowHp) * Math.min(1, realDt * 3);
-    this.audio.setMusicFilter(low ? 800 : 20000);
+    P.lowHp += ((low ? 0.6 : 0) - P.lowHp) * Math.min(1, realDt * 3);
+    this.audio.setTension(low ? 1 : 0);
     if (low) {
       this.lowHpBeat -= realDt;
       if (this.lowHpBeat <= 0) { this.lowHpBeat = 0.85; this.audio.play('heartbeat', { gain: 0.7, reverb: 0 }); }

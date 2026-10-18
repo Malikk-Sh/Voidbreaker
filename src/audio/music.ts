@@ -57,7 +57,7 @@ export class Sequencer {
     if (!ctx) return;
     const sr = Math.min(44100, ctx.sampleRate);
     const jobs = Object.entries(song.bake).filter(([k]) => !this.bufs.has(`${song.id}:${k}`)).map(async ([k, b]) => {
-      const off = new OfflineAudioContext(1, Math.ceil(sr * b.len), sr);
+      const off = new OfflineAudioContext(2, Math.ceil(sr * b.len), sr);
       const g = off.createGain(); g.connect(off.destination);
       b.render(off, g, 0.005);
       this.bufs.set(`${song.id}:${k}`, await off.startRendering());

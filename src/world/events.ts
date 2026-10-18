@@ -24,7 +24,8 @@ export interface GameEvents {
   impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell' };
   /** Раскол: финишер по треснувшему (сломанная стойка) врагу — взрыв трещин. */
   shatter: { target: Actor; x: number; y: number; z: number; boss: boolean; dmg: number };
-  telegraph: { kind: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar'; x: number; z: number };
+  /** src — вид врага: по нему слышен класс замаха (рой, дуэлянт, тяжёлый, поддержка). */
+  telegraph: { kind: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar'; x: number; z: number; src?: string };
   enemyAttack: { kind: 'bite' | 'slash' | 'slam' | 'shot' | 'beam' | 'bell' | 'swing' | 'throw'; x: number; z: number; dir?: number; r?: number };
   projectileHit: { x: number; z: number; kind: string };
   /** Навесной бросок (камень голема): только визуал, урон — по метке приземления. */

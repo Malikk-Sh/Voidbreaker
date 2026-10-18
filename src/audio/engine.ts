@@ -14,6 +14,7 @@ export class AudioEngine {
   ctx: AudioContext | null = null;
   master!: GainNode;
   comp!: DynamicsCompressorNode;
+  limiter!: DynamicsCompressorNode;
   sfxBus!: GainNode;
   musicBus!: GainNode;
   musicFilter!: BiquadFilterNode;
@@ -23,6 +24,9 @@ export class AudioEngine {
   reverbSend!: GainNode;
   private buffers = new Map<string, AudioBuffer[]>();
   private recent = new Map<string, number[]>();
+  /** Варианты по кругу, без повтора подряд (план §5.2, п. 6). */
+  private nextVariant = new Map<string, number>();
+  private tension: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
   private active = 0;
   ready = false;
   baking: Promise<void> | null = null;
@@ -37,11 +41,15 @@ export class AudioEngine {
       if (!AC) return;
       const ctx = new AC({ latencyHint: 'interactive' });
       this.ctx = ctx;
+      // мастер (план §5.2, п. 5): мягкий «клей» не срезает атаку ударов, за ним — лимитер от перегруза
       this.comp = ctx.createDynamicsCompressor();
-      this.comp.threshold.value = -12; this.comp.knee.value = 8; this.comp.ratio.value = 6;
-      this.comp.attack.value = 0.003; this.comp.release.value = 0.2;
+      this.comp.threshold.value = -18; this.comp.knee.value = 6; this.comp.ratio.value = 3;
+      this.comp.attack.value = 0.012; this.comp.release.value = 0.25;
+      this.limiter = ctx.createDynamicsCompressor();
+      this.limiter.threshold.value = -1; this.limiter.knee.value = 0; this.limiter.ratio.value = 20;
+      this.limiter.attack.value = 0.001; this.limiter.release.value = 0.1;
       this.master = ctx.createGain();
-      this.master.connect(this.comp).connect(ctx.destination);
+      this.master.connect(this.comp).connect(this.limiter).connect(ctx.destination);
       this.sfxBus = ctx.createGain(); this.sfxBus.connect(this.master);
       this.voiceBus = ctx.createGain(); this.voiceBus.connect(this.master);
       this.musicFilter = ctx.createBiquadFilter(); this.musicFilter.type = 'lowpass'; this.musicFilter.frequency.value = 20000; this.musicFilter.Q.value = 0.7;
@@ -49,7 +57,7 @@ export class AudioEngine {
       this.musicBus = ctx.createGain();
       this.musicBus.connect(this.musicFilter).connect(this.musicDuck).connect(this.master);
       this.reverb = ctx.createConvolver();
-      this.reverb.buffer = makeImpulse(ctx, 3.2, 2.4);
+      this.reverb.buffer = makeImpulse(ctx, 3.2, 2.4, 0.025);
       this.reverbSend = ctx.createGain(); this.reverbSend.gain.value = 0.9;
       this.reverbSend.connect(this.reverb).connect(this.master);
       this.applyVolumes();
@@ -81,8 +89,11 @@ export class AudioEngine {
     for (const [id, r] of Object.entries(SFX)) {
       const n = r.variants ?? 1;
       for (let v = 0; v < n; v++) {
-        const off = new OfflineAudioContext(1, Math.ceil(sr * r.len), sr);
-        const g = off.createGain(); g.connect(off.destination);
+        // стерео: варианты одного звука разведены по панораме ±0.2
+        const off = new OfflineAudioContext(2, Math.ceil(sr * r.len), sr);
+        const pan = off.createStereoPanner(); pan.pan.value = n > 1 ? ((v / (n - 1)) - 0.5) * 0.4 : 0;
+        pan.connect(off.destination);
+        const g = off.createGain(); g.connect(pan);
         try { r.render(off, g, 0.005); } catch (e) { console.warn('sfx render', id, e); continue; }
         jobs.push(off.startRendering().then((buf) => {
           const list = this.buffers.get(id) ?? [];
@@ -106,7 +117,9 @@ export class AudioEngine {
     if (rec.length >= 4 || this.active >= 24) return;
     rec.push(now); this.recent.set(id, rec);
     const src = ctx.createBufferSource();
-    src.buffer = list[Math.floor(Math.random() * list.length)];
+    const vi = (this.nextVariant.get(id) ?? Math.floor(Math.random() * list.length)) % list.length;
+    this.nextVariant.set(id, vi + 1);
+    src.buffer = list[vi];
     const vary = o.vary ?? 0.06;
     src.playbackRate.value = (o.pitch ?? 1) * (1 + (Math.random() * 2 - 1) * vary);
     const g = ctx.createGain(); g.gain.value = o.gain ?? 1;
@@ -114,7 +127,7 @@ export class AudioEngine {
     node.connect(g); node = g;
     if (o.pan) { const p = ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, o.pan)); node.connect(p); node = p; }
     node.connect(this.sfxBus);
-    const rv = o.reverb ?? 0.18;
+    const rv = o.reverb ?? SFX[id]?.reverb ?? 0.08;
     if (rv > 0) { const s = ctx.createGain(); s.gain.value = rv; node.connect(s).connect(this.reverbSend); }
     this.active++;
     src.onended = () => { this.active--; };
@@ -131,7 +144,28 @@ export class AudioEngine {
     g.linearRampToValueAtTime(1, t + dur);
   }
 
-  /** Фильтр музыки: низкое HP — 800 Гц; «Мгновение Пустоты» — глубже. */
+  /**
+   * Напряжение при низком HP (план §5.2, п. 9): петля низких струнных и дыхания поверх музыки,
+   * музыку не глушим. level 0..1.
+   */
+  setTension(level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    if (!this.tension && level > 0.01) {
+      const buf = this.buffers.get('tension')?.[0];
+      if (!buf) return;
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const gain = ctx.createGain(); gain.gain.value = 0;
+      src.connect(gain).connect(this.sfxBus);
+      src.start();
+      this.tension = { src, gain };
+    }
+    if (!this.tension) return;
+    this.tension.gain.gain.setTargetAtTime(level * 0.9, ctx.currentTime, 0.4);
+    if (level <= 0.01 && this.tension.gain.gain.value < 0.01) { this.tension.src.stop(); this.tension = null; }
+  }
+
+  /** Фильтр музыки: «Мгновение Пустоты» — ФНЧ 1200 Гц; иначе открыт. */
   setMusicFilter(freq: number, tau = 0.15): void {
     if (!this.ctx) return;
     this.musicFilter.frequency.setTargetAtTime(freq, this.ctx.currentTime, tau);
