@@ -26,6 +26,8 @@ export interface PostState {
   waves: THREE.Vector4[];
   letterbox: number;
   frost: number;
+  /** Стягивание к точке (схлопывание Колодца): xy — экран 0..1, z — радиус, w — сила. */
+  pinch: THREE.Vector4;
 }
 
 /**
@@ -38,7 +40,7 @@ export class Post {
     bloom: 0.55, exposure: 1.0, chroma: 0, desat: 0, vignette: 0.55, lowHp: 0, flash: 0, flashColor: new THREE.Color(1, 1, 1),
     grain: 0.018, saturation: 1.05, lift: new THREE.Vector3(0.002, 0.0035, 0.006), gamma: new THREE.Vector3(1, 1, 1),
     gain: new THREE.Vector3(1.04, 1.0, 0.95), waves: Array.from({ length: MAX_WAVES }, () => new THREE.Vector4(0, 0, 0, 0)),
-    letterbox: 0, frost: 0,
+    letterbox: 0, frost: 0, pinch: new THREE.Vector4(0.5, 0.5, 0.4, 0),
   };
   sceneRT: THREE.WebGLRenderTarget;
   private levels: THREE.WebGLRenderTarget[] = [];
@@ -117,7 +119,7 @@ export class Post {
         uExposure: { value: 1 }, uChroma: { value: 0 }, uDesat: { value: 0 }, uVignette: { value: 0.55 },
         uLowHp: { value: 0 }, uFlash: { value: 0 }, uFlashColor: { value: s.flashColor }, uGrain: { value: 0.03 },
         uSat: { value: 1 }, uLift: { value: s.lift }, uGamma: { value: s.gamma }, uGain: { value: s.gain },
-        uWaves: { value: s.waves }, uAspect: { value: 1 }, uTime: G.uTime, uLetterbox: { value: 0 }, uFrost: { value: 0 },
+        uWaves: { value: s.waves }, uAspect: { value: 1 }, uTime: G.uTime, uLetterbox: { value: 0 }, uFrost: { value: 0 }, uPinch: { value: s.pinch },
         uNoise: G.uNoise,
       },
       vertexShader: FS_VERT,
@@ -126,6 +128,7 @@ export class Post {
         uniform float uBloom, uHasBloom, uExposure, uChroma, uDesat, uVignette, uLowHp, uFlash, uGrain, uSat, uAspect, uTime, uLetterbox, uFrost;
         uniform vec3 uFlashColor, uLift, uGamma, uGain;
         uniform vec4 uWaves[${MAX_WAVES}];
+        uniform vec4 uPinch;
         varying vec2 vUv;
 
         vec3 aces(vec3 x) {
@@ -138,6 +141,12 @@ export class Post {
 
         void main() {
           vec2 uv = vUv;
+          // схлопывание (Колодец): изображение стягивается к точке
+          if (uPinch.w > 0.0) {
+            vec2 pd = uv - uPinch.xy; pd.x *= uAspect;
+            float pk = uPinch.w * smoothstep(uPinch.z, 0.0, length(pd));
+            uv = uPinch.xy + (uv - uPinch.xy) * (1.0 + pk * 0.55);
+          }
           // ударные волны: смещение UV вдоль радиуса тонким кольцом
           for (int i = 0; i < ${MAX_WAVES}; i++) {
             vec4 w = uWaves[i];

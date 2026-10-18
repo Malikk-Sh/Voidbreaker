@@ -55,6 +55,8 @@ export class BattleVfx {
   /** Камера рендера: звёзды разворачиваются к ней. */
   camera: THREE.Camera | null = null;
   private sickleMeshes: THREE.Mesh[] = [];
+  /** Лента-шлейф за каждым Серпом (план §6.9). */
+  private sickleTrails: RibbonTrail[] = [];
   private wellMeshes: THREE.Mesh[] = [];
   private ambientT = 0;
   /** Пыль/искры атмосферы зоны (слой 7, GDD §17.5). */
@@ -78,6 +80,9 @@ export class BattleVfx {
       const m = new THREE.Mesh(sg, sm);
       m.visible = false; m.frustumCulled = false;
       this.sickleMeshes.push(m); this.group.add(m);
+      const tr = new RibbonTrail('#8B5CF6', '#F1E8FF');
+      tr.life = 0.16;
+      this.sickleTrails.push(tr); this.group.add(tr.mesh);
     }
     // колодец: чёрное ядро + кольцо аккреции (шейдер)
     const wm = new THREE.ShaderMaterial({
@@ -469,6 +474,14 @@ export class BattleVfx {
     this.sickleMeshes.forEach((m, i) => {
       const s = ab.sickles[i];
       m.visible = !!s;
+      const tr = this.sickleTrails[i];
+      if (s) {
+        // шлейф поперёк хода: лента от одного рога к другому
+        const l = Math.hypot(s.vx, s.vz) || 1, px = -s.vz / l * 0.45, pz = s.vx / l * 0.45;
+        _v.set(s.x - px, 1.1, s.z - pz); _w.set(s.x + px, 1.1, s.z + pz);
+        tr.push(_v, _w, 0.3);
+      }
+      tr.update(dtReal);
       if (!s) return;
       m.position.set(s.x, 1.1, s.z);
       m.rotation.set(-Math.PI / 2, 0, s.rot);
@@ -539,7 +552,7 @@ export class BattleVfx {
   }
 
   clear(): void {
-    this.add.clear(); this.norm.clear(); this.trail.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear();
+    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear();
   }
 }
 

@@ -55,6 +55,10 @@ export class FeelSystem {
   private waveSlots: { x: number; z: number; t: number; life: number; r: number; s: number }[] = [];
   private lastVoice = -99;
   private lastChoir = -99;
+  /** Стягивание экрана к схлопывающемуся Колодцу (реальные с). */
+  private pinchT = 0; private pinchX = 0; private pinchZ = 0;
+  /** Летербокс врезки ульты (реальные с). */
+  private letterboxPulse = 0;
   /** Раскол 2.0: сколько ещё длится (реальные с), замедление после разлёта, линия разреза. */
   private shatterLeft = 0;
   private shatterAfter = 0;
@@ -285,14 +289,34 @@ export class FeelSystem {
         else if (e.kind === 'ether') this.audio.play('pickup_ether');
         else this.audio.play('ui_confirm');
       }),
+      // подача способностей (план §6.9): «вдох» на замахе, на release — замирание 60 мс и вспышка в руке
+      b.on('castStart', () => { this.audio.play('cast_inhale', { gain: 0.55, vary: 0.03 }); }),
       b.on('ability', (e) => {
+        this.time.addHitstop(0.06);
+        const hand = this.w.hero.hand();
+        this.vfx.lights.flash(hand.x, hand.y, hand.z, C.voidHot, 3, 4, 0.18);
+        this.vfx.add.emit({ x: hand.x, y: hand.y, z: hand.z, life: 0.14, size: 0.5, size1: 1.2, color: C.core, alpha: 0.8, frame: 'flare' });
         if (e.id === 'crescent') this.audio.play('crescent');
         else if (e.id === 'phase') { this.audio.play('phase'); this.cam.addTrauma(0.15); }
         else if (e.id === 'well') this.audio.play('well');
       }),
+      b.on('sickleCatch', () => {
+        this.audio.play('sickle_catch', { gain: 0.6 });
+        const hand = this.w.hero.hand();
+        this.vfx.burst(5, { x: hand.x, y: hand.y, z: hand.z, life: 0.2, size: 0.07, size1: 0.01, color: C.voidHot, drag: 3, frame: 'spark' }, { v: 3, vy: 1 });
+      }),
+      // схлопывание Колодца: экран стягивается к нему, мир глохнет — потом взрыв
+      b.on('wellCollapse', (e) => {
+        this.audio.muffle(0.32);
+        this.audio.play('well_collapse', { gain: 0.8, clear: true, vary: 0 });
+        this.pinchT = 0.32; this.pinchX = e.x; this.pinchZ = e.z;
+      }),
       b.on('ultimate', (e) => {
+        // врезка Затмения: время замирает на 0.5 с, летербокс; камеру и небо ведёт бой
         this.time.addHitstop(0.12);
-        this.time.cinematic(0.45, 0.25);
+        this.time.cinematic(0.5, 0.02);
+        this.letterboxPulse = 0.6;
+        this.w.hero.avatar.puppet.flash = 0.35;
         this.cam.addTrauma(0.5);
         this.chroma = 0.7;
         this.flash = this.settings.flashes ? 0.45 : 0.1;
@@ -367,7 +391,16 @@ export class FeelSystem {
     this.flash = Math.max(0, this.flash - realDt * 3);
     P.flash = S.flashes ? this.flash : -this.flash * 0.3;
     // летербокс и кинематографичное приближение
-    P.letterbox += (this.letterbox - P.letterbox) * Math.min(1, realDt * 10);
+    if (this.letterboxPulse > 0) this.letterboxPulse -= realDt;
+    const lb = Math.max(this.letterbox, this.letterboxPulse > 0 ? 1 : 0);
+    P.letterbox += (lb - P.letterbox) * Math.min(1, realDt * 10);
+    // схлопывание Колодца: сила растёт к взрыву
+    if (this.pinchT > 0) {
+      this.pinchT -= realDt;
+      _v.set(this.pinchX, 0.5, this.pinchZ).project(this.camera);
+      const k = S.distortion ? Math.max(0, 1 - this.pinchT / 0.32) : 0;
+      P.pinch.set(_v.x * 0.5 + 0.5, _v.y * 0.5 + 0.5, 0.45, this.pinchT > 0 ? k : 0);
+    } else P.pinch.w = 0;
     // Раскол: камера подъезжает на 6 %
     this.zoomCine += ((this.shatterLeft > 0 ? 0.06 : 0) - this.zoomCine) * Math.min(1, realDt * 8);
     this.cam.zoomTarget = this.baseZoom * (1 - this.zoomCine);

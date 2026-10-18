@@ -168,6 +168,20 @@ export const SFX: Record<string, SfxRecipe> = {
   bell_crack: { reverb: 0.25, len: 2.6, render: (c, o, t) => { bell(c, o, t, 103, 0.22, 2.4); noiseHit(c, o, t, 0.2, 2400, 0.4, 'bandpass', 1.5); crunch(c, o, t, 400, 0.15, 0.4); } },
   // детонация меток Пустоты: короткий «хруст» трещин и шипение
   detonate: { len: 0.4, variants: 3, reverb: 0.06, render: (c, o, t) => { crunch(c, o, t, 900, 0.06, 0.45); chips(c, o, t, 5, 0.14, 0.05); voidHiss(c, o, t, 0.12, 0.12, 2600); } },
+  // подача способностей (план §6.9): короткий низкий «вдох» перед кастом, «клац» пойманного Серпа, схлопывание Колодца
+  cast_inhale: { len: 0.3, reverb: 0.05, render: (c, o, t) => {
+    const { f, s } = noiseHit(c, o, t, 0.16, 300, 0.0001, 'bandpass', 1.2, 'pink'); void s;
+    f.frequency.setValueAtTime(260, t); f.frequency.exponentialRampToValueAtTime(900, t + 0.15);
+    const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.14); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+    noiseHit(c, g, t, 0.17, 500, 0.7, 'lowpass', 0.8, 'pink'); g.connect(o);
+    body(c, o, t + 0.02, 60, 95, 0.14, 0.2);
+  } },
+  sickle_catch: { len: 0.4, variants: 2, reverb: 0.08, render: (c, o, t) => { transient(c, o, t, 3000, 0.6); metal(c, o, t, 1850, 0.14, 0.25); punch(c, o, t, 260, 120, 0.05, 0.4, 2); } },
+  well_collapse: { len: 0.6, reverb: 0.15, render: (c, o, t) => {
+    const { f } = noiseHit(c, o, t, 0.32, 2400, 0.45, 'bandpass', 2, 'pink');
+    f.frequency.setValueAtTime(2600, t); f.frequency.exponentialRampToValueAtTime(140, t + 0.3);
+    body(c, o, t, 40, 90, 0.32, 0.5);
+  } },
   // способность готова: короткий двойной блик
   ability_ready: { len: 0.5, reverb: 0.12, render: (c, o, t) => { pluck(c, o, t, 1175, 0.2, 0.05); pluck(c, o, t + 0.06, 1760, 0.25, 0.04); } },
   ui_click: { len: 0.2, render: (c, o, t) => { osc(c, 'sine', 1568, t, 0.1, o, 0.05, 0.001, 0.1); osc(c, 'sine', 2350, t, 0.06, o, 0.02, 0.001, 0.06); } },

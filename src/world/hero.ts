@@ -712,6 +712,7 @@ export class Hero implements Actor {
     this.castReleased = false;
     this.castMinT = minCancel;
     this.avatar.puppet.play(clip, 1, 0.04);
+    this.world.bus.emit('castStart', { x: this.x, z: this.z });
   }
 
   /**

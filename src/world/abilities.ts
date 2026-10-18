@@ -13,7 +13,7 @@ export interface Loadout {
 }
 
 export interface Sickle { x: number; z: number; vx: number; vz: number; out: boolean; dist: number; max: number; hover: number; hits: Set<number>; rot: number; alive: boolean; hitT: number }
-export interface Well { x: number; z: number; t: number; dur: number; exploded: boolean; follow: boolean; horizon: boolean; alive: boolean; boom: number }
+export interface Well { x: number; z: number; t: number; dur: number; exploded: boolean; follow: boolean; horizon: boolean; alive: boolean; boom: number; collapsed?: boolean }
 export interface Wave { x: number; z: number; dx: number; dz: number; dist: number; hits: Set<number>; alive: boolean; r: number; kind: 'eclipse' | 'blade'; mult: number; max: number; speed: number }
 export interface Phantom { x: number; z: number; facing: number; t: number; fired: boolean; alive: boolean }
 /** Разлом на полу (план §6.2): фиолетовая трещина от финишера; рывок вдоль неё — скольжение. */
@@ -180,7 +180,8 @@ export class Abilities implements AbilityHost {
       const d = Math.hypot(e.x - h.x, e.z - h.z);
       if (d < 6) {
         const l = d || 1;
-        this.w.damageEnemy(e, { mult: 1.5, stun: 10, knockback: 4, feel: 'heavy', dirX: (e.x - h.x) / l, dirZ: (e.z - h.z) / l, source: 'ability', noResonance: true, abilityId: 'eclipse' });
+        // ударная волна сносит рядовых
+        this.w.damageEnemy(e, { mult: 1.5, stun: 10, knockback: e.elite.length || e.mass > 3 ? 4 : 9, feel: 'heavy', dirX: (e.x - h.x) / l, dirZ: (e.z - h.z) / l, source: 'ability', noResonance: true, abilityId: 'eclipse' });
         // ульта ставит всем рядом полные 5 меток Пустоты
         if (d < 5 && !e.dead) e.addMark(5);
       }
@@ -273,7 +274,7 @@ export class Abilities implements AbilityHost {
         const dx = h.x - s.x, dz = h.z - s.z, d = Math.hypot(dx, dz);
         const sp = 21;
         s.x += (dx / (d || 1)) * sp * dtW; s.z += (dz / (d || 1)) * sp * dtW;
-        if (d < 0.8) s.alive = false;
+        if (d < 0.8) { s.alive = false; w.bus.emit('sickleCatch', { x: h.x, z: h.z }); }
       }
       const l = Math.hypot(s.vx, s.vz) || 1;
       w.heroStrike({ k: 'circle', x: s.x, z: s.z, r: 0.75 }, s.hits, {
@@ -299,6 +300,8 @@ export class Abilities implements AbilityHost {
           const pull = (6 + (1 - d / 5) * 8) / Math.max(0.6, e.mass);
           e.kbX = (dx / d) * pull; e.kbZ = (dz / d) * pull;
         }
+        // за 0.3 с до взрыва — схлопывание: экран тянет к центру, мир глохнет
+        if (!wl.collapsed && wl.t >= wl.dur - 0.3) { wl.collapsed = true; w.bus.emit('wellCollapse', { x: wl.x, z: wl.z }); }
         if (wl.t >= wl.dur) {
           wl.exploded = true;
           const hits = new Set<number>();

@@ -74,6 +74,12 @@ export interface GameEvents {
   abilityReady: { slot: 'q' | 'e' };
   pickup: { kind: 'shard' | 'ether' | 'heal'; amount: number; x: number; z: number };
   ability: { id: string; x: number; z: number };
+  /** Начат каст способности (замах перед release). */
+  castStart: { x: number; z: number };
+  /** Серп вернулся и пойман рукой. */
+  sickleCatch: { x: number; z: number };
+  /** Колодец схлопывается: 0.3 с до взрыва. */
+  wellCollapse: { x: number; z: number };
   ultimate: { id: string; x: number; z: number };
   fall: { x: number; z: number; hero: boolean };
   shockwave: { x: number; z: number; r: number; color: 'void' | 'hunger' | 'gold'; strength: number };

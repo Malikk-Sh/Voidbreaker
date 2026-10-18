@@ -23,6 +23,7 @@ import '../world/boss/guardians';
 import { Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
+import { G } from '../render/materials';
 
 
 const _top = new THREE.Vector3();
@@ -38,6 +39,11 @@ export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef
  * Бой на этапе: мир + арена + директор волн + VFX + камера + «сочность». Цикл — фиксированный шаг 60 Гц
  * в реальном времени, каждая система получает своё масштабированное dt (мир/герой).
  */
+/** Свет арены в Затмении (план §6.9): небо и полусфера уходят в фиолетовый. */
+const ECLIPSE_HEMI = new THREE.Vector3(0.09, 0.05, 0.2);
+const ECLIPSE_MOON = new THREE.Vector3(0.42, 0.24, 0.8);
+const _cutPos = new THREE.Vector3(), _cutLook = new THREE.Vector3();
+
 /** Полных Расколов на сессию (план §5.6): первые два — полная версия, дальше — короткая. */
 let fullShattersLeft = 2;
 
@@ -70,6 +76,12 @@ export class Battle {
   private bossFrame = 0;
   /** Подъезд камеры к оглушённому Стражу или боссу (0..1). */
   private stunZoom = 0;
+  /** Врезка Затмения: секунды наезда камеры снизу на Пилота. */
+  private ultCut = 0;
+  /** Сила затмения в небе и фиолетового света арены 0..1. */
+  private eclipseK = 0;
+  private readonly baseHemi = G.uHemiTop.value.clone();
+  private readonly baseMoon = G.uMoonColor.value.clone();
 
   constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout) {
     const r = ctx.renderer;
@@ -206,6 +218,7 @@ export class Battle {
       }
     });
     b.on('shatterStart', () => { fullShattersLeft = this.world.fullShatters; });
+    b.on('ultimate', () => { this.ultCut = 0.9; });
     b.on('stun', () => {
       if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Враг оглушён — финишер или заряженный удар: РАСКОЛ'); }
     });
@@ -336,6 +349,25 @@ export class Battle {
     const lead = this.world.hero.state === 'move' ? 0.18 : 0;
     cam.update(realDt, tx, tz, h.vx * lead, h.vz * lead, this.ctx.renderer.camera);
     this.boss?.cameraOverride(cam, this.ctx.renderer.camera, realDt);
+    // врезка Затмения: камера наезжает на Пилота снизу, за ним — небо, где луна закрывает солнце
+    if (this.ultCut > 0 && !this.cine.busy) {
+      this.ultCut -= realDt;
+      const t = 0.9 - this.ultCut;
+      const w = Math.max(0, Math.min(1, t / 0.15, this.ultCut / 0.35));
+      // спереди-сбоку, ниже груди: Пилот целиком, за ним — небо
+      const fx = Math.sin(h.facing), fz = Math.cos(h.facing);
+      _cutPos.set(h.x + fx * 6 + fz * 1.6, 1.0, h.z + fz * 6 - fx * 1.6);
+      _cutLook.set(h.x, 1.55, h.z);
+      cam.cine = w > 0 ? { pos: _cutPos, look: _cutLook, w } : null;
+      cam.update(0, tx, tz, 0, 0, this.ctx.renderer.camera);
+      if (this.ultCut <= 0) cam.cine = null;
+    }
+    // небо и свет арены на время ульты
+    const ek = h.eclipse ? 1 : 0;
+    this.eclipseK += (ek - this.eclipseK) * Math.min(1, realDt * (ek ? 3 : 1.2));
+    this.ctx.renderer.sky.u.uEclipse.value = this.eclipseK;
+    G.uHemiTop.value.copy(this.baseHemi).lerp(ECLIPSE_HEMI, this.eclipseK * 0.8);
+    G.uMoonColor.value.copy(this.baseMoon).lerp(ECLIPSE_MOON, this.eclipseK * 0.7);
     if (!this.ctx.time.paused) this.cine.update(realDt, cam);
   }
 
@@ -396,6 +428,10 @@ export class Battle {
     this.ctx.renderer.post.state.letterbox = 0;
     this.ctx.renderer.post.state.desat = 0;
     this.ctx.renderer.post.state.lowHp = 0;
+    this.ctx.renderer.post.state.pinch.w = 0;
+    this.ctx.renderer.sky.u.uEclipse.value = 0;
+    G.uHemiTop.value.copy(this.baseHemi);
+    G.uMoonColor.value.copy(this.baseMoon);
     this.ctx.time.reset();
   }
 }

@@ -36,6 +36,8 @@ export class Sky {
     uBolt: { value: 0 },
     uBoltDir: { value: new THREE.Vector3(0, -1, -1).normalize() },
     uStarFlare: { value: 0 },
+    /** Затмение ульты (план §6.9): 0 — обычное небо, 1 — луна закрыла солнце, корона фиолетовая. */
+    uEclipse: { value: 0 },
   };
 
   constructor() {
@@ -53,7 +55,7 @@ export class Sky {
         uniform mat4 uInvVP; uniform vec3 uCam; uniform float uTime;
         uniform sampler2D uNoise;
         uniform vec3 uDeep, uNebula, uNebula2, uNebula3, uCorona, uMoonCore, uMoonDir, uBoltDir;
-        uniform float uMoonSize, uStars, uPulse, uBolt, uStarFlare;
+        uniform float uMoonSize, uStars, uPulse, uBolt, uStarFlare, uEclipse;
         varying vec2 vNdc;
 
         float n2(vec2 p) { return texture2D(uNoise, p).r; }
@@ -108,9 +110,20 @@ export class Sky {
           float corona = exp(-(rr - 1.0) * (3.2 - rays * 1.6)) * step(1.0, rr);
           float ring = smoothstep(0.06, 0.0, abs(rr - 1.0));
           float pulse = 1.0 + uPulse * 0.6;
-          col += uCorona * (corona * 1.4 + ring * 3.5) * pulse;
-          col += uCorona * exp(-max(rr - 1.0, 0.0) * 0.6) * 0.12 * pulse;
-          col = mix(col, uMoonCore + uCorona * 0.03 * (1.0 - rr), smoothstep(1.0, 0.97, rr));
+          // ульта: небо темнеет, корона становится фиолетово-белой и шире
+          float ek = uEclipse;
+          col *= 1.0 - ek * 0.55;
+          vec3 corC = mix(uCorona, vec3(0.75, 0.55, 1.6), ek);
+          float corW = mix(1.0, 0.55, ek);
+          float coronaE = exp(-(rr - 1.0) * (3.2 - rays * 1.6) * corW) * step(1.0, rr);
+          col += corC * (coronaE * (1.4 + ek * 1.8) + ring * (3.5 + ek * 3.0)) * pulse;
+          col += corC * exp(-max(rr - 1.0, 0.0) * 0.6) * (0.12 + ek * 0.25) * pulse;
+          // солнце заходит за луну: яркий диск съезжает за чёрный круг, пока затмение не полное
+          vec3 sunDir = normalize(uMoonDir + side * (1.0 - ek) * uMoonSize * 2.2);
+          float sd = acos(clamp(dot(dir, sunDir), -1.0, 1.0)) / uMoonSize;
+          float sunVis = (1.0 - smoothstep(0.92, 1.0, sd)) * step(0.001, ek) * step(ek, 0.999);
+          col += vec3(1.6, 1.45, 1.9) * sunVis * step(1.0, rr);
+          col = mix(col, uMoonCore + corC * 0.03 * (1.0 - rr), smoothstep(1.0, 0.97, rr));
           // вспышка «звезды» после победы над боссом
           col += vec3(1.0, 0.95, 1.0) * uStarFlare * (exp(-max(rr - 1.0, 0.0) * 1.2) * 3.0 + smoothstep(1.0, 0.0, rr) * 6.0);
           gl_FragColor = vec4(col, 1.0);

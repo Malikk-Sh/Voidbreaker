@@ -29,6 +29,8 @@ export class AudioEngine {
   reverbSend!: GainNode;
   /** Общий узел всего, кроме «чистых» звуков: тишина Раскола (−24 дБ). */
   hush!: GainNode;
+  /** ФНЧ на всём, кроме «чистых» звуков: схлопывание Колодца глушит мир. */
+  muffleFilter!: BiquadFilterNode;
   clearBus!: GainNode;
   private buffers = new Map<string, AudioBuffer[]>();
   private recent = new Map<string, number[]>();
@@ -58,7 +60,9 @@ export class AudioEngine {
       this.limiter.attack.value = 0.001; this.limiter.release.value = 0.1;
       this.master = ctx.createGain();
       this.master.connect(this.comp).connect(this.limiter).connect(ctx.destination);
-      this.hush = ctx.createGain(); this.hush.connect(this.master);
+      this.hush = ctx.createGain();
+      this.muffleFilter = ctx.createBiquadFilter(); this.muffleFilter.type = 'lowpass'; this.muffleFilter.frequency.value = 20000; this.muffleFilter.Q.value = 0.6;
+      this.hush.connect(this.muffleFilter).connect(this.master);
       this.clearBus = ctx.createGain(); this.clearBus.connect(this.master);
       this.sfxBus = ctx.createGain(); this.sfxBus.connect(this.hush);
       this.voiceBus = ctx.createGain(); this.voiceBus.connect(this.hush);
@@ -167,6 +171,17 @@ export class AudioEngine {
     g.linearRampToValueAtTime(depth, t + 0.015);
     g.setValueAtTime(depth, t + Math.max(0.015, sec));
     g.linearRampToValueAtTime(1, t + sec + 0.05);
+  }
+
+  /** Заглушить мир (ФНЧ) на sec секунд; «чистые» звуки — поверх. */
+  muffle(sec: number, freq = 480): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, f = this.muffleFilter.frequency;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(f.value, t);
+    f.exponentialRampToValueAtTime(freq, t + Math.min(0.12, sec * 0.5));
+    f.setValueAtTime(freq, t + sec);
+    f.exponentialRampToValueAtTime(20000, t + sec + 0.12);
   }
 
   /** Снять тишину сразу (пропуск Раскола). */
