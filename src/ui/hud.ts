@@ -88,10 +88,15 @@ export class Hud {
   showHint(text: string): void { this.hint = { text, t: 0 }; }
   pulseUlt(): void { this.ultPulse = 1; }
   waveBanner(index: number, total: number): void {
-    this.banners.push({ text: `Волна ${ROMAN[index] ?? index + 1}`, sub: index + 1 === total ? 'финальная' : undefined, t: 0, dur: 1.6, color: 'gold', size: 40, y: 0.28 });
+    this.pushBanner({ text: `Волна ${ROMAN[index] ?? index + 1}`, sub: index + 1 === total ? 'финальная' : undefined, t: 0, dur: 1.6, color: 'gold', size: 40, y: 0.28 });
   }
   bigBanner(text: string, sub: string | undefined, color: Banner['color'], dur = 2.4, size = 56): void {
-    this.banners.push({ text, sub, t: 0, dur, color, size, y: 0.3 });
+    this.pushBanner({ text, sub, t: 0, dur, color, size, y: 0.3 });
+  }
+  /** Новый титул вытесняет прежние: те быстро уходят, а не накладываются буквами друг на друга. */
+  private pushBanner(b: Banner): void {
+    for (const o of this.banners) o.t = Math.max(o.t, o.dur - 0.3);
+    this.banners.push(b);
   }
   clear(): void { this.nums = []; this.banners = []; this.sub = null; this.hint = null; this.hpTrail = 1; this.lastHp = 1; }
 

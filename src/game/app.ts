@@ -186,7 +186,7 @@ export class App {
       this.screenEl?.remove(); this.screenEl = null;
       if (this.showcase) { this.showcase.dispose(); this.showcase = null; }
       this.pauseBtn.style.display = 'block';
-      if (p.has('wave')) this.game.battle!.runner.skipTo(Number(p.get('wave')));
+      if (p.has('wave')) { const b = this.game.battle!; b.runner.skipTo(Number(p.get('wave'))); b.cine.clear(b.cam); }
       this.game.battle!.world.bus.on('playerHurt', (e) => { this.lastDeathSource = e.source; });
       if (p.has('god')) { const hh = this.game.battle!.world.hero; const orig = hh.receiveAttack.bind(hh); hh.receiveAttack = (d, x, z, s2, k) => orig(0 * d, x, z, s2, k); }
       addEventListener('pointerdown', () => this.ctx.audio.unlock(), { once: true });

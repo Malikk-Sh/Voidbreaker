@@ -25,6 +25,7 @@ export class FeelSystem {
   private voidMoment = 0;
   private zoomCine = 0;
   private letterbox = 0;
+  private lastAbyssText = -9;
   private lowHpBeat = 0;
   private waveSlots: { x: number; z: number; t: number; life: number; r: number; s: number }[] = [];
   private lastVoice = -99;
@@ -192,7 +193,11 @@ export class FeelSystem {
       }),
       b.on('fall', (e) => {
         if (e.hero) { this.audio.play('swing_heavy', { pitch: 0.5 }); this.hud.flashText('ПАДЕНИЕ', '#FF4A57'); }
-        else this.audio.play('shatter', { pitch: 0.6, gain: 0.5 });
+        else {
+          this.audio.play('shatter', { pitch: 0.6, gain: 0.5 });
+          // сброшен в бездну — отдельная похвала, не чаще раза в секунду
+          if (this.time.real - this.lastAbyssText > 1.2) { this.lastAbyssText = this.time.real; this.hud.flashText('В БЕЗДНУ', '#8fd8ef'); }
+        }
       }),
       b.on('rank', (e) => { if (e.up) this.audio.play('rank_up', { gain: 0.5, pitch: 0.9 + ['C', 'B', 'A', 'S', 'SS'].indexOf(e.rank) * 0.06 }); }),
       b.on('voice', (e) => this.voice(e.line, 0, e.speaker)),

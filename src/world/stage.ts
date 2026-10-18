@@ -39,6 +39,9 @@ export class StageRunner {
 
   get waveTotal(): number { return this.def.waves.length; }
 
+  /** Интро пропущено (кат-сцена закончилась раньше) — первая волна почти сразу. */
+  skipIntro(): void { if (this.phase === 'intro') this.introTime = Math.min(this.introTime, this.t + 0.2); }
+
   /** Отладка: начать сразу с волны i. */
   skipTo(i: number): void { this.introTime = 0.3; this.startAtWave = Math.min(i, this.waveTotal - 1); }
   private startAtWave = 0;

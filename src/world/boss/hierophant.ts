@@ -399,6 +399,7 @@ export class HierophantController implements BossController {
     w.bus.emit('sfx', { id: 'boss_roar', x: b.x, z: b.z });
     w.bus.emit('shake', { trauma: 0.8 });
     w.bus.emit('bossPhase', { phase: 2 });
+    this.host.banner('НАБАТ', 'Вторая фаза');
   }
 
   private stepTransition(dt: number): void {
@@ -463,7 +464,9 @@ export class HierophantController implements BossController {
       w.bus.emit('shockwave', { x: b.x, z: b.z, r: 16, color: 'void', strength: 1.6 });
       w.bus.emit('sfx', { id: 'victory', x: b.x, z: b.z });
       w.bus.emit('shake', { trauma: 0.8 });
+      this.host.banner('ИЕРОФАНТ ПОВЕРЖЕН', 'Колокол умолк');
     }
+    if (this.deathT > 2.4 && this.lines < 5) { this.lines = 5; this.host.say('Колокол умолк. Слышишь тишину, Пилот? Это — наша.', 'kaelis'); }
     this.host.starFlare(clamp((this.deathT - 0.9) / 0.6, 0, 1) * clamp(1 - (this.deathT - 3) / 2, 0, 1));
   }
 

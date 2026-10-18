@@ -252,3 +252,64 @@ export function arp(ctx: Ctx, out: AudioNode, t: number, m: number, dur: number,
   const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = mtof(m); o.detune.value = detune;
   o.connect(f).connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
 }
+
+/** Струнное остинато (спиккато): две расстроенные пилы, полосовой «смычок», короткая огибающая. */
+export function strings(ctx: Ctx, out: AudioNode, t: number, m: number, dur: number, gain = 0.05, detune = 0): void {
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 1.2;
+  f.frequency.setValueAtTime(mtof(m) * 6, t);
+  f.frequency.exponentialRampToValueAtTime(mtof(m) * 2.2, t + dur);
+  const body = ctx.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 900; body.gain.value = 5; body.Q.value = 0.8;
+  const g = ctx.createGain();
+  env(g.gain, t, gain, 0.008, dur);
+  f.connect(body).connect(g).connect(out);
+  for (const d of [-7, 6]) {
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.value = mtof(m); o.detune.value = d + detune;
+    o.connect(f); o.start(t); o.stop(t + dur + 0.05);
+  }
+}
+
+/** Медь: стек пил с «раскрывающимся» фильтром (бвааа), суб-октава и сатурация — стабы и проводки. */
+export function brass(ctx: Ctx, out: AudioNode, t: number, notes: number[], dur: number, gain = 0.07, swell = false): void {
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 3.5;
+  const a = swell ? dur * 0.6 : 0.05;
+  f.frequency.setValueAtTime(260, t);
+  f.frequency.exponentialRampToValueAtTime(swell ? 2600 : 3200, t + a);
+  f.frequency.exponentialRampToValueAtTime(700, t + a + Math.max(0.12, dur - a));
+  const sat = saturator(ctx, 1.6);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(gain, t + a);
+  g.gain.setValueAtTime(gain, t + Math.max(a, dur * 0.7));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.35);
+  f.connect(sat).connect(g).connect(out);
+  for (const m of notes) for (const d of [-8, 0, 7]) {
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.value = mtof(m); o.detune.value = d;
+    o.connect(f); o.start(t); o.stop(t + dur + 0.4);
+  }
+  const sub = ctx.createOscillator(); sub.type = 'triangle'; sub.frequency.value = mtof(notes[0] - 12);
+  const sg = ctx.createGain(); sg.gain.value = 0.6; sub.connect(sg).connect(f); sub.start(t); sub.stop(t + dur + 0.4);
+}
+
+/** Тайко: глубокий мембранный удар с телом из розового шума. */
+export function taiko(ctx: Ctx, out: AudioNode, t: number, f = 62, gain = 0.8): void {
+  const o = ctx.createOscillator(), g = ctx.createGain(), sat = saturator(ctx, 1.8);
+  o.frequency.setValueAtTime(f * 2.2, t);
+  o.frequency.exponentialRampToValueAtTime(f, t + 0.06);
+  env(g.gain, t, gain, 0.002, 0.7);
+  o.connect(sat).connect(g).connect(out); o.start(t); o.stop(t + 0.8);
+  noiseHit(ctx, out, t, 0.25, f * 5, gain * 0.55, 'lowpass', 1.2, 'pink');
+  noiseHit(ctx, out, t, 0.02, 2500, gain * 0.25, 'bandpass', 1);
+}
+
+/** «Бум»: огромный кинематографичный удар — суб-падение, шумовой взрыв, длинный хвост. */
+export function boom(ctx: Ctx, out: AudioNode, t: number, gain = 0.9): void {
+  const o = ctx.createOscillator(), g = ctx.createGain(), sat = saturator(ctx, 2.2);
+  o.frequency.setValueAtTime(110, t);
+  o.frequency.exponentialRampToValueAtTime(28, t + 1.2);
+  env(g.gain, t, gain, 0.003, 2.2);
+  o.connect(sat).connect(g).connect(out); o.start(t); o.stop(t + 2.4);
+  noiseHit(ctx, out, t, 1.6, 400, gain * 0.7, 'lowpass', 0.8, 'pink');
+  noiseHit(ctx, out, t, 0.05, 3000, gain * 0.3, 'bandpass', 0.8);
+}

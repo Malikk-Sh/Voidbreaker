@@ -1,5 +1,5 @@
 import type { AudioEngine } from './engine';
-import { bass, bell, choir, hat, industrial, kick, mtof, organ, pad, snare, tom, arp, type Ctx } from './synth';
+import { bass, bell, boom, brass, choir, hat, industrial, kick, mtof, organ, pad, snare, strings, taiko, tom, arp, type Ctx } from './synth';
 import { Rng } from '../core/rng';
 
 type Layer = 'A' | 'B' | 'C' | 'D';
@@ -64,6 +64,9 @@ export class Sequencer {
     });
     await Promise.all(jobs);
   }
+
+  /** Запечь заранее (тема стража/босса) — переключение потом без паузы. */
+  preload(song: Song): void { void this.load(song); }
 
   play(song: Song, intensity = 0.3): void {
     if (!this.engine.ctx) return;
@@ -165,11 +168,16 @@ export class Sequencer {
 
 // ======================================================================== песни
 const D = 50; // ре малой октавы
-/** Аккорды ре фригийского: i, ♭II, ♭VI, ♭vii. */
+/** Аккорды ре фригийского: i, ♭II, ♭VI, ♭vii (Святилище). */
 const CHORDS: Record<string, number[]> = {
   Dm: [D, D + 3, D + 7], Eb: [D + 1, D + 5, D + 8], Bb: [D - 4, D, D + 3], Cm: [D - 2, D + 1, D + 5], Gm: [D + 5, D + 8, D + 12],
 };
-const PROG = [['Dm', 'Eb', 'Dm', 'Cm'], ['Dm', 'Bb', 'Eb', 'Dm'], ['Dm', 'Eb', 'Bb', 'Cm']];
+
+/** Ступени лада от тоники (полутона трезвучия). */
+const DEG: Record<string, [number, number, number]> = {
+  i: [0, 3, 7], iv: [5, 8, 12], v: [7, 10, 14], V: [7, 11, 14],
+  bII: [1, 5, 8], bIII: [3, 7, 10], bVI: [-4, 0, 3], bVII: [-2, 2, 5], bvii: [-2, 1, 5],
+};
 
 function drumBakes(): Record<string, BakeSpec> {
   return {
@@ -180,6 +188,9 @@ function drumBakes(): Record<string, BakeSpec> {
     tomL: { len: 0.6, render: (c, o, t) => tom(c, o, t, 80, 0.6) },
     tomH: { len: 0.6, render: (c, o, t) => tom(c, o, t, 125, 0.5) },
     ind: { len: 0.5, render: (c, o, t) => industrial(c, o, t, 0.4, 196) },
+    taiko: { len: 0.9, render: (c, o, t) => taiko(c, o, t, 58, 0.85) },
+    taikoHi: { len: 0.9, render: (c, o, t) => taiko(c, o, t, 96, 0.6) },
+    boom: { len: 2.6, render: (c, o, t) => boom(c, o, t, 0.85) },
     bellD: { len: 4, render: (c, o, t) => bell(c, o, t, mtof(62), 0.18, 4) },
     bellA: { len: 4, render: (c, o, t) => bell(c, o, t, mtof(57), 0.16, 4) },
     bellLow: { len: 5, render: (c, o, t) => bell(c, o, t, mtof(38), 0.3, 5) },
@@ -187,11 +198,16 @@ function drumBakes(): Record<string, BakeSpec> {
   };
 }
 
-function chordBakes(barSec: number): Record<string, BakeSpec> {
+/** Запечённые аккорды: пэд, хорал, медные стабы и «вздохи», хоровой скандированный слог. */
+function chordBakes(barSec: number, chords: Record<string, number[]>, epic = false): Record<string, BakeSpec> {
   const out: Record<string, BakeSpec> = {};
-  for (const [k, notes] of Object.entries(CHORDS)) {
+  for (const [k, notes] of Object.entries(chords)) {
     out['pad_' + k] = { len: barSec * 2 + 1.5, render: (c, o, t) => pad(c, o, t, notes.map((n) => n + 12), barSec * 2, 0.05, 1100) };
     out['choir_' + k] = { len: barSec * 2 + 1.5, render: (c, o, t) => choir(c, o, t, [...notes.map((n) => n + 12), notes[0] + 24], barSec * 2, 0.055, 'a', 'o') };
+    if (!epic) continue;
+    out['brass_' + k] = { len: 1.1, render: (c, o, t) => brass(c, o, t, notes, 0.42, 0.075) };
+    out['swell_' + k] = { len: barSec * 2 + 0.6, render: (c, o, t) => brass(c, o, t, [notes[0] - 12, ...notes], barSec * 2 - 0.2, 0.06, true) };
+    out['chant_' + k] = { len: 1.3, render: (c, o, t) => choir(c, o, t, [notes[0] + 12, notes[2] + 12], 0.28, 0.09, 'a', 'a') };
   }
   return out;
 }
@@ -199,43 +215,129 @@ function chordBakes(barSec: number): Record<string, BakeSpec> {
 const HAT_ACC = [1, 0.4, 0.7, 0.4, 1, 0.4, 0.7, 0.5, 1, 0.4, 0.7, 0.4, 1, 0.5, 0.8, 0.6];
 const BASS_PAT = [[0, 0, 12, 0, 0, 7, 0, 12], [0, 12, 0, 0, 10, 0, 12, 0], [0, 0, 0, 12, 0, 0, 7, 10]];
 
-/** Зона 01: ре фригийский, 140 BPM — орган, колокола, мрачный хорал (GDD §18.3). */
-export function zone1Song(): Song {
-  const bpm = 140, barSec = (60 / bpm) * 4;
-  let prog = PROG[0], bassPat = BASS_PAT[0];
+type Groove = 'march' | 'gallop' | 'taiko' | 'drive' | 'double' | 'halftime';
+const KICK: Record<Groove, number[]> = {
+  march: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0.7, 0, 0, 0, 0],
+  gallop: [1, 0, 0, 0.7, 1, 0, 0, 0.7, 1, 0, 0, 0.7, 1, 0, 0.7, 0.7],
+  taiko: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+  drive: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+  double: [1, 0, 0.8, 0, 1, 0, 0.8, 0, 1, 0, 0.8, 0, 1, 0, 0.8, 0],
+  halftime: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+};
+const TAIKO = [1, 0, 0, 0.6, 0, 0, 0.8, 0, 1, 0, 0.6, 0, 0.8, 0, 0.6, 0.6];
+/** Остинато струнных: индексы тонов аккорда [1, 3, 5, 1', 3'], −1 — пауза. */
+const OST = {
+  pulse: [0, -1, 0, 2, 0, -1, 0, 3, 0, -1, 0, 2, 1, -1, 2, 3],
+  gallop: [0, -1, 0, 0, 0, -1, 0, 0, 2, -1, 2, 2, 1, -1, 1, 1],
+  run: [0, 0, 2, 0, 3, 0, 2, 0, 0, 0, 2, 0, 4, 0, 2, 0],
+  sparse: [0, -1, -1, 0, -1, -1, 2, -1, 0, -1, -1, 0, -1, -1, 3, -1],
+};
+
+interface EpicCfg {
+  id: string; bpm: number; root: number;
+  progs: string[][];
+  groove: Groove;
+  ost: number[];
+  /** Шаги такта с медными стабами (слой D). */
+  brassAt: number[];
+  organ?: boolean; bells?: boolean;
+  /** Стражи и босс: скандирующий хор, «бумы», во второй фазе — двойная бочка 16-ми. */
+  harsh?: boolean;
+  /** Иерофант: набат колоколов во второй фазе. */
+  tocsin?: boolean;
+}
+
+/**
+ * Эпический боевой трек (GDD §18.3): струнное остинато, медь, тайко, хор. Слои по интенсивности:
+ * A — пэд/орган/колокол, B — бас, бочка, струнные, C — ударные и тайко, D — хор, медь, мелодия.
+ * phase ≥ 1 (ярость стража, вторая фаза босса) — плотнее и жёстче.
+ */
+function epicSong(cfg: EpicCfg): Song {
+  const barSec = (60 / cfg.bpm) * 4;
+  const used = new Set(cfg.progs.flat());
+  const chords: Record<string, number[]> = {};
+  for (const d of used) chords[d] = DEG[d].map((n) => cfg.root + n);
+  let prog = cfg.progs[0], bassPat = BASS_PAT[0];
+  const hatsOn16 = cfg.groove === 'drive' || cfg.groove === 'double' || cfg.groove === 'gallop';
   return {
-    id: 'zone1', bpm,
-    bake: { ...drumBakes(), ...chordBakes(barSec) },
+    id: cfg.id, bpm: cfg.bpm,
+    bake: { ...drumBakes(), ...chordBakes(barSec, chords, true) },
     schedule(s, step, t) {
       const inBar = step % 16, bar = (step / 16) | 0, inCycle = bar % 8;
-      if (step % 128 === 0) { prog = s.rng.pick(PROG); bassPat = s.rng.pick(BASS_PAT); }
-      const chord = prog[(inCycle / 2) | 0];
-      const root = CHORDS[chord][0];
+      if (step % 128 === 0) { prog = s.rng.pick(cfg.progs); bassPat = s.rng.pick(BASS_PAT); }
+      const ch = prog[(inCycle / 2) | 0];
+      const tones = chords[ch];
+      const root = tones[0];
       const det = s.detuneCents;
-      // A — эмбиент: пэд + органный дрон
+      const rage = s.phase >= 1;
+      const fill = inCycle === 7 && inBar >= 8;
+      // A — пэд, органный дрон, колокол на начале цикла
       if (inBar === 0 && inCycle % 2 === 0) {
-        s.buf('pad_' + chord, t, 'A', 0.9);
-        s.live('A', (c, o, tt) => organ(c, o, tt, mtof(root - 12) * Math.pow(2, det / 1200), barSec * 2 - 0.1, 0.06), t);
+        s.buf('pad_' + ch, t, 'A', 0.8);
+        if (cfg.organ) s.live('A', (c, o, tt) => organ(c, o, tt, mtof(root - 12) * Math.pow(2, det / 1200), barSec * 2 - 0.1, 0.06), t);
       }
-      // B — пульс: бас и бочка
-      if (inBar % 2 === 0) s.live('B', (c, o, tt) => bass(c, o, tt, root - 12 + bassPat[(inBar / 2) | 0], 0.16, 0.2, det), t);
-      if (inBar % 4 === 0) s.buf('kick', t, 'B', inBar % 8 === 0 ? 1 : 0.8);
-      // C — ударные
-      s.buf('hat', t, 'C', HAT_ACC[inBar] * 0.8);
-      if (inBar === 4 || inBar === 12) s.buf('snare', t, 'C', 0.9);
-      if (inBar === 14 && bar % 2 === 1) s.buf('hatO', t, 'C', 0.6);
-      if (inBar === 10 || (inBar === 3 && bar % 2 === 0)) s.buf('ind', t, 'C', 0.5);
-      if (inCycle === 7 && inBar >= 10) s.buf(inBar % 2 ? 'tomL' : 'tomH', t, 'C', 0.8);
-      // D — хор и органный рифф
-      if (inBar === 0 && inCycle % 2 === 0) s.buf('choir_' + chord, t, 'D', 0.9);
-      if (inBar % 2 === 1) {
-        const tones = [...CHORDS[chord], CHORDS[chord][0] + 12];
-        const n = tones[((step >> 1) * 3) % tones.length] + 24;
-        s.live('D', (c, o, tt) => arp(c, o, tt, n, 0.12, 0.035, det), t);
+      if (inBar === 0 && inCycle % 4 === 0 && (cfg.bells || cfg.tocsin)) s.buf(cfg.tocsin ? 'bellLow' : 'bellD', t, 'A', 0.5);
+      // B — бас восьмыми, бочка грува, струнное остинато
+      if (inBar % 2 === 0) s.live('B', (c, o, tt) => bass(c, o, tt, root - 12 + bassPat[(inBar / 2) | 0], 0.15, cfg.harsh ? 0.24 : 0.2, det), t);
+      const kv = rage && cfg.harsh ? (inBar % 2 === 0 ? 1 : 0.75) : KICK[cfg.groove][inBar];
+      if (kv > 0) s.buf('kick', t, 'B', kv * (rage ? 0.7 : 0.9));
+      const oi = (rage ? OST.run : cfg.ost)[inBar];
+      if (oi >= 0) {
+        const n = (oi >= 3 ? tones[oi - 3] + 12 : tones[oi]) + 12;
+        s.live('B', (c, o, tt) => strings(c, o, tt, n, 60 / cfg.bpm / 4 * 0.9, 0.045, det), t);
       }
-      if (inBar === 0 && inCycle === 0) s.buf('bellD', t, 'A', 0.5);
+      // C — ударные: малый, хэты, тайко, брейки томов
+      const half = cfg.groove === 'halftime' || cfg.groove === 'taiko';
+      if (half ? inBar === 8 : inBar === 4 || inBar === 12) s.buf('snare', t, 'C', 0.9);
+      if (hatsOn16 || rage) s.buf('hat', t, 'C', HAT_ACC[inBar] * 0.7);
+      else if (inBar % 2 === 0) s.buf('hat', t, 'C', HAT_ACC[inBar] * 0.8);
+      if (cfg.groove === 'taiko' || cfg.harsh) { const tv = TAIKO[inBar]; if (tv > 0) s.buf(inBar % 4 === 0 ? 'taiko' : 'taikoHi', t, 'C', tv * 0.6); }
+      if (inBar === 10 || (inBar === 3 && bar % 2 === 0)) s.buf('ind', t, 'C', 0.45);
+      if (fill) s.buf(inBar % 2 ? 'tomL' : 'tomH', t, 'C', 0.85);
+      // D — хорал и медь на смене аккорда, стабы, скандирование, мелодия, «бум» на начало цикла
+      if (inBar === 0 && inCycle % 2 === 0) {
+        s.buf('choir_' + ch, t, 'D', 0.85);
+        if (inCycle % 4 === 0) s.buf('swell_' + ch, t, 'D', 0.7);
+      }
+      if (inBar === 0 && inCycle === 0 && (cfg.harsh || rage)) s.buf('boom', t, 'D', 0.55);
+      const stab = rage ? inBar % 4 === 0 || inBar === 14 : cfg.brassAt.includes(inBar);
+      if (stab) s.buf('brass_' + ch, t, 'D', rage ? 0.75 : 0.7);
+      if (cfg.harsh && (rage ? inBar % 4 === 0 : inBar === 0 || inBar === 8)) s.buf('chant_' + ch, t, 'D', 0.8);
+      if (inBar % 2 === 1 && !cfg.harsh) {
+        const lead = [...tones, tones[0] + 12];
+        const n = lead[((step >> 1) * 3) % lead.length] + 24;
+        s.live('D', (c, o, tt) => arp(c, o, tt, n, 0.12, 0.03, det), t);
+      }
+      // набат: колокол каждую долю, к концу цикла — восьмыми
+      if (cfg.tocsin && rage) {
+        const dense = inCycle >= 6 ? 2 : 4;
+        if (inBar % dense === 0) s.buf(inBar % 8 === 0 ? 'bellD' : 'bellA', t, 'D', 0.35);
+      }
     },
   };
+}
+
+/** Боевые темы этапов зоны 01: у каждого свой лад, темп и грув. */
+const STAGE_SONGS: Record<string, EpicCfg> = {
+  '1-1': { id: 'st-1-1', bpm: 138, root: 50, progs: [['i', 'bII', 'i', 'bvii'], ['i', 'bVI', 'bII', 'i']], groove: 'march', ost: OST.pulse, brassAt: [0, 10], organ: true, bells: true },
+  '1-2': { id: 'st-1-2', bpm: 146, root: 52, progs: [['i', 'bVI', 'bVII', 'i'], ['i', 'iv', 'bVI', 'bVII']], groove: 'gallop', ost: OST.gallop, brassAt: [0, 6, 12] },
+  '1-3': { id: 'st-1-3', bpm: 132, root: 48, progs: [['i', 'bVI', 'bVII', 'V'], ['i', 'iv', 'bVI', 'V']], groove: 'taiko', ost: OST.sparse, brassAt: [0, 8], organ: true },
+  '1-4': { id: 'st-1-4', bpm: 140, root: 53, progs: [['i', 'bIII', 'bVII', 'iv'], ['i', 'bVI', 'bIII', 'bVII']], groove: 'drive', ost: OST.run, brassAt: [0, 10], organ: true },
+  '1-5': { id: 'st-1-5', bpm: 156, root: 51, progs: [['i', 'bVII', 'bVI', 'bVII'], ['i', 'bII', 'bVI', 'V']], groove: 'double', ost: OST.run, brassAt: [0, 6, 8, 14] },
+  '1-6': { id: 'st-1-6', bpm: 144, root: 50, progs: [['i', 'bII', 'bVII', 'i'], ['i', 'bVI', 'bII', 'bvii']], groove: 'halftime', ost: OST.pulse, brassAt: [0, 3, 10], bells: true },
+};
+
+/** Тема этапа (по умолчанию — первая). */
+export function stageSong(stageId: string): Song { return epicSong(STAGE_SONGS[stageId] ?? STAGE_SONGS['1-1']); }
+
+/** Совместимость: тема зоны 01 = тема первого этапа. */
+export function zone1Song(): Song { return stageSong('1-1'); }
+
+/** Тема Стража: гармонический минор, тайко и скандирующий хор; в ярости — двойная бочка и медь на каждую долю. */
+export function guardianSong(kind: string): Song {
+  return epicSong(kind === 'bellRinger'
+    ? { id: 'guardian-bell', bpm: 152, root: 49, progs: [['i', 'bII', 'bVI', 'V'], ['i', 'bVI', 'iv', 'V']], groove: 'taiko', ost: OST.run, brassAt: [0, 3, 6, 10, 14], harsh: true, bells: true }
+    : { id: 'guardian-gate', bpm: 150, root: 48, progs: [['i', 'bVI', 'iv', 'V'], ['i', 'bII', 'bVI', 'V']], groove: 'taiko', ost: OST.gallop, brassAt: [0, 3, 6, 8, 11, 14], harsh: true });
 }
 
 /** Святилище: тот же лад, медленно, только эмбиент и колокола. */
@@ -243,7 +345,7 @@ export function hubSong(): Song {
   const bpm = 84, barSec = (60 / bpm) * 4;
   return {
     id: 'hub', bpm,
-    bake: { ...chordBakes(barSec), bellD: drumBakes().bellD, bellA: drumBakes().bellA },
+    bake: { ...chordBakes(barSec, CHORDS), bellD: drumBakes().bellD, bellA: drumBakes().bellA },
     schedule(s, step, t) {
       const inBar = step % 16, bar = (step / 16) | 0;
       const chord = ['Dm', 'Bb', 'Eb', 'Dm'][((bar % 8) / 2) | 0];
@@ -260,38 +362,10 @@ export function hubSong(): Song {
   };
 }
 
-/** Иерофант: колокола и орган; во второй фазе — «набат», ускоряющиеся удары колокола (GDD §18.4). */
+/** Иерофант (GDD §18.4): колокола, орган, медь и хор; во второй фазе — набат, двойная бочка, «бумы». */
 export function hierophantSong(): Song {
-  const bpm = 140, barSec = (60 / bpm) * 4;
-  return {
-    id: 'hierophant', bpm,
-    bake: { ...drumBakes(), ...chordBakes(barSec) },
-    schedule(s, step, t) {
-      const inBar = step % 16, bar = (step / 16) | 0, inCycle = bar % 8;
-      const chord = ['Dm', 'Eb', 'Gm', 'Eb'][(inCycle / 2) | 0];
-      const root = CHORDS[chord][0];
-      const det = s.detuneCents;
-      if (inBar === 0 && inCycle % 2 === 0) {
-        s.buf('pad_' + chord, t, 'A', 0.8);
-        s.buf('choir_' + chord, t, 'D', 1);
-        s.live('A', (c, o, tt) => organ(c, o, tt, mtof(root - 12) * Math.pow(2, det / 1200), barSec * 2 - 0.1, 0.08, [1, 0.8, 0.6, 0.5, 0.3, 0.25]), t);
-      }
-      if (inBar === 0) s.buf('bellLow', t, 'A', 0.6);
-      if (inBar % 2 === 0) s.live('B', (c, o, tt) => bass(c, o, tt, root - 12 + (inBar % 8 === 6 ? 12 : 0), 0.16, 0.22, det), t);
-      if (inBar % 4 === 0) s.buf('kick', t, 'B', 1);
-      if (inBar === 4 || inBar === 12) s.buf('snare', t, 'C', 1);
-      s.buf('hat', t, 'C', HAT_ACC[inBar] * 0.7);
-      if (inBar % 8 === 6) s.buf('ind', t, 'C', 0.6);
-      if (inCycle === 7 && inBar >= 8) s.buf(inBar % 2 ? 'tomL' : 'tomH', t, 'C', 0.9);
-      // набат: во второй фазе колокол бьёт каждую долю, к концу цикла — восьмыми
-      if (s.phase >= 1) {
-        const dense = inCycle >= 6 ? 2 : 4;
-        if (inBar % dense === 0) s.buf(inBar % 8 === 0 ? 'bellD' : 'bellA', t, 'D', 0.35);
-      }
-      if (inBar % 2 === 1 && s.phase >= 1) {
-        const tones = [...CHORDS[chord], CHORDS[chord][0] + 12];
-        s.live('D', (c, o, tt) => arp(c, o, tt, tones[(step >> 1) % tones.length] + 24, 0.1, 0.03, det), t);
-      }
-    },
-  };
+  return epicSong({
+    id: 'hierophant', bpm: 140, root: 50, progs: [['i', 'bII', 'iv', 'bII'], ['i', 'bVI', 'bII', 'V']],
+    groove: 'taiko', ost: OST.pulse, brassAt: [0, 6, 10], organ: true, harsh: true, tocsin: true,
+  });
 }

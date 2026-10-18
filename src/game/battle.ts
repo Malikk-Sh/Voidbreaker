@@ -12,10 +12,12 @@ import { CameraRig } from '../world/camera';
 import type { HeroStats } from '../world/heroStats';
 import { StageRunner } from '../world/stage';
 import { World } from '../world/world';
-import { zone1Song, hierophantSong } from '../audio/music';
+import { guardianSong, hierophantSong, stageSong } from '../audio/music';
 import { effectiveFlashes, type Settings } from '../meta/settings';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
+import { Cinematics } from './cinematics';
+import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
 import '../world/boss/guardians';
 import { Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
@@ -42,6 +44,7 @@ export class Battle {
   readonly enemies = new EnemyRenderer();
   readonly cam = new CameraRig();
   readonly feel: FeelSystem;
+  readonly cine: Cinematics;
   readonly abilities: Abilities;
   readonly group = new THREE.Group();
   private flames: Flames;
@@ -105,16 +108,37 @@ export class Battle {
     ctx.hud.subtitleScale = ctx.settings.subtitleSize;
     this.feel = new FeelSystem(this.world, ctx.time, this.cam, r.post, this.vfx, ctx.audio, ctx.music, ctx.input, ctx.hud,
       Battle.feelSettings(ctx.settings), r.camera);
+    this.cine = new Cinematics({
+      world: this.world,
+      letterbox: (v) => this.feel.setLetterbox(v),
+      slow: (scale, sec) => ctx.time.cinematic(sec, scale),
+      banner: (text, sub, color, dur, size) => ctx.hud.bigBanner(text, sub, color, dur, size),
+      say: (line, sp) => this.feel.voice(line, 0, sp),
+      flash: (v) => this.feel.whiteFlash(v),
+      musicPhase: (p) => { ctx.music.phase = p; },
+      stinger: () => ctx.music.stinger('stinger'),
+      skipRequested: () => ctx.input.buffer.peek('attack', ctx.input.now) || ctx.input.buffer.peek('dash', ctx.input.now),
+      once: (f) => { if (ctx.flag(f)) return false; ctx.setFlag(f); return true; },
+    });
     this.bindEvents();
     ctx.time.reset();
-    ctx.music.play(stage.boss ? hierophantSong() : zone1Song(), 0.3);
+    if (!stage.boss) {
+      // пролёт над ареной; первая волна — когда камера опустится к Пилоту
+      const ab = this.arena.bounds;
+      this.runner.introTime = 3.0;
+      this.cine.stageIntro(stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => this.runner.skipIntro());
+    }
+    ctx.music.play(stage.boss ? hierophantSong() : stageSong(stage.id), 0.3);
+    // тема Стража запекается заранее — переключение на его появлении без паузы
+    const guardianWave = stage.waves.find((wv) => wv.guardian);
+    if (guardianWave) ctx.music.preload(guardianSong(guardianWave.spawns[0].enemy));
     ctx.music.onBeat = (bar, beat) => { if (beat === 0) this.rune.u.uPulse.value = 0.5; void bar; };
   }
 
   private bindEvents(): void {
     const b = this.world.bus, hud = this.ctx.hud, S = this.ctx;
     b.on('waveStart', (e) => {
-      hud.waveBanner(e.index, e.total);
+      if (!this.stage.boss) hud.waveBanner(e.index, e.total);
       if (e.index > 0) S.music.stinger('stinger');
       if (this.stage.tutorial === 'basics' && e.index === 0 && !S.flag('tut_move')) {
         S.setFlag('tut_move');
@@ -122,7 +146,17 @@ export class Battle {
       }
     });
     b.on('waveClear', () => { S.audio.play('wave_clear', { gain: 0.6 }); });
-    b.on('stageClear', () => { this.endT = 1.8; this.outcome = 'won'; });
+    b.on('stageClear', () => {
+      this.outcome = 'won';
+      if (this.stage.boss) { this.endT = 1.8; return; }
+      this.endT = this.cine.busy === 'down' ? 4.6 : 2.9;
+      this.cine.victory();
+    });
+    b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian); });
+    b.on('kill', (e) => {
+      const en = e.target as Enemy;
+      if (en.isGuardian && !en.isBoss) this.cine.guardianDown(en);
+    });
     b.on('heroDeath', () => { this.endT = 2.4; this.outcome = 'lost'; });
     b.on('dash', () => {
       this.dashCount++;
@@ -141,7 +175,9 @@ export class Battle {
       }
     });
     b.on('spawned', (e) => {
-      const en = e.actor as { kind?: string };
+      const en = e.actor as { kind?: string; isGuardian?: boolean; isBoss?: boolean };
+      if (en.isGuardian && !en.isBoss && en.kind) { S.music.play(guardianSong(en.kind), 0.9); this.cine.guardianIntro(e.actor as Enemy); }
+      else if ((e.actor as Enemy).elite?.length && !en.isBoss) this.cine.elite(e.actor as Enemy);
       if (this.stage.tutorial === 'charged' && en.kind === 'golem' && !S.flag('tut_charged')) {
         S.setFlag('tut_charged');
         hud.showHint('Удерживайте атаку — заряженный удар ломает стойку');
@@ -216,7 +252,7 @@ export class Battle {
     // конец этапа
     if (this.endT > 0) {
       this.endT -= realDt;
-      if (this.outcome === 'won' && this.endT < 1.0 && h.state !== 'victory' && !h.dead) h.victory();
+      if (this.outcome === 'won' && this.endT < (this.stage.boss ? 1.0 : 2.3) && h.state !== 'victory' && !h.dead) h.victory();
       if (this.endT <= 0) { this.endT = -1; this.onEnd?.({ cleared: this.outcome === 'won', world: this.world, stage: this.stage }); }
     }
   }
@@ -266,6 +302,7 @@ export class Battle {
     const lead = this.world.hero.state === 'move' ? 0.18 : 0;
     cam.update(realDt, tx, tz, h.vx * lead, h.vz * lead, this.ctx.renderer.camera);
     this.boss?.cameraOverride(cam, this.ctx.renderer.camera, realDt);
+    if (!this.ctx.time.paused) this.cine.update(realDt, cam);
   }
 
   /** Слои музыки по интенсивности боя (GDD §18.3). */
@@ -311,6 +348,7 @@ export class Battle {
   }
 
   dispose(): void {
+    this.cine.clear(this.cam);
     this.feel.dispose();
     this.world.hero.avatar.dispose();
     this.world.bus.clear();
