@@ -7,6 +7,7 @@ export interface AbilityHost {
   step(dtW: number, dtH: number): void;
   riftCrack(x: number, z: number, facing: number): void;
   eclipseWave(x: number, z: number, facing: number): void;
+  bladeWave(x: number, z: number, facing: number, mult: number, dist: number, r: number): void;
   onDash?(x: number, z: number, dx: number, dz: number): void;
   onKill(e: Enemy): void;
   canDeflect(): boolean;

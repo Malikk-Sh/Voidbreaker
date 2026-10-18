@@ -190,9 +190,9 @@ export class BattleVfx {
     // свет клинка героя
     if (!h.dead) {
       h.avatar.bladePoints(_v, _w);
-      const glow = 0.6 + (h.trailOn ? 1.2 : 0) + (h.eclipse ? 2 : 0) + h.chargeLevel * 0.8;
-      this.lights.add((_v.x + _w.x) / 2, (_v.y + _w.y) / 2 + 0.3, (_v.z + _w.z) / 2, C.void, glow * 2.2, 5 + (h.eclipse ? 3 : 0));
-      this.pools.addDynamic(h.x, h.z, 2.4 + (h.eclipse ? 1.5 : 0), C.void, 0.12 + glow * 0.05);
+      const glow = 0.3 + (h.trailOn ? 1.0 : 0) + (h.eclipse ? 2 : 0) + h.chargeLevel * 0.8;
+      this.lights.add((_v.x + _w.x) / 2, (_v.y + _w.y) / 2 + 0.3, (_v.z + _w.z) / 2, C.void, glow * 1.6, 4 + (h.eclipse ? 3 : 0));
+      this.pools.addDynamic(h.x, h.z, 2.0 + (h.eclipse ? 1.5 : 0), C.void, 0.05 + glow * 0.04);
       if (h.eclipse) {
         if (fxRng.chance(0.6)) this.add.emit({ x: h.x + fxRng.spread(0.6), y: fxRng.range(0, 1.8), z: h.z + fxRng.spread(0.6), vy: 2.5, life: 0.7, size: 0.1, size1: 0.02, color: C.voidHot, drag: 1, frame: 'star' });
       }
@@ -292,6 +292,17 @@ export class BattleVfx {
       }
     });
     for (const wv of ab.waves) {
+      if (wv.kind === 'blade') {
+        // полумесяц: дуга искр поперёк направления, концы отстают — серп летит вперёд
+        const n = Math.round(10 * this.quality) + 4;
+        for (let k = 0; k < n; k++) {
+          const f = (k / (n - 1)) * 2 - 1;
+          const back = f * f * 0.9;
+          this.add.emit({ x: wv.x - wv.dz * f * wv.r * 1.3 - wv.dx * back, y: 0.5 + (1 - Math.abs(f)) * 0.7, z: wv.z + wv.dx * f * wv.r * 1.3 - wv.dz * back, vx: wv.dx * 6, vz: wv.dz * 6, life: 0.16, size: 0.45 - Math.abs(f) * 0.25, size1: 0.04, color: Math.abs(f) < 0.35 ? C.core : C.voidHot, frame: 'spark', stretch: 1.2 });
+        }
+        this.lights.add(wv.x, 0.9, wv.z, C.void, 3.5, 5);
+        continue;
+      }
       for (let n = 0; n < 3; n++) {
         const side = fxRng.spread(1.3);
         this.add.emit({ x: wv.x + -wv.dz * side, y: 0.6 + fxRng.next() * 0.8, z: wv.z + wv.dx * side, vx: wv.dx * 4, vz: wv.dz * 4, vy: 0.5, life: 0.22, size: 0.35, size1: 0.05, color: C.voidHot, frame: 'spark', stretch: 1 });

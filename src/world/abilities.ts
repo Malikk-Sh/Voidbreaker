@@ -14,7 +14,7 @@ export interface Loadout {
 
 export interface Sickle { x: number; z: number; vx: number; vz: number; out: boolean; dist: number; max: number; hover: number; hits: Set<number>; rot: number; alive: boolean; hitT: number }
 export interface Well { x: number; z: number; t: number; dur: number; exploded: boolean; follow: boolean; horizon: boolean; alive: boolean; boom: number }
-export interface Wave { x: number; z: number; dx: number; dz: number; dist: number; hits: Set<number>; alive: boolean; r: number }
+export interface Wave { x: number; z: number; dx: number; dz: number; dist: number; hits: Set<number>; alive: boolean; r: number; kind: 'eclipse' | 'blade'; mult: number; max: number; speed: number }
 export interface Phantom { x: number; z: number; facing: number; t: number; fired: boolean; alive: boolean }
 
 /**
@@ -180,7 +180,13 @@ export class Abilities implements AbilityHost {
 
   eclipseWave(x: number, z: number, facing: number): void {
     const dx = Math.sin(facing), dz = Math.cos(facing);
-    this.waves.push({ x: x + dx * 1.2, z: z + dz * 1.2, dx, dz, dist: 0, hits: new Set(), alive: true, r: 1.4 });
+    this.waves.push({ x: x + dx * 1.2, z: z + dz * 1.2, dx, dz, dist: 0, hits: new Set(), alive: true, r: 1.4, kind: 'eclipse', mult: this.mul('eclipse'), max: 6, speed: 16 });
+  }
+
+  /** Волна клинка (полный заряд): летит вперёд и пробивает строй. */
+  bladeWave(x: number, z: number, facing: number, mult: number, dist: number, r: number): void {
+    const dx = Math.sin(facing), dz = Math.cos(facing);
+    this.waves.push({ x: x + dx * 1.0, z: z + dz * 1.0, dx, dz, dist: 0, hits: new Set(), alive: true, r, kind: 'blade', mult, max: dist, speed: 20 });
   }
 
   riftCrack(x: number, z: number, facing: number): void {
@@ -281,12 +287,13 @@ export class Abilities implements AbilityHost {
 
     // волны Затмения
     for (const wv of this.waves) {
-      const step = 16 * dtW;
+      const step = wv.speed * dtW;
       wv.x += wv.dx * step; wv.z += wv.dz * step; wv.dist += step;
+      const blade = wv.kind === 'blade';
       w.heroStrike({ k: 'circle', x: wv.x, z: wv.z, r: wv.r }, wv.hits, {
-        mult: this.mul('eclipse'), posture: 4, knockback: 1.5, feel: 'light', dirX: wv.dx, dirZ: wv.dz, source: 'ability', abilityId: 'eclipseWave', noResonance: true,
+        mult: wv.mult, posture: blade ? 10 : 4, knockback: blade ? 3 : 1.5, feel: blade ? 'medium' : 'light', dirX: wv.dx, dirZ: wv.dz, source: blade ? 'blade' : 'ability', abilityId: blade ? 'bladeWave' : 'eclipseWave', noResonance: !blade,
       });
-      if (wv.dist > 6 || w.arena.blocked(wv.x, wv.z, 0.3)) wv.alive = false;
+      if (wv.dist > wv.max || w.arena.blocked(wv.x, wv.z, 0.3)) wv.alive = false;
     }
     this.waves = this.waves.filter((wv) => wv.alive);
 

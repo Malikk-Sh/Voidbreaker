@@ -68,6 +68,8 @@ export class Hero implements Actor {
   resonance = 0;
   perfectReadyAt = 0;
   perfectBuff = false;
+  /** До этого момента атака превращается в Контрудар (после идеального уклонения). */
+  counterUntil = 0;
   secondWindUsed = false;
   eclipseUntil = 0;
   // падение в бездну
@@ -237,7 +239,7 @@ export class Hero implements Actor {
     // атака
     if (buf.peek('attack', now)) {
       if (st === 'move') { buf.consume('attack', now); this.startAttack(input, mvx, mvz, hasStick); return; }
-      if (st === 'attack' && this.move && this.stateT >= this.move.chain[0] / this.atkSpeed && this.move.id !== 'rift') {
+      if (st === 'attack' && this.move && this.stateT >= this.move.chain[0] / this.atkSpeed && !this.move.noChain) {
         buf.consume('attack', now); this.startAttack(input, mvx, mvz, hasStick); return;
       }
     }
@@ -305,12 +307,18 @@ export class Hero implements Actor {
     let next: MoveDef;
     const since = this.clock - this.lastMoveStart;
     const prev = this.lastMove;
-    if (this.clock - this.lastDashEnd <= 0.2 && this.state === 'move') next = W.lunge;
+    // ветки комбо (GDD §5.2, расширено):
+    //  удар×4 → «Нисходящий разлом»; рывок → Рассечение → Восходящий месяц → Звездопад;
+    //  пауза после 2-го удара → Шквал → Крест; атака сразу после идеального уклонения → Контрудар
+    if (this.clock < this.counterUntil && (this.state === 'move' || this.state === 'dash')) { next = W.counter; this.counterUntil = 0; }
+    else if (this.clock - this.lastDashEnd <= 0.2 && this.state === 'move') next = W.lunge;
     else if (prev === W.combo[1] && since >= 0.4 && since <= 0.7 && this.state === 'move') next = W.flurry;
-    else if (prev && since <= prev.chain[1] / this.atkSpeed) {
-      if (prev === W.flurry || prev === W.combo[2]) next = W.combo[3];
-      else if (prev === W.lunge) next = W.combo[1];
-      else if (prev === W.combo[3]) next = W.combo[0];
+    else if (prev && since <= prev.chain[1] / this.atkSpeed && !prev.noChain) {
+      if (prev === W.flurry) next = W.cross;
+      else if (prev === W.lunge) next = W.rising;
+      else if (prev === W.rising) next = W.skyfall;
+      else if (prev === W.counter) next = W.combo[2];
+      else if (prev === W.combo[2]) next = W.combo[3];
       else next = W.combo[Math.min(3, W.combo.indexOf(prev) + 1)] ?? W.combo[0];
     } else next = W.combo[0];
 
@@ -322,9 +330,26 @@ export class Hero implements Actor {
     else if (input.aimActive) { fx = input.aimX; fz = input.aimZ; }
     this.facing = angleOf(fx, fz);
 
+    // Контрудар: мгновенно сквозь цель (за спину), разрез-вращение
+    if (next.blink) {
+      const tg = t ?? this.pickTarget(0, 0, false);
+      if (tg) {
+        const dx = tg.x - this.x, dz = tg.z - this.z, d = Math.hypot(dx, dz) || 1;
+        const go = d + tg.radius + 0.9;
+        const o = { x: this.x, z: this.z };
+        this.world.bus.emit('dash', { x: this.x, z: this.z, dirX: dx / d, dirZ: dz / d });
+        this.world.arena.move(this.x, this.z, (dx / d) * go, (dz / d) * go, this.radius, o);
+        this.x = o.x; this.z = o.z;
+        this.facing = angleOf(-dx, -dz);
+        this.invulnUntil = Math.max(this.invulnUntil, this.clock + 0.3);
+      }
+      this.beginMove(next, 0);
+      return;
+    }
+
     // магнетизм: подтягивание к цели на 0.6 м, если она в 2.5 м
     let lunge = next.lunge * 0.4;
-    if (next.id === 'lunge') lunge = next.lunge;
+    if (next.id === 'lunge' || next.id === 'skyfall') lunge = next.lunge;
     else if (t) {
       const d = Math.hypot(t.x - this.x, t.z - this.z) - t.radius - this.radius - 0.35;
       if (d < AIM.magnetRange) lunge = clamp(d, 0, Math.max(AIM.magnetDist, next.lunge * 0.6));
@@ -346,6 +371,7 @@ export class Hero implements Actor {
     this.vx *= 0.2; this.vz *= 0.2;
     this.avatar.puppet.play(m.clip, this.atkSpeed, m.id === 'slash1' ? 0.04 : 0.03);
     this.world.bus.emit('swing', { kind: m.swing });
+    this.world.bus.emit('moveStart', { id: m.id });
   }
 
   private updateAttack(dt: number): void {
@@ -378,7 +404,9 @@ export class Hero implements Actor {
       case 'trailOn': this.trailOn = true; break;
       case 'trailOff': this.trailOn = false; break;
       case 'impact': {
-        const r = this.move?.hitbox.shape === 'circle' ? this.move.hitbox.radius : 3;
+        const m = this.move;
+        if (m?.wave) this.world.abilities.bladeWave(this.x, this.z, this.facing, m.wave.mult, m.wave.dist, m.wave.r);
+        const r = m?.hitbox.shape === 'circle' ? m.hitbox.radius : 3;
         const off = 0.7;
         this.world.bus.emit('impact', { x: this.x + Math.sin(this.facing) * off, z: this.z + Math.cos(this.facing) * off, r, kind: 'rift' });
         if (this.stats.riftCrack) {
@@ -389,6 +417,7 @@ export class Hero implements Actor {
       }
       case 'release': this.castRelease?.(); this.castRelease = null; break;
       case 'stab': this.world.bus.emit('swing', { kind: 'stab' }); break;
+      case 'swing2': this.world.bus.emit('swing', { kind: 'heavy' }); break;
     }
   }
 
@@ -414,7 +443,7 @@ export class Hero implements Actor {
     const feel = charged ? (this.chargeLevel >= 2 ? 'heavy' : 'medium') : m.feel;
     const n = this.world.heroStrike(shape, this.hitList, {
       mult, posture, knockback: m.knockback * (charged ? 2 : 1), feel, finisher: !!m.finisher || charged,
-      dirX: Math.sin(this.facing), dirZ: Math.cos(this.facing), pierce: true, source: 'blade',
+      dirX: Math.sin(this.facing), dirZ: Math.cos(this.facing), pierce: true, source: 'blade', launch: m.launch,
     });
     if (n > 0 && this.eclipse && !this.hitWaveDone) {
       this.hitWaveDone = true;
@@ -445,7 +474,8 @@ export class Hero implements Actor {
     this.chargedMul = full ? C.dmg[1] : C.dmg[0];
     this.chargedPosture = full ? C.posture[1] : C.posture[0];
     this.chargedWide = full ? 1.5 : 1;
-    const m: MoveDef = { id: 'charged', clip: 'charged', dur: 0.36, chain: [0.3, 0.5], dashCancelFrom: 0.14, hitbox: { shape: 'line', length: C.length, width: C.width }, dmg: this.chargedMul, posture: this.chargedPosture, knockback: 3, feel: full ? 'heavy' : 'medium', lunge: 1.6, finisher: true, swing: 'heavy' };
+    // нисходящий рассекающий удар из-за головы; полный заряд — ещё и волна Пустоты на 9 м
+    const m: MoveDef = { id: 'charged', clip: 'cleave', dur: 0.5, chain: [0.4, 0.62], dashCancelFrom: 0.16, hitbox: { shape: 'line', length: C.length, width: C.width }, dmg: this.chargedMul, posture: this.chargedPosture, knockback: 3, feel: full ? 'heavy' : 'medium', lunge: 1.4, finisher: true, swing: 'heavy', wave: full ? { mult: 2.2, dist: 9, r: 1.5 } : undefined };
     if (this.target) this.facing = angleOf(this.target.x - this.x, this.target.z - this.z);
     this.beginMove(m, 1.6);
     this.state = 'charged';
@@ -512,6 +542,7 @@ export class Hero implements Actor {
       if (this.inPerfectWindow && this.clock >= this.perfectReadyAt) {
         this.perfectReadyAt = this.clock + PLAYER_BASE.perfectCooldown;
         this.perfectBuff = true;
+        this.counterUntil = this.clock + 0.8;
         this.addResonance(RESONANCE.perPerfectDodge);
         this.world.bus.emit('perfectDodge', { x: this.x, z: this.z });
         return 'perfect';

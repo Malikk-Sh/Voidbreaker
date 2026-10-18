@@ -45,10 +45,11 @@ export class HeroAvatar {
     this.puppet = new Puppet(layout, HERO_CLIPS);
     this.J = bipedJoints(layout);
     const geo = buildHeroGeometry();
-    this.batch = new RigBatch(geo, layout.n, 1, { rim: '#a07cff', rimStrength: 0.95, rimPower: 3.6, emissive: '#9b6cff', emissiveStrength: 1.8 });
+    // холодный контровой свет — силуэт читается на любом фоне; фиолет — только в швах, визоре и клинке
+    this.batch = new RigBatch(geo, layout.n, 1, { rim: '#a9c4ec', rimStrength: 0.7, rimPower: 3.2, emissive: '#a07cff', emissiveStrength: 1.9, emissive2: '#ffd29a' });
     this.ghostBatch = RigBatch.sibling(this.batch, GHOSTS, { ghost: true, rim: '#9b6cff', emissive: '#b794ff' });
-    this.cloakMesh = new ClothMesh(this.cloak, '#17121f', { rim: '#8B5CF6', rimStrength: 0.35, emissive: '#8B5CF6', emissiveStrength: 1.6 }, 1, 0.9);
-    this.scarfMesh = new ClothMesh(this.scarf, '#2a1d4a', { rim: '#8B5CF6', rimStrength: 0.6, emissive: '#b794ff', emissiveStrength: 2.4 }, 2, 0.8);
+    this.cloakMesh = new ClothMesh(this.cloak, '#121823', { rim: '#7d93b0', rimStrength: 0.3, emissive: '#8B5CF6', emissiveStrength: 1.4 }, 1, 0.6);
+    this.scarfMesh = new ClothMesh(this.scarf, '#5a1420', { rim: '#ff8a8a', rimStrength: 0.25, emissive: '#c9a253', emissiveStrength: 1.2 }, 1, 0.5);
     this.group.add(this.batch.mesh, this.ghostBatch.mesh, this.cloakMesh.mesh, this.scarfMesh.mesh);
     this.iChest = layout.idx('chest'); this.iNeck = layout.idx('neck'); this.iPelvis = layout.idx('pelvis');
     this.iKaelis = layout.idx('kaelis'); this.iBlade = layout.idx('blade'); this.iHandR = layout.idx('handR');

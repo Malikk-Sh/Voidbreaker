@@ -152,6 +152,19 @@ export class Battle {
     b.on('postureBreak', () => {
       if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Стойка треснула — финишер или заряженный удар: РАСКОЛ'); }
     });
+    // подсказки о ветках комбо — по одному разу
+    const comboHints: Record<string, [string, string]> = {
+      lunge: ['tut_branch_dash', 'Рассечение! Атака ещё: Восходящий месяц → Звездопад'],
+      flurry: ['tut_branch_flurry', 'Шквал! Ещё атака — Крест'],
+      skyfall: ['tut_branch_sky', 'Звездопад — волна осколков вокруг'],
+    };
+    b.on('moveStart', (e) => {
+      const hnt = comboHints[e.id];
+      if (hnt && !S.flag(hnt[0])) { S.setFlag(hnt[0]); hud.showHint(hnt[1]); }
+    });
+    b.on('perfectDodge', () => {
+      if (!S.flag('tut_counter')) { S.setFlag('tut_counter'); hud.showHint('Идеально! Атакуй сразу — КОНТРУДАР'); }
+    });
     b.on('resonanceFull', () => {
       if (this.abilities.loadout.r && !S.flag('tut_ult')) { S.setFlag('tut_ult'); hud.showHint('Резонанс полон — R: ЗАТМЕНИЕ'); }
     });

@@ -127,6 +127,7 @@ const CSS = /* css */ `
 .vb-kv { display:grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12px; }
 .vb-kv > span:nth-child(odd) { color: var(--vb-dim); text-transform: uppercase; letter-spacing: .14em; font-size: 10px; font-weight:700; align-self:center; }
 .vb-kv > span:nth-child(even) { font: 600 13px var(--vb-tech); color: var(--vb-ivory); }
+.vb-kv.text > span:nth-child(even) { font: 400 12px var(--vb-body); color: var(--vb-text); }
 @media (orientation: portrait) and (max-width: 900px) { .vb-rotate { display:grid; } }
 @media (max-width: 980px) { .vb-tab:not(.on) span:not(.dot) { display:none; } .vb-tab { padding: 8px 10px; letter-spacing:.12em; } }
 @media (max-height: 480px) { .vb-panel { padding: 10px 12px; } .vb-card { padding: 8px 10px; } .vb-btn { min-height:42px; } .vb-btn.big { min-height:50px; } }

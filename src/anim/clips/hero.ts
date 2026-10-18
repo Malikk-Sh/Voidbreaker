@@ -3,7 +3,7 @@ import type { ClipDef } from '../clip';
 /**
  * Клипы героя (GDD §15.5). Углы — Эйлер (рад) поверх позы покоя.
  * Соглашения: герой смотрит в +Z, левая сторона — +X. Плечо x<0 — рука вперёд/вверх; chest y>0 — разворот корпуса влево.
- * Клинок продолжает руку (−Y кисти); blade x>0 — отводит клинок назад.
+ * Клинок зажат в кулаке и продолжает руку (−Y кисти, с лёгким наклоном вперёд); blade x>0 — отводит клинок назад.
  * Предвкушение 40–80 мс → действие 1–2 кадра → читаемое восстановление (GDD §15.1).
  */
 export const HERO_CLIPS: ClipDef[] = [
@@ -68,13 +68,58 @@ export const HERO_CLIPS: ClipDef[] = [
     events: [0, 1, 2, 3, 4].flatMap((i) => [{ t: 0.02 + i * 0.1 + 0.02, name: 'hitOn' }, { t: 0.02 + i * 0.1 + 0.05, name: 'hitOff' }, { t: 0.02 + i * 0.1, name: 'stab' }]),
   },
   {
-    // Заряд: клинок назад, частицы стягиваются к кромке, дрожь руки нарастает
+    // Заряд: клинок поднят над головой за плечо, присед, левая рука вытянута вперёд — дрожь нарастает
     id: 'charge', dur: 0.4, mask: 'full', loop: true,
     keys: [
-      { t: 0, rootOffset: [0, -0.18, 0], pose: { chest: [0.3, -0.9, 0], spine: [0.15, -0.3, 0], shR: [0.6, 0, -0.9], elbR: [-0.3, 0, 0], blade: [0.3, 0, 0], shL: [-1.3, 0, 0.6], elbL: [-0.3, 0, 0], hipL: [-0.7, 0, 0.2], kneeL: [0.9, 0, 0], hipR: [0.35, 0, -0.2], kneeR: [0.6, 0, 0], footL: [-0.2, 0, 0], head: [0, 0.8, 0] } },
-      { t: 0.2, rootOffset: [0, -0.2, 0], pose: { chest: [0.32, -0.92, 0], shR: [0.65, 0, -0.92] } },
-      { t: 0.4, rootOffset: [0, -0.18, 0], pose: { chest: [0.3, -0.9, 0], shR: [0.6, 0, -0.9] } },
+      { t: 0, rootOffset: [0, -0.22, 0], pose: { chest: [-0.2, -0.35, 0], spine: [-0.08, -0.15, 0], shR: [-2.75, 0.3, -0.45], elbR: [-0.75, 0, 0], blade: [1.15, 0, 0], shL: [-1.45, 0, 0.35], elbL: [-0.25, 0, 0], hipL: [-0.75, 0, 0.2], kneeL: [1.0, 0, 0], hipR: [0.35, 0, -0.2], kneeR: [0.7, 0, 0], footL: [-0.25, 0, 0], head: [0.15, 0.35, 0] } },
+      { t: 0.2, rootOffset: [0, -0.24, 0], pose: { chest: [-0.22, -0.38, 0.02], shR: [-2.8, 0.32, -0.47], blade: [1.2, 0, 0] } },
+      { t: 0.4, rootOffset: [0, -0.22, 0], pose: { chest: [-0.2, -0.35, 0], shR: [-2.75, 0.3, -0.45], blade: [1.15, 0, 0] } },
     ],
+  },
+  {
+    // Рассекающий удар (заряд): из-за головы вниз с шагом вперёд, корпус «складывается», клинок врезается в пол
+    id: 'cleave', dur: 0.5, mask: 'full',
+    keys: [
+      { t: 0, rootOffset: [0, -0.22, 0], pose: { chest: [-0.25, -0.35, 0], spine: [-0.1, -0.15, 0], shR: [-2.85, 0.3, -0.45], elbR: [-0.7, 0, 0], blade: [1.25, 0, 0], shL: [-2.6, 0, 0.3], elbL: [-0.6, 0, 0], hipL: [-0.75, 0, 0.2], kneeL: [1.0, 0, 0], hipR: [0.35, 0, -0.2], kneeR: [0.7, 0, 0], head: [0.2, 0.3, 0] } },
+      { t: 0.07, ease: 'inExpo', stretch: 1.22, rootOffset: [0, -0.38, 0.35], pose: { chest: [0.85, 0.05, 0], spine: [0.35, 0, 0], shR: [-0.75, 0.05, -0.15], elbR: [0, 0, 0], blade: [-0.45, 0, 0], shL: [-0.8, 0, 0.15], elbL: [-0.2, 0, 0], hipL: [-1.25, 0, 0.15], kneeL: [1.5, 0, 0], hipR: [0.55, 0, -0.15], kneeR: [1.1, 0, 0], footL: [-0.3, 0, 0], footR: [0.45, 0, 0], head: [-0.45, 0, 0] } },
+      { t: 0.14, ease: 'outQuad', stretch: 0.88, rootOffset: [0, -0.34, 0.35], pose: {} },
+      { t: 0.5, ease: 'outQuart', stretch: 1, rootOffset: [0, -0.04, 0], pose: { chest: [0.25, 0.1, 0], spine: [0.08, 0, 0], shR: [-0.6, 0, -0.3], elbR: [-0.35, 0, 0], blade: [0.25, 0, 0], shL: [-0.3, 0, 0.4], hipL: [-0.45, 0, 0.1], kneeL: [0.7, 0, 0], hipR: [0.25, 0, -0.1], kneeR: [0.5, 0, 0], footL: [-0.2, 0, 0], footR: [0.2, 0, 0] } },
+    ],
+    events: [{ t: 0.0, name: 'trailOn' }, { t: 0.05, name: 'hitOn' }, { t: 0.07, name: 'impact' }, { t: 0.12, name: 'hitOff' }, { t: 0.18, name: 'trailOff' }],
+  },
+  {
+    // Восходящий месяц: низкая стойка → апперкот снизу справа вверх влево с подскоком
+    id: 'rising', dur: 0.4, mask: 'full',
+    keys: [
+      { t: 0, rootOffset: [0, -0.16, 0], pose: { chest: [0.35, -0.6, 0], spine: [0.15, -0.25, 0], shR: [0.35, 0.2, -0.55], elbR: [-0.35, 0, 0], blade: [0.7, 0, 0], shL: [-0.5, 0, 0.6], elbL: [-0.6, 0, 0], hipL: [-0.8, 0, 0.15], kneeL: [1.1, 0, 0], hipR: [0.3, 0, -0.15], kneeR: [0.8, 0, 0] } },
+      { t: 0.05, ease: 'inBack', rootOffset: [0, -0.24, 0], pose: { chest: [0.45, -0.8, 0], shR: [0.5, 0.25, -0.6], blade: [0.85, 0, 0], kneeL: [1.3, 0, 0], kneeR: [1.0, 0, 0] } },
+      { t: 0.12, ease: 'outExpo', stretch: 1.14, rootOffset: [0, 0.38, 0.2], pose: { chest: [-0.35, 0.65, 0.1], spine: [-0.15, 0.3, 0], shR: [-2.9, -0.2, 0.25], elbR: [0, 0, 0], blade: [-0.25, 0, 0], shL: [0.4, 0, 0.7], elbL: [-0.3, 0, 0], hipL: [-0.2, 0, 0.1], kneeL: [0.2, 0, 0], hipR: [0.3, 0, -0.1], kneeR: [0.5, 0, 0], footL: [0.4, 0, 0], footR: [0.4, 0, 0], head: [0.35, -0.3, 0] } },
+      { t: 0.22, ease: 'outQuad', stretch: 1, rootOffset: [0, 0.3, 0.2], pose: {} },
+      { t: 0.4, ease: 'outQuart', rootOffset: [0, 0, 0], pose: { chest: [0.05, 0.3, 0], spine: [0, 0.1, 0], shR: [-1.6, 0, 0.1], elbR: [-0.4, 0, 0], blade: [0.2, 0, 0], shL: [0, 0, 0.4], hipL: [-0.3, 0, 0.1], kneeL: [0.4, 0, 0], hipR: [0.2, 0, -0.1], kneeR: [0.4, 0, 0] } },
+    ],
+    events: [{ t: 0.05, name: 'trailOn' }, { t: 0.08, name: 'hitOn' }, { t: 0.16, name: 'hitOff' }, { t: 0.22, name: 'trailOff' }],
+  },
+  {
+    // Крест: два стремительных диагональных разреза крест-накрест
+    id: 'cross', dur: 0.42, mask: 'full',
+    keys: [
+      { t: 0, pose: { chest: [-0.15, -0.45, 0], spine: [-0.05, -0.2, 0], shR: [-2.65, 0.25, -0.6], elbR: [-0.3, 0, 0], blade: [0.35, 0, 0], shL: [-0.4, 0, 0.6], hipL: [-0.5, 0, 0.15], kneeL: [0.7, 0, 0], hipR: [0.25, 0, -0.15], kneeR: [0.5, 0, 0] } },
+      { t: 0.06, ease: 'outExpo', stretch: 1.08, rootOffset: [0, -0.08, 0.15], pose: { chest: [0.35, 0.6, 0], spine: [0.15, 0.25, 0], shR: [-0.55, -0.35, 0.65], elbR: [0, 0, 0], blade: [-0.15, 0, 0], shL: [0.3, 0, 0.5] } },
+      { t: 0.13, ease: 'inBack', stretch: 1, rootOffset: [0, -0.04, 0.15], pose: { chest: [-0.15, 0.5, 0], spine: [-0.05, 0.2, 0], shR: [-2.65, -0.45, 0.55], elbR: [-0.3, 0, 0], blade: [0.35, 0, 0] } },
+      { t: 0.19, ease: 'outExpo', stretch: 1.1, rootOffset: [0, -0.12, 0.3], pose: { chest: [0.4, -0.65, 0], spine: [0.18, -0.25, 0], shR: [-0.55, 0.45, -0.95], elbR: [0, 0, 0], blade: [-0.15, 0, 0], shL: [-0.5, 0, 0.3], hipL: [-0.8, 0, 0.15], kneeL: [1.0, 0, 0], hipR: [0.4, 0, -0.15], kneeR: [0.7, 0, 0] } },
+      { t: 0.42, ease: 'outQuart', stretch: 1, rootOffset: [0, 0, 0], pose: { chest: [0.15, -0.3, 0], spine: [0.05, -0.1, 0], shR: [-0.9, 0.2, -0.6], elbR: [-0.3, 0, 0], blade: [0.25, 0, 0], shL: [-0.2, 0, 0.4], hipL: [-0.4, 0, 0.1], kneeL: [0.5, 0, 0], hipR: [0.2, 0, -0.1], kneeR: [0.4, 0, 0] } },
+    ],
+    events: [{ t: 0.0, name: 'trailOn' }, { t: 0.03, name: 'hitOn' }, { t: 0.08, name: 'hitOff' }, { t: 0.15, name: 'swing2' }, { t: 0.17, name: 'hitOn' }, { t: 0.2, name: 'impact' }, { t: 0.24, name: 'hitOff' }, { t: 0.27, name: 'trailOff' }],
+  },
+  {
+    // Контрудар: из рывка — разворот на 360° с вытянутой рукой, плащ веером
+    id: 'counter', dur: 0.38, mask: 'full',
+    keys: [
+      { t: 0, spin: 0, rootOffset: [0, -0.2, 0], pose: { chest: [0.45, -0.7, 0], spine: [0.2, -0.3, 0], shR: [0.2, 0.2, -0.9], elbR: [-0.3, 0, 0], blade: [0.5, 0, 0], shL: [-0.6, 0, 0.8], hipL: [-0.9, 0, 0.2], kneeL: [1.2, 0, 0], hipR: [0.4, 0, -0.2], kneeR: [0.9, 0, 0] } },
+      { t: 0.18, spin: -Math.PI * 2, ease: 'outCubic', stretch: 1.1, rootOffset: [0, -0.1, 0], pose: { chest: [0.2, 0.3, 0], spine: [0.1, 0.1, 0], shR: [-1.55, 0, -1.45], elbR: [0, 0, 0], blade: [-0.15, 0, 0], shL: [-0.3, 0, 1.1], hipL: [-0.6, 0, 0.2], kneeL: [0.8, 0, 0], hipR: [0.3, 0, -0.2], kneeR: [0.6, 0, 0] } },
+      { t: 0.38, spin: -Math.PI * 2, ease: 'outQuart', stretch: 1, rootOffset: [0, 0, 0], pose: { chest: [0.15, 0.1, 0], shR: [-0.9, 0.1, -0.6], elbR: [-0.4, 0, 0], blade: [0.35, 0, 0], shL: [0, 0, 0.5], hipL: [-0.3, 0, 0.1], kneeL: [0.4, 0, 0], hipR: [0.2, 0, -0.1], kneeR: [0.4, 0, 0] } },
+    ],
+    events: [{ t: 0.02, name: 'trailOn' }, { t: 0.04, name: 'hitOn' }, { t: 0.18, name: 'hitOff' }, { t: 0.22, name: 'trailOff' }],
   },
   {
     // Заряженный удар: выпад через линию с растяжением ×1.5
@@ -129,17 +174,17 @@ export const HERO_CLIPS: ClipDef[] = [
     events: [{ t: 0.28, name: 'release' }],
   },
   {
-    // «Звездопад»: взлёт с переворотом и пронзающий удар сверху вниз (финишер ветки комбо)
-    id: 'skyfall', dur: 0.85, mask: 'full',
+    // «Звездопад»: взлёт с переворотом и пронзающий удар сверху вниз (финишер ветки рывка)
+    id: 'skyfall', dur: 0.62, mask: 'full',
     keys: [
       { t: 0, rootOffset: [0, 0, 0], pose: { chest: [0.2, 0, 0], shR: [-0.6, 0, -0.4], blade: [0.4, 0, 0], hipL: [-0.3, 0, 0], kneeL: [0.5, 0, 0], hipR: [0.2, 0, 0], kneeR: [0.4, 0, 0] } },
-      { t: 0.12, ease: 'outQuad', rootOffset: [0, -0.25, 0], pose: { chest: [0.5, 0, 0], hipL: [-0.9, 0, 0.1], kneeL: [1.5, 0, 0], hipR: [-0.8, 0, -0.1], kneeR: [1.4, 0, 0], shR: [0.6, 0, -0.5], shL: [0.6, 0, 0.5] } },
-      { t: 0.32, ease: 'outCubic', rootOffset: [0, 1.6, 0.5], spin: -Math.PI, pose: { chest: [-0.3, 0, 0], spine: [-0.2, 0, 0], shR: [-3.0, 0, -0.1], elbR: [-0.2, 0, 0], blade: [0.2, 0, 0], shL: [-3.0, 0, 0.1], elbL: [-0.3, 0, 0], hipL: [-1.2, 0, 0], kneeL: [1.6, 0, 0], hipR: [-0.2, 0, 0], kneeR: [1.5, 0, 0] } },
-      { t: 0.46, ease: 'inExpo', rootOffset: [0, 0.2, 1.0], spin: -Math.PI * 2, stretch: 1.25, pose: { chest: [0.9, 0, 0], spine: [0.3, 0, 0], shR: [-0.4, 0, -0.05], elbR: [0, 0, 0], blade: [-0.6, 0, 0], shL: [-0.4, 0, 0.05], hipL: [-1.3, 0, 0], kneeL: [1.8, 0, 0], hipR: [0.5, 0, 0], kneeR: [1.6, 0, 0] } },
-      { t: 0.56, ease: 'outQuad', rootOffset: [0, -0.15, 1.0], spin: -Math.PI * 2, stretch: 0.9, pose: {} },
-      { t: 0.85, ease: 'outQuart', rootOffset: [0, 0, 1.0], spin: -Math.PI * 2, stretch: 1, pose: { chest: [0.25, 0, 0], spine: [0.05, 0, 0], shR: [-0.4, 0, -0.4], elbR: [-0.4, 0, 0], blade: [0.6, 0, 0], shL: [-0.2, 0, 0.4], hipL: [-0.3, 0, 0], kneeL: [0.5, 0, 0], hipR: [0.2, 0, 0], kneeR: [0.4, 0, 0] } },
+      { t: 0.08, ease: 'outQuad', rootOffset: [0, -0.25, 0], pose: { chest: [0.5, 0, 0], hipL: [-0.9, 0, 0.1], kneeL: [1.5, 0, 0], hipR: [-0.8, 0, -0.1], kneeR: [1.4, 0, 0], shR: [0.6, 0, -0.5], shL: [0.6, 0, 0.5] } },
+      { t: 0.23, ease: 'outCubic', rootOffset: [0, 1.7, 0.2], spin: -Math.PI, pose: { chest: [-0.3, 0, 0], spine: [-0.2, 0, 0], shR: [-3.0, 0, -0.1], elbR: [-0.2, 0, 0], blade: [0.2, 0, 0], shL: [-3.0, 0, 0.1], elbL: [-0.3, 0, 0], hipL: [-1.2, 0, 0], kneeL: [1.6, 0, 0], hipR: [-0.2, 0, 0], kneeR: [1.5, 0, 0] } },
+      { t: 0.34, ease: 'inExpo', rootOffset: [0, 0.15, 0.3], spin: -Math.PI * 2, stretch: 1.25, pose: { chest: [0.9, 0, 0], spine: [0.3, 0, 0], shR: [-0.4, 0, -0.05], elbR: [0, 0, 0], blade: [-0.6, 0, 0], shL: [-0.4, 0, 0.05], hipL: [-1.3, 0, 0], kneeL: [1.8, 0, 0], hipR: [0.5, 0, 0], kneeR: [1.6, 0, 0] } },
+      { t: 0.41, ease: 'outQuad', rootOffset: [0, -0.2, 0.3], spin: -Math.PI * 2, stretch: 0.88, pose: {} },
+      { t: 0.62, ease: 'outQuart', rootOffset: [0, 0, 0], spin: -Math.PI * 2, stretch: 1, pose: { chest: [0.25, 0, 0], spine: [0.05, 0, 0], shR: [-0.4, 0, -0.4], elbR: [-0.4, 0, 0], blade: [0.6, 0, 0], shL: [-0.2, 0, 0.4], hipL: [-0.3, 0, 0], kneeL: [0.5, 0, 0], hipR: [0.2, 0, 0], kneeR: [0.4, 0, 0] } },
     ],
-    events: [{ t: 0.3, name: 'trailOn' }, { t: 0.46, name: 'impact' }, { t: 0.6, name: 'trailOff' }],
+    events: [{ t: 0.2, name: 'trailOn' }, { t: 0.22, name: 'swing2' }, { t: 0.33, name: 'hitOn' }, { t: 0.34, name: 'impact' }, { t: 0.4, name: 'hitOff' }, { t: 0.44, name: 'trailOff' }],
   },
   {
     // Победа: взмах клинком за спину, плащ взлетает

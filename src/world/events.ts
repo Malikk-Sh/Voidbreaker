@@ -12,6 +12,8 @@ export interface GameEvents {
   heroDeath: { x: number; z: number };
   secondWind: { x: number; z: number };
   swing: { kind: 'light' | 'spin' | 'heavy' | 'stab' | 'charged' };
+  /** Начат приём (для подсказок о ветках комбо). */
+  moveStart: { id: string };
   dash: { x: number; z: number; dirX: number; dirZ: number };
   chargeReady: { level: number };
   impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell' };

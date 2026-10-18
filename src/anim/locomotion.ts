@@ -85,13 +85,14 @@ export class BipedGait {
     setJoint(out, layout, J.shL, -s * 0.7 * a + 0.05, 0, 0.18 + 0.1 * (1 - a) + breathe * 0.02);
     setJoint(out, layout, J.elbL, -0.35 - 0.5 * a - Math.max(0, s) * 0.4 * a, 0, 0);
     if (bladeBack) {
-      setJoint(out, layout, J.shR, 0.35 + 0.35 * a + c * 0.05 * a, 0.1, -0.32 - 0.12 * a);
-      setJoint(out, layout, J.elbR, -0.55 + 0.15 * a, 0, 0);
+      // стойка: на месте — нижняя защита (клинок вперёд-вниз перед собой), на бегу — клинок отведён назад
+      setJoint(out, layout, J.shR, -0.2 * (1 - a) + (0.35 + 0.35 * a + c * 0.05 * a) * a, 0.1 * a + 0.12 * (1 - a), -0.3 - 0.14 * a + breathe * 0.015);
+      setJoint(out, layout, J.elbR, -1.0 * (1 - a) + (-0.55 + 0.15 * a) * a, 0, 0);
     } else {
       setJoint(out, layout, J.shR, s * 0.7 * a + 0.05, 0, -0.18 - 0.1 * (1 - a));
       setJoint(out, layout, J.elbR, -0.35 - 0.5 * a - Math.max(0, -s) * 0.4 * a, 0, 0);
     }
-    if (J.blade !== undefined) setJoint(out, layout, J.blade, bladeBack ? 1.05 + 0.15 * a : 0, 0, 0);
+    if (J.blade !== undefined) setJoint(out, layout, J.blade, bladeBack ? 0.1 * (1 - a) + (1.05 + 0.15 * a) * a : 0, bladeBack ? 0.3 * (1 - a) : 0, 0);
     this.bob = Math.abs(c) * 0.06 * a - 0.03 * a + breathe * 0.008;
   }
 }

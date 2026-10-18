@@ -62,6 +62,8 @@ export abstract class Enemy implements Actor {
   halfTriggered = false;
   /** Задержка перед следующей атакой (кулдаун). */
   cooldown = 0.8 + Math.random() * 0.8;
+  /** Полёт после подбрасывания (Восходящий месяц). */
+  private airT = 0; private airDur = 0; private airH = 0;
 
   constructor(readonly def: EnemyDef, layout: RigLayout, clips: ClipDef[], o: SpawnOpts) {
     this.kind = def.id;
@@ -121,6 +123,12 @@ export abstract class Enemy implements Actor {
       if (wasBroken && this.posture.broken <= 0 && this.state === 'broken') this.setState('recover');
     }
     if (this.shieldFrom && (this.shieldFrom.dead || !this.shieldFrom.spawned)) { this.shieldFrom = null; this.shieldMul = 1; }
+    if (this.airDur > 0) {
+      this.airT += dt;
+      const u = Math.min(1, this.airT / this.airDur);
+      this.y = this.airH * Math.sin(u * Math.PI);
+      if (u >= 1) { this.airDur = 0; this.y = 0; w.bus.emit('impact', { x: this.x, z: this.z, r: this.radius, kind: 'land' }); }
+    }
     if (this.cooldown > 0) this.cooldown -= dt;
 
     // отбрасывание
@@ -186,6 +194,17 @@ export abstract class Enemy implements Actor {
 
   cancelTelegraph(): void {
     if (this.tele) { this.tele.alive = false; this.tele = null; }
+  }
+
+  /** Подбросить (рядовые и элита полегче): оглушение на время полёта. */
+  launch(h: number): void {
+    if (this.isBoss || this.isGuardian || this.mass > 3 || this.dead || this.state === 'spawn') return;
+    const k = this.elite.length ? 0.6 : 1;
+    this.airDur = 0.55 + 0.1 * k; this.airT = 0; this.airH = h * k;
+    this.cancelTelegraph();
+    this.token = null;
+    this.stagger = this.airDur + 0.15;
+    this.setState('stagger');
   }
 
   /** Прерывание лёгким ударом (хитстан рядовых). */

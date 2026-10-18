@@ -13,6 +13,8 @@ import { hexToLinear } from '../core/math';
 export type ShowcaseView = 'title' | 'hub' | 'map' | 'results';
 
 const VOID = hexToLinear('#B794FF');
+const STAR = hexToLinear('#8fd8ef');
+const WARM = hexToLinear('#ffb866');
 
 /**
  * Живая 3D-сцена под меню (Tech §22: «фон меню — та же 3D-сцена с медленным пролётом камеры»):
@@ -59,14 +61,16 @@ export class Showcase {
     this.emitT -= dt;
     if (this.emitT <= 0) {
       this.emitT = 0.06;
-      this.particles.emit({ x: fxRng.spread(0.4), y: 2.2 + fxRng.spread(0.2), z: -1.2 + fxRng.spread(0.3), vy: 0.6, vx: fxRng.spread(0.4), vz: fxRng.spread(0.4), life: 2.2, size: 0.07, size1: 0.01, color: [VOID[0] * 2, VOID[1] * 2, VOID[2] * 2], frame: 'star' });
+      this.particles.emit({ x: fxRng.spread(0.4), y: 2.2 + fxRng.spread(0.2), z: -1.2 + fxRng.spread(0.3), vy: 0.6, vx: fxRng.spread(0.4), vz: fxRng.spread(0.4), life: 2.2, size: 0.07, size1: 0.01, color: [STAR[0] * 2, STAR[1] * 2, STAR[2] * 2], frame: 'star' });
       this.particles.emit({ x: fxRng.spread(14), y: fxRng.range(-2, 6), z: fxRng.spread(10), vy: 0.15, life: 5, size: 0.04, color: [0.35, 0.3, 0.5], frame: 'dot' });
     }
     this.particles.flush();
     this.lights.begin();
-    this.lights.add(0, 2.2, -1.2, VOID, 2.5 + Math.sin(this.t * 2) * 0.5, 7);
+    // кристалл алтаря — звёздный свет; тёплый свет свечей сбоку; клинок — слабый фиолетовый акцент
+    this.lights.add(0, 2.2, -1.2, STAR, 1.6 + Math.sin(this.t * 2) * 0.3, 6);
+    this.lights.add(2.2, 1.6, 3.2, WARM, 1.4, 6);
     h.bladePoints(_a, _b);
-    this.lights.add(_b.x, _b.y, _b.z, VOID, 1.2, 4);
+    this.lights.add(_b.x, _b.y, _b.z, VOID, 0.6, 3);
     this.lights.end(dt);
     this.rune.u.uPulse.value = 0.15 + Math.sin(this.t * 0.8) * 0.1;
     this.updateCamera(dt);

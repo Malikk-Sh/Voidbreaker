@@ -32,6 +32,8 @@ export interface StrikeParams {
   /** Подавить хитстан. */
   noStagger?: boolean;
   abilityId?: string;
+  /** Подбросить цель (м). */
+  launch?: number;
 }
 
 export interface RunStats {
@@ -219,7 +221,8 @@ export class World {
     if (!e.isBoss) {
       const kb = p.knockback / Math.max(0.5, e.mass) * (e.isGuardian ? 0.1 : 1);
       e.kbX += p.dirX * kb * 2.2; e.kbZ += p.dirZ * kb * 2.2;
-      if (!p.noStagger) e.interrupt(p.feel === 'light' ? 0.22 : 0.35);
+      if (p.launch) e.launch(p.launch);
+      else if (!p.noStagger) e.interrupt(p.feel === 'light' ? 0.22 : 0.35);
     }
     if (!p.noResonance) h.addResonance(RESONANCE.perHit + (p.finisher ? RESONANCE.perFinisher - RESONANCE.perHit : 0));
     this.rank.hit(!!p.finisher);
