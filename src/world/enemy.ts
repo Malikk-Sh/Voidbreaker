@@ -75,6 +75,10 @@ export abstract class Enemy implements Actor {
   private stuckT = 0;
   /** Секунды принудительного следования по полю (после застревания). */
   protected navForceT = 0;
+  /** Длительность последнего телеграфа (с) — тяжёлая ли атака для «Мгновения Пустоты». */
+  lastTeleDur = 0;
+  /** «Запаздывание» после идеального уклонения героя: 0.2 с враг движется вдвое медленнее (видно, что промахнулся). */
+  lagT = 0;
   /** Стопкадр после попадания (мировые с): поза и тело стоят, модель дрожит (план §5.1, п. 4). */
   freeze = 0;
   /** Сколько секунд герой недостижим из клетки врага. */
@@ -120,6 +124,7 @@ export abstract class Enemy implements Actor {
 
   /** Общий шаг: спаун через портал, хитстан, стойка, отбрасывание; затем мозг. */
   step(w: World, dt: number): void {
+    if (this.lagT > 0) { this.lagT -= dt; dt *= 0.5; }
     this.time += dt;
     this.stateT += dt;
     this.puppet.stepSpring(dt);
@@ -315,6 +320,7 @@ export abstract class Enemy implements Actor {
   /** Начать телеграф атаки: метка на полу + ядро вспыхивает. */
   telegraph(w: World, shape: Shape, dur: number, white = false, sound: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar' = 'hum'): Telegraph {
     this.tele = w.addTelegraph(shape, dur * this.teleMul, white);
+    this.lastTeleDur = dur * this.teleMul;
     w.bus.emit('telegraph', { kind: sound, x: this.x, z: this.z, src: this.kind });
     return this.tele;
   }

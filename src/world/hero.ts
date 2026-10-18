@@ -58,6 +58,8 @@ export class Hero implements Actor {
   private dashDirX = 0; private dashDirZ = 1;
   private dashPrevE = 0;
   dashStart = -99;
+  /** Где начался рывок: там остаётся силуэт для идеального уклонения. */
+  dashFromX = 0; dashFromZ = 0;
   private lastDashEnd = -99;
   private coyote = 0;
   // защита
@@ -492,6 +494,8 @@ export class Hero implements Actor {
     this.dashCharges--;
     this.state = 'dash'; this.stateT = 0;
     this.dashStart = this.clock;
+    this.dashFromX = this.x; this.dashFromZ = this.z;
+    this.avatar.markSilhouette();
     this.dashPrevE = 0;
     this.hitActive = false; this.move = null; this.chargeLevel = 0;
     this.trailOn = false;
@@ -537,7 +541,7 @@ export class Hero implements Actor {
 
   // ------------------------------------------------------------------ урон по герою (GDD §5.8)
   /** Возвращает 'hit' | 'perfect' | 'dodge' | 'immune'. */
-  receiveAttack(dmg: number, dirX: number, dirZ: number, source: string, kb = 3): 'hit' | 'perfect' | 'dodge' | 'immune' {
+  receiveAttack(dmg: number, dirX: number, dirZ: number, source: string, kb = 3, heavy = false): 'hit' | 'perfect' | 'dodge' | 'immune' {
     if (this.dead) return 'immune';
     if (this.state === 'dash' && this.dashIframes) {
       if (this.inPerfectWindow && this.clock >= this.perfectReadyAt) {
@@ -545,7 +549,8 @@ export class Hero implements Actor {
         this.perfectBuff = true;
         this.counterUntil = this.clock + 0.8;
         this.addResonance(RESONANCE.perPerfectDodge);
-        this.world.bus.emit('perfectDodge', { x: this.x, z: this.z });
+        this.world.bus.emit('perfectDodge', { x: this.x, z: this.z, heavy, sx: this.dashFromX, sz: this.dashFromZ });
+        this.avatar.shatterSilhouette();
         return 'perfect';
       }
       this.world.bus.emit('dodge', { x: this.x, z: this.z });

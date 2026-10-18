@@ -11,7 +11,11 @@ export interface GameEvents {
   strike: { n: number; crit: boolean; feel: FeelId; x: number; z: number; dirX: number; dirZ: number; source: 'blade' | 'ability' | 'proj' | 'env'; moveId?: string; boss: boolean };
   kill: { target: Actor; kind: string; x: number; z: number; dirX: number; dirZ: number; big: boolean; elite: boolean };
   postureBreak: { target: Actor; x: number; z: number; boss: boolean };
-  perfectDodge: { x: number; z: number };
+  /**
+   * Идеальное уклонение (план §5.4). heavy — атака элиты, Стража или босса с телеграфом ≥ 0.7 с («Мгновение Пустоты»);
+   * sx, sz — где начался рывок (там остаётся силуэт).
+   */
+  perfectDodge: { x: number; z: number; heavy: boolean; sx: number; sz: number };
   dodge: { x: number; z: number };
   playerHurt: { dmg: number; hpLeft: number; dirX: number; dirZ: number; source: string };
   heroDeath: { x: number; z: number };

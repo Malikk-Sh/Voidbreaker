@@ -119,3 +119,28 @@ describe('один отклик на взмах (план §5.1)', () => {
     expect(hits).toBe(6);
   });
 });
+
+describe('идеальное уклонение — уровни (план §5.4)', () => {
+  it('тяжёлая атака Стража (телеграф ≥ 0.7 с) даёт heavy, рядовой — нет; враг запаздывает', async () => {
+    const { Husk } = await import('../src/world/enemies/husk');
+    const w = new World(new Arena(ARENAS.gate), 'pd');
+    w.abilities = new Abilities(w);
+    w.hero.spawn(0, 5, 0);
+    const g = new GateGuardian({ zone: 0, stage: 2 });
+    g.x = 0; g.z = 2; w.addEnemy(g); g.setState('idle');
+    const hk = new Husk({ zone: 0, stage: 0 });
+    hk.x = 1; hk.z = 5; w.addEnemy(hk); hk.setState('idle');
+    const got: boolean[] = [];
+    w.bus.on('perfectDodge', (e) => got.push(e.heavy));
+    // рывок героя: окно идеального уклонения
+    const h = w.hero as unknown as { state: string; dashStart: number; clock: number; perfectReadyAt: number };
+    const dodge = () => { h.state = 'dash'; h.dashStart = h.clock; h.perfectReadyAt = 0; };
+    g.lastTeleDur = 0.9; dodge();
+    w.enemyStrike(g, { k: 'circle', x: 0, z: 5, r: 2 }, 10, 3);
+    hk.lastTeleDur = 0.42; dodge();
+    w.enemyStrike(hk, { k: 'circle', x: 0, z: 5, r: 2 }, 10, 3);
+    expect(got).toEqual([true, false]);
+    expect(hk.lagT).toBeCloseTo(0.2);
+    expect(g.lagT).toBe(0);
+  });
+});

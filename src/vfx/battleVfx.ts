@@ -165,10 +165,20 @@ export class BattleVfx {
   lob(fx: number, fz: number, tx: number, tz: number, dur: number, size: number): void { this.lobs.push({ fx, fz, tx, tz, t: 0, dur, size }); }
 
   /** Идеальное уклонение — только лёгкий эффект: тонкое кольцо и россыпь звёздной пыли. */
-  perfectDodge(x: number, z: number): void {
-    this.rings.spawn(x, z, 0.3, 2.6, 0.35, C.voidHot, 0.1, 0.6);
-    this.burst(12, { x, y: 1, z, life: 0.5, size: 0.06, size1: 0.01, color: C.core, drag: 2.5, frame: 'star', gravity: 0.5 }, { v: 3.5, vy: 1.5 });
-    this.lights.flash(x, 1.4, z, C.void, 3, 5, 0.3);
+  /**
+   * Идеальное уклонение (план §5.4): силуэт на старом месте раскалывается фиолетовыми осколками;
+   * в «Мгновение Пустоты» ещё и красная атака рассыпается фиолетовым вокруг героя.
+   */
+  perfectDodge(x: number, z: number, heavy = false, sx = x, sz = z): void {
+    // силуэт: вертикальный столб осколков по росту героя
+    for (let i = 0; i < 18 * this.quality; i++) {
+      const y = fxRng.range(0.1, 1.9), a = fxRng.range(0, Math.PI * 2), v = fxRng.range(1.5, 4);
+      this.add.emit({ x: sx + fxRng.spread(0.25), y, z: sz + fxRng.spread(0.25), vx: Math.sin(a) * v, vz: Math.cos(a) * v, vy: fxRng.range(-0.5, 2), life: 0.55, size: 0.09, size1: 0.02, color: C.voidHot, gravity: -6, drag: 2, frame: 'spark', stretch: 1.1 });
+    }
+    this.debris.burst(sx, 1, sz, 0, 0, Math.round(6 * this.quality), 3, 0.12);
+    this.rings.spawn(x, z, 0.3, heavy ? 4 : 2.6, heavy ? 0.5 : 0.35, C.voidHot, 0.1, heavy ? 0.9 : 0.6);
+    this.burst(heavy ? 26 : 12, { x, y: 1, z, life: heavy ? 0.8 : 0.5, size: heavy ? 0.1 : 0.06, size1: 0.01, color: heavy ? C.voidHot : C.core, drag: 2.5, frame: 'star', gravity: 0.5 }, { v: heavy ? 5 : 3.5, vy: 1.5 });
+    this.lights.flash(x, 1.4, z, C.void, heavy ? 6 : 3, heavy ? 8 : 5, heavy ? 0.5 : 0.3);
   }
 
   /** Раскол: взрыв обсидиановых осколков и светящихся трещин. */

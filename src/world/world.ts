@@ -342,7 +342,11 @@ export class World {
     if (h.dead || !overlaps(shape, h.x, h.z, h.radius)) return 'miss';
     let dx = h.x - src.x, dz = h.z - src.z;
     const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
-    const res = h.receiveAttack(dmg, dx, dz, src.kind, kb);
+    // тяжёлая атака (элита, Страж, босс, телеграф ≥ 0.7 с) — уклонение от неё даёт «Мгновение Пустоты»
+    const atk = this.enemies.find((x) => x.id === src.id);
+    const heavy = !!atk && (atk.elite.length > 0 || atk.isGuardian || atk.isBoss) && atk.lastTeleDur >= 0.7;
+    const res = h.receiveAttack(dmg, dx, dz, src.kind, kb, heavy);
+    if (res === 'perfect' && atk && !atk.isGuardian && !atk.isBoss) atk.lagT = 0.2;
     if (res === 'hit') {
       this.run.hitsTaken++;
       this.run.dmgTaken += dmg;

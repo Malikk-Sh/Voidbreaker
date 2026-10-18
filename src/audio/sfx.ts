@@ -84,6 +84,8 @@ export const SFX: Record<string, SfxRecipe> = {
     const { f } = noiseHit(c, p, t, 0.3, 3200, 0.55, 'bandpass', 3, 'pink'); f.frequency.exponentialRampToValueAtTime(700, t + 0.28);
     const x = osc(c, 'sine', 1900, t, 0.26, p, 0.05, 0.004, 0.26); x.frequency.exponentialRampToValueAtTime(520, t + 0.26);
   } },
+  // нота лейтмотива Пилота (ре малой октавы — высота меняется playbackRate): челеста + мягкий хор
+  motif_note: { len: 2.2, reverb: 0.3, render: (c, o, t) => { pluck(c, o, t, mtof(62 + 12), 1.2, 0.09); pluck(c, o, t, mtof(62 + 24), 0.6, 0.03); choir(c, o, t, [62, 74], 1.0, 0.035, 'o', 'u'); } },
   // «Мгновение Пустоты»: низкий вдох перед замедлением
   void_moment: { len: 1.2, reverb: 0.2, render: (c, o, t) => {
     const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.4, t + 0.35); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9); g.connect(o);

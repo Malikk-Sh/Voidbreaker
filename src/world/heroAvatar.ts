@@ -48,7 +48,7 @@ export class HeroAvatar {
     // холодный контровой свет — силуэт читается на любом фоне; фиолет — только в швах, визоре и клинке
     // герой заметнее своим светом (план §5.3): фиолетовый контур — только у Пилота
     this.batch = new RigBatch(geo, layout.n, 1, { rim: '#b49cff', rimStrength: 1.05, rimPower: 2.8, emissive: '#a07cff', emissiveStrength: 2.1, emissive2: '#ffd29a' });
-    this.ghostBatch = RigBatch.sibling(this.batch, GHOSTS, { ghost: true, rim: '#9b6cff', emissive: '#b794ff' });
+    this.ghostBatch = RigBatch.sibling(this.batch, GHOSTS + 1, { ghost: true, rim: '#9b6cff', emissive: '#b794ff' });
     this.cloakMesh = new ClothMesh(this.cloak, '#121823', { rim: '#9b7cff', rimStrength: 1.0, emissive: '#8B5CF6', emissiveStrength: 1.6 }, 1, 1.2);
     this.scarfMesh = new ClothMesh(this.scarf, '#5a1420', { rim: '#ff8a8a', rimStrength: 0.25, emissive: '#c9a253', emissiveStrength: 1.2 }, 1, 0.5);
     this.group.add(this.batch.mesh, this.ghostBatch.mesh, this.cloakMesh.mesh, this.scarfMesh.mesh);
@@ -146,7 +146,20 @@ export class HeroAvatar {
   /** Сбросить ткань (телепорт/спаун). */
   resetCloth(): void { this.cloakReady = false; }
 
+  /** Силуэт на месте начала рывка (план §5.4): живёт 0.5 с, вражеская атака раскалывает его. */
+  private silhouette: { world: Float32Array; age: number; broken: boolean } | null = null;
+
+  markSilhouette(): void {
+    if (!this.silhouette) this.silhouette = { world: new Float32Array(this.puppet.skel.world.length), age: 99, broken: false };
+    this.silhouette.world.set(this.puppet.skel.world);
+    this.silhouette.age = 0;
+    this.silhouette.broken = false;
+  }
+
+  shatterSilhouette(): void { if (this.silhouette) this.silhouette.broken = true; }
+
   private updateGhosts(dt: number): void {
+    if (this.silhouette) this.silhouette.age += dt;
     for (const g of this.ghosts) g.age += dt;
     if (this.ghostsOn) {
       this.ghostTimer -= dt;
@@ -187,6 +200,8 @@ export class HeroAvatar {
       const a = Math.max(0, 1 - g.age / 0.22) * 0.55;
       if (a > 0.01) this.ghostBatch.push(g.world, a, 0, 0, 0);
     }
+    const sil = this.silhouette;
+    if (sil && !sil.broken && sil.age < 0.5) this.ghostBatch.push(sil.world, 0.7 * (1 - sil.age / 0.5), 0, 0.6, 0);
     this.ghostBatch.end();
     const show = visible && !p.skel.broken;
     this.cloakMesh.mesh.visible = show && !blink;

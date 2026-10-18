@@ -152,6 +152,7 @@ export abstract class ScriptedEnemy extends Enemy {
       case 'telegraph': {
         const sh = this.shapeOf(s.shape, s.at, s.dir);
         w.addTelegraph(sh, s.dur * this.teleMul, !!s.white, false);
+        this.lastTeleDur = s.dur * this.teleMul;
         this.coreGlow = 1.2;
         break;
       }

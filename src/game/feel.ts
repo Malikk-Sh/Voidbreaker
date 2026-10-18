@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { CRIT_HITSTOP, FEEL } from '../data/feel';
 
+/** Лейтмотив Пилота (план §8.7): D–E♭–F–D–C–D, ре фригийский. */
+const MOTIF = [62, 63, 65, 62, 60, 62];
+
 /** Материал гибели: мокрая Шелуха, каменные големы и Стражи, энергетическое Око (план §5.2.1). */
 const DEATH_SOUND: Record<string, string> = {
   husk: 'shatter_wet', golem: 'shatter_stone', gateGuardian: 'shatter_stone', bellRinger: 'shatter_stone', eye: 'shatter_energy',
@@ -42,6 +45,8 @@ export class FeelSystem {
   private letterbox = 0;
   private lastAbyssText = -9;
   private lowHpBeat = 0;
+  /** Каждое следующее «Мгновение Пустоты» — следующая нота лейтмотива Пилота. */
+  private motifStep = 0;
   private waveSlots: { x: number; z: number; t: number; life: number; r: number; s: number }[] = [];
   private lastVoice = -99;
 
@@ -101,11 +106,19 @@ export class FeelSystem {
         this.voice('Треснул! Добей финишером — Раскол!', 6);
       }),
       b.on('perfectDodge', (e) => {
-        // «Мгновение Пустоты» — короткий и сдержанный акцент: лёгкое замедление, остаточный образ, искры
-        this.time.slow(0.6, 0.22, 0.9);
-        this.voidMoment = 0.18;
-        this.vfx.perfectDodge(e.x, e.z);
-        this.audio.play('perfect_dodge', { gain: 0.55, reverb: 0.3 });
+        this.vfx.perfectDodge(e.x, e.z, e.heavy, e.sx, e.sz);
+        this.audio.play('perfect_dodge', { gain: 0.6 });
+        if (!e.heavy) {
+          // против рядового: короткая заминка, бой не тормозит (план §5.4)
+          this.time.slow(0.35, 0.18, 0.9);
+          return;
+        }
+        // «Мгновение Пустоты»: мир 0.25 на 0.45 с, обесцвечивание, музыка ниже и глуше, вдох и нота лейтмотива
+        this.time.slow(0.25, 0.45, 0.75);
+        this.voidMoment = 0.45;
+        this.audio.play('void_moment', { gain: 0.7 });
+        const note = MOTIF[this.motifStep++ % MOTIF.length];
+        this.audio.play('motif_note', { gain: 0.55, pitch: Math.pow(2, (note - 62) / 12), vary: 0, delay: 0.12 });
       }),
       b.on('dodge', () => { /* рывок сквозь атаку без бонуса — только звук свиста */ this.audio.play('swing_stab', { pitch: 0.7, gain: 0.4 }); }),
       b.on('playerHurt', (e) => {
@@ -263,10 +276,12 @@ export class FeelSystem {
     // «Мгновение Пустоты»
     if (this.voidMoment > 0) this.voidMoment -= realDt;
     // лёгкое приглушение красок на долю секунды — без провала музыки и полного обесцвечивания
-    const targetDesat = this.voidMoment > 0 ? 0.3 : 0;
+    const targetDesat = this.voidMoment > 0 ? 0.85 : 0;
     this.desat += (targetDesat - this.desat) * Math.min(1, realDt * (targetDesat ? 14 : 5));
     P.desat = this.desat;
-    this.audio.musicDetune = 0;
+    // «Мгновение Пустоты»: −400 центов и ФНЧ 1200 Гц только на его время
+    this.audio.musicDetune = this.voidMoment > 0 ? -400 : 0;
+    this.audio.setMusicFilter(this.voidMoment > 0 ? 1200 : 20000, this.voidMoment > 0 ? 0.05 : 0.2);
     // аберрация по событию
     this.chroma = Math.max(0, this.chroma - realDt * 2.5);
     P.chroma = S.aberration ? this.chroma + this.desat * 0.2 : 0;
