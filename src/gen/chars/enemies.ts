@@ -417,6 +417,74 @@ export function buildAcolyte(seed = 4): RigBuild {
   return { rig, geometry: b.build() };
 }
 
+// ------------------------------------------------------------------ Псаломщик Голода (на основе acolyteRig, план §7.3)
+export const PSALM_PLATES = 3;
+export function psalmistRig(): RigDef {
+  const base = acolyteRig().joints.filter((j) => j.name !== 'halo');
+  const joints: JointDef[] = [...base];
+  // маска из двух половин: при гибели раскалывается
+  joints.push({ name: 'maskL', parent: 'head', pos: [0.014, 0.02, 0.13] });
+  joints.push({ name: 'maskR', parent: 'head', pos: [-0.014, 0.02, 0.13] });
+  // рунические плиты кружат вокруг (смещение задаёт поза)
+  for (let i = 0; i < PSALM_PLATES; i++) joints.push({ name: `plate${i}`, parent: 'root', pos: [0, 1.6, 0] });
+  return { id: 'psalmist', joints };
+}
+
+/** Половина октаэдра (side 1 — левая, −1 — правая): плоский срез по x = 0. */
+function halfOcta(b: GeomBuilder, w: number, h: number, d: number, side: number, color: [number, number, number]): void {
+  const T: [number, number, number] = [0, h, 0], B: [number, number, number] = [0, -h, 0], F: [number, number, number] = [0, 0, d], K: [number, number, number] = [0, 0, -d], S: [number, number, number] = [side * w, 0, 0];
+  const tri = (a: number[], c: number[], e: number[]) => (side > 0 ? b.tri(a[0], a[1], a[2], c[0], c[1], c[2], e[0], e[1], e[2], color) : b.tri(a[0], a[1], a[2], e[0], e[1], e[2], c[0], c[1], c[2], color));
+  tri(T, F, S); tri(F, B, S); tri(B, K, S); tri(K, T, S);
+  // срез
+  tri(T, K, F); tri(F, K, B);
+}
+
+export function buildPsalmist(seed = 8): RigBuild {
+  const rig = psalmistRig(); const J = jidx(rig);
+  const b = new GeomBuilder(); b.rng = new Rng(seed); b.color = OBS;
+  // тело — тонкий стержень под рясой (ряса — ткань Верле, рисуется отдельно); багровый кушак
+  b.joint = J('body');
+  b.add(prism(6, 0.12, 0.2, 1.25), { matrix: mat(0, -0.05, 0) });
+  b.add(prism(7, 0.3, 0.3, 0.08), { matrix: mat(0, 1.12, 0, 0, 0.2, 0), color: CLOTH });
+  b.add(prism(7, 0.31, 0.31, 0.02), { matrix: mat(0, 1.14, 0, 0, 0.2, 0), emissive: 0.8 });
+  b.joint = J('chest');
+  b.add(prism(6, 0.28, 0.2, 0.25), { matrix: mat(0, -0.05, 0) });
+  // мантия на плечах, багровая епитрахиль с тлеющими швами
+  b.add(lathe([[0.42, -0.4], [0.38, -0.18], [0.3, 0.02], [0.17, 0.14], [0.0, 0.16]], 7, 0.2), { matrix: mat(0, 0.0, -0.02), color: OBS2 });
+  for (const sx of [1, -1]) {
+    plate(b, [[-0.06, 0], [0.06, 0], [0.05, -0.8], [0, -0.9], [-0.05, -0.8]], 0.02, mat(sx * 0.1, 0.1, 0.27, -0.12, 0, sx * 0.05), undefined, CLOTH);
+    b.add(box(0.012, 0.7, 0.025), { matrix: mat(sx * 0.1, -0.3, 0.29, -0.12, 0, sx * 0.05), emissive: 0.9 });
+  }
+  b.joint = J('head');
+  // глубокий капюшон
+  b.add(lathe([[0.21, 0], [0.23, 0.16], [0.17, 0.38], [0.0, 0.52]], 6), { matrix: mat(0, -0.12, -0.03, -0.2) });
+  // прорезь между половинами маски — тлеющая щель
+  b.add(box(0.02, 0.3, 0.02), { matrix: mat(0, 0.02, 0.13), emissive: 2.2 });
+  for (const [s, side] of [['L', 1], ['R', -1]] as const) {
+    b.joint = J('mask' + s);
+    halfOcta(b, 0.13, 0.19, 0.07, side, BONE);
+    b.joint = J('arm' + s);
+    // широкий рукав: раскрывается при псалме
+    b.add(lathe([[0.07, 0], [0.11, -0.2], [0.19, -0.45], [0.23, -0.55]], 6, 0.3), { color: CLOTH });
+    b.add(prism(6, 0.235, 0.235, 0.025, true), { matrix: mat(0, -0.56, 0), emissive: 0.7 });
+    b.joint = J('hand' + s);
+    for (let k = -1; k <= 1; k++) b.add(shard(0.18, 0.018, 3, 0.15, k + 4), { matrix: matAlong(k * 0.03, 0, 0.02, k * 0.2, -1, 0.3), color: BONE });
+  }
+  // рунические плиты: стрельчатые таблички с эмиссивными глифами
+  for (let i = 0; i < PSALM_PLATES; i++) {
+    b.joint = J(`plate${i}`);
+    plate(b, [[-0.16, -0.24], [0.16, -0.24], [0.16, 0.12], [0, 0.28], [-0.16, 0.12]], 0.05, mat(0, 0, 0), undefined, OBS2);
+    plate(b, [[-0.18, -0.26], [0.18, -0.26], [0.18, 0.13], [0, 0.31], [-0.18, 0.13]], 0.02, mat(0, 0, -0.03), undefined, BRONZE);
+    const g = new Rng(seed + i * 7);
+    for (let k = 0; k < 4; k++) {
+      const y = 0.12 - k * 0.1;
+      b.add(box(g.range(0.06, 0.2), 0.018, 0.02), { matrix: mat(g.range(-0.04, 0.04), y, 0.03, 0, 0, g.range(-0.3, 0.3)), emissive: 1.8 });
+    }
+    b.add(box(0.018, 0.3, 0.02), { matrix: mat(g.range(-0.08, 0.08), -0.02, 0.03), emissive: 1.4 });
+  }
+  return { rig, geometry: b.build() };
+}
+
 // ------------------------------------------------------------------ Тяжёлый двуногий (Голем)
 export function bruteRig(id = 'brute', scale = 1): RigDef {
   const s = scale;

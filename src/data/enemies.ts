@@ -1,5 +1,5 @@
 /** Ростер врагов (GDD §9.2). HP и урон — для зоны 1 (множитель 1.0). */
-export type EnemyKind = 'husk' | 'spiker' | 'reaper' | 'crucifier' | 'eye' | 'golem' | 'acolyte' | 'gateGuardian' | 'bellRinger' | 'hierophant';
+export type EnemyKind = 'husk' | 'spiker' | 'reaper' | 'crucifier' | 'eye' | 'golem' | 'acolyte' | 'psalmist' | 'gateGuardian' | 'bellRinger' | 'hierophant';
 
 export interface EnemyDef {
   id: EnemyKind;
@@ -30,6 +30,7 @@ export interface EnemyDef {
  * | Око      | 45  | 4 — или один Серп и удар    | 3 с ATK ≈ 15                                    |
  * | Жнец     | 60  | одна полная серия (≈ 66)    | серия без финишера с ATK ≈ 20                   |
  * | Аколит   | 70  | серия и удар                | одна серия с ATK ≈ 13.5                         |
+ * | Псаломщик | 60 | одна полная серия — если добежать: держит 7–9 м и уходит перезвоном |                 |
  * | Распинатель | 140 | две серии и удар — или оглушить (50) и Расколоть | одна серия и удар с ATK ≈ 20         |
  * | Голем    | 260 | ≈ 4 серии — дешевле оглушить и Расколоть (14 %) |                              |
  * Этапы добавляют +12 % HP за шаг (scaleHp), поэтому к 1-5 Шелуха снова держит два удара без прокачки.
@@ -42,6 +43,7 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   eye: { id: 'eye', name: 'Око', hp: 45, dmg: 10, speed: 2.4, radius: 0.65, mass: 0.8, height: 2.6, drop: 3, ranged: true, staggerable: true },
   golem: { id: 'golem', name: 'Обсидиановый голем', hp: 260, dmg: 26, speed: 1.7, radius: 1.05, mass: 5, height: 3.3, stun: 40, stunDur: 1.8, drop: 8, staggerable: false },
   acolyte: { id: 'acolyte', name: 'Аколит Хора', hp: 70, dmg: 8, speed: 2.6, radius: 0.55, mass: 0.8, height: 2.5, drop: 4, ranged: true, staggerable: true },
+  psalmist: { id: 'psalmist', name: 'Псаломщик Голода', hp: 60, dmg: 9, speed: 3.2, radius: 0.5, mass: 0.7, height: 2.4, drop: 4, ranged: true, staggerable: true },
   gateGuardian: { id: 'gateGuardian', name: 'Страж Врат', hp: 1350, dmg: 24, speed: 2.1, radius: 1.6, mass: 30, height: 5.2, stun: 90, stunDur: 3.0, armor: 0, drop: 30, staggerable: false },
   bellRinger: { id: 'bellRinger', name: 'Звонарь', hp: 1500, dmg: 22, speed: 2.4, radius: 1.4, mass: 30, height: 4.6, stun: 90, stunDur: 3.0, drop: 30, staggerable: false },
   hierophant: { id: 'hierophant', name: 'Иерофант Скорби', hp: 9000, dmg: 34, speed: 2.6, radius: 2.2, mass: 999, height: 7.5, stun: 120, stunDur: 3.5, drop: 0, staggerable: false },

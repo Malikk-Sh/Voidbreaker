@@ -11,7 +11,7 @@ const DEATH_SOUND: Record<string, string> = {
 /** Слой замаха по классу: рой — щелчки, дуэлянт — сталь, тяжёлый — скрежет, поддержка — хоровой тон. */
 const WINDUP_LAYER: Record<string, string> = {
   husk: 'tele_click', spiker: 'tele_click', reaper: 'tele_steel', crucifier: 'tele_steel', golem: 'tele_grind', gateGuardian: 'tele_grind', bellRinger: 'tele_grind',
-  acolyte: 'tele_choir', eye: 'tele_choir',
+  acolyte: 'tele_choir', eye: 'tele_choir', psalmist: 'tele_choir',
 };
 
 /** Высота звука удара по шагам комбо: финишеры ниже и тяжелее (план §5.1, п. 5). */
@@ -292,6 +292,10 @@ export class FeelSystem {
           this.audio.play('swing_heavy', { pitch: 0.6, gain: 0.7, pan: this.pan(e.x) });
           this.vfx.bladeFan(e.x, e.z, e.dir ?? 0, e.angles ?? [0], e.len ?? 6);
           this.cam.addTrauma(this.near(e.x, e.z, 8) ? 0.18 : 0.08);
+        } else if (e.kind === 'chime') {
+          this.audio.play('chime_ring', { pan: this.pan(e.x) });
+          this.vfx.chime(e.x, e.z, e.r ?? 3);
+          this.cam.addTrauma(this.near(e.x, e.z, 5) ? 0.2 : 0.05);
         } else if (e.kind === 'nail') {
           this.audio.play('nail', { pan: this.pan(e.x) });
           this.vfx.nail(e.x, e.z, e.r ?? 1.1);
@@ -308,6 +312,14 @@ export class FeelSystem {
       b.on('scrape', (e) => {
         this.vfx.scrape(e.x, e.y, e.z);
         if ((this.scrapeN = (this.scrapeN + 1) % 3) === 0) this.audio.play('blade_scrape', { gain: 0.3, pan: this.pan(e.x) });
+      }),
+      b.on('psalm', (e) => {
+        if (e.kind === 'link') this.audio.play('psalm_link', { gain: 0.6, pan: this.pan(e.x) });
+        else if (e.kind === 'off') this.audio.play('plates_scatter', { pan: this.pan(e.x) });
+        else {
+          this.audio.play('thread_snap', { pan: this.pan(e.tx ?? e.x) });
+          this.vfx.threadSnap(e.x, e.z, e.tx ?? e.x, e.tz ?? e.z);
+        }
       }),
       b.on('stuck', (e) => this.audio.play('nail_strain', { gain: 0.6, pan: this.pan(e.x) })),
       b.on('lob', (e) => this.vfx.lob(e.fx, e.fz, e.tx, e.tz, e.dur, e.size)),

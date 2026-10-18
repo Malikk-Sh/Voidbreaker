@@ -295,7 +295,7 @@ export abstract class Enemy implements Actor {
       case 'duelist':
         p.kickSpring(dirX, dirZ, spring * 0.9);
         if (heavy && this.state === 'stagger') this.toppleT = 0.6;
-        else if (!this.superArmor) this.facing += (this.id % 2 ? 0.3 : -0.3);
+        else if (!this.steadfast) this.facing += (this.id % 2 ? 0.3 : -0.3);
         break;
       case 'heavy':
         p.kickSpring(dirX, dirZ, spring * 0.35);
@@ -477,11 +477,19 @@ export abstract class Enemy implements Actor {
 
   /** Суперброня: лёгкие удары не прерывают атаку (Распинатель — только во время атаки). */
   get superArmor(): boolean { return false; }
+  /** Нить Псаломщика (план §7.3): связанный враг. */
+  linkedBy: Enemy | null = null;
+  /** Связь держится (у Псаломщика: не гаснет после тяжёлого удара). */
+  get linkActive(): boolean { return false; }
+  /** Связан живой нитью: красная аура, +25 % урона, лёгкие удары не прерывают. */
+  get psalmLinked(): boolean { return !!this.linkedBy && !this.linkedBy.dead && this.linkedBy.linkActive; }
+  /** Не сбивается лёгким ударом. */
+  get steadfast(): boolean { return this.superArmor || this.psalmLinked; }
 
   /** Прерывание лёгким ударом (хитстан рядовых); heavy — тяжёлый удар пробивает суперброню. */
   interrupt(dur: number, heavy = false): void {
     if (!this.def.staggerable || this.elite.length > 0 || this.state === 'spawn') return;
-    if (this.superArmor && !heavy) return;
+    if (this.steadfast && !heavy) return;
     this.cancelTelegraph();
     if (this.token) this.token = null;
     this.stagger = dur;

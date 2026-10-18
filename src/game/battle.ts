@@ -113,7 +113,7 @@ export class Battle {
     this.vfx.tele.hatch = ctx.settings.hatch;
     this.vfx.camera = ctx.renderer.camera;
     this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group);
-    this.enemies.warm(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'brute']);
+    this.enemies.warm(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'psalmist', 'brute']);
     r.scene.add(this.group);
 
     this.runner = new StageRunner(this.world, stage);
@@ -208,6 +208,11 @@ export class Battle {
       const en = e.actor as { kind?: string; isGuardian?: boolean; isBoss?: boolean };
       if (en.isGuardian && !en.isBoss && en.kind) { S.music.play(guardianSong(en.kind), 0.9); this.cine.guardianIntro(e.actor as Enemy); }
       else if ((e.actor as Enemy).elite?.length && !en.isBoss) this.cine.elite(e.actor as Enemy);
+      // новые враги Зоны 01 (план §7.2–7.3): одна подсказка при первой встрече
+      if (en.kind === 'crucifier' && !S.flag('tut_crucifier')) {
+        S.setFlag('tut_crucifier');
+        hud.showHint('Распинатель: стой в просвете веера. Промах Гвоздём — клинок застрял, бей');
+      }
       if (this.stage.tutorial === 'charged' && en.kind === 'golem' && !S.flag('tut_charged')) {
         S.setFlag('tut_charged');
         hud.showHint('Удерживайте атаку — заряженный удар быстро оглушает');
@@ -216,6 +221,9 @@ export class Battle {
         S.setFlag('tut_q');
         setTimeout(() => hud.showHint('Q — Серп Луны достанет Око издалека'), 1500);
       }
+    });
+    b.on('psalm', (e) => {
+      if (e.kind === 'link' && !S.flag('tut_psalmist')) { S.setFlag('tut_psalmist'); hud.showHint('Псаломщик связал врагов нитью. Убей его первым — связанные будут оглушены'); }
     });
     b.on('shatterStart', () => { fullShattersLeft = this.world.fullShatters; });
     b.on('ultimate', () => { this.ultCut = 0.9; });

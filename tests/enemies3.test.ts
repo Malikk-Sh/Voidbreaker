@@ -214,3 +214,129 @@ describe('Распинатель (план §7.2)', () => {
     expect(c.removable).toBe(true);
   });
 });
+
+describe('Псаломщик Голода (план §7.3)', () => {
+  const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
+  const run = (w: World, sec: number): void => { const inp = idle(); for (let t = 0; t < sec; t += DT) w.step(DT, DT, inp, DT); };
+  async function setup() {
+    const { Psalmist } = await import('../src/world/enemies/psalmist');
+    const { Crucifier } = await import('../src/world/enemies/crucifier');
+    const { Reaper } = await import('../src/world/enemies/reaper');
+    const { Husk } = await import('../src/world/enemies/husk');
+    const w = arena();
+    w.hero.x = 0; w.hero.z = 9;
+    const p = put(w, new Psalmist({ zone: 0, stage: 0, hpMul: 5 }), 0, 0);
+    const c = put(w, new Crucifier({ zone: 0, stage: 0, hpMul: 20 }), -3, 3);
+    const r = put(w, new Reaper({ zone: 0, stage: 0, hpMul: 20 }), 3, 3);
+    const h = put(w, new Husk({ zone: 0, stage: 0, hpMul: 20 }), 0, 4);
+    // союзники стоят на месте (без ИИ): проверяется только Псаломщик
+    for (const e of [c, r, h]) (e as unknown as { think(): void }).think = () => {};
+    p.speed = 0;
+    const events: string[] = [];
+    w.bus.on('psalm', (e) => events.push(e.kind));
+    return { w, p, c, r, h, events };
+  }
+  const hit = (w: World, e: Enemy, feel: 'light' | 'heavy'): void => { w.damageEnemy(e, { mult: 0.01, stun: 0, knockback: 0, feel, dirX: 0, dirZ: -1, source: 'blade' }); };
+
+  it('с Аколитом в одной волне Зоны 01 не появляется; впервые — на 1-5', async () => {
+    const { ZONE1 } = await import('../src/data/stages');
+    for (const st of ZONE1) for (const wv of st.waves) {
+      const kinds = [...wv.spawns.map((s) => s.enemy), ...(wv.triggers ?? []).map((t) => t.spawn.enemy)];
+      expect(kinds.includes('psalmist') && kinds.includes('acolyte')).toBe(false);
+    }
+    const first = ZONE1.find((s) => s.waves.some((wv) => wv.spawns.some((sp) => sp.enemy === 'psalmist')));
+    expect(first?.id).toBe('1-5');
+  });
+
+  it('Красный псалом: за 0.6 с связывает двух сильнейших; +25 % урона, лёгкие удары их не прерывают', async () => {
+    const { w, p, c, r, h, events } = await setup();
+    for (let t = 0; t < 1 && p.state !== 'telegraph'; t += DT) run(w, DT);
+    expect(p.state).toBe('telegraph');
+    expect(p.casting).toEqual([c, r]);
+    run(w, 0.7);
+    expect(events).toContain('link');
+    expect(p.links).toEqual([c, r]);
+    expect(c.psalmLinked && r.psalmLinked).toBe(true);
+    expect(h.psalmLinked).toBe(false);
+    hit(w, r, 'light');
+    expect(r.state).not.toBe('stagger');
+    hit(w, h, 'light');
+    expect(h.state).toBe('stagger');
+    // урон: связанный бьёт на 25 % сильнее
+    w.hero.invulnUntil = 0;
+    const shape = { k: 'circle' as const, x: w.hero.x, z: w.hero.z, r: 1 };
+    let hp = w.hero.hp;
+    w.enemyStrike(h, shape, 20); const plain = hp - w.hero.hp;
+    w.hero.invulnUntil = 0; hp = w.hero.hp;
+    w.enemyStrike(r, shape, 20); const linked = hp - w.hero.hp;
+    expect(linked / plain).toBeCloseTo(1.25, 1);
+  });
+
+  it('тяжёлый удар гасит связь на 2 с; рывок сквозь нить рвёт её, восстановление — через 6 с', async () => {
+    const { PSALM_OFF, PSALM_RELINK } = await import('../src/world/enemies/psalmist');
+    const { w, p, c, r, events } = await setup();
+    run(w, 1.3);
+    hit(w, p, 'heavy');
+    expect(events).toContain('off');
+    expect(r.psalmLinked).toBe(false);
+    run(w, PSALM_OFF + 0.1);
+    expect(r.psalmLinked).toBe(true);
+    // рывок поперёк нити к Жнецу
+    w.hero.x = 1.5 - 0.6; w.hero.z = 1.5;
+    w.hero.invulnUntil = 1e9;
+    (w.hero as unknown as { startDash(dx: number, dz: number): void }).startDash(1, -1);
+    run(w, 0.1);
+    expect(events.filter((k) => k === 'snap').length).toBe(1);
+    expect(p.links).toEqual([c]);
+    expect(r.linkedBy).toBe(null);
+    run(w, PSALM_RELINK - 1);
+    expect(p.links.length).toBe(1);
+    run(w, 2);
+    expect(p.links.length).toBe(2);
+  });
+
+  it('Перезвон: герой ближе 3.5 м — кольцо r 3 за 0.7 с, затем перенос на 6 м', async () => {
+    const { CHIME_TELE, CHIME_CD } = await import('../src/world/enemies/psalmist');
+    const { w, p } = await setup();
+    run(w, 1.3);
+    w.hero.x = 0; w.hero.z = -2;
+    let rings = 0;
+    w.bus.on('enemyAttack', (e) => { if (e.kind === 'chime') rings++; });
+    run(w, 0.15);
+    expect(p.mode).toBe('chime');
+    expect(p.state).toBe('telegraph');
+    run(w, CHIME_TELE + 0.5);
+    expect(rings).toBe(1);
+    expect(Math.hypot(p.x, p.z)).toBeGreaterThan(5);
+    expect(p.puppet.dissolve).toBe(0);
+    expect(p.chimeCd).toBeGreaterThan(CHIME_CD - 1);
+  });
+
+  it('смерть: нити лопаются, связанные сразу оглушены — Раскол открыт', async () => {
+    const { w, p, c, r, h, events } = await setup();
+    run(w, 1.3);
+    w.killEnemy(p, 0, 1, 4);
+    expect(events.filter((k) => k === 'snap').length).toBe(2);
+    expect(c.stunned && r.stunned).toBe(true);
+    expect(r.shatterable).toBe(true);
+    expect(h.stunned).toBe(false);
+    expect(c.linkedBy).toBe(null);
+  });
+
+  it('ряса — ткань Верле: висит от пояса, не разлетается; после гибели падает на пол', async () => {
+    const { w, p } = await setup();
+    p.speed = 3;
+    run(w, 2);
+    const P = p.robe.p;
+    for (let k = 0; k < p.robe.n; k++) {
+      expect(Number.isFinite(P[k * 3])).toBe(true);
+      expect(Math.hypot(P[k * 3] - p.x, P[k * 3 + 2] - p.z)).toBeLessThan(1.2);
+      expect(P[k * 3 + 1]).toBeGreaterThan(0.05);
+    }
+    w.killEnemy(p, 0, 1, 4);
+    for (let t = 0; t < 1.2; t += DT) p.step(w, DT);
+    let maxY = 0;
+    for (let k = 0; k < p.robe.n; k++) maxY = Math.max(maxY, P[k * 3 + 1]);
+    expect(maxY).toBeLessThan(0.6);
+  });
+});

@@ -97,6 +97,8 @@ export const ZONE1: StageDef[] = [
       { spawns: [{ enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 1 }] },
       // Ока на концах мостов: снаряды — украсть уклонением и вернуть
       { spawns: [{ enemy: 'eye', count: 2, at: ['left', 'right'] }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1.5 }, { enemy: 'husk', count: 4, pattern: 'ring', delay: 3 }] },
+      // кого бить первым: Псаломщик связывает Распинателя и Жнеца
+      { spawns: [{ enemy: 'psalmist', count: 1, at: ['top'] }, { enemy: 'crucifier', count: 1, pattern: 'far', delay: 0.5 }, { enemy: 'reaper', count: 1, pattern: 'edges', delay: 1 }, { enemy: 'husk', count: 4, pattern: 'ring', delay: 2.5, stagger: 0.12 }] },
       // Раскол элиты; Голем на мосту
       { spawns: [{ enemy: 'reaper', count: 1, at: ['left'], elite: ['explosive', 'hasted'] }, { enemy: 'golem', count: 1, at: ['right'], delay: 1.5 }],
         triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 } }] },

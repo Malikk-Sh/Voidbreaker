@@ -7,6 +7,8 @@ import { obsidianMaterial, G } from '../render/materials';
 import type { World } from '../world/world';
 import type { Abilities } from '../world/abilities';
 import { Acolyte } from '../world/enemies/acolyte';
+import { Psalmist } from '../world/enemies/psalmist';
+import { ClothMesh } from '../render/cloth';
 import { Debris } from './debris';
 import { LightManager } from './lights';
 import { Particles, type ParticleSpec } from './particles';
@@ -50,6 +52,8 @@ export class BattleVfx {
   readonly rifts = new FloorRiftsView();
   /** Шипы из пола (Погребальный ряд, план §7.2). */
   readonly spikes = new FloorSpikes();
+  /** Рясы Псаломщиков — ткань Верле, по сетке на каждого (план §7.3). */
+  private robes = new Map<Psalmist, ClothMesh>();
   /** Ступень ранга (план §6.6): 0 — ниже A, 1 — A, 2 — S, 3 — SS. Только визуал, без бонуса к урону. */
   rankTier = 0;
   /** Раскалённые следы тяжёлых (план §7.1). */
@@ -224,6 +228,42 @@ export class BattleVfx {
     this.lights.flash(x, 0.8, z, C.hunger, big ? 4 : 2.5, 4, 0.25);
   }
 
+  /** Пульсирующие нити Псаломщика к связанным (и тянущиеся к целям на псалме); погашенные — тусклые. */
+  private threads(e: Psalmist, time: number): void {
+    e.threadPoint(_wp);
+    const cast = e.state === 'telegraph' && e.mode === 'psalm';
+    const grow = cast ? Math.min(1, e.stateT / 0.6) : 1;
+    const on = e.linkActive;
+    for (const tg of cast ? e.casting : e.links) {
+      const ty = tg.height * 0.6, n = 14;
+      for (let k = 1; k <= n * grow; k++) {
+        const f = k / n;
+        // провисание и бегущая к цели волна
+        const sag = Math.sin(f * Math.PI) * 0.35, wave = Math.sin(f * 14 - time * 9) * 0.06;
+        const pulse = 0.5 + 0.5 * Math.sin(time * 6 - f * 8);
+        const a = on ? 0.35 + pulse * 0.55 : 0.08 + 0.08 * Math.sin(time * 30 + k);
+        this.sprites.add(_wp.x + (tg.x - _wp.x) * f, _wp.y + (ty - _wp.y) * f - sag + wave, _wp.z + (tg.z - _wp.z) * f, on ? 0.1 + pulse * 0.06 : 0.07, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], a, 'dot');
+      }
+    }
+  }
+
+  /** Нить Псаломщика лопнула: хлёсткие багровые искры вдоль неё. */
+  threadSnap(x: number, z: number, tx: number, tz: number): void {
+    const n = Math.round(12 * this.quality) + 4;
+    for (let k = 0; k < n; k++) {
+      const f = k / (n - 1), y = 1.6 + Math.sin(f * Math.PI) * 0.4 - f * 0.5;
+      const side = (f < 0.5 ? -1 : 1) * fxRng.range(2, 5);
+      this.add.emit({ x: x + (tx - x) * f, y, z: z + (tz - z) * f, vx: (tz - z) * 0.1 * side, vz: -(tx - x) * 0.1 * side, vy: fxRng.range(-1, 2), life: 0.35, size: 0.12, size1: 0.02, color: C.hungerHot, gravity: -6, drag: 2, frame: 'spark', stretch: 1.6 });
+    }
+  }
+
+  /** Перезвон: кольцо звона и осколки света от плит. */
+  chime(x: number, z: number, r: number): void {
+    this.rings.spawn(x, z, 0.4, r * 1.1, 0.4, C.hungerHot, 0.18, 1);
+    this.burst(18, { x, y: 1.6, z, life: 0.45, size: 0.1, size1: 0.02, color: C.hungerHot, drag: 2.5, frame: 'spark', stretch: 1.4 }, { v: 8, vy: 1 });
+    this.lights.flash(x, 1.5, z, C.hunger, 4, r * 2, 0.3);
+  }
+
   /** Искры от клинка, волочащегося по полу. */
   scrape(x: number, y: number, z: number): void {
     this.burst(2, { x, y, z, life: 0.28, size: 0.06, size1: 0.01, color: C.ember, gravity: -10, drag: 2, frame: 'spark', stretch: 1.3 }, { v: 2.5, vy: 1.6 });
@@ -323,6 +363,7 @@ export class BattleVfx {
 
   // ------------------------------------------------------------------ синхронизация мира
   sync(w: World, dtReal: number, dtW: number): void {
+    this.syncRobes(w);
     // телеграфы
     this.tele.sync(w.telegraphs, w.ringWaves);
     this.sprites.begin();
@@ -420,6 +461,16 @@ export class BattleVfx {
       if (e.elite.length) this.pools.addDynamic(e.x, e.z, e.radius + 1.6, C.hunger, 0.35);
       else if (e.spawned) this.pools.addDynamic(e.x, e.z, e.radius + 0.9, C.hunger, 0.1);
       if (e.shieldMul < 1) this.sprites.add(e.x, y, e.z, e.radius * 1.6 + 0.4, C.hunger[0] * 0.8, C.hunger[1] * 0.8, C.hunger[2] * 0.8, 0.55 + Math.sin(w.time * 8) * 0.15, 'ring', w.time);
+      if (e.psalmLinked) {
+        // связанный нитью: багровая аура и угли вверх
+        this.sprites.add(e.x, y, e.z, e.radius * 1.8 + 0.5, C.hunger[0], C.hunger[1], C.hunger[2], 0.45 + Math.sin(w.time * 6) * 0.15, 'ring', -w.time);
+        this.pools.addDynamic(e.x, e.z, e.radius + 1.4, C.hunger, 0.3);
+        if (fxRng.chance(0.4 * this.quality)) {
+          const a = fxRng.range(0, Math.PI * 2);
+          this.add.emit({ x: e.x + Math.sin(a) * e.radius, y: 0.2, z: e.z + Math.cos(a) * e.radius, vy: 2, life: 0.7, size: 0.1, size1: 0.02, color: C.hungerHot, frame: 'dot', drag: 0.5 });
+        }
+      }
+      if (e instanceof Psalmist && !e.dead) this.threads(e, w.time);
       if (e instanceof Acolyte) {
         const t = e.beamTarget;
         const links = t ? [t] : e.shielding;
@@ -608,7 +659,26 @@ export class BattleVfx {
     this.lights.end(dtW);
   }
 
+  private syncRobes(w: World): void {
+    for (const e of w.enemies) {
+      if (!(e instanceof Psalmist)) continue;
+      let m = this.robes.get(e);
+      if (!m) {
+        m = new ClothMesh(e.robe, '#4a0f18', { rim: '#d02838', rimStrength: 0.5, rimPower: 2.6, emissive: '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 1.6 }, 1, 0.9);
+        this.robes.set(e, m); this.group.add(m.mesh);
+      }
+      m.sync();
+      m.mesh.visible = e.puppet.dissolve < 0.5;
+    }
+    for (const [e, m] of this.robes) {
+      if (w.enemies.includes(e)) continue;
+      this.group.remove(m.mesh); m.dispose(); this.robes.delete(e);
+    }
+  }
+
   clear(): void {
+    for (const m of this.robes.values()) { this.group.remove(m.mesh); m.dispose(); }
+    this.robes.clear();
     this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear();
   }
 }

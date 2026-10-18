@@ -58,11 +58,16 @@ export interface GameEvents {
   /** src — вид врага: по нему слышен класс замаха (рой, дуэлянт, тяжёлый, поддержка). */
   telegraph: { kind: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar'; x: number; z: number; src?: string };
   /** fan — веер клинков Распинателя (angles — смещения полос от dir), nail — гвоздь в пол. */
-  enemyAttack: { kind: 'bite' | 'slash' | 'slam' | 'shot' | 'beam' | 'bell' | 'swing' | 'throw' | 'fan' | 'nail'; x: number; z: number; dir?: number; r?: number; angles?: readonly number[]; len?: number };
+  enemyAttack: { kind: 'bite' | 'slash' | 'slam' | 'shot' | 'beam' | 'bell' | 'swing' | 'throw' | 'fan' | 'nail' | 'chime'; x: number; z: number; dir?: number; r?: number; angles?: readonly number[]; len?: number };
   /** Шипы из пола полосой (Погребальный ряд): центр, ось ряда (dirX, dirZ), ширина поперёк; big — третий, сильный такт. */
   spikes: { x: number; z: number; dirX: number; dirZ: number; w: number; big: boolean };
   /** Клинок волочится по полу и высекает искры. */
   scrape: { x: number; y: number; z: number };
+  /**
+   * Нити Псаломщика (план §7.3): link — псалм связал союзников; off — тяжёлый удар погасил связь;
+   * snap — нить лопнула (tx, tz — второй конец).
+   */
+  psalm: { kind: 'link' | 'off' | 'snap'; x: number; z: number; tx?: number; tz?: number };
   /** Клинок застрял в камне: окно уязвимости (с). */
   stuck: { x: number; z: number; dur: number };
   projectileHit: { x: number; z: number; kind: string };

@@ -43,8 +43,11 @@ export class RigLayout {
 
 interface Debris { vx: number; vy: number; vz: number; ax: number; ay: number; az: number; w: number; px: number; py: number; pz: number; q: THREE.Quaternion; s: THREE.Vector3; rest: boolean; delay: number; stickY?: number }
 
-/** Особые обломки распада: stick — сустав → высота, на которой клинок застревает в полу; pop — лопнуть наружу. */
-export interface ShatterOpts { stick?: ReadonlyMap<number, number>; pop?: ReadonlySet<number> }
+/**
+ * Особые обломки распада: stick — сустав → высота, на которой клинок застревает в полу; pop — лопнуть наружу;
+ * implode — тело складывается внутрь себя (детали падают к центру).
+ */
+export interface ShatterOpts { stick?: ReadonlyMap<number, number>; pop?: ReadonlySet<number>; implode?: boolean }
 
 /**
  * Экземпляр скелета: локальные повороты суставов (кватернионы) → мировые матрицы.
@@ -154,6 +157,8 @@ export class Skeleton {
       } else if (opts?.pop?.has(i)) {
         // лопнуть наружу: рёбра разлетаются от груди
         d.vx += (rx / rl) * power * 0.8; d.vz += (rz / rl) * power * 0.8; d.vy += 3; d.delay = 0;
+      } else if (opts?.implode) {
+        d.vx = -rx * 3 + dirX * 0.5; d.vz = -rz * 3 + dirZ * 0.5; d.vy = rng.range(-0.5, 1); d.delay *= 0.5;
       }
     }
   }

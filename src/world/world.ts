@@ -467,6 +467,8 @@ export class World {
     // тяжёлая атака (элита, Страж, босс, телеграф ≥ 0.7 с) — уклонение от неё даёт «Мгновение Пустоты»
     const atk = this.enemies.find((x) => x.id === src.id);
     const heavy = !!atk && (atk.elite.length > 0 || atk.isGuardian || atk.isBoss) && atk.lastTeleDur >= 0.7;
+    // нить Псаломщика: +25 % урона
+    if (atk?.psalmLinked) dmg *= 1.25;
     const res = h.receiveAttack(dmg, dx, dz, src.kind, kb, heavy);
     if (res === 'perfect' && atk) {
       if (!atk.isGuardian && !atk.isBoss) atk.lagT = 0.2;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildAcolyte, buildBrute, buildCrawler, buildCrucifier, buildEye, buildHusk, buildMantis, type RigBuild } from '../gen/chars/enemies';
+import { buildAcolyte, buildBrute, buildCrawler, buildCrucifier, buildEye, buildHusk, buildMantis, buildPsalmist, type RigBuild } from '../gen/chars/enemies';
 import { buildHierophant } from '../gen/chars/hierophant';
 import type { Enemy } from '../world/enemy';
 import { RigBatch } from './rigbatch';
@@ -12,6 +12,7 @@ const BUILDERS: Record<string, { build: () => RigBuild; max: number }> = {
   crucifier: { build: () => buildCrucifier(17), max: 8 },
   eye: { build: () => buildEye(13), max: 16 },
   acolyte: { build: () => buildAcolyte(14), max: 12 },
+  psalmist: { build: () => buildPsalmist(18), max: 6 },
   brute: { build: () => buildBrute(15), max: 10 },
   gateGuardian: { build: () => buildBrute(21, 1.65, { halberd: true }), max: 2 },
   bellRinger: { build: () => buildBrute(22, 1.45, { bell: true }), max: 2 },
