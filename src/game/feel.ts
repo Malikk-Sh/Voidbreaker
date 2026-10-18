@@ -153,9 +153,11 @@ export class FeelSystem {
       b.on('enemyAttack', (e) => {
         if (e.kind === 'shot') this.audio.play('shot', { gain: 0.5, pan: this.pan(e.x) });
         else if (e.kind === 'bite') this.audio.play('bite', { gain: 0.6, pan: this.pan(e.x) });
-        else if (e.kind === 'slash') this.audio.play('slash_enemy', { pan: this.pan(e.x) });
+        else if (e.kind === 'slash') { this.audio.play('slash_enemy', { pan: this.pan(e.x) }); if (e.dir !== undefined) this.vfx.enemySlash(e.x, e.z, e.dir, e.r ?? 1.8, (e.r ?? 0) > 2.2); }
+        else if (e.kind === 'throw') this.audio.play('swing_heavy', { pitch: 0.5, pan: this.pan(e.x) });
         else if (e.kind === 'beam') this.audio.play('beam', { gain: 0.6 });
       }),
+      b.on('lob', (e) => this.vfx.lob(e.fx, e.fz, e.tx, e.tz, e.dur, e.size)),
       b.on('projectileHit', (e) => {
         this.audio.play('proj_hit', { gain: 0.5, pan: this.pan(e.x) });
         this.vfx.burst(8, { x: e.x, y: 1.2, z: e.z, life: 0.3, size: 0.07, size1: 0.01, color: C.hungerHot, drag: 3, frame: 'spark', stretch: 1 }, { v: 5, vy: 3 });

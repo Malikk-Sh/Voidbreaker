@@ -15,6 +15,7 @@ import { ScriptedEnemy, type PoseLib } from './scripted';
 import type { Pattern, Step } from './timeline';
 
 const PHASE2_AT = 0.55;
+const _bell = new THREE.Vector3();
 
 const POSES: PoseLib = {
   idle: { shUL: [-0.5, 0, 0.5], shUR: [-0.5, 0, -0.5], shLL: [-0.2, 0, 0.35], shLR: [-0.2, 0, -0.35], elbUL: [-0.5, 0, 0], elbUR: [-0.5, 0, 0], elbLL: [-0.4, 0, 0], elbLR: [-0.4, 0, 0] },
@@ -102,6 +103,32 @@ export class Hierophant extends ScriptedEnemy {
     ] },
     // Цепи кадил: кадила летят по мостам как боулинг, разрушают плиты (возрождаются через 6 с)
     { id: 'chains', weight: 3, cooldown: 6, phases: [2], steps: [], build: () => this.chainSteps() },
+    // Литания: три веера игл из-под рясы, каждый доворачивает на героя
+    { id: 'litany', weight: 2, cooldown: 6, phases: [1], range: [4, 40], steps: [
+      { t: 0, do: 'pose', id: 'sermon', blend: 0.35 },
+      { t: 0, do: 'telegraphSound', kind: 'chime' },
+      { t: 0, do: 'telegraph', shape: { arc: [9, 80] }, at: 'self', dur: 0.8 },
+      { t: 0.8, do: 'projectiles', pattern: 'fan', count: 7, speed: 9, kind: 'needle', dmg: 0.1, spread: 1.3 },
+      { t: 0.8, do: 'sfx', id: 'slash_enemy' },
+      { t: 0.85, do: 'pose', id: 'toll', blend: 0.08 },
+      { t: 1.2, do: 'projectiles', pattern: 'fan', count: 6, speed: 9.5, kind: 'needle', dmg: 0.1, spread: 1.1 },
+      { t: 1.2, do: 'sfx', id: 'slash_enemy' },
+      { t: 1.25, do: 'pose', id: 'sermon', blend: 0.08 },
+      { t: 1.6, do: 'projectiles', pattern: 'fan', count: 7, speed: 10, kind: 'needle', dmg: 0.1, spread: 1.4 },
+      { t: 1.6, do: 'sfx', id: 'slash_enemy' },
+      { t: 1.8, do: 'pose', id: 'idle', blend: 0.4 },
+      { t: 1.9, do: 'vulnerable', dur: 1.1 },
+    ] },
+    // Приговор: косой крест лучей, затем прямой — по мостам
+    { id: 'judgment', weight: 3, cooldown: 7, phases: [2], steps: [], build: () => this.judgmentSteps() },
+    // Жатва: из бездны лезет Шелуха
+    { id: 'harvest', weight: 1, cooldown: 16, phases: [2], steps: [
+      { t: 0, do: 'pose', id: 'rise', blend: 0.4 },
+      { t: 0, do: 'telegraphSound', kind: 'roar' },
+      { t: 0.8, do: 'summon', enemy: 'husk', count: 6, at: 'edges' },
+      { t: 0.8, do: 'sfx', id: 'boss_roar' },
+      { t: 1.3, do: 'pose', id: 'idle', blend: 0.4 },
+    ], dur: 2.0 },
   ];
 
   constructor(o: SpawnOpts) {
@@ -138,6 +165,32 @@ export class Hierophant extends ScriptedEnemy {
     }
     out.push({ t: 1.6, do: 'pose', id: 'idle', blend: 0.4 });
     out.push({ t: 1.7, do: 'vulnerable', dur: 1.5 });
+    return out;
+  }
+
+  private judgmentSteps(): Step[] {
+    const out: Step[] = [
+      { t: 0, do: 'pose', id: 'phase', blend: 0.35 },
+      { t: 0, do: 'telegraphSound', kind: 'bell' },
+      { t: 0, do: 'call', fn: 'sway', arg: 1.7 },
+    ];
+    const cross = (off: number, t0: number) => {
+      for (let k = 0; k < 4; k++) {
+        const a = off + (k * Math.PI) / 2;
+        const to = { x: this.x + Math.sin(a) * 20, z: this.z + Math.cos(a) * 20 };
+        out.push({ t: t0, do: 'telegraph', shape: { line: [18, 2.2] }, at: 'self', dir: to, dur: 1.0 });
+        out.push({ t: t0 + 1.0, do: 'hitbox', shape: { line: [18, 2.2] }, at: 'self', dir: to, dmg: 0.2, kb: 5 });
+      }
+      out.push({ t: t0 + 1.0, do: 'pose', id: 'slam', blend: 0.05 });
+      out.push({ t: t0 + 1.0, do: 'fx', id: 'shockwave', at: 'self', r: 9 });
+      out.push({ t: t0 + 1.0, do: 'sfx', id: 'boss_bell' });
+      out.push({ t: t0 + 1.02, do: 'shake', trauma: 0.4 });
+      out.push({ t: t0 + 1.12, do: 'pose', id: 'phase', blend: 0.15 });
+    };
+    cross(Math.PI / 4, 0);
+    cross(0, 0.7);
+    out.push({ t: 1.9, do: 'pose', id: 'idle', blend: 0.4 });
+    out.push({ t: 2.0, do: 'vulnerable', dur: 1.3 });
     return out;
   }
 
@@ -241,6 +294,12 @@ export class Hierophant extends ScriptedEnemy {
     s.update();
     this.puppet.boost = this.coreGlow + (this.vulnerableT > 0 ? 0.6 : 0) + (this.transitioning > 0 ? 1.5 : 0);
     this.coreGlow = Math.max(0, this.coreGlow - dt);
+  }
+
+  /** Замах стягивается к колоколу. */
+  override windupPoint(out: { x: number; y: number; z: number }): void {
+    this.bellPos(_bell);
+    out.x = _bell.x; out.y = _bell.y; out.z = _bell.z;
   }
 
   /** Позиция колокола (для огня и казни). */

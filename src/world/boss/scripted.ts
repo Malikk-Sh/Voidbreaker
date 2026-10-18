@@ -45,6 +45,20 @@ export abstract class ScriptedEnemy extends Enemy {
     super(def, layout, [], o);
     this.dmgUnit = 150 * Math.pow(1.75, o.zone) * (o.mode ?? 1);
     this.isGuardian = true;
+    this.heavyWindup = true;
+  }
+
+  /** Замах: прогресс от телеграфа к ближайшему удару таймлайна (для искр и сходящегося кольца). */
+  override get windup(): number {
+    const p = this.cur;
+    if (!p || this.state === 'broken') return 0;
+    let hit = Infinity;
+    for (const s of p.steps) if ((s.do === 'hitbox' || s.do === 'ringwave') && s.t >= this.ct && s.t < hit) hit = s.t;
+    if (hit === Infinity) return 0;
+    let tele = -1;
+    for (const s of p.steps) if ((s.do === 'telegraph' || s.do === 'pose') && s.t <= this.ct && s.t < hit) tele = Math.max(tele, s.t);
+    if (tele < 0 || hit - tele < 0.3) return 0;
+    return clamp((this.ct - tele) / (hit - tele), 0, 1);
   }
 
   protected abstract poses(): PoseLib;
@@ -215,6 +229,7 @@ export abstract class ScriptedEnemy extends Enemy {
         break;
       }
       case 'call': this.onCall(w, s.fn, s.arg); break;
+      case 'resnap': this.snapX = w.hero.x; this.snapZ = w.hero.z; this.facing = angleOf(this.snapX - this.x, this.snapZ - this.z); break;
     }
   }
 

@@ -20,14 +20,18 @@ export interface GameEvents {
   /** Раскол: финишер по треснувшему (сломанная стойка) врагу — взрыв трещин. */
   shatter: { target: Actor; x: number; y: number; z: number; boss: boolean; dmg: number };
   telegraph: { kind: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar'; x: number; z: number };
-  enemyAttack: { kind: 'bite' | 'slash' | 'slam' | 'shot' | 'beam' | 'bell' | 'swing'; x: number; z: number };
+  enemyAttack: { kind: 'bite' | 'slash' | 'slam' | 'shot' | 'beam' | 'bell' | 'swing' | 'throw'; x: number; z: number; dir?: number; r?: number };
   projectileHit: { x: number; z: number; kind: string };
+  /** Навесной бросок (камень голема): только визуал, урон — по метке приземления. */
+  lob: { fx: number; fz: number; tx: number; tz: number; dur: number; size: number };
   portal: { x: number; z: number };
   spawned: { actor: Actor };
   waveStart: { index: number; total: number };
   waveClear: { index: number; total: number };
   stageClear: Record<string, never>;
   bossPhase: { phase: number };
+  /** Страж на 50 % HP: рёв, вторая фаза (кинематографичная вставка). */
+  guardianRage: { x: number; z: number; kind: string };
   bossIntro: { name: string; title: string };
   bossDeath: { x: number; z: number };
   resonanceFull: Record<string, never>;

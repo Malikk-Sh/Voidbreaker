@@ -49,13 +49,15 @@ export abstract class Enemy implements Actor {
   shieldFrom: Enemy | null = null;
   stagger = 0;
   deathT = 0;
-  token: 'melee' | 'ranged' | null = null;
+  token: 'melee' | 'ranged' | 'swarm' | null = null;
   tele: Telegraph | null = null;
   attackDone = false;
   vx = 0; vz = 0;
   scale = 1;
   /** Подсветка ядра при телеграфе (0..1) — уходит в буст эмиссии. */
   coreGlow = 0;
+  /** Тяжёлый замах: под врагом сходится огненное кольцо (големы, стражи). */
+  heavyWindup = false;
   protected brainT = Math.random() * 0.06;
   protected time = 0;
   /** Поедание/подкрепления: элитный порог 50 % HP сработал. */
@@ -232,6 +234,17 @@ export abstract class Enemy implements Actor {
     this.state = 'dead';
     this.deathT = 0;
     this.puppet.skel.shatter(dirX, dirZ, power, w.fxRng);
+  }
+
+  /** Точка, куда стягивается энергия замаха (оружие, ядро). По умолчанию — грудь. */
+  windupPoint(out: { x: number; y: number; z: number }): void {
+    out.x = this.x + Math.sin(this.facing) * this.radius * 0.6; out.y = this.y + this.height * 0.6; out.z = this.z + Math.cos(this.facing) * this.radius * 0.6;
+  }
+
+  /** Прогресс текущего замаха 0..1 (по метке телеграфа). */
+  get windup(): number {
+    if (this.state !== 'telegraph' || !this.tele) return 0;
+    return Math.min(1, this.tele.t / Math.max(0.05, this.tele.dur));
   }
 
   /** Добавлен в мир. */

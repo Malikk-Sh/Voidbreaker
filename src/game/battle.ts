@@ -83,7 +83,7 @@ export class Battle {
     this.vfx.quality = r.quality === 'low' ? 0.5 : r.quality === 'medium' ? 0.75 : 1;
     this.vfx.tele.hatch = ctx.settings.hatch;
     this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group);
-    this.enemies.warm(['crawler', 'mantis', 'eye', 'acolyte', 'brute']);
+    this.enemies.warm(['husk', 'crawler', 'mantis', 'eye', 'acolyte', 'brute']);
     r.scene.add(this.group);
 
     this.runner = new StageRunner(this.world, stage);

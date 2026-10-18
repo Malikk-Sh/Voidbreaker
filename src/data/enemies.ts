@@ -1,5 +1,5 @@
 /** Ростер врагов (GDD §9.2). HP и урон — для зоны 1 (множитель 1.0). */
-export type EnemyKind = 'spiker' | 'reaper' | 'eye' | 'golem' | 'acolyte' | 'gateGuardian' | 'bellRinger' | 'hierophant';
+export type EnemyKind = 'husk' | 'spiker' | 'reaper' | 'eye' | 'golem' | 'acolyte' | 'gateGuardian' | 'bellRinger' | 'hierophant';
 
 export interface EnemyDef {
   id: EnemyKind;
@@ -21,6 +21,7 @@ export interface EnemyDef {
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyDef> = {
+  husk: { id: 'husk', name: 'Шелуха', hp: 11, dmg: 5, speed: 4.6, radius: 0.4, mass: 0.45, height: 1.45, drop: 0.5, staggerable: true },
   spiker: { id: 'spiker', name: 'Шипник', hp: 20, dmg: 6, speed: 4.4, radius: 0.48, mass: 0.5, height: 1.1, drop: 1, staggerable: true },
   reaper: { id: 'reaper', name: 'Жнец', hp: 60, dmg: 14, speed: 4.0, radius: 0.6, mass: 1.1, height: 2.3, drop: 3, staggerable: true },
   eye: { id: 'eye', name: 'Око', hp: 45, dmg: 10, speed: 2.4, radius: 0.65, mass: 0.8, height: 2.6, drop: 3, ranged: true, staggerable: true },

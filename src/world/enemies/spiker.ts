@@ -11,12 +11,14 @@ const layout = () => layoutOf(crawlerRig());
 /** Группы «треноги»: передняя левая, средняя правая, задняя левая — и наоборот. */
 const TRIPOD = [1, 0, 1, 0, 1, 0];
 
-/** Шипник (GDD §9.2): рой, бежит толпой и кусает; телеграф — присед 0.4 с. Вращение косит пачками. */
+/** Шипник (GDD §9.2): рой, бежит толпой и кусает (присед 0.4 с); с 3–7 м иногда выстреливает веер из 3 шипов (0.5 с). */
 export class Spiker extends Enemy {
   private gait = 0;
   private lungeDX = 0; private lungeDZ = 0;
   private jI: number[];
   private ang = Math.random() * Math.PI * 2;
+  private volley = false;
+  private volleyCd = 2 + Math.random() * 4;
 
   constructor(o: SpawnOpts) {
     super(ENEMIES.spiker, layout(), [], o);
@@ -36,9 +38,16 @@ export class Spiker extends Enemy {
         const ox = Math.sin(this.ang) * 1.2, oz = Math.cos(this.ang) * 1.2;
         this.steer(h.x + (d > 3 ? ox : 0), h.z + (d > 3 ? oz : 0), this.speed, dt, 0.9);
         this.faceTo(h.x, h.z, 0.1, dt);
+        this.volleyCd -= dt;
         if (tick && d < 1.7 && this.cooldown <= 0 && !h.dead && w.requestToken(this, 'melee')) {
+          this.volley = false;
           this.facing = angleOf(h.x - this.x, h.z - this.z);
           this.telegraph(w, { k: 'arc', x: this.x, z: this.z, r: 1.65, dir: this.facing, half: 0.7 }, 0.4, false, 'hum');
+          this.setState('telegraph');
+        } else if (tick && d > 3 && d < 7 && this.volleyCd <= 0 && !h.dead && Math.random() < 0.2 && w.requestToken(this, 'ranged')) {
+          this.volley = true;
+          this.facing = angleOf(h.x - this.x, h.z - this.z);
+          this.telegraph(w, { k: 'arc', x: this.x, z: this.z, r: 3.2, dir: this.facing, half: 0.32 }, 0.5, false, 'hum');
           this.setState('telegraph');
         }
         break;
@@ -46,8 +55,21 @@ export class Spiker extends Enemy {
       case 'telegraph':
         this.vx *= 0.7; this.vz *= 0.7;
         this.coreGlow = Math.min(1, this.coreGlow + dt * 4);
-        if (this.tele) { const s = this.tele.shape; if (s.k === 'arc') { s.x = this.x; s.z = this.z; } }
-        if (this.stateT >= 0.4 * this.teleMul) {
+        if (this.tele) { const s = this.tele.shape; if (s.k === 'arc') { s.x = this.x; s.z = this.z; if (this.volley) { this.faceTo(w.hero.x, w.hero.z, 0.1, dt); s.dir = this.facing; } } }
+        if (this.volley && this.stateT >= 0.5 * this.teleMul) {
+          for (let k = -1; k <= 1; k++) {
+            const a = this.facing + k * 0.22;
+            w.spawnProjectile('needle', this.x + Math.sin(a) * 0.5, this.z + Math.cos(a) * 0.5, Math.sin(a) * 10, Math.cos(a) * 10, this.dmg * 0.8, this.id, 0.22, 1.2, 0.7);
+          }
+          this.puppet.kickSpring(-Math.sin(this.facing), -Math.cos(this.facing), 0.8);
+          this.cancelTelegraph();
+          this.token = null;
+          this.volleyCd = 4 + Math.random() * 3;
+          this.cooldown = 0.6;
+          this.setState('recover');
+          break;
+        }
+        if (!this.volley && this.stateT >= 0.4 * this.teleMul) {
           this.lungeDX = Math.sin(this.facing); this.lungeDZ = Math.cos(this.facing);
           this.attackDone = false;
           this.setState('attack');

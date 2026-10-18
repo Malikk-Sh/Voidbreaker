@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { buildAcolyte, buildBrute, buildCrawler, buildEye, buildMantis, type RigBuild } from '../gen/chars/enemies';
+import { buildAcolyte, buildBrute, buildCrawler, buildEye, buildHusk, buildMantis, type RigBuild } from '../gen/chars/enemies';
 import { buildHierophant } from '../gen/chars/hierophant';
 import type { Enemy } from '../world/enemy';
 import { RigBatch } from './rigbatch';
 
 /** Сборщики геометрии по id рига (кэш на сессию: сид → одна и та же модель). */
 const BUILDERS: Record<string, { build: () => RigBuild; max: number }> = {
+  husk: { build: () => buildHusk(16), max: 96 },
   crawler: { build: () => buildCrawler(11), max: 64 },
   mantis: { build: () => buildMantis(12), max: 20 },
   eye: { build: () => buildEye(13), max: 16 },
@@ -34,7 +35,7 @@ export class EnemyRenderer {
       if (!def) throw new Error(`no rig builder ${id}`);
       const r = def.build();
       b = new RigBatch(r.geometry, r.rig.joints.length, def.max, {
-        rim: id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: BIG.has(id) ? 0.38 : 0.8, rimPower: BIG.has(id) ? 3.2 : 2.8,
+        rim: id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: BIG.has(id) ? 0.34 : 0.62, rimPower: BIG.has(id) ? 3.2 : 2.8,
         emissive: '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 2.8,
       });
       this.batches.set(id, b);

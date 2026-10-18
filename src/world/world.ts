@@ -68,6 +68,8 @@ export class World {
   /** Токены атаки (Tech §16): ≤ 3 врагов в замахе рядом, ≤ 2 одновременных выстрела. */
   meleeTokens = 3;
   rangedTokens = 2;
+  /** Отдельный пул для роя (Шелуха): толпа не отнимает очередь у «настоящих» бойцов. */
+  swarmTokens = 4;
   /** Шардов на единицу «веса дропа» врага (задаёт этап). */
   shardPerDrop = 3;
   /** Магнит подбора (передышка между волнами). */
@@ -462,11 +464,11 @@ export class World {
   }
 
   /** Токен атаки: ограничивает число одновременных замахов рядом с героем и выстрелов. */
-  requestToken(e: Enemy, kind: 'melee' | 'ranged'): boolean {
+  requestToken(e: Enemy, kind: 'melee' | 'ranged' | 'swarm'): boolean {
     if (e.elite.length || e.isGuardian || e.isBoss) { e.token = kind; return true; }
     let n = 0;
     for (const o of this.enemies) if (o !== e && o.token === kind && !o.dead && !o.elite.length && !o.isGuardian && !o.isBoss) n++;
-    const cap = kind === 'melee' ? this.meleeTokens : this.rangedTokens;
+    const cap = kind === 'melee' ? this.meleeTokens : kind === 'swarm' ? this.swarmTokens : this.rangedTokens;
     if (n >= cap) return false;
     e.token = kind;
     return true;

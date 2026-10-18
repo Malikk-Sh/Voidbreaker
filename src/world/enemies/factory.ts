@@ -5,10 +5,11 @@ import { Reaper } from './reaper';
 import { Eye } from './eye';
 import { Golem } from './golem';
 import { Acolyte } from './acolyte';
+import { Husk } from './husk';
 
 type Ctor = new (o: SpawnOpts) => Enemy;
 const REGISTRY: Partial<Record<EnemyKind, Ctor>> = {
-  spiker: Spiker, reaper: Reaper, eye: Eye, golem: Golem, acolyte: Acolyte,
+  husk: Husk, spiker: Spiker, reaper: Reaper, eye: Eye, golem: Golem, acolyte: Acolyte,
 };
 
 /** Регистрация конструкторов стражей и боссов (подключаются своими модулями). */

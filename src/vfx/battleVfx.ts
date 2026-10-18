@@ -20,8 +20,10 @@ const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLin
 export const C = {
   void: lin('#8B5CF6'), voidHot: lin('#B794FF', 2.2), core: lin('#F1E8FF', 2.5), hunger: lin('#E11D2E'), hungerHot: lin('#FF4A57', 2.4),
   ember: lin('#FF8A3D', 2), gold: lin('#B8954E', 1.5), dust: lin('#3a3150'), dark: lin('#0b0910'), ether: lin('#F4F1FF', 3),
+  star: lin('#4aa3c8'), starHot: lin('#9fe4f7', 2.2),
 };
 
+const _wp = { x: 0, y: 0, z: 0 };
 const _v = new THREE.Vector3(), _w = new THREE.Vector3();
 
 /**
@@ -146,6 +148,22 @@ export class BattleVfx {
     this.burst(10, { x, y: 1.0, z, life: 0.3, size: 0.06, size1: 0.01, color: C.voidHot, drag: 3, frame: 'spark', stretch: 1 }, { v: 6, vy: 1, dir: [-dx, -dz], cone: 0.8 });
   }
 
+  /** Взмах врага: дуга багровых искр (серпы, когти, алебарда). */
+  enemySlash(x: number, z: number, dir: number, r: number, full = false): void {
+    const n = Math.round((full ? 26 : 14) * this.quality) + 4;
+    const span = full ? Math.PI * 2 : 2.0;
+    for (let k = 0; k < n; k++) {
+      const f = k / (n - 1);
+      const a = dir - span / 2 + span * f;
+      const rr = r * fxRng.range(0.75, 1.0);
+      this.add.emit({ x: x + Math.sin(a) * rr, y: 0.8 + fxRng.spread(0.25), z: z + Math.cos(a) * rr, vx: Math.cos(a) * 3, vz: -Math.sin(a) * 3, life: 0.22, size: 0.2, size1: 0.03, color: f > 0.3 && f < 0.7 ? C.hungerHot : C.ember, frame: 'spark', stretch: 1.2 });
+    }
+  }
+
+  private lobs: { fx: number; fz: number; tx: number; tz: number; t: number; dur: number; size: number }[] = [];
+  /** Навесной снаряд (камень): дуга, вращение, шлейф пыли и угольков. */
+  lob(fx: number, fz: number, tx: number, tz: number, dur: number, size: number): void { this.lobs.push({ fx, fz, tx, tz, t: 0, dur, size }); }
+
   /** Идеальное уклонение — только лёгкий эффект: тонкое кольцо и россыпь звёздной пыли. */
   perfectDodge(x: number, z: number): void {
     this.rings.spawn(x, z, 0.3, 2.6, 0.35, C.voidHot, 0.1, 0.6);
@@ -207,6 +225,21 @@ export class BattleVfx {
         this.lights.add(e.x, y, e.z, C.hunger, e.coreGlow * 2.5, 4);
         this.pools.addDynamic(e.x, e.z, 1.6 + e.radius, C.hunger, e.coreGlow * 0.5);
       }
+      // замах: искры стягиваются к оружию/ядру, к концу — быстрее и ярче; у тяжёлых — сходящееся кольцо на полу
+      const wu = e.windup;
+      if (wu > 0) {
+        e.windupPoint(_wp);
+        const n = (1 + Math.floor(wu * 3)) * this.quality;
+        for (let k = 0; k < n; k++) {
+          if (!fxRng.chance(0.75)) continue;
+          const a = fxRng.range(0, Math.PI * 2), el = fxRng.range(-0.6, 0.9), r = (0.9 + e.radius) * fxRng.range(0.8, 1.4);
+          const ox = Math.cos(el) * Math.sin(a) * r, oy = Math.sin(el) * r, oz = Math.cos(el) * Math.cos(a) * r;
+          const life = 0.22 + (1 - wu) * 0.12;
+          this.add.emit({ x: _wp.x + ox, y: _wp.y + oy, z: _wp.z + oz, vx: -ox / life, vy: -oy / life, vz: -oz / life, life, size: 0.07 + wu * 0.05, size1: 0.015, color: wu > 0.8 ? C.hungerHot : C.ember, drag: 0, frame: 'spark', stretch: 1 });
+        }
+        this.sprites.add(_wp.x, _wp.y, _wp.z, 0.25 + wu * 0.6, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], 0.35 + wu * 0.6, 'dot');
+        if (e.heavyWindup && fxRng.chance(dtReal * 7)) this.rings.spawn(e.x, e.z, e.radius + 3.2, e.radius * 0.6, 0.35, C.hungerHot, 0.12, 0.5 + wu * 0.4);
+      }
       if (e.elite.length && fxRng.chance(0.35 * this.quality)) {
         const a = fxRng.range(0, Math.PI * 2);
         this.add.emit({ x: e.x + Math.sin(a) * e.radius, y: 0.1, z: e.z + Math.cos(a) * e.radius, vy: 2.4, life: 0.8, size: 0.14, size1: 0.03, color: C.hungerHot, frame: 'dot', drag: 0.5 });
@@ -228,6 +261,36 @@ export class BattleVfx {
       }
     }
 
+    // навесные броски
+    for (const l of this.lobs) {
+      l.t += dtW;
+      const u = Math.min(1, l.t / l.dur);
+      const x = l.fx + (l.tx - l.fx) * u, z = l.fz + (l.tz - l.fz) * u, y = 2.4 + Math.sin(u * Math.PI) * 4.5 - u * 2.2;
+      this.sprites.add(x, y, z, 0.9 * l.size, C.ember[0] * 0.5, C.ember[1] * 0.4, C.ember[2] * 0.4, 0.9, 'dot');
+      this.sprites.add(x, y, z, 0.45 * l.size, 1.6, 1.0, 0.6, 1, 'dot');
+      if (fxRng.chance(0.9 * this.quality)) this.norm.emit({ x, y, z, vy: 0.3, life: 0.7, size: 0.3 * l.size, size1: 0.8 * l.size, color: C.dust, alpha: 0.5, drag: 1, frame: 'smoke' });
+      if (fxRng.chance(0.8)) this.add.emit({ x, y, z, vx: fxRng.spread(1), vy: fxRng.spread(1), vz: fxRng.spread(1), life: 0.35, size: 0.08, size1: 0.01, color: C.ember, frame: 'spark' });
+      this.lights.add(x, y, z, C.ember, 1.2, 3);
+    }
+    this.lobs = this.lobs.filter((l) => l.t < l.dur);
+
+    // лучи Ока: багровая жила с белым ядром вдоль линии
+    for (const e of w.enemies) {
+      const b = (e as { beam?: { x: number; z: number; dx: number; dz: number; len: number; on: boolean } }).beam;
+      if (!b || !b.on || e.dead) continue;
+      const n = Math.round(18 * this.quality) + 6;
+      for (let k = 0; k < n; k++) {
+        const f = fxRng.next();
+        const px = b.x + b.dx * b.len * f, pz = b.z + b.dz * b.len * f;
+        this.add.emit({ x: px + fxRng.spread(0.1), y: 1.7 - f * 0.9, z: pz + fxRng.spread(0.1), vy: fxRng.spread(0.6), life: 0.12, size: 0.35, size1: 0.1, color: C.hungerHot, frame: 'dot' });
+      }
+      for (let k = 0; k <= 10; k++) {
+        const f = k / 10;
+        this.sprites.add(b.x + b.dx * b.len * f, 1.7 - f * 0.9, b.z + b.dz * b.len * f, 0.22, 2.4, 1.8, 1.8, 1, 'dot');
+      }
+      this.lights.add(b.x + b.dx * b.len * 0.5, 1.2, b.z + b.dz * b.len * 0.5, C.hunger, 3, 6);
+    }
+
     // снаряды: ядро + ореол + хвост
     for (const p of w.projectiles) {
       const big = p.kind === 'acolyteOrb' ? 1.3 : p.kind === 'censerBall' ? 2.8 : p.kind === 'stone' ? 1.5 : 1;
@@ -240,12 +303,12 @@ export class BattleVfx {
       this.lights.add(p.x, p.y, p.z, p.reflected ? C.void : C.hunger, 1.0, 3);
     }
 
-    // подбор: Осколки — фиолетовые кристаллы, Эфир — белое пламя
+    // подбор: Осколки — звёздно-голубые кристаллы (как в интерфейсе), Эфир — белое пламя
     for (const p of w.pickups) {
       const bob = Math.sin(p.age * 6) * 0.08;
       if (p.kind === 'shard') {
-        this.sprites.add(p.x, p.y + bob, p.z, 0.32, C.voidHot[0], C.voidHot[1], C.voidHot[2], 1, 'star', p.age * 2);
-        this.sprites.add(p.x, p.y + bob, p.z, 0.6, C.void[0], C.void[1], C.void[2], 0.5, 'dot');
+        this.sprites.add(p.x, p.y + bob, p.z, 0.32, C.starHot[0], C.starHot[1], C.starHot[2], 1, 'star', p.age * 2);
+        this.sprites.add(p.x, p.y + bob, p.z, 0.6, C.star[0], C.star[1], C.star[2], 0.5, 'dot');
       } else if (p.kind === 'ether') {
         this.sprites.add(p.x, p.y + bob + 0.2, p.z, 0.4, C.ether[0], C.ether[1], C.ether[2], 1, 'dot', 0, 1.8);
         this.lights.add(p.x, p.y + 0.5, p.z, [1, 1, 1], 2, 3);

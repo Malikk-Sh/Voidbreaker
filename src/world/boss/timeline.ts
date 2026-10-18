@@ -27,6 +27,8 @@ export type Step =
   | { t: number; do: 'turn'; to: Anchor }
   | { t: number; do: 'summon'; enemy: EnemyKind; count: number; at: Anchor[] | 'edges' }
   | { t: number; do: 'call'; fn: string; arg?: number }
+  /** Перецелиться: снимок позиции героя обновляется (серии ударов, которые доворачивают на цель). */
+  | { t: number; do: 'resnap' }
   | { t: number; do: 'telegraphSound'; kind: 'hum' | 'whistle' | 'chime' | 'bell' | 'roar' };
 
 export interface Pattern {

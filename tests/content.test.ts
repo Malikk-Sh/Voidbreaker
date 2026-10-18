@@ -9,7 +9,7 @@ import { ENEMIES } from '../src/data/enemies';
 import { ABILITIES } from '../src/data/abilities';
 import { ARENAS } from '../src/data/arenas';
 import { Arena, TileState } from '../src/world/arena';
-import { buildAcolyte, buildBrute, buildCrawler, buildEye, buildMantis } from '../src/gen/chars/enemies';
+import { buildAcolyte, buildBrute, buildCrawler, buildEye, buildHusk, buildMantis } from '../src/gen/chars/enemies';
 import { buildHierophant } from '../src/gen/chars/hierophant';
 import { buildHeroGeometry } from '../src/gen/chars/hero';
 import { Rng } from '../src/core/rng';
@@ -53,6 +53,14 @@ describe('паттерны Стражей и Иерофанта (Tech §17)', ()
       }
     });
   }
+
+  it('стражи: у второй фазы есть собственные приёмы', () => {
+    for (const make of [() => new GateGuardian({ zone: 0, stage: 2 }), () => new BellRinger({ zone: 0, stage: 4 })]) {
+      const e = attach(make());
+      expect(e.patterns.some((p) => p.phases.includes(2) && !p.phases.includes(1))).toBe(true);
+      expect(e.patterns.filter((p) => p.phases.includes(1)).every((p) => p.phases.includes(2))).toBe(true);
+    }
+  });
 
   it('Иерофант: кольцевые волны всегда с разрывами', () => {
     const e = attach(new Hierophant({ zone: 0, stage: 6 }));
@@ -124,6 +132,9 @@ describe('процедурная геометрия детерминирован
     ['око', () => buildEye(3)],
     ['аколит', () => buildAcolyte(4)],
     ['голем', () => buildBrute(5)],
+    ['шелуха', () => buildHusk(16)],
+    ['Страж Врат', () => buildBrute(21, 1.65, { halberd: true })],
+    ['Звонарь', () => buildBrute(22, 1.45, { bell: true })],
     ['Иерофант', () => buildHierophant(31)],
     ['герой', () => ({ geometry: buildHeroGeometry() as never })],
   ];
