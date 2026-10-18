@@ -51,6 +51,8 @@ export class RankTracker {
     this.add(RANK_POINTS.hit + (finisher ? RANK_POINTS.finisher : 0));
   }
   perfectDodge(): void { this.add(RANK_POINTS.perfectDodge); }
+  /** Особый момент (уклонение от босса и сразу оглушение): обычно — следующая ступень. */
+  bonus(p: number): void { this.add(p); }
   shatter(): void { this.add(RANK_POINTS.shatter); }
   /** Разнообразие: разные способности/приёмы за 5 с. */
   used(kind: string): void {

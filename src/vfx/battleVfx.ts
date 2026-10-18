@@ -47,6 +47,11 @@ export class BattleVfx {
   readonly stars = new StunStars();
   /** Разломы на полу (план §6.2). */
   readonly rifts = new FloorRiftsView();
+  /** Ступень ранга (план §6.6): 0 — ниже A, 1 — A, 2 — S, 3 — SS. Только визуал, без бонуса к урону. */
+  rankTier = 0;
+  /** Фиолетовые отпечатки шагов на ранге S+. */
+  private steps: { x: number; z: number; t: number }[] = [];
+  private stepAcc = 0; private stepSide = 1; private lastHX = 0; private lastHZ = 0;
   /** Камера рендера: звёзды разворачиваются к ней. */
   camera: THREE.Camera | null = null;
   private sickleMeshes: THREE.Mesh[] = [];
@@ -113,7 +118,9 @@ export class BattleVfx {
    * tx, tz — касательная к дуге взмаха (ход кончика клинка): основная часть искр летит узким конусом по ней (план §5.8).
    */
   hitSparks(x: number, y: number, z: number, dx: number, dz: number, heavy: number, crit: boolean, tx = dx, tz = dz): void {
-    this.burst(5 + heavy * 6, { x, y, z, life: 0.3, size: 0.09, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.5 }, { v: 11, vy: 2.5, dir: [tx, tz], cone: 0.35 });
+    // ранг A+: искры гуще
+    const dense = this.rankTier >= 1 ? 1.6 : 1;
+    this.burst((5 + heavy * 6) * dense, { x, y, z, life: 0.3, size: 0.09, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.5 }, { v: 11, vy: 2.5, dir: [tx, tz], cone: 0.35 });
     this.burst(2 + heavy * 2, { x, y, z, life: 0.25, size: 0.08, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.2 }, { v: 7, vy: 4, dir: [dx, dz], cone: 0.9 });
     this.burst(4 + heavy * 4, { x, y, z, life: 0.35, size: 0.08, size1: 0.01, color: C.hungerHot, gravity: -10, drag: 3, frame: 'spark', stretch: 1 }, { v: 7, vy: 5, dir: [dx, dz], cone: 1.6 });
     this.add.emit({ x, y, z, life: 0.12, size: 0.9 + heavy * 0.5, size1: 1.6 + heavy, color: crit ? C.core : C.voidHot, alpha: 0.9, frame: 'flare', rot: fxRng.next() * 3 });
@@ -279,6 +286,23 @@ export class BattleVfx {
         if (fxRng.chance(0.6)) this.add.emit({ x: h.x + fxRng.spread(0.6), y: fxRng.range(0, 1.8), z: h.z + fxRng.spread(0.6), vy: 2.5, life: 0.7, size: 0.1, size1: 0.02, color: C.voidHot, drag: 1, frame: 'star' });
       }
       if (h.state === 'charge') this.chargeGather(_w.x, _w.y, _w.z, h.chargeLevel);
+      // ранг S: фиолетовые отпечатки шагов; SS: лёгкая аура
+      const moved = Math.hypot(h.x - this.lastHX, h.z - this.lastHZ);
+      this.lastHX = h.x; this.lastHZ = h.z;
+      if (this.rankTier >= 2 && h.state === 'move' && moved < 1) {
+        this.stepAcc += moved;
+        if (this.stepAcc > 0.75) {
+          this.stepAcc = 0; this.stepSide = -this.stepSide;
+          const sx = Math.cos(h.facing) * 0.14 * this.stepSide, sz = -Math.sin(h.facing) * 0.14 * this.stepSide;
+          this.steps.push({ x: h.x + sx, z: h.z + sz, t: 0 });
+          if (this.steps.length > 16) this.steps.shift();
+        }
+      }
+      if (this.rankTier >= 3 && fxRng.chance(0.5 * this.quality)) {
+        const a = fxRng.range(0, Math.PI * 2);
+        this.add.emit({ x: h.x + Math.sin(a) * 0.5, y: fxRng.range(0.1, 1.6), z: h.z + Math.cos(a) * 0.5, vy: 1.2, life: 0.6, size: 0.07, size1: 0.01, color: C.voidHot, drag: 1, frame: 'dot' });
+      }
+      if (this.rankTier >= 3) this.pools.addDynamic(h.x, h.z, 1.6, C.void, 0.25);
       // украденный импульс: фиолетовые осколки кружат вокруг Пилота
       for (const st of w.stolen) {
         const k = st.t > 1.6 ? 0.5 + 0.5 * Math.sin(st.t * 30) : 1;
@@ -298,6 +322,12 @@ export class BattleVfx {
       if (k > tintK) { tintK = k; tx = e.x; tz = e.z; }
     }
     this.pools.tintNear(tx, tz, 14, C.hunger, tintK);
+
+    for (const st of this.steps) {
+      st.t += dtW;
+      this.pools.addDynamic(st.x, st.z, 0.32, C.voidHot, 0.55 * Math.max(0, 1 - st.t / 1.4));
+    }
+    this.steps = this.steps.filter((st) => st.t < 1.4);
 
     // враги: ядра при телеграфе, аура элиты, щиты Аколита
     for (const e of w.enemies) {

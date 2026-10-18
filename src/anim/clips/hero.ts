@@ -1,4 +1,4 @@
-import type { ClipDef } from '../clip';
+import type { ClipDef, Key } from '../clip';
 
 /**
  * Клипы героя (GDD §15.5). Углы — Эйлер (рад) поверх позы покоя.
@@ -210,3 +210,23 @@ export const HERO_CLIPS: ClipDef[] = [
     ],
   },
 ];
+
+/** Вариант клипа: те же события, правка ключей. */
+function variant(id: string, newId: string, edit: (k: Key) => Key): ClipDef {
+  const base = HERO_CLIPS.find((c) => c.id === id)!;
+  return { ...base, id: newId, keys: base.keys.map((k) => edit({ ...k })) };
+}
+
+/** Финишеры ранга S (план §6.6): Нисходящий разлом с разворотом в прыжке, Крест с прыжком. */
+const RIFT_SPIN: Record<number, number> = { 0: 0, 0.06: 0, 0.17: -Math.PI, 0.23: -Math.PI * 2 };
+const CROSS_JUMP: Record<number, number> = { 0: 0, 0.06: 0.4, 0.13: 0.95, 0.19: 0.05, 0.42: 0 };
+HERO_CLIPS.push(
+  variant('rift', 'riftS', (k) => ({ ...k, spin: RIFT_SPIN[k.t] ?? -Math.PI * 2 })),
+  variant('cross', 'crossS', (k) => {
+    const r = k.rootOffset ?? [0, 0, 0];
+    return { ...k, rootOffset: [r[0], r[1] + (CROSS_JUMP[k.t] ?? 0), r[2]] };
+  }),
+);
+
+/** На ранге S финишеры берут альтернативный клип. */
+export const RANK_S_CLIPS: Record<string, string> = { rift: 'riftS', cross: 'crossS' };

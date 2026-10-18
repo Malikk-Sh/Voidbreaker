@@ -244,8 +244,11 @@ export class Battle {
     // шлейф клинка: сэмплы рукоять/кончик
     const h = this.world.hero;
     if (h.trailOn && !h.dead) { h.bladePoints(this.bladeA, this.bladeB); this.vfx.trail.push(this.bladeA, this.bladeB, h.swingWeight); }
-    this.vfx.trail.width = h.eclipse ? 1.0 : 1;
-    this.vfx.trail.intensity = h.eclipse ? 1.6 : this.world.rank.rankIdx >= 4 ? 1.3 : 1;
+    // ступени ранга (план §6.6): A — шлейф толще и ярче, искры гуще; S — следы и альтернативные финишеры; SS — аура
+    const ri = this.world.rank.rankIdx;
+    this.vfx.rankTier = ri >= 5 ? 3 : ri >= 4 ? 2 : ri >= 3 ? 1 : 0;
+    this.vfx.trail.width = ri >= 3 ? 1.15 : 1;
+    this.vfx.trail.intensity = h.eclipse ? 1.6 : ri >= 3 ? 1.35 : 1;
     this.vfx.trail.update(realDt * T.heroScale);
     this.vfx.sync(this.world, realDt, dtW);
     this.view.syncTiles();

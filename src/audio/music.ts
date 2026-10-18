@@ -195,6 +195,8 @@ function drumBakes(): Record<string, BakeSpec> {
     bellA: { len: 4, render: (c, o, t) => bell(c, o, t, mtof(57), 0.16, 4) },
     bellLow: { len: 5, render: (c, o, t) => bell(c, o, t, mtof(38), 0.3, 5) },
     stinger: { len: 3, render: (c, o, t) => { bell(c, o, t, mtof(62), 0.2, 3); kick(c, o, t, 0.6, 35); choir(c, o, t, [50, 57, 62, 65], 1.4, 0.06, 'a', 'o'); } },
+    // хоровой акцент: финишер на ранге SS, рывок ранга
+    choirHit: { len: 1.6, render: (c, o, t) => { choir(c, o, t, [62, 69, 74, 77], 0.5, 0.07, 'a', 'o'); taiko(c, o, t, 70, 0.4); } },
     // оглушение Стража или босса: медный удар на ♭II и тайко — «сбили с ног»
     stunStinger: { len: 2.2, render: (c, o, t) => { taiko(c, o, t, 52, 0.8); brass(c, o, t, [39, 46, 51], 0.5, 0.08); choir(c, o, t + 0.04, [63, 67, 70], 0.9, 0.045, 'o', 'u'); } },
   };

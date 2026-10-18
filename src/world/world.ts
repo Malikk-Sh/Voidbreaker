@@ -121,6 +121,8 @@ export class World {
   readonly stepHooks: ((dt: number) => void)[] = [];
   /** Бонус урона по оглушённым (Сердце Молоха и т.п.). */
   brokenBonus = 0;
+  /** Когда герой последний раз идеально ушёл от атаки Стража или босса (время мира). */
+  private lastBossPerfect = -99;
   /** Украденный импульс (план §6.3): фиолетовые осколки вокруг героя; следующий удар клинка их отправляет. */
   stolen: { kind: ProjectileKind; t: number; a: number }[] = [];
   /** Идущий Раскол 2.0: герой неуязвим, урон — по таймеру (план §5.6). */
@@ -356,6 +358,12 @@ export class World {
     const dur = triggerStun(e.stun);
     e.onStun();
     this.bus.emit('stun', { target: e, x: e.x, z: e.z, boss: e.isBoss || e.isGuardian, dur });
+    // уклонение от атаки босса и сразу оглушение — +80 очков ранга (план §6.6)
+    if ((e.isBoss || e.isGuardian) && this.time - this.lastBossPerfect < 2.5) {
+      this.lastBossPerfect = -99;
+      this.rank.bonus(80);
+      this.bus.emit('rankBurst', { x: e.x, z: e.z });
+    }
   }
 
   /**
@@ -461,7 +469,7 @@ export class World {
     const res = h.receiveAttack(dmg, dx, dz, src.kind, kb, heavy);
     if (res === 'perfect' && atk) {
       if (!atk.isGuardian && !atk.isBoss) atk.lagT = 0.2;
-      else this.addStunTo(atk, STUN_PERFECT_DODGE);
+      else { this.lastBossPerfect = this.time; this.addStunTo(atk, STUN_PERFECT_DODGE); }
     }
     if (res === 'hit') {
       this.run.hitsTaken++;

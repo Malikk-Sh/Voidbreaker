@@ -78,6 +78,8 @@ export interface GameEvents {
   fall: { x: number; z: number; hero: boolean };
   shockwave: { x: number; z: number; r: number; color: 'void' | 'hunger' | 'gold'; strength: number };
   rank: { rank: string; up: boolean };
+  /** Уклонение от атаки босса и сразу оглушение: +80 очков ранга, камера и музыка отвечают. */
+  rankBurst: { x: number; z: number };
   voice: { line: string; speaker: 'kaelis' | 'boss' };
   sfx: { id: string; x: number; z: number; gain?: number };
   shake: { trauma: number };

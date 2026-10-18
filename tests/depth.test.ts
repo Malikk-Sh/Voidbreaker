@@ -293,3 +293,41 @@ describe('воздушное комбо (план §6.5)', () => {
     expect(h.move?.id).toBe('skyfall');
   });
 });
+
+describe('ранг как ритм (план §6.6)', () => {
+  it('ранг не даёт бонуса к урону', () => {
+    const { w, e } = setup();
+    const hit = (): number => { const hp = e.hp; w.damageEnemy(e, { mult: 1, stun: 0, knockback: 0, feel: 'light', dirX: 0, dirZ: 1, source: 'ability', noStagger: true }); return hp - e.hp; };
+    const low = hit();
+    w.rank.bonus(500);
+    expect(w.rank.rank).toBe('SS');
+    expect(Math.abs(hit() - low)).toBeLessThanOrEqual(Math.ceil(low * 0.11));
+  });
+
+  it('на ранге S финишер берёт альтернативный клип', () => {
+    const { w } = setup();
+    const h = w.hero as unknown as { beginMove(m: unknown, l: number): void; avatar: { puppet: { anim: { clip: { id: string } | null } } } };
+    h.beginMove(VOID_BLADE.combo[3], 0);
+    expect(h.avatar.puppet.anim.clip?.id).toBe('rift');
+    w.rank.bonus(150);
+    h.beginMove(VOID_BLADE.combo[3], 0);
+    expect(h.avatar.puppet.anim.clip?.id).toBe('riftS');
+  });
+
+  it('идеальное уклонение от Стража и сразу оглушение — +80 очков ранга', async () => {
+    const { GateGuardian } = await import('../src/world/boss/guardians');
+    const { w } = setup();
+    const g = new GateGuardian({ zone: 0, stage: 2 });
+    g.x = 0; g.z = 0.5; w.addEnemy(g); g.setState('idle');
+    let bursts = 0;
+    w.bus.on('rankBurst', () => bursts++);
+    const h = w.hero as unknown as { state: string; dashStart: number; clock: number; perfectReadyAt: number; invulnUntil: number };
+    h.invulnUntil = 0; h.state = 'dash'; h.dashStart = h.clock; h.perfectReadyAt = 0;
+    g.lastTeleDur = 0.9;
+    w.enemyStrike(g, { k: 'circle', x: w.hero.x, z: w.hero.z, r: 2 }, 10, 3);
+    const before = w.rank.points;
+    w.stunEnemy(g);
+    expect(bursts).toBe(1);
+    expect(w.rank.points - before).toBe(80);
+  });
+});

@@ -8,6 +8,7 @@ import type { Actor } from './actor';
 import type { Shape } from './combat';
 import type { Enemy } from './enemy';
 import { HeroAvatar } from './heroAvatar';
+import { RANK_S_CLIPS } from '../anim/clips/hero';
 import { baseStats, type HeroStats } from './heroStats';
 import type { World } from './world';
 
@@ -389,8 +390,10 @@ export class Hero implements Actor {
     this.lungeLeft = lunge;
     this.lungeDirX = Math.sin(this.facing); this.lungeDirZ = Math.cos(this.facing);
     this.vx *= 0.2; this.vz *= 0.2;
-    this.avatar.puppet.play(m.clip, this.atkSpeed, fade ?? (m.id === 'slash1' ? 0.04 : 0.03));
-    this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(m.clip) / this.atkSpeed });
+    // ранг S: альтернативные финишеры (разворот, прыжок)
+    const clip = this.world.rank.rankIdx >= 4 ? RANK_S_CLIPS[m.clip] ?? m.clip : m.clip;
+    this.avatar.puppet.play(clip, this.atkSpeed, fade ?? (m.id === 'slash1' ? 0.04 : 0.03));
+    this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(clip) / this.atkSpeed });
     // удар клинка отправляет украденные осколки в цель автоприцела
     this.world.fireStolen(this.target);
     this.world.bus.emit('moveStart', { id: m.id });

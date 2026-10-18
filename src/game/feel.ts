@@ -33,6 +33,8 @@ import type { Settings } from '../meta/settings';
 const _v = new THREE.Vector3();
 const _hp = { x: 0, y: 0, z: 0 };
 const UI_GOLD = '#f0d9a0';
+/** Финишеры — для хорового акцента на ранге SS. */
+const FINISHERS = new Set(['rift', 'skyfall', 'cross', 'counter', 'charged']);
 
 /**
  * Система «сочности» (GDD §14, Tech §9): подписчик событий боя. Стек обратной связи на один удар —
@@ -52,6 +54,7 @@ export class FeelSystem {
   private motifStep = 0;
   private waveSlots: { x: number; z: number; t: number; life: number; r: number; s: number }[] = [];
   private lastVoice = -99;
+  private lastChoir = -99;
   /** Раскол 2.0: сколько ещё длится (реальные с), замедление после разлёта, линия разреза. */
   private shatterLeft = 0;
   private shatterAfter = 0;
@@ -79,6 +82,8 @@ export class FeelSystem {
         if (f.chroma) this.chroma = Math.max(this.chroma, f.chroma);
         this.audio.play(f.sfx, { gain: Math.min(1.25, 0.85 + 0.1 * e.n), pitch: STEP_PITCH[e.moveId ?? ''] ?? 1, pan: this.pan(e.x) });
         if (e.n >= 3) this.audio.play('hit_crowd', { gain: Math.min(1, 0.25 * e.n), pan: this.pan(e.x) });
+        // ранг SS: короткий хоровой акцент в музыке на финишерах
+        if (this.w.rank.rankIdx >= 5 && FINISHERS.has(e.moveId ?? '') && this.time.real - this.lastChoir > 1.2) { this.lastChoir = this.time.real; this.music.stinger('choirHit'); }
         if (e.feel === 'heavy' || e.feel === 'break') this.audio.duck(0.7, 0.3);
         this.input.vibrate(f.vibrate);
       }),
@@ -310,6 +315,7 @@ export class FeelSystem {
           if (this.time.real - this.lastAbyssText > 1.2) { this.lastAbyssText = this.time.real; this.hud.flashText('В БЕЗДНУ', '#8fd8ef', e.x, 1.2, e.z); }
         }
       }),
+      b.on('rankBurst', () => { this.cam.zoomPunch += 0.08; this.music.stinger('choirHit'); }),
       b.on('rank', (e) => { if (e.up) this.audio.play('rank_up', { gain: 0.5, pitch: 0.9 + ['C', 'B', 'A', 'S', 'SS'].indexOf(e.rank) * 0.06 }); }),
       b.on('voice', (e) => this.voice(e.line, 0, e.speaker)),
       b.on('sfx', (e) => this.audio.play(e.id, { gain: e.gain ?? 1, pan: this.pan(e.x) })),
