@@ -174,6 +174,19 @@ export const HERO_CLIPS: ClipDef[] = [
     events: [{ t: 0.28, name: 'release' }],
   },
   {
+    // «Небесный разрез»: прыжок к подброшенному врагу, разрез справа налево и обратный — в воздухе (план §6.5)
+    id: 'skycut', dur: 0.46, mask: 'full',
+    keys: [
+      { t: 0, rootOffset: [0, -0.15, 0], pose: { chest: [0.3, -0.4, 0], shR: [-1.0, 0.3, -0.7], elbR: [-0.5, 0, 0], blade: [0.4, 0, 0], shL: [-0.4, 0, 0.5], hipL: [-0.8, 0, 0.1], kneeL: [1.2, 0, 0], hipR: [-0.6, 0, -0.1], kneeR: [1.1, 0, 0] } },
+      { t: 0.1, ease: 'outCubic', rootOffset: [0, 1.3, 0.4], stretch: 1.1, pose: { chest: [-0.1, -0.85, 0.05], shR: [-1.35, 0.4, -1.05], elbR: [-0.55, 0, 0], blade: [0.5, 0, 0], hipL: [-1.3, 0, 0.1], kneeL: [1.7, 0, 0], hipR: [-0.4, 0, -0.1], kneeR: [1.5, 0, 0] } },
+      { t: 0.16, ease: 'outExpo', rootOffset: [0, 1.45, 0.5], stretch: 1.08, pose: { chest: [0.1, 0.85, -0.05], shR: [-1.5, -0.1, 0.55], elbR: [-0.05, 0, 0], blade: [-0.1, 0, 0], shL: [0.3, 0, 0.6] } },
+      { t: 0.24, ease: 'inBack', rootOffset: [0, 1.4, 0.5], stretch: 1, pose: { chest: [0.1, 0.95, 0.05], shR: [-1.3, -0.2, 0.75], elbR: [-0.9, 0, 0], blade: [0.3, 0, 0] } },
+      { t: 0.3, ease: 'outExpo', rootOffset: [0, 1.25, 0.5], spin: Math.PI * 0.25, stretch: 1.08, pose: { chest: [0.15, -0.9, -0.05], shR: [-1.45, 0.5, -1.15], elbR: [-0.05, 0, 0], blade: [-0.15, 0, 0], shL: [-0.5, 0, 0.3] } },
+      { t: 0.46, ease: 'inQuad', rootOffset: [0, 0, 0.5], spin: 0, stretch: 1, pose: { chest: [0.2, -0.3, 0], shR: [-1.0, 0.3, -0.6], elbR: [-0.3, 0, 0], blade: [0.2, 0, 0], shL: [-0.2, 0, 0.4], hipL: [-0.5, 0, 0.1], kneeL: [0.8, 0, 0], hipR: [0.2, 0, -0.1], kneeR: [0.6, 0, 0] } },
+    ],
+    events: [{ t: 0.08, name: 'trailOn' }, { t: 0.12, name: 'hitOn' }, { t: 0.18, name: 'hitOff' }, { t: 0.26, name: 'hitOn' }, { t: 0.32, name: 'hitOff' }, { t: 0.36, name: 'trailOff' }],
+  },
+  {
     // «Звездопад»: взлёт с переворотом и пронзающий удар сверху вниз (финишер ветки рывка)
     id: 'skyfall', dur: 0.62, mask: 'full',
     keys: [

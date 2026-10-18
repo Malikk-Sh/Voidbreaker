@@ -68,7 +68,7 @@ export abstract class Enemy implements Actor {
   /** Задержка перед следующей атакой (кулдаун). */
   cooldown = 0.8 + Math.random() * 0.8;
   /** Полёт после подбрасывания (Восходящий месяц). */
-  private airT = 0; private airDur = 0; private airH = 0;
+  private airT = 0; private airDur = 0; private airH = 0; private airHold = 0;
   /** Навигация (план §4.4): хотел ли идти в этом шаге, окно застревания, недостижимость, уход порталом. */
   private navWant = false;
   private navWinT = 0; private navX = 0; private navZ = 0;
@@ -189,7 +189,8 @@ export abstract class Enemy implements Actor {
     if (this.dazeT > 0) this.dazeT -= dt;
     if (this.shieldFrom && (this.shieldFrom.dead || !this.shieldFrom.spawned)) { this.shieldFrom = null; this.shieldMul = 1; }
     if (this.airDur > 0) {
-      this.airT += dt;
+      // удар в воздухе «подвешивает»: полёт не идёт дальше, пока держит жонглирование
+      if (this.airHold > 0) this.airHold -= dt; else this.airT += dt;
       const u = Math.min(1, this.airT / this.airDur);
       this.y = this.airH * Math.sin(u * Math.PI);
       if (u >= 1) { this.airDur = 0; this.y = 0; w.bus.emit('impact', { x: this.x, z: this.z, r: this.radius, kind: 'land' }); }
@@ -371,15 +372,33 @@ export abstract class Enemy implements Actor {
     if (this.tele) { this.tele.alive = false; this.tele = null; }
   }
 
-  /** Подбросить (рядовые и элита полегче): оглушение на время полёта. */
+  /** В воздухе после подбрасывания. */
+  get airborne(): boolean { return this.airDur > 0; }
+
+  /**
+   * Подбросить: рядовые и элита полегче; оглушённых Голема и тяжёлую элиту — тоже (Вознесение, план §6.5).
+   * Стражей и боссов — никогда. Удар по уже подброшенному держит его в воздухе (жонглирование).
+   */
   launch(h: number): void {
-    if (this.isBoss || this.isGuardian || this.mass > 3 || this.dead || this.state === 'spawn') return;
-    const k = this.elite.length ? 0.6 : 1;
+    if (this.isBoss || this.isGuardian || this.dead || this.state === 'spawn') return;
+    if (this.airDur > 0) { this.airHold = 0.32; return; }
+    if (this.mass > 3 && !this.stunned) return;
+    if (h < 0.1) return;
+    const k = this.mass > 3 ? 0.75 : this.elite.length ? 0.6 : 1;
     this.airDur = 0.55 + 0.1 * k; this.airT = 0; this.airH = h * k;
+    if (this.stunned) return; // оглушённый остаётся оглушённым — летит, не приходя в себя
     this.cancelTelegraph();
     this.token = null;
     this.stagger = this.airDur + 0.15;
     this.setState('stagger');
+  }
+
+  /** Звездопад вбивает подброшенного в пол: полёт обрывается ударом. */
+  slamDown(w: World): void {
+    if (this.airDur <= 0) return;
+    this.airDur = 0; this.airHold = 0; this.y = 0;
+    w.bus.emit('impact', { x: this.x, z: this.z, r: this.radius + 1.6, kind: 'slam' });
+    w.bus.emit('shockwave', { x: this.x, z: this.z, r: 5, color: 'void', strength: 1 });
   }
 
   /** Прерывание лёгким ударом (хитстан рядовых). */

@@ -16,7 +16,7 @@ const WINDUP_LAYER: Record<string, string> = {
 
 /** Высота звука удара по шагам комбо: финишеры ниже и тяжелее (план §5.1, п. 5). */
 const STEP_PITCH: Record<string, number> = {
-  slash1: 1.0, slash2: 1.06, spin: 0.94, rift: 0.8, flurry: 1.08, lunge: 1.0, rising: 0.96, skyfall: 0.78, cross: 0.85, counter: 0.9, charged: 0.82,
+  slash1: 1.0, slash2: 1.06, spin: 0.94, rift: 0.8, flurry: 1.08, lunge: 1.0, rising: 0.96, skycut: 1.04, skyfall: 0.78, cross: 0.85, counter: 0.9, charged: 0.82,
 };
 import type { AudioEngine } from '../audio/engine';
 import type { Sequencer } from '../audio/music';

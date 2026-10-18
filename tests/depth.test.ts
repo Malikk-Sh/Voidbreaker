@@ -219,3 +219,77 @@ describe('отмены и подсказка ветки (план §6.4)', () =>
     expect(h.state).toBe('attack');
   });
 });
+
+describe('воздушное комбо (план §6.5)', () => {
+  async function golemSetup(): Promise<{ w: World; g: Enemy }> {
+    const { Golem } = await import('../src/world/enemies/golem');
+    const { w, e } = setup();
+    e.x = 9;
+    const g = new Golem({ zone: 0, stage: 0, hpMul: 20 });
+    g.x = 0; g.z = -1.5; w.addEnemy(g); g.setState('idle');
+    return { w, g };
+  }
+  const rising = (w: World, e: Enemy): void => {
+    const m = VOID_BLADE.rising;
+    w.damageEnemy(e, { mult: m.dmg, stun: 0, knockback: 0, feel: m.feel, dirX: 0, dirZ: -1, source: 'blade', launch: m.launch, moveId: 'rising' });
+  };
+
+  it('Восходящий месяц подбрасывает только оглушённого Голема; оглушение не прерывается', async () => {
+    const { w, g } = await golemSetup();
+    rising(w, g);
+    expect(g.airborne).toBe(false);
+    w.stunEnemy(g);
+    rising(w, g);
+    expect(g.airborne).toBe(true);
+    expect(g.stunned).toBe(true);
+    expect(g.state).toBe('stunned');
+  });
+
+  it('Страж не подбрасывается даже оглушённым', async () => {
+    const { GateGuardian } = await import('../src/world/boss/guardians');
+    const { w } = setup();
+    const gg = new GateGuardian({ zone: 0, stage: 2 });
+    gg.x = 0; gg.z = -3; w.addEnemy(gg); gg.setState('idle');
+    w.stunEnemy(gg);
+    rising(w, gg);
+    expect(gg.airborne).toBe(false);
+  });
+
+  it('удары в воздухе держат цель; Звездопад вбивает её в пол с ударной волной', async () => {
+    const { w, g } = await golemSetup();
+    w.stunEnemy(g); g.stun!.dur = 20; g.stun!.stunned = 20;
+    rising(w, g);
+    let t = 0;
+    const sky = VOID_BLADE.skycut;
+    // два удара Небесного разреза с интервалом 0.14 с
+    for (; t < 0.4; t += DT) {
+      if (Math.abs(t - 0.15) < DT / 2 || Math.abs(t - 0.29) < DT / 2) w.damageEnemy(g, { mult: sky.dmg, stun: 0, knockback: 0, feel: sky.feel, dirX: 0, dirZ: -1, source: 'blade', launch: sky.launch, moveId: 'skycut' });
+      g.step(w, DT);
+    }
+    expect(g.airborne).toBe(true); // без жонглирования полёт ≈ 0.63 с — к 0.4 с ещё в воздухе, но держится дольше
+    for (; t < 0.75; t += DT) g.step(w, DT);
+    expect(g.airborne).toBe(true);
+    let slams = 0;
+    w.bus.on('impact', (e) => { if (e.kind === 'slam') slams++; });
+    const hp = g.hp;
+    const sf = VOID_BLADE.skyfall;
+    w.damageEnemy(g, { mult: sf.dmg, stun: 0, knockback: 0, feel: sf.feel, dirX: 0, dirZ: -1, source: 'blade', moveId: 'skyfall', finisher: true });
+    expect(g.airborne).toBe(false);
+    expect(slams).toBe(1);
+    expect(g.hp).toBeLessThan(hp);
+  });
+
+  it('после Восходящего месяца по подброшенной цели следующий удар — Небесный разрез, затем Звездопад', async () => {
+    const { w, g } = await golemSetup();
+    w.stunEnemy(g);
+    rising(w, g);
+    type HP = { lastMove: unknown; lastMoveStart: number; clock: number; target: Enemy | null; state: string; move: { id: string } | null; startAttack(i: Input, x: number, z: number, s: boolean): void };
+    const h = w.hero as unknown as HP;
+    h.lastMove = VOID_BLADE.rising; h.lastMoveStart = h.clock - 0.3; h.target = g; h.state = 'move';
+    h.startAttack(input(), 0, 0, false);
+    expect(h.move?.id).toBe('skycut');
+    h.lastMove = VOID_BLADE.skycut; h.lastMoveStart = h.clock - 0.35; h.state = 'move';
+    h.startAttack(input(), 0, 0, false);
+    expect(h.move?.id).toBe('skyfall');
+  });
+});

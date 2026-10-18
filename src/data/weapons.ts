@@ -51,6 +51,8 @@ export interface WeaponDef {
   lunge: MoveDef;
   /** Ветки комбо: Рассечение → Восходящий месяц → Звездопад; Шквал → Крест; Контрудар после идеального уклонения. */
   rising: MoveDef;
+  /** Небесный разрез: прыжок к подброшенному врагу и два удара в воздухе (план §6.5). */
+  skycut: MoveDef;
   skyfall: MoveDef;
   cross: MoveDef;
   counter: MoveDef;
@@ -73,6 +75,8 @@ export const VOID_BLADE: WeaponDef = {
   lunge: { id: 'lunge', clip: 'lunge', dur: 0.3, chain: [0.16, 0.5], dashCancelFrom: 0.12, hitbox: { shape: 'line', length: 3.6, width: 1.3 }, dmg: 1.5, stun: 6, knockback: 2.5, feel: 'medium', lunge: 3.0, swing: 'stab' },
   // Восходящий месяц: апперкот-разрез, подбрасывает рядовых
   rising: { id: 'rising', clip: 'rising', dur: 0.4, chain: [0.2, 0.6], dashCancelFrom: 0.18, hitbox: { shape: 'arc', radius: 2.4, angle: 140 }, dmg: 1.4, stun: 8, knockback: 0.8, feel: 'medium', lunge: 0.6, launch: 1.6, swing: 'heavy' },
+  // Небесный разрез: прыжок к подброшенному и два разреза в воздухе; удары держат цель в воздухе
+  skycut: { id: 'skycut', clip: 'skycut', dur: 0.46, chain: [0.3, 0.75], dashCancelFrom: 0.36, hitbox: { shape: 'arc', radius: 2.6, angle: 160 }, dmg: 1.1, stun: 6, knockback: 0, feel: 'medium', lunge: 2.4, multi: true, launch: 0.01, swing: 'spin' },
   // Звездопад: взлёт с переворотом и удар клинком в землю — волна осколков
   skyfall: { id: 'skyfall', clip: 'skyfall', dur: 0.62, chain: [0.62, 0.62], dashCancelFrom: 0.45, hitbox: { shape: 'circle', radius: 3.4, offset: 0.9 }, dmg: 2.8, stun: 14, knockback: 6, feel: 'heavy', lunge: 1.4, finisher: true, noChain: true, swing: 'heavy' },
   // Крест: два диагональных разреза крест-накрест

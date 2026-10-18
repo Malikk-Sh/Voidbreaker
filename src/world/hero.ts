@@ -331,7 +331,9 @@ export class Hero implements Actor {
     else if (prev && since <= prev.chain[1] / this.atkSpeed && !prev.noChain) {
       if (prev === W.flurry) next = W.cross;
       else if (prev === W.lunge) next = W.rising;
-      else if (prev === W.rising) next = W.skyfall;
+      // воздушное комбо: подброшенная цель — Небесный разрез, затем Звездопад вбивает её в пол
+      else if (prev === W.rising) next = this.target?.airborne ? W.skycut : W.skyfall;
+      else if (prev === W.skycut) next = W.skyfall;
       else if (prev === W.counter) next = W.combo[2];
       else if (prev === W.combo[2]) next = W.combo[3];
       else next = W.combo[Math.min(3, W.combo.indexOf(prev) + 1)] ?? W.combo[0];
@@ -365,6 +367,8 @@ export class Hero implements Actor {
     // магнетизм: подтягивание к цели на 0.6 м, если она в 2.5 м
     let lunge = next.lunge * 0.4;
     if (next.id === 'lunge' || next.id === 'skyfall') lunge = next.lunge;
+    // Небесный разрез: прыжок к подброшенной цели
+    else if (next.id === 'skycut' && t) lunge = clamp(Math.hypot(t.x - this.x, t.z - this.z) - t.radius - this.radius - 0.3, 0, next.lunge);
     else if (t) {
       const d = Math.hypot(t.x - this.x, t.z - this.z) - t.radius - this.radius - 0.35;
       if (d < AIM.magnetRange) lunge = clamp(d, 0, Math.max(AIM.magnetDist, next.lunge * 0.6));
@@ -719,6 +723,8 @@ export class Hero implements Actor {
     const heavy = !!t && t.stunned && (t.mass > 3 || t.elite.length > 0) && !t.isGuardian && !t.isBoss;
     const since = c - this.lastMoveStart;
     if (heavy && this.lastMove === W.lunge && since <= W.lunge.chain[1] / this.atkSpeed) return 'Вознесение';
+    if (t?.airborne && this.lastMove === W.rising && since <= W.rising.chain[1] / this.atkSpeed) return 'Небесный разрез';
+    if (t?.airborne && this.lastMove === W.skycut && since <= W.skycut.chain[1] / this.atkSpeed) return 'Звездопад';
     if (st === 'move' && c - this.lastDashEnd <= 0.2) return 'Рассечение';
     if (st === 'move' && this.lastMove === W.combo[1] && since >= 0.3 && since <= 0.7) return 'Шквал';
     if (heavy) return 'Рывок → Вознесение';

@@ -274,6 +274,9 @@ export class World {
     const shatter = e.shatterable && p.source === 'blade' && !!p.finisher && (kind !== 'charged' || p.feel === 'heavy');
     // слабое место: удар в спину
     const weak = p.source === 'blade' && Math.sin(e.facing) * p.dirX + Math.cos(e.facing) * p.dirZ > 0.5;
+    // Звездопад по подброшенному: вбивает в пол (план §6.5)
+    let slamMul = 1;
+    if (p.moveId === 'skyfall' && e.airborne) { e.slamDown(this); slamMul = 1.4; }
     // детонация меток Пустоты (план §6.1)
     let markMul = 1;
     if (p.detonate && e.marks > 0) {
@@ -284,7 +287,7 @@ export class World {
     const S = h.stats;
     const res = computeDamage(
       { atk: S.atk, critChance: S.critChance, critMul: S.critMul, dmgBonus: S.dmgBonus + (p.source === 'ability' ? S.abilityDmg : 0) + (e.stunned ? this.brokenBonus : 0), forceCrit: perfect },
-      p.mult, e.armor, e.stunned, () => this.rng.next(), (perfect ? 1.3 : 1) * e.shieldMul * (p.extra ?? 1) * markMul * this.abilities.damageMulOn(e),
+      p.mult, e.armor, e.stunned, () => this.rng.next(), (perfect ? 1.3 : 1) * e.shieldMul * (p.extra ?? 1) * markMul * slamMul * this.abilities.damageMulOn(e),
     );
     const before = e.hp;
     e.hp -= res.dmg;
