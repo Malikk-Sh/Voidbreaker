@@ -315,7 +315,7 @@ export class World {
       else if (!p.noStagger) {
         // тяжёлый удар сбивает рядового с ног: две маленькие звезды на 0.6 с — тот же язык, что у оглушения
         const knock = p.feel === 'heavy' && !e.stun;
-        e.interrupt(knock ? 0.6 : p.feel === 'light' ? 0.22 : 0.35);
+        e.interrupt(knock ? 0.6 : p.feel === 'light' ? 0.22 : 0.35, p.feel === 'heavy');
         if (knock && e.state === 'stagger' && e.dazeT <= 0) { e.dazeT = 0.6; this.bus.emit('daze', { target: e, x: e.x, z: e.z }); }
       }
     }

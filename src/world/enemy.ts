@@ -156,7 +156,7 @@ export abstract class Enemy implements Actor {
       this.puppet.skel.update();
       // ядро трескается и гаснет первым (100 мс), потом растворяется остальное
       this.puppet.crack = this.deathT < 0.1 ? 1 : Math.max(0, 1 - (this.deathT - 0.1) * 5);
-      this.puppet.dissolve = clamp((this.deathT - 0.45) / 0.6, 0, 1);
+      this.puppet.dissolve = clamp((this.deathT - this.dissolveDelay) / 0.6, 0, 1);
       return;
     }
     if (this.state === 'warp') {
@@ -295,7 +295,7 @@ export abstract class Enemy implements Actor {
       case 'duelist':
         p.kickSpring(dirX, dirZ, spring * 0.9);
         if (heavy && this.state === 'stagger') this.toppleT = 0.6;
-        else this.facing += (this.id % 2 ? 0.3 : -0.3);
+        else if (!this.superArmor) this.facing += (this.id % 2 ? 0.3 : -0.3);
         break;
       case 'heavy':
         p.kickSpring(dirX, dirZ, spring * 0.35);
@@ -475,9 +475,13 @@ export abstract class Enemy implements Actor {
     w.bus.emit('shockwave', { x: this.x, z: this.z, r: 5, color: 'void', strength: 1 });
   }
 
-  /** Прерывание лёгким ударом (хитстан рядовых). */
-  interrupt(dur: number): void {
+  /** Суперброня: лёгкие удары не прерывают атаку (Распинатель — только во время атаки). */
+  get superArmor(): boolean { return false; }
+
+  /** Прерывание лёгким ударом (хитстан рядовых); heavy — тяжёлый удар пробивает суперброню. */
+  interrupt(dur: number, heavy = false): void {
     if (!this.def.staggerable || this.elite.length > 0 || this.state === 'spawn') return;
+    if (this.superArmor && !heavy) return;
     this.cancelTelegraph();
     if (this.token) this.token = null;
     this.stagger = dur;
@@ -504,8 +508,16 @@ export abstract class Enemy implements Actor {
     this.token = null;
     this.state = 'dead';
     this.deathT = 0;
+    this.shatterBody(w, dirX, dirZ, power);
+  }
+
+  /** Распад тела: детали разлетаются (Распинатель втыкает клинки в пол). */
+  protected shatterBody(w: World, dirX: number, dirZ: number, power: number): void {
     this.puppet.skel.shatter(dirX, dirZ, power, w.fxRng);
   }
+
+  /** Сколько секунд обломки лежат до растворения. */
+  protected dissolveDelay = 0.45;
 
   /** Точка, куда стягивается энергия замаха (оружие, ядро). По умолчанию — грудь. */
   windupPoint(out: { x: number; y: number; z: number }): void {
@@ -539,5 +551,5 @@ export abstract class Enemy implements Actor {
   onShattered(_w: World): void {}
 
   /** Сколько кадров удалить после распада. */
-  get removable(): boolean { return this.dead && this.deathT > 1.1; }
+  get removable(): boolean { return this.dead && this.deathT > this.dissolveDelay + 0.65; }
 }

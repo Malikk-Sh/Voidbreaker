@@ -130,6 +130,11 @@ export const SFX: Record<string, SfxRecipe> = {
   shot: { len: 0.3, variants: 2, render: (c, o, t) => { const x = osc(c, 'sine', 950, t, 0.12, o, 0.15, 0.002, 0.12); x.frequency.exponentialRampToValueAtTime(260, t + 0.12); noiseHit(c, o, t, 0.06, 2500, 0.15, 'bandpass', 1.5); } },
   proj_hit: { len: 0.3, render: (c, o, t) => { noiseHit(c, o, t, 0.08, 1800, 0.3, 'bandpass', 1); body(c, o, t, 300, 80, 0.08, 0.3); } },
   slam: { len: 1.0, render: (c, o, t) => { kick(c, o, t, 1, 28); noiseHit(c, o, t, 0.5, 500, 0.7, 'lowpass', 0.7); for (let i = 0; i < 5; i++) noiseHit(c, o, t + 0.05 + Math.random() * 0.3, 0.06, 600 + Math.random() * 800, 0.2, 'bandpass', 2); } },
+  // Распинатель: гвоздь в камень, клинок застрял и скрежещет, шипы из пола, искры волочащихся клинков
+  nail: { len: 0.9, reverb: 0.1, render: (c, o, t) => { transient(c, o, t, 2200, 0.7); metal(c, o, t, 880, 0.16, 0.5); sub(c, o, t, 72, 34, 0.3, 0.65); crunch(c, o, t, 380, 0.12, 0.5); chips(c, o, t, 6, 0.16, 0.1); } },
+  nail_strain: { len: 1.4, render: (c, o, t) => { const { f } = noiseHit(c, o, t + 0.1, 1.1, 1100, 0.12, 'bandpass', 7); f.frequency.linearRampToValueAtTime(700, t + 1.2); for (let i = 0; i < 5; i++) metal(c, o, t + 0.15 + i * 0.22 + Math.random() * 0.05, 1500 + Math.random() * 400, 0.04, 0.12); } },
+  spikes: { len: 0.8, variants: 2, reverb: 0.08, render: (c, o, t) => { crunch(c, o, t, 520, 0.1, 0.55); chips(c, o, t, 8, 0.14, 0.08); body(c, o, t, 130, 50, 0.16, 0.6); noiseHit(c, o, t, 0.25, 1300, 0.22, 'bandpass', 2); } },
+  blade_scrape: { len: 0.25, variants: 3, render: (c, o, t) => { noiseHit(c, o, t, 0.12, 3600 + Math.random() * 800, 0.07, 'bandpass', 6); metal(c, o, t, 2600 + Math.random() * 600, 0.015, 0.1); } },
   bite: { len: 0.2, variants: 2, render: (c, o, t) => { noiseHit(c, o, t, 0.02, 3000, 0.35, 'bandpass', 2); noiseHit(c, o, t + 0.05, 0.02, 2200, 0.4, 'bandpass', 2); } },
   slash_enemy: { len: 0.35, render: (c, o, t) => { sweep(c, o, t, 2500, 800, 0.2, 0.5, 2); osc(c, 'sawtooth', 600, t, 0.1, o, 0.04, 0.002, 0.15); } },
   beam: { len: 0.6, render: (c, o, t) => { const x = osc(c, 'sawtooth', 220, t, 0.5, o, 0.05, 0.05, 0.45); x.frequency.exponentialRampToValueAtTime(880, t + 0.45); } },

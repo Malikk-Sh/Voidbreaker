@@ -128,7 +128,7 @@ export class Eye extends Enemy {
   }
 
   override kill(w: World, dirX: number, dirZ: number, power: number): void { this.beam.on = false; super.kill(w, dirX, dirZ, power); }
-  override interrupt(dur: number): void { this.beam.on = false; super.interrupt(dur); }
+  override interrupt(dur: number, heavy = false): void { this.beam.on = false; super.interrupt(dur, heavy); }
 
   protected animate(dt: number): void {
     const s = this.puppet.skel, L = s.layout, out = s.rot, J = this.J;

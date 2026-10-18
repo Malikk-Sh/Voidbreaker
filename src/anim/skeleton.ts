@@ -41,7 +41,10 @@ export class RigLayout {
   has(name: string): boolean { return this.map.has(name); }
 }
 
-interface Debris { vx: number; vy: number; vz: number; ax: number; ay: number; az: number; w: number; px: number; py: number; pz: number; q: THREE.Quaternion; s: THREE.Vector3; rest: boolean; delay: number }
+interface Debris { vx: number; vy: number; vz: number; ax: number; ay: number; az: number; w: number; px: number; py: number; pz: number; q: THREE.Quaternion; s: THREE.Vector3; rest: boolean; delay: number; stickY?: number }
+
+/** Особые обломки распада: stick — сустав → высота, на которой клинок застревает в полу; pop — лопнуть наружу. */
+export interface ShatterOpts { stick?: ReadonlyMap<number, number>; pop?: ReadonlySet<number> }
 
 /**
  * Экземпляр скелета: локальные повороты суставов (кватернионы) → мировые матрицы.
@@ -116,7 +119,7 @@ export class Skeleton {
    * Распад (GDD §15.2, план §7.1): детали отрываются от суставов и разлетаются с физикой — по сегментам:
    * корпус сразу (ядро уже треснуло и погасло), дальше от корня — позже (броня, затем конечности), до ~0.3 с.
    */
-  shatter(dirX: number, dirZ: number, power: number, rng: Rng): void {
+  shatter(dirX: number, dirZ: number, power: number, rng: Rng, opts?: ShatterOpts): void {
     if (this.broken) return;
     this.update();
     this.broken = true;
@@ -140,6 +143,18 @@ export class Skeleton {
         ax: ax / al, ay: ay / al, az: az / al, w: rng.range(4, 14),
         q, s, rest: false, delay: Math.min(0.3, Math.max(0, depth[i] - 2) * 0.06) + rng.next() * 0.03,
       });
+      const d = this.debris[i];
+      const stick = opts?.stick?.get(i);
+      if (stick !== undefined) {
+        // клинок падает остриём вниз и втыкается: ось −Y детали — к полу, лёгкий наклон
+        d.q.setFromAxisAngle(_p.set(rng.spread(1), 0, rng.spread(1)).normalize(), rng.range(0.1, 0.35));
+        d.q.multiply(_q.setFromAxisAngle(_p.set(0, 1, 0), rng.next() * Math.PI * 2));
+        d.vx = (rx / rl) * 1.2 + dirX * 0.8; d.vz = (rz / rl) * 1.2 + dirZ * 0.8; d.vy = 2.5;
+        d.w = 0; d.stickY = stick;
+      } else if (opts?.pop?.has(i)) {
+        // лопнуть наружу: рёбра разлетаются от груди
+        d.vx += (rx / rl) * power * 0.8; d.vz += (rz / rl) * power * 0.8; d.vy += 3; d.delay = 0;
+      }
     }
   }
 
@@ -151,6 +166,10 @@ export class Skeleton {
       if (d.delay > 0) { d.delay -= dt; continue; }
       d.vy -= 18 * dt;
       d.px += d.vx * dt; d.py += d.vy * dt; d.pz += d.vz * dt;
+      if (d.stickY !== undefined) {
+        if (d.py <= d.stickY && d.vy < 0) { d.py = d.stickY; d.rest = true; }
+        continue;
+      }
       if (d.py < 0.05) {
         d.py = 0.05; d.vy *= -0.35; d.vx *= 0.6; d.vz *= 0.6; d.w *= 0.6;
         if (Math.abs(d.vy) < 0.6 && Math.hypot(d.vx, d.vz) < 0.3) d.rest = true;

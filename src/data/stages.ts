@@ -79,8 +79,8 @@ export const ZONE1: StageDef[] = [
   {
     id: '1-4', zone: 0, index: 3, name: 'Свечной зал', arena: 'candles', tutorial: 'ult', unlocks: ['phase'],
     waves: [
-      // уклонение от выпада Жнеца
-      { spawns: [{ enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1.5 }] },
+      // читать направление удара: Распинатель (веер, гвоздь, ряд шипов)
+      { spawns: [{ enemy: 'husk', count: 6, pattern: 'ring', stagger: 0.12 }, { enemy: 'crucifier', count: 1, pattern: 'far', delay: 1.5 }] },
       // приоритет цели: Аколит со щитом; Ока на краях
       { spawns: [{ enemy: 'eye', count: 2, at: ['left', 'right'] }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 1 }, { enemy: 'husk', count: 6, pattern: 'ring', delay: 1.5, stagger: 0.12 }] },
       // сбросить Голема в колодец заряженным ударом

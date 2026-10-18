@@ -10,7 +10,7 @@ const DEATH_SOUND: Record<string, string> = {
 };
 /** Слой замаха по классу: рой — щелчки, дуэлянт — сталь, тяжёлый — скрежет, поддержка — хоровой тон. */
 const WINDUP_LAYER: Record<string, string> = {
-  husk: 'tele_click', spiker: 'tele_click', reaper: 'tele_steel', golem: 'tele_grind', gateGuardian: 'tele_grind', bellRinger: 'tele_grind',
+  husk: 'tele_click', spiker: 'tele_click', reaper: 'tele_steel', crucifier: 'tele_steel', golem: 'tele_grind', gateGuardian: 'tele_grind', bellRinger: 'tele_grind',
   acolyte: 'tele_choir', eye: 'tele_choir',
 };
 
@@ -50,6 +50,8 @@ export class FeelSystem {
   private letterbox = 0;
   private lastAbyssText = -9;
   private lowHpBeat = 0;
+  /** Счётчик искр клинка: скрежет — на каждую третью. */
+  private scrapeN = 0;
   /** Каждое следующее «Мгновение Пустоты» — следующая нота лейтмотива Пилота. */
   private motifStep = 0;
   private waveSlots: { x: number; z: number; t: number; life: number; r: number; s: number }[] = [];
@@ -285,7 +287,29 @@ export class FeelSystem {
         else if (e.kind === 'slash') { this.audio.play('slash_enemy', { pan: this.pan(e.x) }); if (e.dir !== undefined) this.vfx.enemySlash(e.x, e.z, e.dir, e.r ?? 1.8, (e.r ?? 0) > 2.2); }
         else if (e.kind === 'throw') this.audio.play('swing_heavy', { pitch: 0.5, pan: this.pan(e.x) });
         else if (e.kind === 'beam') this.audio.play('beam', { gain: 0.6 });
+        else if (e.kind === 'fan') {
+          this.audio.play('slash_enemy', { pan: this.pan(e.x) });
+          this.audio.play('swing_heavy', { pitch: 0.6, gain: 0.7, pan: this.pan(e.x) });
+          this.vfx.bladeFan(e.x, e.z, e.dir ?? 0, e.angles ?? [0], e.len ?? 6);
+          this.cam.addTrauma(this.near(e.x, e.z, 8) ? 0.18 : 0.08);
+        } else if (e.kind === 'nail') {
+          this.audio.play('nail', { pan: this.pan(e.x) });
+          this.vfx.nail(e.x, e.z, e.r ?? 1.1);
+          this.cam.addTrauma(this.near(e.x, e.z, 6) ? 0.3 : 0.1);
+        }
       }),
+      // Погребальный ряд: «та-та-ТА» — третий такт громче и тяжелее
+      b.on('spikes', (e) => {
+        this.audio.play('spikes', { gain: e.big ? 1 : 0.7, pitch: e.big ? 0.8 : 1, pan: this.pan(e.x) });
+        if (e.big) this.audio.play('slam', { gain: 0.4, pan: this.pan(e.x) });
+        this.vfx.spikeRow(e.x, e.z, e.dirX, e.dirZ, e.w, e.big);
+        this.cam.addTrauma(this.near(e.x, e.z, 7) ? (e.big ? 0.3 : 0.14) : 0.05);
+      }),
+      b.on('scrape', (e) => {
+        this.vfx.scrape(e.x, e.y, e.z);
+        if ((this.scrapeN = (this.scrapeN + 1) % 3) === 0) this.audio.play('blade_scrape', { gain: 0.3, pan: this.pan(e.x) });
+      }),
+      b.on('stuck', (e) => this.audio.play('nail_strain', { gain: 0.6, pan: this.pan(e.x) })),
       b.on('lob', (e) => this.vfx.lob(e.fx, e.fz, e.tx, e.tz, e.dur, e.size)),
       b.on('projectileHit', (e) => {
         this.audio.play('proj_hit', { gain: 0.5, pan: this.pan(e.x) });
@@ -356,6 +380,9 @@ export class FeelSystem {
       b.on('abilityReady', (e) => { this.audio.play('ability_ready', { gain: 0.35, vary: 0 }); this.hud.abilityReady(e.slot); }),
     );
   }
+
+  /** Событие ближе r м к герою (тряска только вблизи). */
+  private near(x: number, z: number, r: number): boolean { return Math.hypot(this.w.hero.x - x, this.w.hero.z - z) < r; }
 
   private pan(x: number): number {
     _v.set(x, 0, 0).project(this.camera);

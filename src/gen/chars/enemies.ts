@@ -165,6 +165,119 @@ export function buildMantis(seed = 2): RigBuild {
   return { rig, geometry: b.build() };
 }
 
+// ------------------------------------------------------------------ Распинатель (вариант mantisRig, план §7.2)
+/** Длина верхних клинков (м) и нижних — коротких, волочащихся по полу. */
+export const CRUCIFIER_BLADE = 1.8;
+export const CRUCIFIER_BLADE2 = 1.25;
+
+export function crucifierRig(): RigDef {
+  const joints: JointDef[] = [
+    { name: 'root', pos: [0, 0, 0] },
+    { name: 'pelvis', parent: 'root', pos: [0, 1.2, 0] },
+    { name: 'spine', parent: 'pelvis', pos: [0, 0.12, 0], rot: [0.3, 0, 0] },
+    { name: 'chest', parent: 'spine', pos: [0, 0.42, 0.02], rot: [0.15, 0, 0] },
+    { name: 'head', parent: 'chest', pos: [0, 0.62, 0.1], rot: [-0.45, 0, 0] },
+  ];
+  for (const [s, sx] of [['L', 1], ['R', -1]] as const) {
+    // рёбра — два полукольца на шарнирах по бокам груди: раскрываются и показывают ядро
+    joints.push({ name: 'ribs' + s, parent: 'chest', pos: [sx * 0.2, 0.24, 0.02] });
+    joints.push({ name: 'arm' + s, parent: 'chest', pos: [sx * 0.32, 0.52, -0.02] });
+    joints.push({ name: 'blade' + s, parent: 'arm' + s, pos: [0, -0.55, 0] });
+    joints.push({ name: 'arm2' + s, parent: 'chest', pos: [sx * 0.24, 0.06, 0.02] });
+    joints.push({ name: 'blade2' + s, parent: 'arm2' + s, pos: [0, -0.6, 0] });
+    // ноги «обратным коленом»: бедро вперёд-вниз, голень назад-вниз, плюсна до пола
+    joints.push({ name: 'hip' + s, parent: 'pelvis', pos: [sx * 0.17, -0.02, 0] });
+    joints.push({ name: 'knee' + s, parent: 'hip' + s, pos: [0, -0.42, 0.26] });
+    joints.push({ name: 'ankle' + s, parent: 'knee' + s, pos: [0, -0.48, -0.3] });
+    joints.push({ name: 'foot' + s, parent: 'ankle' + s, pos: [0, -0.3, 0.05] });
+  }
+  return { id: 'crucifier', joints };
+}
+
+export function buildCrucifier(seed = 7): RigBuild {
+  const rig = crucifierRig(); const J = jidx(rig);
+  const b = new GeomBuilder(); b.rng = new Rng(seed); b.color = OBS;
+  b.joint = J('pelvis');
+  hull8(b, 0.3, 0.2, -0.1, 0.34, 0.24, 0.1);
+  b.add(shard(0.4, 0.05, 4, 0.2, 1), { matrix: matAlong(0, 0, -0.12, 0, -0.5, -1), color: BONE });
+  b.joint = J('spine');
+  // позвонки с тлеющими швами
+  for (let i = 0; i < 3; i++) {
+    const y = 0.06 + i * 0.13, r = 0.13 - i * 0.012;
+    b.add(bipyramid(6, r, 0.05, 0.06), { matrix: mat(0, y, 0), color: i % 2 ? OBS2 : OBS });
+    b.add(prism(6, r * 0.9, r * 0.9, 0.012), { matrix: mat(0, y - 0.005, 0), emissive: 0.9 });
+    b.add(shard(0.2, 0.03, 3, 0.2, i + 2), { matrix: matAlong(0, y, -0.1, 0, 0.4, -1), color: BONE });
+  }
+  b.joint = J('chest');
+  torso(b, 0.3, 0.46, 0.56, 0.2, 0.26, 0.24, -0.04, 0.3, 0.62);
+  // ядро за рёбрами — красное, видно в просветах; раскрытые рёбра показывают его целиком
+  b.add(octa(0.12, 0.15, 0.1), { matrix: mat(0, 0.24, 0.12), emissive: 2.2 });
+  b.add(octa(0.07, 0.09, 0.06), { matrix: mat(0, 0.24, 0.17), emissive: 3.0, color: [0.9, 0.6, 0.5] });
+  // ключицы и наплечные шипы
+  for (const sx of [1, -1]) {
+    b.add(shard(0.55, 0.06, 4, 0.2, 3), { matrix: matAlong(sx * 0.26, 0.58, -0.04, sx * 0.55, 1, -0.5), color: BONE });
+    b.add(shard(0.32, 0.045, 4, 0.2, 5), { matrix: matAlong(sx * 0.3, 0.5, -0.08, sx * 1, 0.5, -0.6) });
+    plate(b, [[-0.12, 0], [0.12, 0], [0.1, 0.14], [-0.08, 0.16]], 0.05, mat(sx * 0.3, 0.54, 0, 0, 0, sx * 0.5), undefined, OBS2);
+  }
+  // гвозди, вбитые в грудь крест-накрест — прожилки светятся
+  b.add(shard(0.42, 0.02, 3, 0.15, 6), { matrix: matAlong(0.1, 0.48, 0.1, -0.4, -1, 0.6), emissive: 0.8 });
+  b.add(shard(0.38, 0.02, 3, 0.15, 7), { matrix: matAlong(-0.12, 0.46, 0.1, 0.5, -1, 0.5), emissive: 0.7 });
+  for (const [s, sx] of [['L', 1], ['R', -1]] as const) {
+    b.joint = J('ribs' + s);
+    // полукольцо из осколков: от бокового шарнира вперёд к грудине
+    for (let i = 0; i < 4; i++) {
+      const y = -0.16 + i * 0.1;
+      for (let k = 0; k < 3; k++) {
+        const a0 = k / 3, a1 = (k + 1) / 3;
+        const x0 = -sx * 0.2 * Math.sin(a0 * Math.PI / 2), z0 = 0.17 * Math.sin(a0 * Math.PI / 2 + 0.2);
+        const x1 = -sx * 0.2 * Math.sin(a1 * Math.PI / 2), z1 = 0.17 * Math.sin(a1 * Math.PI / 2 + 0.2);
+        b.add(shard(Math.hypot(x1 - x0, z1 - z0) + 0.03, 0.024, 3, 0.15, i * 3 + k), { matrix: matAlong(x0, y, z0, x1 - x0, -0.04, z1 - z0), color: k === 2 ? BONE : OBS2 });
+      }
+    }
+    b.joint = J('arm' + s);
+    limb(b, 0.55, 0.075, 0.06, 5);
+    b.add(shard(0.22, 0.04, 3, 0.2, 9), { matrix: matAlong(0, -0.3, -0.06, 0, 0.3, -1) });
+    // оковы: бронзовое кольцо на запястье
+    b.add(new THREE.TorusGeometry(0.085, 0.022, 4, 10), { matrix: mat(0, -0.48, 0, Math.PI / 2, 0, 0), color: BRONZE });
+    b.joint = J('blade' + s);
+    // верхний клинок 1.8 м: прямой, с зазубренным обухом и светящейся кромкой
+    const L = CRUCIFIER_BLADE;
+    const m = mat(0, 0, 0, 0, Math.PI / 2, 0);
+    plate(b, [[-0.05, 0.08], [0.08, 0.02], [0.1, -0.5], [0.08, -L * 0.8], [0.0, -L], [-0.05, -L * 0.82], [-0.06, -0.5], [-0.07, 0.02]], 0.045, m);
+    plate(b, [[0.085, -0.05], [0.11, -0.5], [0.09, -L * 0.8], [0.005, -L - 0.02], [0.06, -L * 0.8], [0.08, -0.5], [0.07, -0.05]], 0.05, m, 1.4);
+    for (let k = 0; k < 6; k++) b.add(shard(0.09, 0.016, 3, 0.1, k), { matrix: within(m, matAlong(-0.06, -0.2 - k * 0.22, 0, -1, 0.4, 0)), color: BONE });
+    plate(b, [[-0.1, 0.1], [0.12, 0.1], [0.14, -0.06], [-0.12, -0.06]], 0.09, m, undefined, OBS2);
+    b.joint = J('arm2' + s);
+    limb(b, 0.6, 0.06, 0.045, 4);
+    b.joint = J('blade2' + s);
+    // нижний короткий клинок-коготь: волочится по полу, кончик раскалён
+    const L2 = CRUCIFIER_BLADE2;
+    plate(b, [[-0.04, 0.05], [0.06, 0], [0.07, -0.4], [0.03, -L2 * 0.85], [0.0, -L2], [-0.03, -L2 * 0.8], [-0.04, -0.4]], 0.04, m);
+    plate(b, [[0.03, -L2 * 0.8], [0.0, -L2 - 0.02], [-0.025, -L2 * 0.82]], 0.05, m, 2.0);
+    b.add(shard(0.14, 0.02, 3, 0.1, 4), { matrix: within(m, matAlong(0.06, -0.3, 0, 1, 0.5, 0)), color: BONE });
+    b.joint = J('hip' + s);
+    b.add(prism(5, 0.1, 0.07, 0.5), { matrix: matAlong(0, 0, 0, 0, -0.42, 0.26) });
+    b.add(shard(0.2, 0.04, 3, 0.2, 8), { matrix: matAlong(0, -0.4, 0.3, 0, 0.3, 1), color: BONE });
+    b.joint = J('knee' + s);
+    b.add(prism(4, 0.07, 0.05, 0.57), { matrix: matAlong(0, 0, 0, 0, -0.48, -0.3) });
+    b.add(shard(0.18, 0.035, 3, 0.2, 9), { matrix: matAlong(0, 0, -0.02, 0, 0.2, -1), color: OBS2 });
+    b.joint = J('ankle' + s);
+    b.add(prism(4, 0.05, 0.035, 0.31), { matrix: matAlong(0, 0, 0, 0, -0.3, 0.05) });
+    b.joint = J('foot' + s);
+    for (let k = -1; k <= 1; k++) b.add(shard(0.24, 0.035, 3, 0.15, k + 5), { matrix: matAlong(k * 0.06, 0.02, 0, k * 0.35, -0.1, 1), color: k === 0 ? BONE : OBS });
+  }
+  b.joint = J('head');
+  // вытянутый череп, щель глаз и венец из гвоздей
+  b.add(bipyramid(5, 0.13, 0.12, 0.22), { matrix: mat(0, 0.06, 0.06, 1.2, 0, 0, 1, 1, 0.9) });
+  b.add(box(0.15, 0.025, 0.04), { matrix: mat(0, 0.1, 0.19, -0.3), emissive: 1.9 });
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2;
+    b.add(shard(0.28 + (i % 2) * 0.1, 0.022, 3, 0.15, i + 20), { matrix: matAlong(Math.sin(a) * 0.12, 0.16, Math.cos(a) * 0.1, Math.sin(a) * 0.6, 1, Math.cos(a) * 0.5), color: i % 2 ? BONE : BRONZE });
+  }
+  for (const sx of [1, -1]) b.add(shard(0.16, 0.025, 3, 0.15, 13), { matrix: matAlong(sx * 0.05, -0.04, 0.18, -sx * 0.3, -0.7, 1), color: BONE });
+  return { rig, geometry: b.build() };
+}
+
 // ------------------------------------------------------------------ Парящий (Око)
 export function eyeRig(): RigDef {
   const joints: JointDef[] = [

@@ -17,6 +17,7 @@ import { RibbonTrail } from './trail';
 import { LightPools } from './ambient';
 import { StunStars } from './stunStars';
 import { FloorRiftsView } from './floorRifts';
+import { FloorSpikes } from './floorSpikes';
 
 const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLinear(h); return [c[0] * k, c[1] * k, c[2] * k]; };
 export const C = {
@@ -47,6 +48,8 @@ export class BattleVfx {
   readonly stars = new StunStars();
   /** Разломы на полу (план §6.2). */
   readonly rifts = new FloorRiftsView();
+  /** Шипы из пола (Погребальный ряд, план §7.2). */
+  readonly spikes = new FloorSpikes();
   /** Ступень ранга (план §6.6): 0 — ниже A, 1 — A, 2 — S, 3 — SS. Только визуал, без бонуса к урону. */
   rankTier = 0;
   /** Раскалённые следы тяжёлых (план §7.1). */
@@ -69,7 +72,7 @@ export class BattleVfx {
     this.add = new Particles(maxParticles, true);
     this.norm = new Particles(Math.round(maxParticles * 0.35), false);
     this.pools = pools;
-    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group);
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh);
     for (const m of this.debris.meshes) this.group.add(m);
     // серпы: выдавленный полумесяц с эмиссивной кромкой
     const b = new GeomBuilder();
@@ -184,6 +187,46 @@ export class BattleVfx {
       const rr = r * fxRng.range(0.75, 1.0);
       this.add.emit({ x: x + Math.sin(a) * rr, y: 0.8 + fxRng.spread(0.25), z: z + Math.cos(a) * rr, vx: Math.cos(a) * 3, vz: -Math.sin(a) * 3, life: 0.22, size: 0.2, size1: 0.03, color: f > 0.3 && f < 0.7 ? C.hungerHot : C.ember, frame: 'spark', stretch: 1.2 });
     }
+  }
+
+  /** Веер клинков (Распинатель): багровые росчерки бегут вдоль каждой полосы от тела. */
+  bladeFan(x: number, z: number, dir: number, angles: readonly number[], len: number): void {
+    const n = Math.round(9 * this.quality) + 3;
+    for (const a0 of angles) {
+      const dx = Math.sin(dir + a0), dz = Math.cos(dir + a0);
+      for (let k = 0; k < n; k++) {
+        const f = k / (n - 1), d = 0.6 + f * (len - 0.6);
+        this.add.emit({ x: x + dx * d, y: 0.25 + fxRng.spread(0.1), z: z + dz * d, vx: dx * 5, vz: dz * 5, vy: fxRng.range(0, 1), life: 0.28, size: 0.32 * (1 - f * 0.5), size1: 0.03, color: f < 0.5 ? C.hungerHot : C.ember, frame: 'spark', stretch: 2.4, delay: f * 0.07 });
+      }
+      this.burst(3, { x: x + dx * len, y: 0.2, z: z + dz * len, life: 0.5, size: 0.4, size1: 0.9, color: C.dust, alpha: 0.4, drag: 3, frame: 'smoke', delay: 0.07 }, { v: 1.5, vy: 0.4, dir: [dx, dz], cone: 0.8 }, false);
+    }
+    this.lights.flash(x, 1, z, C.hunger, 3, 6, 0.25);
+  }
+
+  /** Гвоздь: клинок пробил пол — искры фонтаном, трещина-кольцо. */
+  nail(x: number, z: number, r: number): void {
+    this.rings.spawn(x, z, 0.2, r * 1.2, 0.3, C.hungerHot, 0.2, 1);
+    this.burst(16, { x, y: 0.15, z, life: 0.45, size: 0.09, size1: 0.015, color: C.hungerHot, gravity: -12, drag: 1.5, frame: 'spark', stretch: 1.4 }, { v: 5, vy: 6 });
+    this.burst(5, { x, y: 0.2, z, life: 0.7, size: 0.4, size1: 1.1, color: C.dust, alpha: 0.5, drag: 3, frame: 'smoke' }, { v: 2, vy: 0.6 }, false);
+    this.debris.burst(x, 0.2, z, 0, 0, Math.round(5 * this.quality), 3.5, 0.14);
+    this.lights.flash(x, 0.6, z, C.hunger, 3, 4, 0.25);
+  }
+
+  /** Погребальный ряд: колья из пола полосой, пыль и угли. */
+  spikeRow(x: number, z: number, dirX: number, dirZ: number, w: number, big: boolean): void {
+    this.spikes.row(x, z, dirX, dirZ, w, big);
+    const px = dirZ, pz = -dirX, n = big ? 7 : 5;
+    for (let i = 0; i < n * this.quality; i++) {
+      const u = (i / Math.max(1, n - 1) - 0.5) * w;
+      this.norm.emit({ x: x + px * u, y: 0.2, z: z + pz * u, vx: fxRng.spread(1.5), vz: fxRng.spread(1.5), vy: fxRng.range(0.5, 1.5), life: 0.7, size: 0.4, size1: 1.1, color: C.dust, alpha: 0.5, drag: 3, frame: 'smoke' });
+    }
+    this.burst(big ? 18 : 10, { x, y: 0.3, z, life: 0.45, size: 0.09, size1: 0.015, color: C.ember, gravity: -12, drag: 1.5, frame: 'spark', stretch: 1.2 }, { v: 4, vy: 7 });
+    this.lights.flash(x, 0.8, z, C.hunger, big ? 4 : 2.5, 4, 0.25);
+  }
+
+  /** Искры от клинка, волочащегося по полу. */
+  scrape(x: number, y: number, z: number): void {
+    this.burst(2, { x, y, z, life: 0.28, size: 0.06, size1: 0.01, color: C.ember, gravity: -10, drag: 2, frame: 'spark', stretch: 1.3 }, { v: 2.5, vy: 1.6 });
   }
 
   private lobs: { fx: number; fz: number; tx: number; tz: number; t: number; dur: number; size: number }[] = [];
@@ -479,6 +522,7 @@ export class BattleVfx {
     // способности: серпы, колодцы, волны, фазовый разрез, трещины на полу
     const ab = w.abilities as Abilities;
     this.rifts.sync(ab.floorRifts);
+    this.spikes.update(dtW);
     for (const r of ab.floorRifts) {
       if (!fxRng.chance(0.5 * this.quality)) continue;
       const d = fxRng.next() * r.len;
@@ -565,7 +609,7 @@ export class BattleVfx {
   }
 
   clear(): void {
-    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear();
+    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear();
   }
 }
 

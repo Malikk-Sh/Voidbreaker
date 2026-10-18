@@ -113,7 +113,7 @@ export class Battle {
     this.vfx.tele.hatch = ctx.settings.hatch;
     this.vfx.camera = ctx.renderer.camera;
     this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group);
-    this.enemies.warm(['husk', 'crawler', 'mantis', 'eye', 'acolyte', 'brute']);
+    this.enemies.warm(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'brute']);
     r.scene.add(this.group);
 
     this.runner = new StageRunner(this.world, stage);
