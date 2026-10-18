@@ -5,7 +5,7 @@ import { swapRemove } from '../core/pool';
 import { FEEL, type FeelId } from '../data/feel';
 import { RESONANCE } from '../data/player';
 import type { Input } from '../input/input';
-import { hitPosture, type Actor } from './actor';
+import { hitPosture, POSTURE_IMMUNE, type Actor } from './actor';
 import type { Arena } from './arena';
 import { computeDamage, overlaps, type Shape } from './combat';
 import type { Enemy } from './enemy';
@@ -211,12 +211,19 @@ export class World {
     let feel: FeelId = res.crit && p.feel === 'light' ? 'medium' : p.feel;
     let broke = false;
     if (e.posture && !e.dead) {
-      const pm = (perfect ? 2 : 1) * (e.shieldMul < 1 ? 0.5 : 1) * e.postureMul;
+      // Стражи и боссы вне окна уязвимости почти не теряют стойку: ломают её окна, а не спам
+      const heavy = (e.isGuardian || e.isBoss) && e.postureMul <= 1 ? 0.2 : 1;
+      const pm = (perfect ? 2 : 1) * (e.shieldMul < 1 ? 0.5 : 1) * e.postureMul * heavy;
       if (hitPosture(e.posture, p.posture * pm)) {
-        broke = true;
-        feel = 'break';
-        e.onBreak();
-        this.bus.emit('postureBreak', { target: e, x: e.x, z: e.z, boss: e.isBoss });
+        if (e.canBreakNow()) {
+          broke = true;
+          feel = 'break';
+          this.breakEnemy(e, false);
+        } else {
+          // неудержимая атака: слом ждёт её конца
+          e.posture.broken = 0; e.posture.value = 0;
+          e.breakQueued = true;
+        }
       }
     }
     // реакция на попадание: вспышка, пружина, отбрасывание, хитстан рядовых
@@ -237,6 +244,15 @@ export class World {
     else if (shatter && !broke) this.shatterEnemy(e, p.dirX, p.dirZ);
   }
 
+  /** Слом стойки: оглушение врага и событие для реакций. Из очереди — после неудержимой атаки. */
+  breakEnemy(e: Enemy, fromQueue = true): void {
+    if (e.dead || !e.posture) return;
+    e.breakQueued = false;
+    if (fromQueue) { e.posture.value = 0; e.posture.broken = e.posture.breakDur; }
+    e.onBreak();
+    this.bus.emit('postureBreak', { target: e, x: e.x, z: e.z, boss: e.isBoss });
+  }
+
   /**
    * Раскол (замена казни): трещины взрываются — доля HP цели (элита 14 %, стражи 5 %, босс 3.5 %),
    * волна осколков по соседям, Резонанс; цель выходит из слома. Мгновенных убийств нет.
@@ -250,9 +266,10 @@ export class World {
     e.hp -= dmg;
     this.run.dmgDealt += dmg;
     this.run.shatters++;
+    // стойка восстанавливается полностью и 5 с неуязвима — следующий слом надо заработать заново
     e.posture.broken = 0;
-    e.posture.value = e.posture.max * 0.5;
-    e.posture.regenDelay = 3;
+    e.posture.value = e.posture.max;
+    e.posture.immune = POSTURE_IMMUNE;
     e.onDamaged(this, dmg, before);
     e.onShattered(this);
     this.rank.shatter();

@@ -36,7 +36,7 @@ const BRUTE_POSES: PoseLib = {
 };
 
 const RAGE: Pattern = {
-  id: 'rage', weight: 0, cooldown: 0, phases: [],
+  id: 'rage', weight: 0, cooldown: 0, phases: [], unstoppable: true,
   steps: [
     { t: 0, do: 'pose', id: 'crouch', blend: 0.12 },
     { t: 0.35, do: 'pose', id: 'roar', blend: 0.06 },
@@ -199,10 +199,10 @@ export class GateGuardian extends BruteGuardian {
       ],
     },
     // Таран: опускает алебарду и проносится сквозь арену
-    { id: 'charge', weight: 2, cooldown: 7, range: [6, 30], phases: [1, 2], steps: [], build: () => chargeSteps(this, 13, 2.4, 0.26) },
+    { id: 'charge', weight: 2, cooldown: 7, range: [6, 30], phases: [1, 2], unstoppable: true, steps: [], build: () => chargeSteps(this, 13, 2.4, 0.26) },
     // Вторая фаза: размах — обратный размах — выпад, каждый доворачивает на героя
     {
-      id: 'combo', weight: 3, cooldown: 5, range: [0, 7], phases: [2],
+      id: 'combo', weight: 3, cooldown: 5, range: [0, 7], phases: [2], unstoppable: true,
       steps: [
         { t: 0, do: 'pose', id: 'sweepWind', blend: 0.25 },
         { t: 0, do: 'telegraph', shape: { arc: [5.2, 170] }, at: 'self', dur: 0.85 },
@@ -228,7 +228,7 @@ export class GateGuardian extends BruteGuardian {
       ],
     },
     // Вторая фаза: алебарда в пол — три разлома веером к герою
-    { id: 'quake', weight: 2, cooldown: 8, phases: [2], steps: [], build: () => this.quakeSteps() },
+    { id: 'quake', weight: 2, cooldown: 8, phases: [2], unstoppable: true, steps: [], build: () => this.quakeSteps() },
   ];
   constructor(o: SpawnOpts) { super('gateGuardian', 1.65, o); }
 
@@ -290,7 +290,7 @@ export class BellRinger extends BruteGuardian {
     },
     // Резонанс: сначала бьёт кольцо вокруг (спасение — прижаться), затем центр (спасение — отскочить)
     {
-      id: 'resonance', weight: 2, cooldown: 7, range: [0, 9], phases: [1, 2],
+      id: 'resonance', weight: 2, cooldown: 7, range: [0, 9], phases: [1, 2], unstoppable: true,
       steps: [
         { t: 0, do: 'pose', id: 'ringWind', blend: 0.3 },
         { t: 0, do: 'telegraph', shape: { ring: [2.8, 7] }, at: 'self', dur: 1.0 },
@@ -338,7 +338,7 @@ export class BellRinger extends BruteGuardian {
     },
     // Вторая фаза: какофония — три удара с ускоряющимися кольцами, сверху сыплются осколки колокола
     {
-      id: 'cacophony', weight: 3, cooldown: 8, phases: [2],
+      id: 'cacophony', weight: 3, cooldown: 8, phases: [2], unstoppable: true,
       steps: [
         { t: 0, do: 'pose', id: 'ringWind', blend: 0.3 },
         { t: 0, do: 'telegraph', shape: { circle: 2.6 }, at: 'front', dur: 0.9 },

@@ -94,6 +94,10 @@ export abstract class Enemy implements Actor {
   /** Боссы запрещают Раскол в переходах фаз (переопределяется). */
   get canShatter(): boolean { return true; }
   get broken(): boolean { return !!this.posture && this.posture.broken > 0; }
+  /** Слом наступил во время неудержимой атаки и ждёт её конца. */
+  breakQueued = false;
+  /** Можно ли сломать стойку прямо сейчас (неудержимые атаки Стражей и боссов — нет). */
+  canBreakNow(): boolean { return true; }
   get spawned(): boolean { return this.state !== 'spawn'; }
 
   setState(s: EState): void { this.state = s; this.stateT = 0; }
@@ -123,6 +127,7 @@ export abstract class Enemy implements Actor {
       stepPosture(this.posture, dt);
       this.puppet.crack = this.posture.broken > 0 ? 1 : Math.max(0, this.puppet.crack - dt * 2);
       if (wasBroken && this.posture.broken <= 0 && this.state === 'broken') this.setState('recover');
+      if (this.breakQueued && this.canBreakNow()) w.breakEnemy(this);
     }
     if (this.shieldFrom && (this.shieldFrom.dead || !this.shieldFrom.spawned)) { this.shieldFrom = null; this.shieldMul = 1; }
     if (this.airDur > 0) {

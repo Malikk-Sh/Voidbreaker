@@ -72,7 +72,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 1.6, do: 'pose', id: 'idle', blend: 0.4 },
     ], dur: 2.2 },
     // Падение колокола: тень на земле 1.0 с → падает всем телом в точку игрока; окно 2.0 с (стойка ×2)
-    { id: 'drop', weight: 2, cooldown: 7, phases: [1, 2], range: [3, 40], steps: [
+    { id: 'drop', weight: 2, cooldown: 7, phases: [1, 2], range: [3, 40], unstoppable: true, steps: [
       { t: 0, do: 'pose', id: 'rise', blend: 0.25 },
       { t: 0, do: 'telegraph', shape: { circle: 4 }, at: 'snapshot', dur: 1.05 },
       { t: 0, do: 'telegraphSound', kind: 'roar' },
@@ -86,7 +86,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 3.0, do: 'pose', id: 'idle', blend: 0.5 },
     ] },
     // Великий Набат: 3 звона подряд с ускорением, последний — с одним разрывом
-    { id: 'tocsin', weight: 3, cooldown: 6, phases: [2], steps: [
+    { id: 'tocsin', weight: 3, cooldown: 6, phases: [2], unstoppable: true, steps: [
       { t: 0, do: 'pose', id: 'toll', blend: 0.3 },
       { t: 0, do: 'telegraphSound', kind: 'bell' },
       { t: 0, do: 'telegraph', shape: { circle: 3.2 }, at: 'self', dur: 0.85 },
@@ -120,7 +120,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 1.9, do: 'vulnerable', dur: 1.1 },
     ] },
     // Приговор: косой крест лучей, затем прямой — по мостам
-    { id: 'judgment', weight: 3, cooldown: 7, phases: [2], steps: [], build: () => this.judgmentSteps() },
+    { id: 'judgment', weight: 3, cooldown: 7, phases: [2], unstoppable: true, steps: [], build: () => this.judgmentSteps() },
     // Жатва: из бездны лезет Шелуха
     { id: 'harvest', weight: 1, cooldown: 16, phases: [2], steps: [
       { t: 0, do: 'pose', id: 'rise', blend: 0.4 },

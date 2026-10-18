@@ -283,6 +283,7 @@ export abstract class ScriptedEnemy extends Enemy {
   }
 
   override interrupt(): void { /* стражи и боссы не прерываются лёгкими ударами */ }
+  override canBreakNow(): boolean { return !this.cur?.unstoppable; }
   override onBreak(): void {
     super.onBreak();
     this.cur = null;
