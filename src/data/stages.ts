@@ -37,60 +37,83 @@ export interface StageDef {
 /** Награда за этап (GDD §8.5): осколки_первое = 120 × (1 + 0.35 × g). */
 export function stageShards(globalIndex: number): number { return Math.round(120 * (1 + 0.35 * globalIndex)); }
 
+/**
+ * Волны Зоны 01 (план §6.8): на 40 % меньше врагов, у каждой волны одна главная задача (в комментарии)
+ * и не больше двух механик. Шелуха — наполнитель, механикой не считается.
+ */
 export const ZONE1: StageDef[] = [
   {
     id: '1-1', zone: 0, index: 0, name: 'Падение', arena: 'fall', tutorial: 'basics',
     waves: [
-      { spawns: [{ enemy: 'spiker', count: 3, pattern: 'far', stagger: 0.4 }, { enemy: 'husk', count: 5, pattern: 'far', delay: 2.5, stagger: 0.15 }] },
-      { spawns: [{ enemy: 'husk', count: 10, pattern: 'ring', stagger: 0.1 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 1.5 }, { enemy: 'reaper', count: 1, pattern: 'far', delay: 3 }] },
-      { spawns: [{ enemy: 'husk', count: 14, pattern: 'ring', stagger: 0.08 }, { enemy: 'spiker', count: 5, pattern: 'ring', delay: 1.2 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 2.5 }] },
+      // удары: Шелуха держит два
+      { spawns: [{ enemy: 'spiker', count: 3, pattern: 'far', stagger: 0.4 }, { enemy: 'husk', count: 3, pattern: 'far', delay: 2.5, stagger: 0.2 }] },
+      // уклонение от выпада Жнеца
+      { spawns: [{ enemy: 'husk', count: 6, pattern: 'ring', stagger: 0.12 }, { enemy: 'reaper', count: 1, pattern: 'far', delay: 2.5 }] },
+      // толпа и выпады вместе
+      { spawns: [{ enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 }, { enemy: 'spiker', count: 3, pattern: 'ring', delay: 1.2 }, { enemy: 'reaper', count: 1, pattern: 'edges', delay: 2.5 }] },
     ],
   },
   {
     id: '1-2', zone: 0, index: 1, name: 'Нефы', arena: 'naves', tutorial: 'charged', unlocks: ['well'],
     waves: [
-      { spawns: [{ enemy: 'husk', count: 12, pattern: 'ring', stagger: 0.1 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 1.5 }, { enemy: 'eye', count: 1, at: ['top'], delay: 2 }] },
-      { spawns: [{ enemy: 'golem', count: 1, pattern: 'far' }, { enemy: 'husk', count: 10, pattern: 'edges', delay: 1, stagger: 0.1 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 3 }] },
-      { spawns: [{ enemy: 'reaper', count: 2, pattern: 'edges' }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 1 }, { enemy: 'husk', count: 14, pattern: 'ring', delay: 2.5, stagger: 0.08 }] },
+      // дальний враг: дотянуться до Ока (Серп Луны)
+      { spawns: [{ enemy: 'husk', count: 7, pattern: 'ring', stagger: 0.12 }, { enemy: 'eye', count: 1, at: ['top'], delay: 1.5 }] },
+      // заряженный удар оглушает Голема
+      { spawns: [{ enemy: 'golem', count: 1, pattern: 'far' }, { enemy: 'husk', count: 5, pattern: 'edges', delay: 1.5, stagger: 0.15 }] },
+      // выпады Жнецов в толпе
+      { spawns: [{ enemy: 'reaper', count: 2, pattern: 'edges' }, { enemy: 'husk', count: 8, pattern: 'ring', delay: 2, stagger: 0.1 }] },
     ],
   },
   {
     id: '1-3', zone: 0, index: 2, name: 'Врата', arena: 'gate', tutorial: 'shatter', unlocks: ['eclipse'],
     waves: [
-      { spawns: [{ enemy: 'husk', count: 14, pattern: 'ring', stagger: 0.08 }, { enemy: 'spiker', count: 6, pattern: 'ring', delay: 1.2 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 2.5 }] },
-      { spawns: [{ enemy: 'golem', count: 1, pattern: 'far' }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 0.8 }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 2 }, { enemy: 'husk', count: 8, pattern: 'edges', delay: 3 }] },
+      // сбросить толпу в провалы
+      { spawns: [{ enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 2 }] },
+      // оглушить Голема и Расколоть; Аколит со щитом — приоритет
+      { spawns: [{ enemy: 'golem', count: 1, pattern: 'far' }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 2 }, { enemy: 'husk', count: 5, pattern: 'edges', delay: 3 }] },
+      // Страж Врат
       { guardian: true, spawns: [{ enemy: 'gateGuardian', count: 1, at: ['top'] }],
-        triggers: [{ when: 'guardianHp<0.5', spawn: { enemy: 'husk', count: 12, pattern: 'ring', stagger: 0.12 } }] },
+        triggers: [{ when: 'guardianHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.12 } }] },
     ],
   },
   {
     id: '1-4', zone: 0, index: 3, name: 'Свечной зал', arena: 'candles', tutorial: 'ult', unlocks: ['phase'],
     waves: [
-      { spawns: [{ enemy: 'husk', count: 16, pattern: 'ring', stagger: 0.07 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1.5 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 3 }] },
-      { spawns: [{ enemy: 'eye', count: 2, at: ['left', 'right'] }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 1 }, { enemy: 'husk', count: 10, pattern: 'ring', delay: 1.5 }, { enemy: 'spiker', count: 6, pattern: 'ring', delay: 3 }] },
-      { spawns: [{ enemy: 'golem', count: 1, pattern: 'far' }, { enemy: 'reaper', count: 3, pattern: 'edges', delay: 1 }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 2 }, { enemy: 'husk', count: 12, pattern: 'edges', delay: 3.5 }] },
-      { spawns: [{ enemy: 'golem', count: 1, at: ['top'], elite: ['hasted'] }, { enemy: 'husk', count: 8, pattern: 'ring', delay: 1.5 }],
-        triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 16, pattern: 'ring', stagger: 0.07 } }] },
+      // уклонение от выпада Жнеца
+      { spawns: [{ enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1.5 }] },
+      // приоритет цели: Аколит со щитом; Ока на краях
+      { spawns: [{ enemy: 'eye', count: 2, at: ['left', 'right'] }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 1 }, { enemy: 'husk', count: 6, pattern: 'ring', delay: 1.5, stagger: 0.12 }] },
+      // сбросить Голема в колодец заряженным ударом
+      { spawns: [{ enemy: 'golem', count: 1, at: ['center'] }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1 }, { enemy: 'husk', count: 6, pattern: 'edges', delay: 3 }] },
+      // Раскол элиты
+      { spawns: [{ enemy: 'golem', count: 1, at: ['top'], elite: ['hasted'] }],
+        triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 } }] },
     ],
   },
   {
     id: '1-5', zone: 0, index: 4, name: 'Мост над бездной', arena: 'bridge', tutorial: 'upgrade',
     waves: [
-      { spawns: [{ enemy: 'husk', count: 14, pattern: 'ring', stagger: 0.08 }, { enemy: 'spiker', count: 6, pattern: 'ring', delay: 1 }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 2 }] },
-      { spawns: [{ enemy: 'reaper', count: 3, pattern: 'edges' }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 1 }, { enemy: 'husk', count: 12, pattern: 'ring', delay: 2.5 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 3.5 }] },
-      { spawns: [{ enemy: 'reaper', count: 1, at: ['left'], elite: ['explosive', 'hasted'] }, { enemy: 'golem', count: 2, at: ['right', 'center'], delay: 1.5 }, { enemy: 'husk', count: 10, pattern: 'edges', delay: 3 }],
-        triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 14, pattern: 'ring', stagger: 0.08 } }] },
+      // сбросить толпу с мостов в бездну
+      { spawns: [{ enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 }, { enemy: 'spiker', count: 4, pattern: 'ring', delay: 1 }] },
+      // Ока на концах мостов: снаряды — украсть уклонением и вернуть
+      { spawns: [{ enemy: 'eye', count: 2, at: ['left', 'right'] }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1.5 }, { enemy: 'husk', count: 4, pattern: 'ring', delay: 3 }] },
+      // Раскол элиты; Голем на мосту
+      { spawns: [{ enemy: 'reaper', count: 1, at: ['left'], elite: ['explosive', 'hasted'] }, { enemy: 'golem', count: 1, at: ['right'], delay: 1.5 }],
+        triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 } }] },
     ],
   },
   {
     id: '1-6', zone: 0, index: 5, name: 'Колокольня', arena: 'belfry',
     waves: [
-      { spawns: [{ enemy: 'husk', count: 18, pattern: 'ring', stagger: 0.06 }, { enemy: 'spiker', count: 8, pattern: 'ring', delay: 1 }, { enemy: 'acolyte', count: 2, at: ['left', 'right'], delay: 2 }] },
-      { spawns: [{ enemy: 'golem', count: 2, pattern: 'far' }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 1 }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 2.5 }, { enemy: 'husk', count: 14, pattern: 'ring', delay: 4 }] },
+      // приоритет цели: два Аколита за толпой
+      { spawns: [{ enemy: 'husk', count: 10, pattern: 'ring', stagger: 0.08 }, { enemy: 'acolyte', count: 2, at: ['left', 'right'], delay: 1.5 }] },
+      // Големы (оглушение и Раскол) под огнём Ок
+      { spawns: [{ enemy: 'golem', count: 2, pattern: 'far' }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 1 }, { enemy: 'husk', count: 4, pattern: 'ring', delay: 3 }] },
+      // Звонарь
       { guardian: true, spawns: [{ enemy: 'bellRinger', count: 1, at: ['top'] }],
         triggers: [
           { when: 'guardianHp<0.5', spawn: { enemy: 'reaper', count: 2, pattern: 'edges' } },
-          { when: 'guardianHp<0.5', spawn: { enemy: 'husk', count: 12, pattern: 'ring', stagger: 0.1 } },
+          { when: 'guardianHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.12 } },
         ] },
     ],
   },

@@ -22,8 +22,19 @@ export interface EnemyDef {
   staggerable: boolean;
 }
 
+/**
+ * Сколько ударов держит враг (план §6.8) — при ATK 12 (старт), лёгкий удар 1.0×, серия 1+1+1.3+2.2:
+ * | враг     | HP  | ударов на старте            | заметный рост                                   |
+ * | Шелуха   | 20  | 2                           | 1 после 7 уровней Силы (ATK ≈ 20.4)             |
+ * | Шипник   | 20  | 2                           | как Шелуха                                      |
+ * | Око      | 45  | 4 — или один Серп и удар    | 3 с ATK ≈ 15                                    |
+ * | Жнец     | 60  | одна полная серия (≈ 66)    | серия без финишера с ATK ≈ 20                   |
+ * | Аколит   | 70  | серия и удар                | одна серия с ATK ≈ 13.5                         |
+ * | Голем    | 260 | ≈ 4 серии — дешевле оглушить и Расколоть (14 %) |                              |
+ * Этапы добавляют +12 % HP за шаг (scaleHp), поэтому к 1-5 Шелуха снова держит два удара без прокачки.
+ */
 export const ENEMIES: Record<EnemyKind, EnemyDef> = {
-  husk: { id: 'husk', name: 'Шелуха', hp: 11, dmg: 5, speed: 4.6, radius: 0.4, mass: 0.45, height: 1.45, drop: 0.5, staggerable: true },
+  husk: { id: 'husk', name: 'Шелуха', hp: 20, dmg: 5, speed: 4.6, radius: 0.4, mass: 0.45, height: 1.45, drop: 0.5, staggerable: true },
   spiker: { id: 'spiker', name: 'Шипник', hp: 20, dmg: 6, speed: 4.4, radius: 0.48, mass: 0.5, height: 1.1, drop: 1, staggerable: true },
   reaper: { id: 'reaper', name: 'Жнец', hp: 60, dmg: 14, speed: 4.0, radius: 0.6, mass: 1.1, height: 2.3, drop: 3, staggerable: true },
   eye: { id: 'eye', name: 'Око', hp: 45, dmg: 10, speed: 2.4, radius: 0.65, mass: 0.8, height: 2.6, drop: 3, ranged: true, staggerable: true },
