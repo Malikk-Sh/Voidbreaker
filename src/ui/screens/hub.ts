@@ -1,6 +1,7 @@
 import type { App } from '../../game/app';
 import { ABILITIES, ABILITY_LEVEL, type AbilityId } from '../../data/abilities';
 import { LORE } from '../../data/lore';
+import { CINEMA } from '../../data/cinema';
 import {
   abilityUpgradeCost, BRANCHES, buyStat, canBuyStat, computeStats, MAX_STAT, RELICS, statCost, swapMutation, upgradeAbility, upgradeWeapon, weaponCost, WEAPON_MAX,
   type Branch,
@@ -204,10 +205,23 @@ function relicsTab(app: App, refresh: () => void): HTMLElement {
   );
 }
 
+/** Кинозал (план §8.1): увиденные сцены можно пересмотреть. */
+function cinemaSection(app: App): HTMLElement {
+  const s = app.ctx.save;
+  const open = CINEMA.filter((c) => (s.cine[c.id] ?? 0) > 0);
+  return h('div', { class: 'vb-card' },
+    h('div', { class: 'vb-name', style: { color: UI.goldHi, fontSize: '14px' } }, 'Кинозал'),
+    open.length
+      ? h('div', { class: 'vb-col', style: { gap: '6px', marginTop: '8px' } }, ...open.map((c) => h('div', { class: 'vb-row', style: { justifyContent: 'space-between', gap: '10px' } },
+        h('div', {}, h('div', { style: { fontSize: '13px', color: UI.text } }, c.title), h('div', { style: { fontSize: '11px', color: UI.dim } }, c.sub)),
+        app.canWatch(c.id) ? h('button', { class: 'vb-btn small', onClick: () => { app.sfx('ui_confirm', 0.6); app.watchScene(c.id); } }, 'Смотреть') : null)))
+      : h('div', { style: { fontSize: '12px', color: UI.dim, marginTop: '6px' } }, 'Сцены откроются по ходу похода.'));
+}
+
 function loreTab(app: App): HTMLElement {
   const s = app.ctx.save;
   const ids = Object.keys(LORE);
-  return h('div', { class: 'vb-col vb-rise' }, ...ids.map((id) => {
+  return h('div', { class: 'vb-col vb-rise' }, cinemaSection(app), ...ids.map((id) => {
     const open = s.lore.includes(id);
     return h('div', { class: `vb-card${open ? '' : ' locked'}` },
       h('div', { class: 'vb-name', style: { color: open ? UI.goldHi : '#5b6470', fontSize: '14px' } }, open ? LORE[id].title : '— запись не найдена —'),

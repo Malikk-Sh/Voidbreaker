@@ -18,8 +18,10 @@ export class CameraRig {
   /** Базовая дистанция (м); настройка «Дистанция камеры» масштабирует её. */
   baseDist = 22;
   shakeScale = 1;
-  /** Внешняя цель кинематографа (пролёт): если задана, перекрывает следование. */
-  cine: { pos: THREE.Vector3; look: THREE.Vector3; w: number } | null = null;
+  /** Внешняя цель кинематографа (пролёт, дорожки режиссёра): перекрывает следование; fov и крен — по желанию. */
+  cine: { pos: THREE.Vector3; look: THREE.Vector3; w: number; fov?: number; roll?: number } | null = null;
+  /** Исходный угол обзора камеры (запоминается при первом кадре). */
+  private baseFov = 0;
   private seed = Math.random() * 1000;
   private t = 0;
 
@@ -46,12 +48,17 @@ export class CameraRig {
     cam.position.set(fx, dist * Math.sin(this.tilt), fz + dist * Math.cos(this.tilt));
     cam.lookAt(fx, 0, fz);
     cam.rotation.z += 0.02 * s * noise1(this.seed + 200, t) + this.roll;
+    if (!this.baseFov) this.baseFov = cam.fov;
+    let fov = this.baseFov;
     if (this.cine) {
       const w = this.cine.w;
       cam.position.lerp(this.cine.pos, w);
       const look = _look.set(fx, 0, fz).lerp(this.cine.look, w);
       cam.lookAt(look);
+      if (this.cine.roll) cam.rotation.z += this.cine.roll * w;
+      if (this.cine.fov) fov = this.baseFov + (this.cine.fov - this.baseFov) * w;
     }
+    if (Math.abs(cam.fov - fov) > 1e-3) { cam.fov = fov; cam.updateProjectionMatrix(); }
   }
 
   addTrauma(v: number): void { this.trauma = Math.min(1, this.trauma + v); }

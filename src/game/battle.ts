@@ -17,6 +17,7 @@ import { effectiveFlashes, type Settings } from '../meta/settings';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
 import { Cinematics } from './cinematics';
+import { Director, type CineTrack, type DirectorActor, type SkyParam } from './director';
 import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
 import '../world/boss/guardians';
@@ -57,6 +58,12 @@ export class Battle {
   readonly cam = new CameraRig();
   readonly feel: FeelSystem;
   readonly cine: Cinematics;
+  /** Дорожки режиссёра (план §8.1): пролог, интро и казнь босса, kill-cam Стражей. */
+  readonly director: Director;
+  /** Параметры неба, которые ведёт сцена (поверх боевых). */
+  readonly skyCine: Record<SkyParam, number> = { starLit: 0, eclipse: 0, crack: 0 };
+  /** Актёры-реквизит сцены по имени (корабль, обломки…). */
+  readonly props = new Map<string, DirectorActor>();
   readonly abilities: Abilities;
   readonly group = new THREE.Group();
   private flames: Flames;
@@ -146,6 +153,7 @@ export class Battle {
       skipRequested: () => ctx.input.buffer.peek('attack', ctx.input.now) || ctx.input.buffer.peek('dash', ctx.input.now),
       once: (f) => { if (ctx.flag(f)) return false; ctx.setFlag(f); return true; },
     });
+    this.director = new Director(this.directorHost());
     this.bindEvents();
     ctx.time.reset();
     if (!stage.boss) {
@@ -380,11 +388,78 @@ export class Battle {
     // небо и свет арены на время ульты
     const ek = h.eclipse ? 1 : 0;
     this.eclipseK += (ek - this.eclipseK) * Math.min(1, realDt * (ek ? 3 : 1.2));
-    this.ctx.renderer.sky.u.uEclipse.value = this.eclipseK;
+    const sky = this.ctx.renderer.sky.u;
+    sky.uEclipse.value = Math.max(this.eclipseK, this.skyCine.eclipse);
+    sky.uStarLit.value = this.skyCine.starLit;
+    sky.uSkyCrack.value = this.skyCine.crack;
     G.uHemiTop.value.copy(this.baseHemi).lerp(ECLIPSE_HEMI, this.eclipseK * 0.8);
     G.uMoonColor.value.copy(this.baseMoon).lerp(ECLIPSE_MOON, this.eclipseK * 0.7);
-    if (!this.ctx.time.paused) this.cine.update(realDt, cam);
+    if (!this.ctx.time.paused) {
+      this.cine.update(realDt, cam);
+      // дорожка режиссёра ведёт камеру поверх пролётов
+      this.director.update(realDt, cam);
+    }
   }
+
+  /**
+   * Сыграть сцену (план §8.1): герой заперт и неуязвим, HUD скрыт, летербокс; по концу — всё обратно.
+   * Пропуск — удержанием атаки.
+   */
+  playScene(track: CineTrack, onEnd?: (skipped: boolean) => void, opts: { hud?: boolean; letterbox?: boolean } = {}): void {
+    const h = this.world.hero, ctx = this.ctx;
+    h.locked = true;
+    h.invulnUntil = Math.max(h.invulnUntil, h.clock + 999);
+    if (opts.letterbox !== false) this.feel.setLetterbox(1);
+    if (opts.hud === false) ctx.hud.visible = false;
+    this.director.play(track, (skipped) => {
+      h.locked = false;
+      h.invulnUntil = h.clock + 0.5;
+      this.feel.setLetterbox(0);
+      ctx.hud.visible = true;
+      onEnd?.(skipped);
+    });
+  }
+
+  private directorHost() {
+    const ctx = this.ctx, w = this.world;
+    const heroActor: DirectorActor = {
+      get x() { return w.hero.x; }, set x(v) { w.hero.x = v; },
+      get z() { return w.hero.z; }, set z(v) { w.hero.z = v; },
+      get y() { return w.hero.y; }, set y(v) { w.hero.y = v; },
+      get facing() { return w.hero.facing; }, set facing(v) { w.hero.facing = v; },
+      get puppet() { return w.hero.avatar.puppet; },
+    };
+    const enemyActor = (who: string): DirectorActor | null => {
+      const e = who === 'boss' ? (this.runner.boss ?? this.runner.guardian) : w.enemies.find((x) => x.kind === who && !x.dead) ?? null;
+      return e ?? null;
+    };
+    return {
+      actor: (who: string) => (who === 'hero' ? heroActor : this.props.get(who) ?? enemyActor(who)),
+      playClip: (who: string, clip: string) => { if (who === 'hero') w.hero.avatar.puppet.play(clip, 1, 0.08); },
+      shatter: (who: string, dx: number, dz: number, power: number) => {
+        const e = enemyActor(who) as Enemy | null;
+        if (e) w.killEnemy(e, dx, dz, power);
+      },
+      timeScale: (scale: number, dur: number) => ctx.time.cinematic(dur, scale),
+      sky: (p: SkyParam, v: number) => { this.skyCine[p] = v; },
+      skyValue: (p: SkyParam) => this.skyCine[p],
+      music: (cue: 'silence' | 'stinger' | 'leitmotif' | 'resolve') => this.feel.musicCue(cue),
+      sfx: (id: string, gain: number) => ctx.audio.play(id, { gain }),
+      say: (line: string, sp: 'kaelis' | 'boss') => this.feel.voice(line, 0, sp),
+      banner: (text: string, sub: string | undefined, color: 'gold' | 'void' | 'hunger' | 'white' | 'ether' | 'steel', dur: number, size: number) => ctx.hud.bigBanner(text, sub, color, dur, size),
+      flash: (v: number) => this.feel.whiteFlash(v),
+      letterbox: (v: number) => this.feel.setLetterbox(v),
+      call: (fn: string, arg?: number) => this.sceneCalls.get(fn)?.(arg),
+      holding: () => ctx.input.attackHeld,
+      tapped: () => !!ctx.input.buffer.consume('attack', ctx.input.now),
+      seen: (id: string) => ctx.save.cine[id] ?? 0,
+      markSeen: (id: string) => { ctx.save.cine[id] = (ctx.save.cine[id] ?? 0) + 1; ctx.persist(); },
+      overlay: (skip: number, tap: { k: number; hit: boolean } | null) => ctx.hud.cineOverlay(skip, tap),
+    };
+  }
+
+  /** Логика сцен (шаг do: 'call'): регистрируют пролог, босс, kill-cam. */
+  readonly sceneCalls = new Map<string, (arg?: number) => void>();
 
   /** Слои музыки по интенсивности боя (GDD §18.3). */
   private updateMusic(realDt: number): void {
@@ -431,6 +506,7 @@ export class Battle {
 
   dispose(): void {
     this.cine.clear(this.cam);
+    this.director.clear(this.cam);
     this.feel.dispose();
     this.world.hero.avatar.dispose();
     this.world.bus.clear();

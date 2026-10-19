@@ -521,6 +521,17 @@ export class FeelSystem {
   baseZoom = 1;
 
   setLetterbox(v: number): void { this.letterbox = v; }
+
+  /** Музыкальные реплики сцен (план §8.1): тишина, стингер, лейтмотив Пилота, разрешение. */
+  musicCue(cue: 'silence' | 'stinger' | 'leitmotif' | 'resolve'): void {
+    if (cue === 'silence') this.music.setIntensity(0, 0.12);
+    else if (cue === 'stinger') this.music.stinger('stinger');
+    else if (cue === 'resolve') this.music.setIntensity(0.6, 1.5);
+    else {
+      // лейтмотив Пилота D–E♭–F–D–C–D (план §8.7)
+      [62, 63, 65, 62, 60, 62].forEach((n, i) => this.audio.play('motif_note', { gain: 0.8, pitch: Math.pow(2, (n - 62) / 12), delay: i * 0.32, vary: 0 }));
+    }
+  }
   whiteFlash(v: number): void {
     this.flash = Math.max(this.flash, this.settings.flashes ? v : v * 0.25);
     this.post.state.flashColor.setRGB(1, 0.95, 1);

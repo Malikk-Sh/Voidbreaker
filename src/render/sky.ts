@@ -38,6 +38,9 @@ export class Sky {
     uStarFlare: { value: 0 },
     /** Затмение ульты (план §6.9): 0 — обычное небо, 1 — луна закрыла солнце, корона фиолетовая. */
     uEclipse: { value: 0 },
+    /** Погасшая звезда зоны загорелась (план §8.3.2); трещина в небе (фаза III). */
+    uStarLit: { value: 0 },
+    uSkyCrack: { value: 0 },
   };
 
   constructor() {

@@ -58,6 +58,11 @@ export class App {
   get ctx() { return this.game.ctx; }
 
   sfx(id: string, gain = 0.7): void { this.ctx.audio.play(id, { gain, reverb: 0.25 }); }
+
+  /** Проигрыватели сцен Кинозала (регистрируют пролог, босс, kill-cam). */
+  readonly cinemaPlayers = new Map<string, () => void>();
+  canWatch(id: string): boolean { return this.cinemaPlayers.has(id); }
+  watchScene(id: string): void { this.cinemaPlayers.get(id)?.(); }
   save(): void { writeSave(this.ctx.save); }
 
   // ------------------------------------------------------------------ экраны

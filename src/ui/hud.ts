@@ -68,6 +68,8 @@ export class Hud {
   private lastRes = 0;
   private sub: { text: string; t: number; speaker: string } | null = null;
   private hint: { text: string; t: number } | null = null;
+  /** Поверх сцены режиссёра: заполнение пропуска и кольцо касания-тайминга. */
+  private cine: { skip: number; tap: { k: number; hit: boolean } | null } = { skip: 0, tap: null };
   private hpTrail = 1; private hpTrailDelay = 0; private lastHp = 1;
   private bossTrail = 1; private bossTrailDelay = 0; private lastBossHp = 1;
   private rankStamp = 0; private rankLast = 'D';
@@ -115,6 +117,7 @@ export class Hud {
   }
   subtitle(text: string, speaker: string): void { this.sub = { text, t: 0, speaker }; }
   showHint(text: string): void { this.hint = { text, t: 0 }; }
+  cineOverlay(skip: number, tap: { k: number; hit: boolean } | null): void { this.cine.skip = skip; this.cine.tap = tap; }
   pulseUlt(): void { this.ultPulse = 1; this.readyT.r = 0; }
   /** Способность снова готова: вокруг иконки за 0.25 с замыкается кольцо. */
   abilityReady(slot: 'q' | 'e' | 'r'): void { this.readyT[slot] = 0; }
@@ -142,6 +145,7 @@ export class Hud {
     const g = this.g;
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.clearRect(0, 0, this.w, this.h);
+    this.drawCineOverlay();
     if (!this.visible || !f) return;
     const s = this.scale;
     const L = 20 * s + this.safe.l, R = this.w - 20 * s - this.safe.r, T = 14 * s + this.safe.t, B = this.h - 16 * s - this.safe.b;
@@ -166,6 +170,33 @@ export class Hud {
     this.drawSubtitle(dt, s, L, T);
     if (f.showFps) { g.fillStyle = UI.dim; g.font = `600 ${Math.round(11 * s)}px ${FONT_TECH}`; g.textAlign = 'left'; g.fillText(`${f.fps.toFixed(0)} FPS`, L, B - 70 * s); }
     g.globalAlpha = 1;
+  }
+
+  /** Пропуск сцены удержанием атаки — кольцо заполняется; касание-тайминг — сходящееся кольцо. */
+  private drawCineOverlay(): void {
+    const g = this.g, s = this.scale, c = this.cine;
+    if (c.skip > 0.02) {
+      const x = this.w - 40 * s - this.safe.r, y = this.h - 34 * s - this.safe.b, r = 11 * s;
+      g.save();
+      g.lineWidth = 2 * s;
+      g.strokeStyle = 'rgba(227,195,126,0.3)';
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = UI.goldHi;
+      g.beginPath(); g.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, c.skip)); g.stroke();
+      g.fillStyle = UI.text; g.font = `600 ${Math.round(11 * s)}px ${FONT_TECH}`; g.textAlign = 'right'; g.textBaseline = 'middle';
+      g.fillText('ПРОПУСК', x - r - 8 * s, y);
+      g.restore();
+    }
+    if (c.tap) {
+      const x = this.w / 2, y = this.h * 0.42, r0 = 26 * s, r = r0 * (1 + 2.2 * (1 - c.tap.k));
+      g.save();
+      g.lineWidth = 2.5 * s;
+      g.strokeStyle = c.tap.hit ? '#F1E8FF' : 'rgba(183,148,255,0.9)';
+      g.shadowColor = '#8B5CF6'; g.shadowBlur = 12 * s;
+      g.beginPath(); g.arc(x, y, r0, 0, Math.PI * 2); g.stroke();
+      if (!c.tap.hit) { g.globalAlpha = 0.5 + 0.5 * c.tap.k; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke(); }
+      g.restore();
+    }
   }
 
   // ------------------------------------------------------------------ примитивы

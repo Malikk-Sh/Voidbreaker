@@ -18,6 +18,8 @@ export interface SaveData {
   settings: Settings;
   flags: Record<string, boolean>;
   lore: string[];
+  /** Сколько раз видена каждая сцена (план §8.1): дважды — укороченная версия; открытые — в Кинозале. */
+  cine: Record<string, number>;
 }
 
 const KEY = 'voidbreaker.save.v1';
@@ -38,6 +40,7 @@ export function newSave(): SaveData {
     settings: { ...DEFAULT_SETTINGS },
     flags: {},
     lore: [],
+    cine: {},
   };
 }
 
@@ -74,6 +77,7 @@ export function migrate(d: Partial<SaveData>): SaveData {
   s.stages = { ...d.stages };
   s.bosses = { ...d.bosses };
   s.lore = d.lore ?? [];
+  s.cine = { ...d.cine };
   s.relics = d.relics ?? [];
   return s;
 }
