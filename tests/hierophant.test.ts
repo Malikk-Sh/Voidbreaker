@@ -3,7 +3,7 @@ import { World } from '../src/world/world';
 import { Arena } from '../src/world/arena';
 import { ARENAS } from '../src/data/arenas';
 import { Abilities } from '../src/world/abilities';
-import { Hierophant, HierophantController, SERMON_SHIELD, type BossHost } from '../src/world/boss/hierophant';
+import { Hierophant, HierophantController, INTERCEPT_WINDOW, PHASE2_AT, PHASE3_AT, SERMON_SHIELD, type BossHost } from '../src/world/boss/hierophant';
 import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
 import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
 import { VOID_BLADE } from '../src/data/weapons';
@@ -43,7 +43,7 @@ function fakeHost(w: World, b: Hierophant, hold = () => false) {
     emitFire: () => {}, skipRequested: () => false,
     scene: (track: CineTrack, c, end) => { calls = c; onEnd = end; director.play(track, (s) => onEnd?.(s)); },
     music: (cue) => log.push(`music:${cue}`), startSong: () => log.push('song'), quench: (_x, _z, r) => log.push(`quench:${r}`),
-    runes: () => {}, chains: () => {}, dust: () => {},
+    runes: () => {}, chains: () => {}, dust: () => {}, sky: (pp, v) => log.push(`sky:${pp}:${v}`), transpose: (c) => log.push(`transpose:${c}`), duck: () => log.push('duck'), starDir: () => [0.42, -0.5, -0.76],
   };
   return { host, log, director };
 }
@@ -172,5 +172,74 @@ describe('Иерофант 2.0 (план §8.3)', () => {
         expect(b.stun!.value - stun0).toBeGreaterThanOrEqual(CENSER_RETURN_STUN - 0.5);
       } else expect(returned).toBe(0);
     }
+  });
+
+  /** Бой с контроллером после интро (пропущено). */
+  function fight(hx = 0, hz = 8) {
+    const { w, b } = setup(hx, hz);
+    let held = false;
+    const fh = fakeHost(w, b, () => held);
+    const ctrl = new HierophantController(fh.host, b);
+    const cam = new CameraRig(), input = idle();
+    const tick = (sec: number, each?: () => void) => {
+      for (let t = 0; t < sec; t += DT) { fh.director.update(DT, cam); ctrl.step(DT); w.step(DT, DT, input, DT); each?.(); }
+    };
+    held = true; tick(1.2); held = false;
+    expect(ctrl.phase).toBe(1);
+    return { w, b, ctrl, tick, log: fh.log, hold: (v: boolean) => { held = v; } };
+  }
+  const full = (w: World, b: Hierophant) => w.damageEnemy(b, { mult: 4.5, stun: 30, stunKind: 'charged', knockback: 3, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade', finisher: true });
+  const light = (w: World, b: Hierophant) => w.damageEnemy(b, { mult: 1, stun: 4, knockback: 1, feel: 'light', dirX: 0, dirZ: -1, source: 'blade' });
+
+  it('фазы: 60 % и 25 % — переходы; HP не проваливается за порог', () => {
+    const { w, b, ctrl } = fight();
+    b.hp = b.maxHp * PHASE2_AT + 5;
+    light(w, b); light(w, b); light(w, b);
+    expect(b.hp).toBeGreaterThanOrEqual(Math.round(b.maxHp * PHASE2_AT) - 1);
+    expect(ctrl.reached(2)).toBe(true);
+    expect(b.invulnerable).toBe(true);
+    expect(ctrl.phaseMarks).toEqual([PHASE2_AT, PHASE3_AT]);
+  });
+
+  it('перехват: полный заряд в окне 1.2 с — фаза II сразу, с оглушением; пол обрушен; второй раз нельзя', () => {
+    const { w, b, ctrl, tick } = fight();
+    b.hp = b.maxHp * PHASE2_AT + 1; light(w, b);
+    tick(0.3);
+    expect(ctrl.interceptOpen).toBe(true);
+    // лёгкий удар не перехватывает
+    light(w, b);
+    expect(ctrl.phase).toBe(1);
+    full(w, b);
+    expect(ctrl.phase).toBe(2);
+    expect(b.stunned).toBe(true);
+    expect(w.arena.edge).toBe('abyss');
+    expect(ctrl.interceptUsed).toBe(true);
+    // фаза III: окно больше не открывается
+    tick(5);
+    b.hp = b.maxHp * PHASE3_AT + 1; light(w, b);
+    tick(0.3);
+    expect(ctrl.reached(3)).toBe(true);
+    expect(ctrl.interceptOpen).toBe(false);
+    full(w, b);
+    expect(ctrl.phase).toBe(2);
+  });
+
+  it('без перехвата: после окна — сцена перехода, новая фаза без оглушения; III — колокол треснул, +1 полутон', () => {
+    const { w, b, ctrl, tick, log } = fight();
+    b.hp = b.maxHp * PHASE2_AT + 1; light(w, b);
+    tick(INTERCEPT_WINDOW + 0.1);
+    expect(ctrl.interceptOpen).toBe(false);
+    tick(5);
+    expect(ctrl.phase).toBe(2);
+    expect(b.stunned).toBe(false);
+    expect(w.arena.edge).toBe('abyss');
+    b.hp = b.maxHp * PHASE3_AT + 1; light(w, b);
+    tick(INTERCEPT_WINDOW + 4);
+    expect(ctrl.phase).toBe(3);
+    expect(b.bellCracked).toBe(true);
+    expect(log).toContain('transpose:100');
+    // огонь открыт: урон ×1.5
+    tick(0.2);
+    expect(b.shieldMul).toBe(1.5);
   });
 });

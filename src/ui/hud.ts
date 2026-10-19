@@ -476,7 +476,7 @@ export class Hud {
       this.stunStars(this.w / 2, sy, 7.5 * s, 21 * s, boss, this.starSlots);
       if (boss.shatterable) { g.globalAlpha = 0.7 + 0.3 * Math.sin(this.time * 12); this.text('ОГЛУШЁН — РАСКОЛ!', this.w / 2, sy + 25 * s, 11 * s, UI.goldHi, 'bodyBold', 'center'); g.globalAlpha = 0.95; }
     }
-    if (phase > 0) this.text(`ФАЗА ${ROMAN[phase] ?? ''}`, x + w, y - 8 * s, 10 * s, UI.goldHi, 'bodyBold', 'right');
+    if (phase > 0) this.text(`ФАЗА ${ROMAN[phase - 1] ?? ''}`, x + w, y - 8 * s, 10 * s, UI.goldHi, 'bodyBold', 'right');
   }
 
   // ------------------------------------------------------------------ ранг комбо

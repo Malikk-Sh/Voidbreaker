@@ -96,6 +96,8 @@ export interface GameEvents {
   waveClear: { index: number; total: number };
   stageClear: Record<string, never>;
   bossPhase: { phase: number };
+  /** Перехват фазы босса (план §8.3.1). */
+  bossIntercept: { x: number; z: number };
   /** Страж на 50 % HP: рёв, вторая фаза (кинематографичная вставка). */
   guardianRage: { x: number; z: number; kind: string };
   bossIntro: { name: string; title: string };

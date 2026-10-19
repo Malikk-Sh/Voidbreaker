@@ -381,6 +381,10 @@ export class Battle {
         ctx.audio.play('tele_choir', { gain: 0.35 });
       },
       chains: (list) => { this.vfx.chains.hang = list; },
+      sky: (param, v) => { this.skyCine[param] = v; },
+      transpose: (cents) => { ctx.audio.musicTranspose = cents; },
+      duck: (level, hold) => ctx.music.duck(level, hold),
+      starDir: () => { const d = ctx.renderer.sky.u.uMoonDir.value; return [d.x, d.y, d.z]; },
       dust: (x, z) => {
         for (let i = 0; i < 46; i++) this.vfx.norm.emit({ x: x + fxRng.spread(9), y: fxRng.range(7, 11), z: z + fxRng.spread(8), vy: -fxRng.range(0.5, 1.5), gravity: -1.5, life: 2.6, size: fxRng.range(0.15, 0.35), size1: 0.6, color: C.dust, alpha: 0.4, drag: 0.6, frame: 'smoke' });
       },
@@ -667,6 +671,8 @@ export class Battle {
     this.ctx.renderer.post.state.lowHp = 0;
     this.ctx.renderer.post.state.pinch.w = 0;
     this.ctx.renderer.sky.u.uEclipse.value = 0;
+    this.ctx.renderer.sky.u.uSkyCrack.value = 0;
+    this.ctx.audio.musicTranspose = 0;
     G.uHemiTop.value.copy(this.baseHemi);
     G.uMoonColor.value.copy(this.baseMoon);
     this.ctx.time.reset();

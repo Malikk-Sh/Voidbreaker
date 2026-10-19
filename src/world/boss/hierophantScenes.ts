@@ -67,3 +67,79 @@ export function hierophantIntroTrack(p: HierophantSpots): CineTrack {
   ];
   return { id: 'hierophantIntro', steps, short, dur: T.begin + 0.2, blendOut: 0.8 };
 }
+
+/** Время шагов перехода I→II (с от начала дорожки). */
+export const COLLAPSE_T = { collapse: 0.1, land: 1.1, braam: 1.7, tocsin: 2.6, banner: 2.7, phase: 3.7 };
+
+/**
+ * Переход I→II (план §8.3): Иерофант хватается за колокол; пол нефа проваливается в замедлении, камера
+ * отъезжает — под ареной огромный собор и бездна; Пилот приземляется на мост. Музыка: такт тишины →
+ * хоровой аккорд и «брам» → набат. Логика: collapse, land, braam, tocsin, phase.
+ */
+export function collapseTrack(p: HierophantSpots): CineTrack {
+  const T = COLLAPSE_T;
+  const { hx, hz } = p;
+  const steps: CineStep[] = [
+    { t: 0, do: 'call', fn: 'silence' },
+    { t: T.collapse, do: 'call', fn: 'collapse' },
+    { t: T.collapse, do: 'time', scale: 0.45, dur: 1.2 },
+    { t: 0, do: 'actor', who: 'boss', moveTo: [0, 0, 0], dur: 1.6, ease: 'inOutSine' },
+    // отъезд: высоко над ареной, взгляд в бездну — там собор под собором
+    { t: 0, do: 'cam', path: [[hx + 3, 12, hz + 14], [hx + 9, 24, hz + 30], [6, 30, 34]], look: [[hx * 0.5, 0, hz * 0.5], [0, -14, 0], [0, -26, -4]], dur: T.tocsin, ease: 'inOutSine' },
+    { t: T.land, do: 'call', fn: 'land' },
+    { t: T.braam, do: 'call', fn: 'braam' },
+    // назад к мосту: набат
+    { t: T.tocsin, do: 'cam', path: [[6, 30, 34], [hx * 0.6 + 4, 11, hz * 0.6 + 15]], look: [[0, -26, -4], [0, 1.5, 0]], dur: T.phase - T.tocsin, ease: 'inOutCubic' },
+    { t: T.tocsin, do: 'call', fn: 'tocsin' },
+    { t: T.banner, do: 'banner', text: 'НАБАТ', sub: 'Вторая фаза', color: 'hunger', dur: 2.2, size: 52 },
+    { t: T.phase, do: 'call', fn: 'phase' },
+  ];
+  const short: CineStep[] = [
+    { t: 0, do: 'call', fn: 'silence' },
+    { t: 0, do: 'call', fn: 'collapse' },
+    { t: 0, do: 'actor', who: 'boss', moveTo: [0, 0, 0], dur: 0.8 },
+    { t: 0.4, do: 'call', fn: 'land' },
+    { t: 0.6, do: 'call', fn: 'braam' },
+    { t: 1.4, do: 'call', fn: 'tocsin' },
+    { t: 1.4, do: 'banner', text: 'НАБАТ', sub: 'Вторая фаза', color: 'hunger', dur: 1.8, size: 52 },
+    { t: 2.0, do: 'call', fn: 'phase' },
+  ];
+  return { id: 'hierophantCollapse', steps, short, dur: T.phase + 0.2, blendOut: 0.7 };
+}
+
+/** Время шагов перехода II→III. */
+export const CRACK_T = { crack: 0.2, sky: 0.5, raise: 1.0, banner: 1.4, phase: 3.2 };
+
+/**
+ * Переход II→III (план §8.3): колокол трескается — огонь внутри открыт; по небу бежит трещина; музыка на
+ * полтона выше. Логика: crack, raise, phase.
+ */
+export function crackTrack(p: HierophantSpots, star: V3 = [0.42, -0.5, -0.76]): CineTrack {
+  const T = CRACK_T;
+  const { bx, bz, hx, hz } = p;
+  const dx = bx - hx, dz = bz - hz, dl = Math.hypot(dx, dz) || 1;
+  const fx = dx / dl, fz = dz / dl;
+  // высокая точка над ареной и взгляд на погасшую звезду: по ней бежит трещина
+  const hi: V3 = [bx - star[0] * 16, 13, bz - star[2] * 16];
+  const toStar: V3 = [hi[0] + star[0] * 60, hi[1] + star[1] * 60, hi[2] + star[2] * 60];
+  const steps: CineStep[] = [
+    { t: 0, do: 'call', fn: 'silence' },
+    // крупно: колокол трескается, внутри открывается огонь
+    { t: 0, do: 'cam', path: [[bx - fx * 6.5, 4.0, bz - fz * 6.5], [bx - fx * 5.2, 4.6, bz - fz * 5.2]], look: [[bx, 5.0, bz]], dur: T.banner, ease: 'outCubic' },
+    { t: T.crack, do: 'call', fn: 'crack' },
+    { t: T.sky, do: 'sky', param: 'crack', to: 1, dur: 1.8 },
+    { t: T.raise, do: 'call', fn: 'raise' },
+    { t: T.banner, do: 'banner', text: 'ПОСЛЕДНИЙ ЗВОН', sub: 'Третья фаза', color: 'hunger', dur: 2.2, size: 50 },
+    // широко: над ареной, в сторону звезды — трещина через диск
+    { t: T.banner, do: 'cam', path: [[bx - fx * 5.2, 4.6, bz - fz * 5.2], hi], look: [[bx, 5.0, bz], toStar], dur: T.phase - T.banner, ease: 'inOutSine' },
+    { t: T.phase, do: 'call', fn: 'phase' },
+  ];
+  const short: CineStep[] = [
+    { t: 0, do: 'call', fn: 'crack' },
+    { t: 0, do: 'sky', param: 'crack', to: 1, dur: 0.8 },
+    { t: 0.3, do: 'call', fn: 'raise' },
+    { t: 0.3, do: 'banner', text: 'ПОСЛЕДНИЙ ЗВОН', sub: 'Третья фаза', color: 'hunger', dur: 1.8, size: 50 },
+    { t: 1.4, do: 'call', fn: 'phase' },
+  ];
+  return { id: 'hierophantCrack', steps, short, dur: T.phase + 0.2, blendOut: 0.6 };
+}

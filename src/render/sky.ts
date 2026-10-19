@@ -58,7 +58,7 @@ export class Sky {
         uniform mat4 uInvVP; uniform vec3 uCam; uniform float uTime;
         uniform sampler2D uNoise;
         uniform vec3 uDeep, uNebula, uNebula2, uNebula3, uCorona, uMoonCore, uMoonDir, uBoltDir;
-        uniform float uMoonSize, uStars, uPulse, uBolt, uStarFlare, uEclipse;
+        uniform float uMoonSize, uStars, uPulse, uBolt, uStarFlare, uEclipse, uStarLit, uSkyCrack;
         varying vec2 vNdc;
 
         float n2(vec2 p) { return texture2D(uNoise, p).r; }
@@ -127,6 +127,26 @@ export class Sky {
           float sunVis = (1.0 - smoothstep(0.92, 1.0, sd)) * step(0.001, ek) * step(ek, 0.999);
           col += vec3(1.6, 1.45, 1.9) * sunVis * step(1.0, rr);
           col = mix(col, uMoonCore + corC * 0.03 * (1.0 - rr), smoothstep(1.0, 0.97, rr));
+          // погасшая звезда загорелась (план §8.3.2): чёрный диск — живое золотое светило с лучами
+          if (uStarLit > 0.001) {
+            vec3 starC = vec3(1.7, 1.4, 0.95);
+            col = mix(col, starC * (1.3 + 0.8 * (1.0 - rr)), smoothstep(1.0, 0.9, rr) * uStarLit);
+            col += starC * exp(-max(rr - 1.0, 0.0) * 1.5) * 0.9 * uStarLit;
+            float spikes = pow(abs(cos(ang * 3.5)), 24.0) * exp(-max(rr - 1.0, 0.0) * 0.45);
+            col += starC * spikes * 0.6 * uStarLit;
+          }
+          // трещина в небе (фаза III Иерофанта): багровая ломаная через диск, растёт от центра
+          if (uSkyCrack > 0.001) {
+            vec2 mp = vec2(dot(dir, side), dot(dir, up)) / uMoonSize;
+            float yl = (n2(vec2(mp.x * 0.05, 0.37)) - 0.5) * 4.0 + (n2(vec2(mp.x * 0.23, 0.71)) - 0.5) * 1.4;
+            float dl = abs(mp.y - yl);
+            float reach = 10.0 * uSkyCrack;
+            float len = smoothstep(reach + 0.5, reach - 1.5, abs(mp.x));
+            float wdt = 0.05 + 0.05 * n2(vec2(mp.x * 0.7, 1.3));
+            float core = smoothstep(wdt, 0.0, dl) * len;
+            float glow = exp(-dl * 1.6) * len;
+            col += vec3(2.4, 0.22, 0.3) * core + vec3(0.45, 0.04, 0.07) * glow * (0.8 + 0.2 * sin(uTime * 3.0));
+          }
           // вспышка «звезды» после победы над боссом
           col += vec3(1.0, 0.95, 1.0) * uStarFlare * (exp(-max(rr - 1.0, 0.0) * 1.2) * 3.0 + smoothstep(1.0, 0.0, rr) * 6.0);
           gl_FragColor = vec4(col, 1.0);

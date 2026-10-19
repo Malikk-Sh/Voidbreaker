@@ -14,9 +14,16 @@ import type { BossController } from './bossBase';
 import { ScriptedEnemy, type PoseLib } from './scripted';
 import type { Pattern, Step } from './timeline';
 import type { CineTrack, MusicCue } from '../../game/director';
-import { DESCEND_FROM, hierophantIntroTrack } from './hierophantScenes';
+import { collapseTrack, crackTrack, DESCEND_FROM, hierophantIntroTrack } from './hierophantScenes';
+import type { StrikeParams } from '../world';
 
-const PHASE2_AT = 0.55;
+/** Фазы (план §8.3): I «Литургия» 100–60 %, II «Набат» 60–25 %, III «Последний звон» 25–0 %. */
+export const PHASE2_AT = 0.6;
+export const PHASE3_AT = 0.25;
+/** Окно перехвата фазы (с, план §8.3.1): ядро светится бело-фиолетово. */
+export const INTERCEPT_WINDOW = 1.2;
+/** Огонь колокола открыт в фазе III: урон ×1.5. */
+export const PHASE3_DMG = 1.5;
 /** Щит Проповеди при двух обелисках (доля срезанного урона). */
 export const SERMON_SHIELD = 0.7;
 
@@ -43,13 +50,15 @@ export class Hierophant extends ScriptedEnemy {
   private bob = 0;
   dying = false;
   transitioning = 0;
+  /** Фаза III: колокол треснул, огонь внутри открыт. */
+  bellCracked = false;
   homeX = 0; homeZ = -2;
   /** Скорость «качания» колокола (звон). */
   private sway = 0;
 
   patterns: Pattern[] = [
     // Звон: колокол раскачивается 0.9 с → 3 расходящихся кольца с разрывами
-    { id: 'toll', weight: 3, cooldown: 4, phases: [1, 2], steps: [
+    { id: 'toll', weight: 3, cooldown: 4, phases: [1, 2, 3], steps: [
       { t: 0, do: 'pose', id: 'toll', blend: 0.35 },
       { t: 0, do: 'telegraphSound', kind: 'bell' },
       { t: 0, do: 'telegraph', shape: { circle: 3.2 }, at: 'self', dur: 0.9 },
@@ -91,7 +100,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 1.2, do: 'vulnerable', dur: 1.3 },
     ] },
     // Падение колокола: тень на земле 1.0 с → падает всем телом в точку игрока; окно 2.0 с
-    { id: 'drop', weight: 2, cooldown: 7, phases: [1, 2], range: [3, 40], unstoppable: true, steps: [
+    { id: 'drop', weight: 2, cooldown: 7, phases: [1, 2, 3], range: [3, 40], unstoppable: true, steps: [
       { t: 0, do: 'pose', id: 'rise', blend: 0.25 },
       { t: 0, do: 'telegraph', shape: { circle: 4 }, at: 'snapshot', dur: 1.05 },
       { t: 0, do: 'telegraphSound', kind: 'roar' },
@@ -105,7 +114,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 3.0, do: 'pose', id: 'idle', blend: 0.5 },
     ] },
     // Великий Набат: 3 звона подряд с ускорением, последний — с одним разрывом
-    { id: 'tocsin', weight: 3, cooldown: 6, phases: [2], unstoppable: true, steps: [
+    { id: 'tocsin', weight: 3, cooldown: 6, phases: [2, 3], unstoppable: true, steps: [
       { t: 0, do: 'pose', id: 'toll', blend: 0.3 },
       { t: 0, do: 'telegraphSound', kind: 'bell' },
       { t: 0, do: 'telegraph', shape: { circle: 3.2 }, at: 'self', dur: 0.85 },
@@ -121,7 +130,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 2.1, do: 'vulnerable', dur: 1.2 },
     ] },
     // Цепи кадил: кадила летят по мостам как боулинг, разрушают плиты (возрождаются через 6 с)
-    { id: 'chains', weight: 3, cooldown: 6, phases: [2], steps: [], build: () => this.chainSteps() },
+    { id: 'chains', weight: 3, cooldown: 6, phases: [2, 3], steps: [], build: () => this.chainSteps() },
     // Литания: три веера игл из-под рясы, каждый доворачивает на героя
     { id: 'litany', weight: 2, cooldown: 6, phases: [1], range: [4, 40], steps: [
       { t: 0, do: 'pose', id: 'sermon', blend: 0.35 },
@@ -139,7 +148,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 1.9, do: 'vulnerable', dur: 1.1 },
     ] },
     // Приговор: косой крест лучей, затем прямой — по мостам
-    { id: 'judgment', weight: 3, cooldown: 7, phases: [2], unstoppable: true, steps: [], build: () => this.judgmentSteps() },
+    { id: 'judgment', weight: 3, cooldown: 7, phases: [2, 3], unstoppable: true, steps: [], build: () => this.judgmentSteps() },
     // Жатва: из бездны лезет Шелуха
     { id: 'harvest', weight: 1, cooldown: 16, phases: [2], steps: [
       { t: 0, do: 'pose', id: 'rise', blend: 0.4 },
@@ -279,17 +288,31 @@ export class Hierophant extends ScriptedEnemy {
   override onDamaged(w: World, dmg: number, before: number): void {
     super.onDamaged(w, dmg, before);
     // Проповедь: щит, пока живы призванные Аколиты
-    if (this.phase === 1 && this.hp <= this.maxHp * PHASE2_AT && !this.ctrl?.transitionDone) {
+    const c = this.ctrl;
+    if (!c) return;
+    if (this.phase === 1 && this.hp <= this.maxHp * PHASE2_AT && !c.reached(2)) {
       this.hp = Math.max(this.hp, Math.round(this.maxHp * PHASE2_AT));
-      this.ctrl?.startTransition();
+      c.startTransition(2);
+    } else if (this.phase === 2 && this.hp <= this.maxHp * PHASE3_AT && !c.reached(3)) {
+      this.hp = Math.max(this.hp, Math.round(this.maxHp * PHASE3_AT));
+      c.startTransition(3);
     }
   }
 
   override onLethal(_w: World): boolean {
-    if (this.phase === 1) { this.ctrl?.startTransition(); return false; }
+    if (this.phase < 3) { this.hp = 1; this.ctrl?.startTransition(this.phase + 1 as 2 | 3); return false; }
     if (this.dying) return true;
     this.ctrl?.startDeath();
     return false;
+  }
+
+  /** Перехват фазы (план §8.3.1): полный заряд или ульта в окне — новая фаза начнётся с оглушением. */
+  override preHit(_w: World, p: StrikeParams): boolean {
+    const c = this.ctrl;
+    if (!c?.interceptOpen) return false;
+    const full = p.stunKind === 'charged' && p.feel === 'heavy';
+    const ult = p.abilityId === 'eclipse' || p.abilityId === 'eclipseEnd';
+    return (full || ult) && c.intercept();
   }
 
   override onShattered(w: World): void {
@@ -305,7 +328,7 @@ export class Hierophant extends ScriptedEnemy {
     // щит Проповеди: −70 % урона, пока стоят оба обелиска; каждый разбитый снимает половину
     let ob = 0;
     for (const e of this.summoned) if (e instanceof Obelisk && !e.dead) ob++;
-    this.shieldMul = 1 - SERMON_SHIELD * Math.min(2, ob) / 2;
+    this.shieldMul = this.phase >= 3 ? PHASE3_DMG : 1 - SERMON_SHIELD * Math.min(2, ob) / 2;
     super.think(w, dt, tick);
     // фаза II: между атаками дрейфует к «дому» (центр креста)
     if (this.stationary && !this.cur && !this.move) {
@@ -344,7 +367,10 @@ export class Hierophant extends ScriptedEnemy {
     s.x = this.x; s.z = this.z; s.y = this.y; s.facing = this.facing;
     s.tiltX = this.puppet.springZ * 0.05; s.tiltZ = -this.puppet.springX * 0.05;
     s.update();
-    this.puppet.boost = this.coreGlow + (this.vulnerableT > 0 ? 0.6 : 0) + (this.transitioning > 0 ? 1.5 : 0);
+    // окно перехвата: ядро бьётся бело-фиолетовым светом
+    const open = this.ctrl?.interceptOpen ? 1 : 0;
+    this.puppet.boost = this.coreGlow + (this.vulnerableT > 0 ? 0.6 : 0) + (this.transitioning > 0 ? 1.5 : 0) + open * 1.6 + (this.phase >= 3 ? 0.8 : 0);
+    if (open) this.puppet.flash = Math.max(this.puppet.flash, 0.35 + 0.25 * Math.sin(this.bob * 22));
     this.coreGlow = Math.max(0, this.coreGlow - dt);
   }
 
@@ -392,6 +418,14 @@ export interface BossHost {
   chains(list: { x: number; z: number; y0: number; len: number }[]): void;
   /** Пыль с потолка. */
   dust(x: number, z: number): void;
+  /** Параметр неба сцены (трещина фазы III). */
+  sky(param: 'crack' | 'starLit', v: number): void;
+  /** Сдвиг музыки в центах (фаза III — +100). */
+  transpose(cents: number): void;
+  /** Провал громкости песни (такт тишины). */
+  duck(level: number, hold: number): void;
+  /** Направление на погасшую звезду неба. */
+  starDir(): [number, number, number];
 }
 
 /**
@@ -401,12 +435,16 @@ export interface BossHost {
 export class HierophantController implements BossController {
   readonly name = 'ИЕРОФАНТ СКОРБИ';
   phase = 0;
-  readonly phaseMarks = [PHASE2_AT];
+  readonly phaseMarks = [PHASE2_AT, PHASE3_AT];
   zoomMul = 1.12;
   private t = 0;
   private introDone = false;
-  transitionDone = false;
-  private transT = -1;
+  /** Идущий переход: в первые 1.2 с — окно перехвата, потом сцена. */
+  private trans: { to: 2 | 3; t: number; scene: boolean } | null = null;
+  private readonly entered = new Set<number>();
+  /** Перехват — один раз за бой (без бонуса к наградам). */
+  interceptUsed = false;
+  private interceptHinted = false;
   private deathT = -1;
   private lines = 0;
   private fireT = 0;
@@ -468,7 +506,7 @@ export class HierophantController implements BossController {
       b.censerPos(Math.floor(Math.random() * 4), this.tmp);
       this.host.emitFire(this.tmp.x, this.tmp.y, this.tmp.z, true);
     }
-    if (this.transT >= 0) this.stepTransition(dt);
+    if (this.trans) this.stepTransition(dt);
     if (this.deathT >= 0) this.stepDeath(dt);
   }
 
@@ -491,11 +529,17 @@ export class HierophantController implements BossController {
     this.hintT = 0;
   }
 
-  startTransition(): void {
-    if (this.transitionDone || this.transT >= 0) return;
+  /** Фаза уже наступила (или идёт переход в неё). */
+  reached(phase: number): boolean { return this.entered.has(phase) || this.trans?.to === phase; }
+
+  get interceptOpen(): boolean { return !!this.trans && !this.trans.scene && this.trans.t < INTERCEPT_WINDOW && !this.interceptUsed; }
+
+  /** Начать переход: всё прерывается, ядро открыто 1.2 с (перехват), затем сцена перехода. */
+  startTransition(to: 2 | 3): void {
+    if (this.trans || this.entered.has(to) || this.phase >= to) return;
     const b = this.boss, w = this.host.world;
-    this.transT = 0;
-    b.transitioning = 3;
+    this.trans = { to, t: 0, scene: false };
+    b.transitioning = 99;
     b.cur = null; b.move = null; b.y = 0;
     // новая фаза: оглушение обрывается, привыкание сбрасывается
     if (b.stun) { b.stun.stunned = 0; b.stun.value = 0; b.stun.immune = 0; resetStunHabit(b.stun); }
@@ -506,49 +550,113 @@ export class HierophantController implements BossController {
     w.projectiles.length = 0;
     w.ringWaves.length = 0;
     for (const t of w.telegraphs) t.alive = false;
-    this.host.slow(0.3, 1.0);
-    w.bus.emit('shockwave', { x: b.x, z: b.z, r: 14, color: 'hunger', strength: 1.4 });
     w.bus.emit('sfx', { id: 'boss_roar', x: b.x, z: b.z });
-    w.bus.emit('shake', { trauma: 0.8 });
-    w.bus.emit('bossPhase', { phase: 2 });
-    this.host.banner('НАБАТ', 'Вторая фаза');
+    w.bus.emit('shake', { trauma: 0.45 });
+    w.bus.emit('bossPhase', { phase: to });
+    if (!this.interceptUsed && !this.interceptHinted) {
+      this.interceptHinted = true;
+      this.host.say('Ядро открыто! Полный заряд — перехвати!', 'kaelis');
+    }
   }
 
   private stepTransition(dt: number): void {
+    const tr = this.trans!;
+    tr.t += dt;
+    if (!tr.scene && tr.t >= INTERCEPT_WINDOW) { tr.scene = true; this.playTransition(tr.to); }
+  }
+
+  /** Перехват (план §8.3.1): часть перехода пропускается, новая фаза — сразу с оглушением. */
+  intercept(): boolean {
+    if (!this.interceptOpen) return false;
+    const to = this.trans!.to, b = this.boss, w = this.host.world;
+    this.interceptUsed = true;
+    this.host.flash(0.6);
+    this.host.slow(0.25, 0.5);
+    w.bus.emit('bossIntercept', { x: b.x, z: b.z });
+    if (to === 2) { this.collapse(true); this.toBridge(); this.host.musicPhase(1); }
+    else { this.crack(); this.host.sky('crack', 1); }
+    this.host.banner(to === 2 ? 'НАБАТ' : 'ПОСЛЕДНИЙ ЗВОН', to === 2 ? 'Вторая фаза' : 'Третья фаза');
+    this.enterPhase(to);
+    w.stunEnemy(b);
+    return true;
+  }
+
+  private playTransition(to: 2 | 3): void {
     const b = this.boss, w = this.host.world, h = w.hero;
-    const prev = this.transT;
-    this.transT += dt;
-    b.transitioning = Math.max(0, 3 - this.transT);
-    if (prev < 0.6 && this.transT >= 0.6) {
-      // колокольня рушится: пол уходит вниз, остаётся крестообразный мост над бездной
-      w.arena.collapseOutsideCross();
-      w.bus.emit('sfx', { id: 'shatter_big', x: 0, z: 0 });
-      this.host.say('Пол уходит! Держись мостов.', 'kaelis');
-      this.host.musicPhase(1);
+    const spots = { hx: h.x, hz: h.z, bx: b.x, bz: b.z };
+    const H = this.host;
+    if (to === 2) {
+      H.scene(collapseTrack(spots), {
+        silence: () => H.duck(0.02, 1.6),
+        collapse: () => this.collapse(false),
+        land: () => this.toBridge(),
+        braam: () => w.bus.emit('sfx', { id: 'braam', x: 0, z: 0 }),
+        tocsin: () => { H.musicPhase(1); w.bus.emit('sfx', { id: 'boss_bell', x: b.x, z: b.z }); },
+        phase: () => this.enterPhase(2),
+      }, () => { this.collapse(false); this.enterPhase(2); });
+    } else {
+      H.scene(crackTrack(spots, H.starDir()), {
+        silence: () => H.duck(0.05, 0.9),
+        crack: () => this.crack(),
+        raise: () => H.transpose(100),
+        phase: () => this.enterPhase(3),
+      }, () => { this.crack(); H.sky('crack', 1); this.enterPhase(3); });
     }
-    if (prev < 1.2 && this.transT >= 1.2) {
-      // героя отталкивает на мост и лечит на 10 %
-      const o = { x: 0, z: 0 };
-      const cw = w.arena.def.cross?.w ?? 4;
-      const tx = Math.abs(h.x) < Math.abs(h.z) ? 0 : Math.sign(h.x) * Math.min(Math.abs(h.x), 11);
-      const tz = Math.abs(h.x) < Math.abs(h.z) ? Math.sign(h.z) * Math.min(Math.abs(h.z), 9) : 0;
-      w.arena.nearestWalkable(Math.abs(h.x) <= cw / 2 || Math.abs(h.z) <= cw / 2 ? h.x : tx, Math.abs(h.x) <= cw / 2 || Math.abs(h.z) <= cw / 2 ? h.z : tz, o);
-      h.x = o.x; h.z = o.z;
-      h.avatar.resetCloth();
-      h.hp = Math.min(h.maxHp, h.hp + h.maxHp * 0.1);
-      h.invulnUntil = h.clock + 1.5;
-      b.homeX = 0; b.homeZ = 0;
-    }
-    if (this.transT >= 3) {
-      this.transT = -1;
-      this.transitionDone = true;
-      this.phase = 2;
-      b.phase = 2;
-      b.transitioning = 0;
-      b.idleT = 0.6;
-      b.setPose('idle', 0.4);
-      this.zoomMul = 1.25;
-    }
+  }
+
+  /** Пол нефа уходит в бездну: остаётся крест мостов; босс — над средокрестием. */
+  private collapse(instant: boolean): void {
+    const w = this.host.world, b = this.boss;
+    if (w.arena.edge === 'abyss') return;
+    w.arena.collapseOutsideCross();
+    w.bus.emit('sfx', { id: 'shatter_big', x: 0, z: 0 });
+    w.bus.emit('shake', { trauma: 0.6 });
+    this.host.say('Пол уходит! Держись мостов.', 'kaelis');
+    b.homeX = 0; b.homeZ = 0;
+    if (instant) { b.x = 0; b.z = 0; }
+  }
+
+  /** Пилота — на ближайший мост, +10 % HP. */
+  private toBridge(): void {
+    const w = this.host.world, h = w.hero;
+    const cw = w.arena.def.cross?.w ?? 4;
+    if (Math.abs(h.x) <= cw / 2 - 0.4 || Math.abs(h.z) <= cw / 2 - 0.4) { h.hp = Math.min(h.maxHp, h.hp + h.maxHp * 0.1); return; }
+    const o = { x: 0, z: 0 };
+    const tx = Math.abs(h.x) < Math.abs(h.z) ? 0 : Math.sign(h.x) * Math.min(Math.abs(h.x), 11);
+    const tz = Math.abs(h.x) < Math.abs(h.z) ? Math.sign(h.z) * Math.min(Math.abs(h.z), 9) : 0;
+    w.arena.nearestWalkable(tx, tz, o);
+    h.x = o.x; h.z = o.z;
+    h.avatar.resetCloth();
+    h.avatar.puppet.play('land', 1.4, 0.05);
+    h.hp = Math.min(h.maxHp, h.hp + h.maxHp * 0.1);
+    h.invulnUntil = Math.max(h.invulnUntil, h.clock + 1.5);
+  }
+
+  /** Колокол треснул: огонь внутри открыт (×1.5 урона), музыка на полтона выше. */
+  private crack(): void {
+    const b = this.boss, w = this.host.world;
+    if (b.bellCracked) return;
+    b.bellCracked = true;
+    w.bus.emit('sfx', { id: 'bell_crack', x: b.x, z: b.z });
+    w.bus.emit('shake', { trauma: 0.5 });
+    // огонь вырывается из трещины
+    b.bellPos(this.tmp);
+    for (let i = 0; i < 40; i++) this.host.emitFire(this.tmp.x, this.tmp.y - 0.6, this.tmp.z, false);
+    w.bus.emit('shockwave', { x: b.x, z: b.z, r: 7, color: 'hunger', strength: 0.8 });
+    this.host.transpose(100);
+  }
+
+  private enterPhase(to: 2 | 3): void {
+    if (this.entered.has(to)) return;
+    const b = this.boss;
+    this.entered.add(to);
+    this.trans = null;
+    this.phase = to;
+    b.phase = to;
+    b.transitioning = 0;
+    b.idleT = 0.6;
+    b.setPose('idle', 0.4);
+    this.zoomMul = to === 2 ? 1.25 : 1.3;
   }
 
   startDeath(): void {

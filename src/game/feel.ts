@@ -337,6 +337,17 @@ export class FeelSystem {
         this.audio.play('blade_scrape', { gain: 0.5, pan: this.pan(e.x) });
         this.cam.zoomPunch -= 0.04;
       }),
+      // перехват фазы (план §8.3.1): удар в открытое ядро — новая фаза начинается с оглушением
+      b.on('bossIntercept', (e) => {
+        this.time.addHitstop(0.14);
+        this.cam.addTrauma(0.7);
+        this.cam.zoomPunch += 0.08;
+        this.audio.play('stun_break', { gain: 0.9 });
+        this.audio.play('void_moment', { gain: 0.6 });
+        this.vfx.lights.flash(e.x, 5, e.z, C.core, 7, 10, 0.5);
+        this.input.vibrate(90);
+        this.hud.flashText('ПЕРЕХВАТ!', UI_GOLD, e.x, 6.5, e.z);
+      }),
       // отбитое кадило Иерофанта (план §8.3): звон металла, затем удар в колокол
       b.on('censer', (e) => {
         if (e.kind === 'deflect') {
@@ -493,7 +504,7 @@ export class FeelSystem {
     this.desat += (targetDesat - this.desat) * Math.min(1, realDt * (targetDesat ? 14 : 5));
     P.desat = this.desat;
     // «Мгновение Пустоты»: −400 центов и ФНЧ 1200 Гц только на его время
-    this.audio.musicDetune = this.voidMoment > 0 ? -400 : 0;
+    this.audio.musicDetune = this.audio.musicTranspose + (this.voidMoment > 0 ? -400 : 0);
     this.audio.setMusicFilter(this.voidMoment > 0 ? 1200 : 20000, this.voidMoment > 0 ? 0.05 : 0.2);
     // аберрация по событию
     this.chroma = Math.max(0, this.chroma - realDt * 2.5);

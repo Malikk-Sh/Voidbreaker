@@ -107,6 +107,21 @@ export class Sequencer {
     this.song = null;
   }
 
+  /**
+   * Провал громкости песни (план §8.7, п. 5): тишина перед сменой фазы, −18 дБ перед сигнатурной атакой.
+   * level — множитель громкости, hold — сколько держать (с).
+   */
+  duck(level: number, hold: number, attack = 0.15, release = 0.5): void {
+    const ctx = this.engine.ctx, bus = this.bus;
+    if (!ctx || !bus) return;
+    const t = ctx.currentTime, g = bus.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(level, t + attack);
+    g.setValueAtTime(level, t + attack + hold);
+    g.linearRampToValueAtTime(1, t + attack + hold + release);
+  }
+
   /** Пересинхронизировать после suspend/resume (visibilitychange). */
   resync(): void {
     const ctx = this.engine.ctx;

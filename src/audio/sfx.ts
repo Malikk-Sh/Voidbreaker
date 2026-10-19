@@ -1,4 +1,4 @@
-import { arp, bell, boom, choir, chips, crunch, env, glassTail, industrial, kick, metal, mtof, noiseHit, osc, pink, pluck, punch, saturator, sub, tom, transient, voidHiss, type Ctx } from './synth';
+import { arp, bell, boom, brass, choir, chips, crunch, env, glassTail, industrial, kick, metal, mtof, noiseHit, osc, pink, pluck, punch, saturator, sub, tom, transient, voidHiss, type Ctx } from './synth';
 
 /**
  * Рецепты SFX (GDD §18.5). Все звуки синтезируются и «запекаются» в буферы при загрузке (OfflineAudioContext);
@@ -261,6 +261,13 @@ export const SFX: Record<string, SfxRecipe> = {
     choir(c, o, t + 0.45, [62, 69, 74], 1.6, 0.06, 'a', 'o');
   } },
   title_stamp: { len: 2.5, reverb: 0.3, render: (c, o, t) => { kick(c, o, t, 1.1, 30); industrial(c, o, t, 0.4, 140); bell(c, o, t, mtof(50), 0.18, 2.2); } },
+  // смена фазы босса (план §8.7, п. 5): хоровой аккорд и «брам» — медь с перегрузом и сабом, крещендо 1.5 с
+  braam: { len: 4, reverb: 0.3, render: (c, o, t) => {
+    choir(c, o, t, [50, 57, 62, 65], 2.6, 0.08, 'a', 'o');
+    const sat = saturator(c, 3); const g = c.createGain(); g.gain.value = 0.9; sat.connect(g).connect(o);
+    brass(c, sat, t + 0.1, [38, 45, 50], 2.2, 0.09, true);
+    sub(c, o, t + 1.5, 55, 30, 1.2, 0.8); kick(c, o, t + 1.5, 0.9, 26);
+  } },
   tom_hit: { len: 0.6, render: (c, o, t) => tom(c, o, t, 90, 0.7) },
   arp_blip: { len: 0.3, render: (c, o, t) => arp(c, o, t, 74, 0.2, 0.06) },
 };

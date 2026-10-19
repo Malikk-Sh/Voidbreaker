@@ -598,6 +598,8 @@ export abstract class Enemy implements Actor {
 
   /** Смертельный урон: false — враг не умирает (босс ждёт перехода фазы). */
   onLethal(_w: World): boolean { return true; }
+  /** До расчёта урона: true — попадание поглощено (перехват фазы босса). */
+  preHit(_w: World, _p: StrikeParams): boolean { return false; }
 
   /** Раскол применён: трещины взорваны, оглушение кончилось. */
   onShattered(_w: World): void {}

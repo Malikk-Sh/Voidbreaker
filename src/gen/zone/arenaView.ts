@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildDomeRose } from './space';
 import { Rng } from '../../core/rng';
 import { hexToLinear } from '../../core/math';
 import { inArenaShape, inOutline, inPart, type ArenaDef, type ShapePart } from '../../data/arenas';
@@ -654,10 +655,29 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     if (Math.abs(x) < (b.maxX - b.minX) / 2 + 6 && z > b.minZ - 8 && z < b.maxZ + 6) continue;
     F.add(rock(frng.range(0.4, 1.8), 0, 0.4, frng.int(0, 999)), { matrix: mat(x, frng.range(-30, -4), z, frng.next(), frng.next(), 0), color: OBS });
   }
+  // под ареной Иерофанта — огромный собор (план §8.3): виден, когда пол нефа уходит в бездну
+  if (style === 'boss') {
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + 0.2, d = 30 + (i % 3) * 7;
+      const h = 90 + (i % 2) * 40;
+      const g = new GeomBuilder(); g.rng = new Rng(frng.int(0, 1e6));
+      spire(g, { h, r: 7 + (i % 3) * 2, tiers: 5, seed: frng.int(0, 1e6) });
+      F.append(g, mat(Math.sin(a) * d, -h - 34 + (i % 3) * 6, Math.cos(a) * d));
+    }
+  }
   const farMat = obsidianMaterial({ rim: look.rim, rimStrength: 0.3, rimPower: 3, emissive: look.veins, emissive2: look.warm, emissiveStrength: 1.4 });
   const far = new THREE.Mesh(F.build(), farMat);
   far.frustumCulled = false;
   root.add(far);
+  if (style === 'boss') {
+    const dome = buildDomeRose(22, 67);
+    for (const g of [dome.rose, dome.ring]) {
+      const m = new THREE.Mesh(g, farMat);
+      m.position.set(0, -58, -2);
+      m.frustumCulled = false;
+      root.add(m);
+    }
+  }
 
   const p0 = def.parts[0];
   const runeRadius = Math.min(b.maxX - b.minX, b.maxZ - b.minZ, p0.w * 1.2, p0.h * 1.2) * 0.3;
