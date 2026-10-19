@@ -13,6 +13,7 @@ import type { HeroStats } from '../world/heroStats';
 import { StageRunner } from '../world/stage';
 import { World } from '../world/world';
 import { guardianSong, hierophantSong, stageSong } from '../audio/music';
+import type { MusicCue } from './director';
 import { effectiveFlashes, type Settings } from '../meta/settings';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
@@ -100,7 +101,7 @@ export class Battle {
   private readonly baseMoon = G.uMoonColor.value.clone();
 
   /** Приземление пролога: свечи гаснут волной, визор, обломок-клинок. */
-  private landing: { quench: boolean; r: number; visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean } | null = null;
+  private landing: { visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean } | null = null;
 
   constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout, readonly opts: BattleOpts = {}) {
     const r = ctx.renderer;
@@ -176,8 +177,9 @@ export class Battle {
       this.runner.introTime = 3.0;
       this.cine.stageIntro(stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => this.runner.skipIntro());
     }
-    // в прологе музыка 1-1 вступает после титула
-    if (!opts.prologue) ctx.music.play(stage.boss ? hierophantSong() : stageSong(stage.id), 0.3);
+    // в прологе музыка 1-1 вступает после титула; тема босса — с его именем в интро (план §8.3)
+    if (stage.boss) { this.runner.introTime = 0.05; ctx.music.preload(hierophantSong()); }
+    else if (!opts.prologue) ctx.music.play(stageSong(stage.id), 0.3);
     // тема Стража запекается заранее — переключение на его появлении без паузы
     const guardianWave = stage.waves.find((wv) => wv.guardian);
     if (guardianWave) ctx.music.preload(guardianSong(guardianWave.spawns[0].enemy));
@@ -308,6 +310,7 @@ export class Battle {
     this.douseOut.length = 0;
     this.flames.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut, realDt, this.douseOut);
     this.pools.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut);
+    this.updateQuench(realDt);
     if (this.landing) this.updateLanding(realDt);
     for (const p of this.douseOut) this.vfx.smokePuff(p[0], p[1], p[2]);
     this.vfx.sync(this.world, realDt, dtW);
@@ -357,7 +360,44 @@ export class Battle {
         else for (let i = 0; i < 2; i++) this.vfx.add.emit({ x: x + fxRng.spread(0.3), y, z: z + fxRng.spread(0.3), vy: fxRng.range(1.5, 3), vx: fxRng.spread(0.4), vz: fxRng.spread(0.4), life: 0.8, size: 0.22, size1: 0.03, color: C.ember, drag: 0.6, frame: 'dot' });
       },
       skipRequested: () => ctx.input.buffer.peek('attack', ctx.input.now) || ctx.input.buffer.peek('dash', ctx.input.now),
+      scene: (track, calls, onEnd) => {
+        for (const [k, f] of Object.entries(calls)) this.sceneCalls.set(k, f);
+        this.playScene(track, onEnd, { hud: false });
+      },
+      music: (cue: MusicCue) => { if (cue === 'silence') ctx.music.stop(1.2); else this.feel.musicCue(cue); },
+      startSong: () => {
+        if (ctx.music.song?.id === 'hierophant') return;
+        ctx.music.play(hierophantSong(), 0.6);
+        ctx.audio.play('boss_intro', { gain: 0.8 });
+      },
+      quench: (x, z, r) => this.quench(x, z, r),
+      runes: (x, z) => {
+        // красные руны вокруг алтаря: кольца-печати и багровые пятна света
+        for (let i = 0; i < 3; i++) this.vfx.rings.spawn(x, z, 1 + i * 1.6, 2.4 + i * 1.8, 1.6 + i * 0.3, C.hungerHot, 0.18, 0.9);
+        this.vfx.lights.flash(x, 0.6, z, C.hunger, 3, 8, 2.2);
+        ctx.audio.play('tele_choir', { gain: 0.35 });
+      },
+      chains: (list) => { this.vfx.chains.hang = list; },
+      dust: (x, z) => {
+        for (let i = 0; i < 46; i++) this.vfx.norm.emit({ x: x + fxRng.spread(9), y: fxRng.range(7, 11), z: z + fxRng.spread(8), vy: -fxRng.range(0.5, 1.5), gravity: -1.5, life: 2.6, size: fxRng.range(0.15, 0.35), size1: 0.6, color: C.dust, alpha: 0.4, drag: 0.6, frame: 'smoke' });
+      },
     };
+  }
+
+  /** Свечи гаснут в круге r от точки волной (r растёт); r = 0 — снова зажечь (план §8.2, §8.3). */
+  private readonly quenchAt = { x: 0, z: 0, r: 0, target: 0 };
+  quench(x: number, z: number, r: number): void {
+    const q = this.quenchAt;
+    q.x = x; q.z = z; q.target = r;
+    if (r <= 0) { q.r = 0; this.pools.quench(0, 0, 0); }
+  }
+
+  private updateQuench(realDt: number): void {
+    const q = this.quenchAt;
+    if (q.target <= 0) return;
+    q.r = Math.min(q.target, q.r + realDt * 34);
+    this.flames.quench(q.x, q.z, q.r, realDt, this.douseOut);
+    this.pools.quench(q.x, q.z, q.r);
   }
 
   private updateCamera(realDt: number): void {
@@ -494,7 +534,7 @@ export class Battle {
     const shard = new THREE.Mesh(buildHullShard(), obsidianMaterial({ rim: '#9fb4d0', rimStrength: 0.6, rimPower: 2.2, emissive: '#d6c4ff', emissive2: '#ffd29a', emissiveStrength: 1.4 }));
     shard.position.set(spots.shardX, 0, spots.shardZ);
     this.group.add(shard);
-    this.landing = { quench: false, r: 0, visorT: -1, igniteT: -1, shard, music: false };
+    this.landing = { visorT: -1, igniteT: -1, shard, music: false };
     const L = this.landing;
     const calls = this.sceneCalls;
     let thaw = () => {};
@@ -507,7 +547,7 @@ export class Battle {
       this.cam.addTrauma(0.75);
       this.vfx.debris.burst(h.x, 0.2, h.z, 0, 0, 14, 7, 0.2);
       this.vfx.burst(26, { x: h.x, y: 0.25, z: h.z, life: 1.4, size: 0.6, size1: 1.9, color: C.dust, alpha: 0.5, drag: 2.4, frame: 'smoke' }, { v: 8, vy: 0.5 }, false);
-      L.quench = true; L.r = 0;
+      this.quench(h.x, h.z, 26);
       ctx.input.vibrate(60);
     });
     calls.set('visor', () => { if (L.visorT < 0) L.visorT = 0; });
@@ -535,7 +575,7 @@ export class Battle {
       w.addEnemy(e);
     });
     calls.set('title', () => {
-      if (L.quench) { L.quench = false; this.pools.quench(0, 0, 0); }
+      this.quench(0, 0, 0);
       ctx.hud.bigBanner('VOIDBREAKER', 'Разрушитель Пустоты', 'void', 2.8, 70);
       this.cam.addTrauma(0.35);
     });
@@ -549,7 +589,7 @@ export class Battle {
       calls.get('ignite')!();
       calls.get('music')!();
       thaw();
-      if (L.quench) { L.quench = false; this.pools.quench(0, 0, 0); }
+      this.quench(0, 0, 0);
       h.y = 0; h.avatar.puppet.anim.stop(0.3);
       this.runner.introTime = 0;
       this.runner.skipIntro();
@@ -558,16 +598,10 @@ export class Battle {
 
   private updateLanding(realDt: number): void {
     const L = this.landing!, h = this.world.hero;
-    if (L.quench) {
-      // волна гасит свечи от кратера наружу
-      L.r = Math.min(26, L.r + realDt * 34);
-      this.flames.quench(h.x, h.z, L.r, realDt, this.douseOut);
-      this.pools.quench(h.x, h.z, L.r);
-    }
     // визор загорается, на клинке — вспышка Пустоты, дальше — как обычно
     if (L.visorT >= 0) { L.visorT += realDt; h.glowBoost = Math.min(1.2, L.visorT * 2.4) * (L.igniteT >= 0 ? Math.max(0, 1 - L.igniteT / 2.5) : 1); }
     if (L.igniteT >= 0) { L.igniteT += realDt; h.glowBoost += Math.max(0, 1.6 - L.igniteT * 1.6); }
-    if (!this.director.active && !L.quench && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; }
+    if (!this.director.active && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; }
   }
 
   /** Слои музыки по интенсивности боя (GDD §18.3). */

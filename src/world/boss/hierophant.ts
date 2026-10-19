@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { clamp } from '../../core/math';
-import { Ease } from '../../core/ease';
 import { setJoint } from '../../anim/locomotion';
 import { layoutOf } from '../../anim/puppet';
 import { ENEMIES } from '../../data/enemies';
@@ -14,6 +13,8 @@ import type { CameraRig } from '../camera';
 import type { BossController } from './bossBase';
 import { ScriptedEnemy, type PoseLib } from './scripted';
 import type { Pattern, Step } from './timeline';
+import type { CineTrack, MusicCue } from '../../game/director';
+import { DESCEND_FROM, hierophantIntroTrack } from './hierophantScenes';
 
 const PHASE2_AT = 0.55;
 const _bell = new THREE.Vector3();
@@ -59,6 +60,17 @@ export class Hierophant extends ScriptedEnemy {
       { t: 2.0, do: 'sfx', id: 'tele_bell' },
       { t: 2.1, do: 'pose', id: 'idle', blend: 0.4 },
       { t: 2.2, do: 'vulnerable', dur: 1.0 },
+    ] },
+    // Кадильный взмах (план §8.3): вблизи — широкая дуга 200° кадилами, телеграф 0.8 с
+    { id: 'swing', weight: 3, cooldown: 3, phases: [1, 2], range: [0, 5.5], steps: [
+      { t: 0, do: 'pose', id: 'censers', blend: 0.3 },
+      { t: 0, do: 'telegraphSound', kind: 'whistle' },
+      { t: 0, do: 'telegraph', shape: { arc: [5.8, 200] }, at: 'self', dur: 0.8 },
+      { t: 0.8, do: 'pose', id: 'slam', blend: 0.06 },
+      { t: 0.8, do: 'hitbox', shape: { arc: [5.8, 200] }, at: 'self', dmg: 0.18, kb: 7 },
+      { t: 0.8, do: 'sfx', id: 'swing_heavy' }, { t: 0.8, do: 'shake', trauma: 0.25 },
+      { t: 1.05, do: 'pose', id: 'idle', blend: 0.35 },
+      { t: 1.1, do: 'vulnerable', dur: 1.1 },
     ] },
     // Кадила: 4 кадила бьют по кругу последовательно, оставляют дым на 3 с
     { id: 'censers', weight: 3, cooldown: 4, phases: [1], range: [0, 9], steps: [], build: () => this.censerSteps() },
@@ -136,8 +148,8 @@ export class Hierophant extends ScriptedEnemy {
     super(ENEMIES.hierophant, layoutOf(hierophantRig()), o);
     this.isBoss = true;
     this.isGuardian = false;
-    this.stationary = true;
-    this.approach = 0;
+    // фаза I (план §8.3): дальше 7 м — скользит к герою; фаза II — висит над средокрестием
+    this.approach = 7;
     this.awakenPoses = ['rise', 'slam'];
     this.restRange = [0.9, 1.6];
     this.idleT = 999; // ждёт конца интро
@@ -253,12 +265,15 @@ export class Hierophant extends ScriptedEnemy {
 
   protected override think(w: World, dt: number, tick: boolean): void {
     if (this.transitioning > 0 || this.dying) { this.vx = this.vz = 0; return; }
+    // интро: ждёт сцену (спускается по цепям), не двигается
+    if (this.idleT > 100) { this.vx = this.vz = 0; this.faceTo(w.hero.x, w.hero.z, 0.5, dt); return; }
+    this.stationary = this.phase !== 1;
     // щит Проповеди
     const acolytes = this.summoned.filter((e) => e instanceof Acolyte && !e.dead);
     this.shieldMul = acolytes.length ? 0.3 : 1;
     super.think(w, dt, tick);
-    // между атаками дрейфует к «дому» (центр креста)
-    if (!this.cur && !this.move) {
+    // фаза II: между атаками дрейфует к «дому» (центр креста)
+    if (this.stationary && !this.cur && !this.move) {
       const dx = this.homeX - this.x, dz = this.homeZ - this.z, d = Math.hypot(dx, dz);
       if (d > 0.5) { this.x += (dx / d) * Math.min(d, 1.6 * dt); this.z += (dz / d) * Math.min(d, 1.6 * dt); }
     }
@@ -277,7 +292,7 @@ export class Hierophant extends ScriptedEnemy {
       setJoint(out, L, L.idx('bell'), k, 0, k * 0.5);
     }
     const chest = L.idx('chest');
-    if (this.cur?.id === 'censers' || this.cur?.id === 'chains') {
+    if (this.cur?.id === 'censers' || this.cur?.id === 'chains' || this.cur?.id === 'swing') {
       this.swing += dt * 7;
       setJoint(out, L, chest, (pose.get(chest)?.[0] ?? 0), this.swing, 0);
     }
@@ -329,6 +344,19 @@ export interface BossHost {
   musicPhase(p: number): void;
   emitFire(x: number, y: number, z: number, censer: boolean): void;
   skipRequested(): boolean;
+  /** Сцена режиссёра (план §8.1): calls — логика шагов 'call'. */
+  scene(track: CineTrack, calls: Record<string, (arg?: number) => void>, onEnd: (skipped: boolean) => void): void;
+  music(cue: MusicCue): void;
+  /** Тема босса (с первым ударом — имя). */
+  startSong(): void;
+  /** Свечи гаснут в круге r от точки; r = 0 — зажечь снова. */
+  quench(x: number, z: number, r: number): void;
+  /** Красные руны на полу. */
+  runes(x: number, z: number): void;
+  /** Цепи, на которых висит босс (пусто — убрать). */
+  chains(list: { x: number; z: number; y0: number; len: number }[]): void;
+  /** Пыль с потолка. */
+  dust(x: number, z: number): void;
 }
 
 /**
@@ -346,32 +374,59 @@ export class HierophantController implements BossController {
   private transT = -1;
   private deathT = -1;
   private lines = 0;
-  private cineW = 0;
   private fireT = 0;
   private readonly tmp = new THREE.Vector3();
 
+  /** Огонь в колоколе разгорается в интро. */
+  private fireOn = false;
+  /** Цепи спуска видны. */
+  private chainsOn = false;
+  private hintT = -1;
+
   constructor(private host: BossHost, readonly boss: Hierophant) {
     boss.ctrl = this;
-    boss.homeX = boss.x; boss.homeZ = boss.z;
-    host.world.hero.locked = true;
-    host.letterbox(1);
+    boss.homeX = 0; boss.homeZ = 0;
+    const h = host.world.hero, b = boss;
+    // интро 2.0 (план §8.3): босс ждёт под сводом, сцена спускает его по цепям
+    b.y = DESCEND_FROM;
+    host.scene(hierophantIntroTrack({ hx: h.x, hz: h.z, bx: b.x, bz: b.z }), {
+      quiet: () => host.music('silence'),
+      runes: () => host.runes(b.x, b.z),
+      douse: (k) => host.quench(b.x, b.z, [0, 7, 12.5, 18][k ?? 1]),
+      descend: () => { this.chainsOn = true; b.setPose('rise', 0.2); },
+      ignite: () => { this.fireOn = true; b.setPose('idle', 0.5); b.coreGlow = 1.5; },
+      slam: () => {
+        if (this.introDone) return;
+        b.y = 0;
+        b.setPose('slam', 0.06);
+        this.chainsOn = false; host.chains([]);
+        host.dust(b.x, b.z);
+        host.quench(b.x, b.z, 0);
+        host.world.bus.emit('sfx', { id: 'slam', x: b.x, z: b.z });
+        host.world.bus.emit('shake', { trauma: 0.18 });
+      },
+      music: () => host.startSong(),
+      begin: () => this.finishIntro(),
+    }, () => this.finishIntro());
   }
 
   step(dt: number): void {
-    const w = this.host.world, b = this.boss;
+    const b = this.boss;
     this.t += dt;
-    // интро: 2–4 реплики, пропуск тапом
-    if (!this.introDone) {
-      if (this.t > 0.3 && this.lines === 0) { this.lines++; this.host.say('Пилот, колокол над нами. Это не служба — это охота.', 'kaelis'); }
-      if (this.t > 1.6 && this.lines === 1) { this.lines++; this.host.banner(this.name, 'Звонящий по спасению'); w.bus.emit('sfx', { id: 'boss_intro', x: b.x, z: b.z }); w.bus.emit('shake', { trauma: 0.5 }); }
-      if (this.t > 2.9 && this.lines === 2) { this.lines++; this.host.say('Звоню… по спасению… твоему.', 'boss'); }
-      if (this.t > 4.4 && this.lines === 3) { this.lines++; this.host.say('Бей в окна после ударов — оглуши его. Колокол — его сердце.', 'kaelis'); }
-      if (this.t > 5.6 || (this.t > 0.8 && this.host.skipRequested())) this.finishIntro();
-      return;
+    // спуск по цепям: две цепи от плеч уходят под свод
+    if (this.chainsOn) {
+      b.bellPos(this.tmp);
+      const top = this.tmp.y + 3.2, len = Math.max(4, 22 - top);
+      const sx = Math.cos(b.facing) * 1.5, sz = -Math.sin(b.facing) * 1.5;
+      this.host.chains([{ x: b.x + sx, z: b.z + sz, y0: top, len }, { x: b.x - sx, z: b.z - sz, y0: top, len }]);
+    }
+    if (this.hintT >= 0) {
+      this.hintT += dt;
+      if (this.hintT > 1.6) { this.hintT = -1; this.host.say('Бей в окна после ударов — оглуши его. Колокол — его сердце.', 'kaelis'); }
     }
     // огонь из колокола, дым кадил
     this.fireT -= dt;
-    if (this.fireT <= 0 && !b.dead) {
+    if (this.fireOn && this.fireT <= 0 && !b.dead) {
       this.fireT = 0.05;
       b.bellPos(this.tmp);
       this.host.emitFire(this.tmp.x, this.tmp.y, this.tmp.z, false);
@@ -383,12 +438,22 @@ export class HierophantController implements BossController {
   }
 
   private finishIntro(): void {
+    if (this.introDone) return;
+    const b = this.boss;
     this.introDone = true;
+    this.fireOn = true;
     this.phase = 1;
-    this.boss.phase = 1;
-    this.boss.idleT = 1.0;
-    this.host.world.hero.locked = false;
-    this.host.letterbox(0);
+    b.phase = 1;
+    b.y = 0;
+    this.chainsOn = false;
+    this.host.chains([]);
+    this.host.quench(b.x, b.z, 0);
+    this.host.startSong();
+    // управление возвращается — и сразу самый читаемый паттерн: Звон
+    b.idleT = 0;
+    const toll = b.patterns.find((p) => p.id === 'toll');
+    if (toll) b.startPattern(toll);
+    this.hintT = 0;
   }
 
   startTransition(): void {
@@ -484,19 +549,8 @@ export class HierophantController implements BossController {
 
   cameraTarget(): { x: number; z: number } | null { return this.boss.dead ? null : this.boss; }
 
-  cameraOverride(cam: CameraRig, _camera: THREE.PerspectiveCamera, realDt: number): void {
-    // пролёт камеры: сверху над колоколом → в обычный вид
-    const target = this.introDone ? 0 : this.t < 2.2 ? 1 : Math.max(0, 1 - (this.t - 2.2) / 2.5);
-    this.cineW += (target - this.cineW) * Math.min(1, realDt * 3);
-    if (this.cineW < 0.01) { cam.cine = null; return; }
-    const b = this.boss;
-    const sweep = Ease.inOutSine(clamp(this.t / 5, 0, 1));
-    cam.cine = {
-      pos: new THREE.Vector3(b.x + Math.sin(sweep * 1.2 - 0.6) * 9, 9 + sweep * 6, b.z + 13 - sweep * 2),
-      look: new THREE.Vector3(b.x, 4.2, b.z),
-      w: this.cineW,
-    };
-  }
+  /** Камеру интро ведёт режиссёр (дорожка hierophantIntro). */
+  cameraOverride(_cam: CameraRig, _camera: THREE.PerspectiveCamera, _realDt: number): void {}
 
   hudBoss(): Hierophant | null { return this.introDone && !this.boss.dead ? this.boss : null; }
 }

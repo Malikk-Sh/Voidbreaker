@@ -4,7 +4,7 @@ import { GeomBuilder, mat } from '../gen/geom/build';
 import { obsidianMaterial } from '../render/materials';
 import type { World } from '../world/world';
 
-const MAX = 320;
+const MAX = 420;
 /** Шаг звеньев и высота цепи (уходит за верх кадра). */
 const STEP = 0.26, TOP = 9;
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1);
@@ -15,6 +15,9 @@ const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Eule
  */
 export class ChainsView {
   readonly mesh: THREE.InstancedMesh;
+
+  /** Цепи сцены (спуск Иерофанта, план §8.3): от y0 вверх на len, без стены. */
+  hang: { x: number; z: number; y0: number; len: number }[] = [];
 
   constructor() {
     const b = new GeomBuilder();
@@ -35,6 +38,14 @@ export class ChainsView {
         const y = y0 + k * STEP + 0.1, u = k * STEP / TOP;
         _e.set(sway * u * 3, (k % 2) * Math.PI / 2, sway * u * 2);
         _m.compose(_p.set(c.x + Math.sin(w.time + k * 0.3) * 0.02 * u, y, c.z), _q.setFromEuler(_e), _s);
+        this.mesh.setMatrixAt(n++, _m);
+      }
+    }
+    for (const c of this.hang) {
+      for (let k = 0; k * STEP < c.len && n < MAX; k++) {
+        const u = k * STEP / c.len;
+        _e.set(Math.sin(w.time * 1.7 + c.x) * 0.05 * u, (k % 2) * Math.PI / 2, 0);
+        _m.compose(_p.set(c.x + Math.sin(w.time + k * 0.3) * 0.02 * u, c.y0 + k * STEP, c.z), _q.setFromEuler(_e), _s);
         this.mesh.setMatrixAt(n++, _m);
       }
     }
