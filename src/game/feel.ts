@@ -337,6 +337,26 @@ export class FeelSystem {
         this.audio.play('blade_scrape', { gain: 0.5, pan: this.pan(e.x) });
         this.cam.zoomPunch -= 0.04;
       }),
+      // отбитое кадило Иерофанта (план §8.3): звон металла, затем удар в колокол
+      b.on('censer', (e) => {
+        if (e.kind === 'deflect') {
+          this.time.addHitstop(0.1);
+          this.cam.addTrauma(0.3);
+          this.audio.play('hit_armor', { gain: 0.8, pan: this.pan(e.x) });
+          this.audio.play('blade_scrape', { gain: 0.5, pan: this.pan(e.x) });
+          this.vfx.hitSparks(e.x, 1.4, e.z, 0, 1, 1, true);
+          this.hud.flashText('ОТБИТО!', UI_GOLD, e.x, 2.2, e.z);
+        } else {
+          this.time.addHitstop(0.14);
+          this.cam.addTrauma(0.55);
+          this.cam.zoomPunch += 0.05;
+          this.audio.play('bell_crack', { gain: 0.9, pan: this.pan(e.x) });
+          this.audio.play('boss_bell', { gain: 0.5, pitch: 1.15 });
+          this.vfx.lights.flash(e.x, 5, e.z, C.voidHot, 6, 8, 0.4);
+          this.input.vibrate(70);
+          this.hud.flashText('В КОЛОКОЛ!', UI_GOLD, e.x, 6, e.z);
+        }
+      }),
       b.on('helmetHit', (e) => {
         this.time.addHitstop(0.12);
         this.cam.addTrauma(0.5);

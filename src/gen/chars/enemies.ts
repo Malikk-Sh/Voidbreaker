@@ -702,3 +702,35 @@ export function buildHusk(seed = 6): RigBuild {
   }
   return { rig, geometry: b.build() };
 }
+
+// ------------------------------------------------------------------ Обелиск Проповеди (Иерофант, план §8.3)
+export function obeliskRig(): RigDef {
+  return { id: 'obelisk', joints: [
+    { name: 'root', pos: [0, 0, 0] },
+    { name: 'body', parent: 'root', pos: [0, 0, 0] },
+    { name: 'core', parent: 'body', pos: [0, 3.55, 0] },
+  ] };
+}
+
+/** Чёрный четырёхгранный обелиск с багровыми рунами по граням и парящим кристаллом-ядром — от него нить к колоколу. */
+export function buildObelisk(seed = 19): RigBuild {
+  const rig = obeliskRig(); const J = jidx(rig);
+  const b = new GeomBuilder(); b.rng = new Rng(seed); b.color = OBS;
+  b.joint = J('body');
+  b.add(prism(4, 0.62, 0.62, 0.35), { matrix: mat(0, 0, 0, 0, Math.PI / 4, 0), color: OBS2 });
+  b.add(prism(4, 0.48, 0.16, 3.0), { matrix: mat(0, 0.35, 0, 0, Math.PI / 4, 0) });
+  // руны по граням: столбцы засечек, тлеют багровым
+  for (let f = 0; f < 4; f++) {
+    const a = (f / 4) * Math.PI * 2;
+    for (let k = 0; k < 5; k++) {
+      const y = 0.75 + k * 0.48, r = 0.46 - (y - 0.35) * 0.105 + 0.015;
+      b.add(box(0.12 - k * 0.012, 0.05, 0.02), { matrix: mat(Math.sin(a) * r, y, Math.cos(a) * r, 0, a, 0), emissive: 1.5 });
+      if (k % 2 === 0) b.add(box(0.03, 0.16, 0.02), { matrix: mat(Math.sin(a) * r, y + 0.13, Math.cos(a) * r, 0, a, 0), emissive: 1.5 });
+    }
+  }
+  for (let i = 0; i < 4; i++) b.add(shard(0.5, 0.1, 4, 0.2, i), { matrix: matAlong(Math.sin(i * 1.57 + 0.78) * 0.62, 0.1, Math.cos(i * 1.57 + 0.78) * 0.62, Math.sin(i * 1.57 + 0.78), 0.6, Math.cos(i * 1.57 + 0.78)), color: BONE });
+  b.joint = J('core');
+  b.add(octa(0.2, 0.34, 0.2), { emissive: 2.0 });
+  b.add(new THREE.TorusGeometry(0.34, 0.02, 3, 16), { matrix: mat(0, 0, 0, Math.PI / 2, 0, 0), color: BRONZE });
+  return { rig, geometry: b.build() };
+}

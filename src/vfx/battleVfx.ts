@@ -8,6 +8,8 @@ import type { World } from '../world/world';
 import type { Abilities } from '../world/abilities';
 import { Acolyte } from '../world/enemies/acolyte';
 import { Psalmist } from '../world/enemies/psalmist';
+import { Obelisk } from '../world/enemies/obelisk';
+import type { Enemy } from '../world/enemy';
 import { ClothMesh } from '../render/cloth';
 import { Debris } from './debris';
 import { LightManager } from './lights';
@@ -248,6 +250,18 @@ export class BattleVfx {
         this.sprites.add(_wp.x + (tg.x - _wp.x) * f, _wp.y + (ty - _wp.y) * f - sag + wave, _wp.z + (tg.z - _wp.z) * f, on ? 0.1 + pulse * 0.06 : 0.07, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], a, 'dot');
       }
     }
+  }
+
+  /** Обелиск питает щит Иерофанта: багровая нить от ядра к колоколу, импульсы бегут к боссу. */
+  private obeliskThread(o: Obelisk, boss: Enemy, time: number): void {
+    o.corePoint(_wp);
+    const tx = boss.x, ty = boss.height * 0.72, tz = boss.z, n = 18;
+    for (let k = 1; k < n; k++) {
+      const f = k / n, sag = Math.sin(f * Math.PI) * 0.6;
+      const pulse = 0.5 + 0.5 * Math.sin(time * 7 - f * 10);
+      this.sprites.add(_wp.x + (tx - _wp.x) * f, _wp.y + (ty - _wp.y) * f + sag, _wp.z + (tz - _wp.z) * f, 0.1 + pulse * 0.07, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], 0.35 + pulse * 0.5, 'dot');
+    }
+    this.lights.add(_wp.x, _wp.y, _wp.z, C.hunger, 1.2, 3);
   }
 
   /** Нить Псаломщика лопнула: хлёсткие багровые искры вдоль неё. */
@@ -502,6 +516,7 @@ export class BattleVfx {
         }
       }
       if (e instanceof Psalmist && !e.dead) this.threads(e, w.time);
+      if (e instanceof Obelisk && !e.dead && e.boss && !e.boss.dead) this.obeliskThread(e, e.boss, w.time);
       if (e instanceof Acolyte) {
         const t = e.beamTarget;
         const links = t ? [t] : e.shielding;
@@ -568,9 +583,10 @@ export class BattleVfx {
 
     // снаряды: ядро + ореол + хвост
     for (const p of w.projectiles) {
-      const big = p.kind === 'acolyteOrb' ? 1.3 : p.kind === 'censerBall' ? 2.8 : p.kind === 'stone' ? 1.5 : 1;
-      const col = p.reflected ? C.voidHot : p.kind === 'censerBall' || p.kind === 'stone' ? C.ember : C.hungerHot;
-      if (p.kind === 'censerBall' && fxRng.chance(0.7)) this.norm.emit({ x: p.x, y: 0.6, z: p.z, vy: 1.5, life: 1.2, size: 0.5, size1: 1.4, color: [0.05, 0.035, 0.05], alpha: 0.5, drag: 1, frame: 'smoke' });
+      const censer = p.kind === 'censerBall' || p.kind === 'censer';
+      const big = p.kind === 'acolyteOrb' ? 1.3 : p.kind === 'censerBall' ? 2.8 : p.kind === 'censer' ? 2.1 : p.kind === 'stone' ? 1.5 : 1;
+      const col = p.reflected ? C.voidHot : censer || p.kind === 'stone' ? C.ember : C.hungerHot;
+      if (censer && fxRng.chance(0.7)) this.norm.emit({ x: p.x, y: 0.6, z: p.z, vy: 1.5, life: 1.2, size: 0.5, size1: 1.4, color: [0.05, 0.035, 0.05], alpha: 0.5, drag: 1, frame: 'smoke' });
       this.sprites.add(p.x, p.y, p.z, 0.55 * big, col[0], col[1], col[2], 0.9, 'dot');
       this.sprites.add(p.x, p.y, p.z, 0.22 * big, 2.5, 2.2, 2.2, 1, 'dot');
       if (fxRng.chance(0.8 * this.quality)) this.add.emit({ x: p.x, y: p.y, z: p.z, vx: -p.vx * 0.1, vz: -p.vz * 0.1, life: 0.25, size: 0.25 * big, size1: 0.02, color: col, frame: 'dot' });

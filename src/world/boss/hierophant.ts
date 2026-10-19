@@ -4,7 +4,7 @@ import { setJoint } from '../../anim/locomotion';
 import { layoutOf } from '../../anim/puppet';
 import { ENEMIES } from '../../data/enemies';
 import { ARMS, hierophantRig } from '../../gen/chars/hierophant';
-import { Acolyte } from '../enemies/acolyte';
+import { Obelisk } from '../enemies/obelisk';
 import { registerEnemy } from '../enemies/factory';
 import type { SpawnOpts } from '../enemy';
 import { resetStunHabit } from '../actor';
@@ -17,6 +17,9 @@ import type { CineTrack, MusicCue } from '../../game/director';
 import { DESCEND_FROM, hierophantIntroTrack } from './hierophantScenes';
 
 const PHASE2_AT = 0.55;
+/** Щит Проповеди при двух обелисках (доля срезанного урона). */
+export const SERMON_SHIELD = 0.7;
+
 const _bell = new THREE.Vector3();
 
 const POSES: PoseLib = {
@@ -74,16 +77,19 @@ export class Hierophant extends ScriptedEnemy {
     ] },
     // Кадила: 4 кадила бьют по кругу последовательно, оставляют дым на 3 с
     { id: 'censers', weight: 3, cooldown: 4, phases: [1], range: [0, 9], steps: [], build: () => this.censerSteps() },
-    // Проповедь: 4 Аколита по краям; пока живы — щит −70 % урона
-    { id: 'sermon', weight: 2, cooldown: 24, phases: [1], steps: [
-      { t: 0, do: 'pose', id: 'sermon', blend: 0.5 },
-      { t: 0, do: 'telegraphSound', kind: 'chime' },
-      { t: 0, do: 'telegraph', shape: { circle: 2.6 }, at: 'self', dur: 1.2, white: true },
-      { t: 1.2, do: 'summon', enemy: 'acolyte', count: 4, at: 'edges' },
-      { t: 1.2, do: 'sfx', id: 'boss_roar' },
-      { t: 1.2, do: 'call', fn: 'sermonLine' },
-      { t: 1.6, do: 'pose', id: 'idle', blend: 0.4 },
-    ], dur: 2.2 },
+    // Проповедь (план §8.3): два обелиска по бокам питают щит −70 % урона; разбить один — щит вдвое слабее
+    { id: 'sermon', weight: 2, cooldown: 24, phases: [1], steps: [], build: () => this.sermonSteps(), dur: 2.2 },
+    // Кадило (план §8.3): бросок по линии; полный заряженный удар по летящему кадилу шлёт его в колокол (+40 оглушения)
+    { id: 'hurl', weight: 3, cooldown: 5, phases: [1], range: [4, 14], steps: [
+      { t: 0, do: 'pose', id: 'censers', blend: 0.3 },
+      { t: 0, do: 'telegraphSound', kind: 'whistle' },
+      { t: 0, do: 'telegraph', shape: { line: [13, 1.5] }, at: 'self', dur: 0.85 },
+      { t: 0.85, do: 'pose', id: 'slam', blend: 0.06 },
+      { t: 0.85, do: 'call', fn: 'hurl' },
+      { t: 0.85, do: 'sfx', id: 'swing_heavy' },
+      { t: 1.1, do: 'pose', id: 'idle', blend: 0.4 },
+      { t: 1.2, do: 'vulnerable', dur: 1.3 },
+    ] },
     // Падение колокола: тень на земле 1.0 с → падает всем телом в точку игрока; окно 2.0 с
     { id: 'drop', weight: 2, cooldown: 7, phases: [1, 2], range: [3, 40], unstoppable: true, steps: [
       { t: 0, do: 'pose', id: 'rise', blend: 0.25 },
@@ -182,6 +188,22 @@ export class Hierophant extends ScriptedEnemy {
     return out;
   }
 
+  /** Обелиски встают по бокам от босса — поперёк линии на героя. */
+  private sermonSteps(): Step[] {
+    const h = this.w_.hero;
+    const a = Math.atan2(h.x - this.x, h.z - this.z);
+    const side = (k: number) => ({ x: this.x + Math.cos(a) * 5.5 * k, z: this.z - Math.sin(a) * 5.5 * k });
+    return [
+      { t: 0, do: 'pose', id: 'sermon', blend: 0.5 },
+      { t: 0, do: 'telegraphSound', kind: 'chime' },
+      { t: 0, do: 'telegraph', shape: { circle: 2.6 }, at: 'self', dur: 1.2, white: true },
+      { t: 1.2, do: 'summon', enemy: 'obelisk', count: 2, at: [side(1), side(-1)] },
+      { t: 1.2, do: 'sfx', id: 'boss_roar' },
+      { t: 1.2, do: 'call', fn: 'sermonLine' },
+      { t: 1.6, do: 'pose', id: 'idle', blend: 0.4 },
+    ];
+  }
+
   private judgmentSteps(): Step[] {
     const out: Step[] = [
       { t: 0, do: 'pose', id: 'phase', blend: 0.35 },
@@ -228,7 +250,19 @@ export class Hierophant extends ScriptedEnemy {
 
   protected override onCall(w: World, fn: string, arg?: number): void {
     if (fn === 'sway') { this.sway = arg ?? 0.9; return; }
-    if (fn === 'sermonLine') { w.bus.emit('voice', { line: 'Пока хор поёт — он неуязвим. Глуши хор.', speaker: 'kaelis' }); return; }
+    if (fn === 'sermonLine') {
+      for (const e of this.summoned) if (e instanceof Obelisk) e.boss = this;
+      w.bus.emit('voice', { line: 'Щит держат обелиски. Разбей их — полный заряд ломает с одного удара.', speaker: 'kaelis' });
+      return;
+    }
+    if (fn === 'hurl') {
+      // кадило летит по линии телеграфа и гаснет у края; можно отбить полным зарядом
+      const dx = this.snapX - this.x, dz = this.snapZ - this.z, l = Math.hypot(dx, dz) || 1;
+      const sp = 7.5;
+      w.spawnProjectile('censer', this.x + (dx / l) * 2.4, this.z + (dz / l) * 2.4, (dx / l) * sp, (dz / l) * sp, 0.16 * this.dmgUnit, this.id, 0.8, 13 / sp, 1.4);
+      w.bus.emit('enemyAttack', { kind: 'censer', x: this.x, z: this.z });
+      return;
+    }
     if (fn === 'roll') {
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const p = w.spawnProjectile('censerBall', this.x + dx * 2.2, this.z + dz * 2.2, dx * 9, dz * 9, 0.2 * this.dmgUnit, this.id, 0.95, 2.2, 0.7);
@@ -268,9 +302,10 @@ export class Hierophant extends ScriptedEnemy {
     // интро: ждёт сцену (спускается по цепям), не двигается
     if (this.idleT > 100) { this.vx = this.vz = 0; this.faceTo(w.hero.x, w.hero.z, 0.5, dt); return; }
     this.stationary = this.phase !== 1;
-    // щит Проповеди
-    const acolytes = this.summoned.filter((e) => e instanceof Acolyte && !e.dead);
-    this.shieldMul = acolytes.length ? 0.3 : 1;
+    // щит Проповеди: −70 % урона, пока стоят оба обелиска; каждый разбитый снимает половину
+    let ob = 0;
+    for (const e of this.summoned) if (e instanceof Obelisk && !e.dead) ob++;
+    this.shieldMul = 1 - SERMON_SHIELD * Math.min(2, ob) / 2;
     super.think(w, dt, tick);
     // фаза II: между атаками дрейфует к «дому» (центр креста)
     if (this.stationary && !this.cur && !this.move) {

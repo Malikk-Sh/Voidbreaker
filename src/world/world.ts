@@ -75,6 +75,8 @@ export interface ShatterSeq {
 
 /** Снаряды, которые можно украсть идеальным уклонением (план §6.3): иглы, залпы Ока, Аколита, камни. */
 const STEALABLE: ReadonlySet<ProjectileKind> = new Set<ProjectileKind>(['orb', 'acolyteOrb', 'needle', 'stone']);
+/** Отбитое кадило Иерофанта: прибавка к оглушению хозяина (план §8.3). */
+export const CENSER_RETURN_STUN = 40;
 /** Украденный осколок кружит вокруг героя столько секунд. */
 export const STOLEN_LIFE = 2;
 
@@ -264,6 +266,15 @@ export class World {
     if (p.source === 'blade') {
       for (const pr of this.projectiles) {
         if (!pr.alive || pr.reflected || pr.kind === 'ring' || pr.kind === 'wave') continue;
+        // кадило Иерофанта (план §8.3): полный заряженный удар шлёт его обратно в колокол
+        if (pr.kind === 'censer' && p.stunKind === 'charged' && p.feel === 'heavy' && overlaps(shape, pr.x, pr.z, pr.r + 0.4)) {
+          const o = this.enemies.find((e) => e.id === pr.owner && !e.dead);
+          if (!o) continue;
+          const dx = o.x - pr.x, dz = o.z - pr.z, l = Math.hypot(dx, dz) || 1;
+          pr.reflected = true; pr.vx = (dx / l) * 18; pr.vz = (dz / l) * 18; pr.life = 2; pr.age = 0;
+          this.bus.emit('censer', { kind: 'deflect', x: pr.x, z: pr.z });
+          continue;
+        }
         if (overlaps(shape, pr.x, pr.z, pr.r) && this.abilities.canDeflect()) {
           pr.reflected = true; pr.vx = -pr.vx * 1.3; pr.vz = -pr.vz * 1.3; pr.life = 2;
         }
@@ -586,6 +597,23 @@ export class World {
       else if ((p.kind !== 'censerBall' && this.arena.blocked(p.x, p.z, p.r * 0.5)) || Math.abs(p.x) > 80 || Math.abs(p.z) > 80) {
         p.alive = false;
         this.bus.emit('projectileHit', { x: p.x, z: p.z, kind: p.kind });
+      } else if (p.reflected && p.kind === 'censer') {
+        // отбитое кадило летит в колокол хозяина: урон и +40 к оглушению
+        const o = this.enemies.find((e) => e.id === p.owner && !e.dead);
+        if (!o) p.alive = false;
+        else {
+          const dx = o.x - p.x, dz = o.z - p.z, l = Math.hypot(dx, dz) || 1;
+          p.vx = (dx / l) * 18; p.vz = (dz / l) * 18;
+          if (l < o.radius + p.r) {
+            const sp: StrikeParams = { mult: 3, stun: 0, knockback: 0, feel: 'heavy', dirX: dx / l, dirZ: dz / l, source: 'proj', abilityId: 'reflect' };
+            this.beginStrike();
+            this.damageEnemy(o, sp);
+            this.endStrike(sp);
+            this.addStunTo(o, CENSER_RETURN_STUN);
+            p.alive = false;
+            this.bus.emit('censer', { kind: 'return', x: o.x, z: o.z });
+          }
+        }
       } else if (p.reflected) {
         for (const e of this.enemies) {
           if (!e.targetable || Math.hypot(e.x - p.x, e.z - p.z) > e.radius + p.r) continue;

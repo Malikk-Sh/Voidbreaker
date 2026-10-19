@@ -23,7 +23,7 @@ export interface Telegraph {
   buff?: boolean;
 }
 
-export type ProjectileKind = 'orb' | 'acolyteOrb' | 'stone' | 'needle' | 'censerBall' | 'wave' | 'ring';
+export type ProjectileKind = 'orb' | 'acolyteOrb' | 'stone' | 'needle' | 'censerBall' | 'censer' | 'wave' | 'ring';
 
 /** Вражеский снаряд: ядро + ореол + хвост (GDD §16.1). */
 export interface Projectile {

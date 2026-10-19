@@ -3,7 +3,10 @@ import { World } from '../src/world/world';
 import { Arena } from '../src/world/arena';
 import { ARENAS } from '../src/data/arenas';
 import { Abilities } from '../src/world/abilities';
-import { Hierophant, HierophantController, type BossHost } from '../src/world/boss/hierophant';
+import { Hierophant, HierophantController, SERMON_SHIELD, type BossHost } from '../src/world/boss/hierophant';
+import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
+import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
+import { VOID_BLADE } from '../src/data/weapons';
 import { DESCEND_FROM, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
@@ -108,5 +111,66 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     const input = idle();
     for (let i = 0; i < 240; i++) { b.idleT = 50; w.step(DT, DT, input, DT); }
     expect(Math.hypot(b.x, b.z)).toBeLessThan(2.6);
+  });
+
+  /** Удар клинком прямоугольником перед героем (как заряженный удар). */
+  const chargedStrike = (w: World, full: boolean) => {
+    const C = VOID_BLADE.charged, h = w.hero;
+    const p: StrikeParams = { mult: C.dmg[full ? 1 : 0], stun: C.stun[full ? 1 : 0], stunKind: 'charged', knockback: 3, feel: full ? 'heavy' : 'medium', dirX: 0, dirZ: -1, source: 'blade', finisher: true };
+    return w.heroStrike({ k: 'line', x: h.x, z: h.z, dx: 0, dz: -1, len: C.length, w: C.width }, new Set(), p);
+  };
+
+  it('Проповедь: два обелиска — щит −70 %, разбит один — вдвое слабее; 3 удара или 1 полный заряд', () => {
+    const { w, b } = setup(0, 8);
+    b.phase = 1; b.idleT = 50;
+    const sermon = b.patterns.find((p) => p.id === 'sermon')!;
+    b.startPattern(sermon);
+    const input = idle();
+    for (let i = 0; i < 160; i++) w.step(DT, DT, input, DT);
+    const obs = b.summoned.filter((e): e is Obelisk => e instanceof Obelisk);
+    expect(obs.length).toBe(2);
+    for (let i = 0; i < 70; i++) { b.idleT = 50; w.step(DT, DT, input, DT); }
+    expect(b.shieldMul).toBeCloseTo(1 - SERMON_SHIELD);
+    // первый — тремя лёгкими ударами
+    const [a, c] = obs;
+    for (let k = 0; k < OBELISK_HITS; k++) {
+      expect(a.dead).toBe(false);
+      w.damageEnemy(a, { mult: 1, stun: 0, knockback: 1, feel: 'light', dirX: 0, dirZ: -1, source: 'blade' });
+    }
+    expect(a.dead).toBe(true);
+    b.idleT = 50; w.step(DT, DT, input, DT);
+    expect(b.shieldMul).toBeCloseTo(1 - SERMON_SHIELD / 2);
+    // второй — одним полным зарядом (частичный не ломает)
+    w.damageEnemy(c, { mult: 3, stun: 12, stunKind: 'charged', knockback: 3, feel: 'medium', dirX: 0, dirZ: -1, source: 'blade', finisher: true });
+    expect(c.dead).toBe(false);
+    w.damageEnemy(c, { mult: 4.5, stun: 30, stunKind: 'charged', knockback: 3, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade', finisher: true });
+    expect(c.dead).toBe(true);
+    b.idleT = 50; w.step(DT, DT, input, DT);
+    expect(b.shieldMul).toBe(1);
+  });
+
+  it('кадило: полный заряд отбивает его в колокол (+40 оглушения), неполный — нет', () => {
+    for (const full of [true, false]) {
+      const { w, b } = setup(0, 4);
+      b.phase = 1; b.idleT = 50; b.x = 0; b.z = -6;
+      const input = idle();
+      const hurl = b.patterns.find((p) => p.id === 'hurl')!;
+      b.startPattern(hurl);
+      const stun0 = b.stun!.value;
+      let returned = 0, deflected = false;
+      w.bus.on('censer', (e) => { if (e.kind === 'return') returned++; });
+      for (let i = 0; i < 300 && !returned; i++) {
+        b.idleT = 50;
+        w.step(DT, DT, input, DT);
+        const cz = w.projectiles.find((pr) => pr.kind === 'censer' && !pr.reflected);
+        // кадило подлетело к герою — удар
+        if (cz && !deflected && Math.abs(cz.z - w.hero.z) < 2.5) { chargedStrike(w, full); deflected = true; }
+      }
+      expect(deflected).toBe(true);
+      if (full) {
+        expect(returned).toBe(1);
+        expect(b.stun!.value - stun0).toBeGreaterThanOrEqual(CENSER_RETURN_STUN - 0.5);
+      } else expect(returned).toBe(0);
+    }
   });
 });

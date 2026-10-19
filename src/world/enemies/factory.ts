@@ -8,10 +8,11 @@ import { Eye } from './eye';
 import { Golem } from './golem';
 import { Acolyte } from './acolyte';
 import { Husk } from './husk';
+import { Obelisk } from './obelisk';
 
 type Ctor = new (o: SpawnOpts) => Enemy;
 const REGISTRY: Partial<Record<EnemyKind, Ctor>> = {
-  husk: Husk, spiker: Spiker, reaper: Reaper, crucifier: Crucifier, eye: Eye, golem: Golem, acolyte: Acolyte, psalmist: Psalmist,
+  husk: Husk, spiker: Spiker, reaper: Reaper, crucifier: Crucifier, eye: Eye, golem: Golem, acolyte: Acolyte, psalmist: Psalmist, obelisk: Obelisk,
 };
 
 /** Регистрация конструкторов стражей и боссов (подключаются своими модулями). */
