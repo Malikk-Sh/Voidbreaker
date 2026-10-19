@@ -699,6 +699,9 @@ export class Hero implements Actor {
     this.avatar.puppet.play('victory', 1, 0.1);
   }
 
+  /** Скриптовое движение (пробежка по древку): герой не расталкивается с врагами, позицию ведёт сценарий. */
+  scripted = false;
+
   freeze(on: boolean): void {
     if (on) { this.state = 'frozen'; this.hitActive = false; this.trailOn = false; this.vx = this.vz = 0; this.avatar.puppet.anim.stop(0.15); }
     else if (this.state === 'frozen') this.toMove();

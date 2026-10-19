@@ -331,6 +331,23 @@ export class FeelSystem {
         this.time.addHitstop(0.08);
         this.hud.flashText('ЗВОН', '#B794FF', e.x, e.y + 1, e.z, true);
       }),
+      // Страж Врат: пробежка по древку и удар в шлем
+      b.on('shaftRun', (e) => {
+        this.audio.play('dash', { pitch: 0.8 });
+        this.audio.play('blade_scrape', { gain: 0.5, pan: this.pan(e.x) });
+        this.cam.zoomPunch -= 0.04;
+      }),
+      b.on('helmetHit', (e) => {
+        this.time.addHitstop(0.12);
+        this.cam.addTrauma(0.5);
+        this.cam.zoomPunch += 0.06;
+        this.audio.play('hit_heavy', { pitch: 0.8 });
+        this.audio.play('bell_crack', { gain: 0.7, pan: this.pan(e.x) });
+        this.vfx.hitSparks(e.x, e.y, e.z, 0, 1, 1, true);
+        this.vfx.lights.flash(e.x, e.y, e.z, C.voidHot, 5, 6, 0.3);
+        this.input.vibrate(60);
+        this.hud.flashText('В ШЛЕМ!', UI_GOLD, e.x, e.y + 0.8, e.z);
+      }),
       b.on('chains', (e) => {
         this.audio.play('chain_drop', { pan: this.pan(e.x) });
         for (const c of this.w.tempWalls) if (c.t < 0.05) this.vfx.impact(c.x, c.z, 0.9, C.ember, 0.5);

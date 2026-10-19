@@ -200,6 +200,21 @@ export const HERO_CLIPS: ClipDef[] = [
     events: [{ t: 0.2, name: 'trailOn' }, { t: 0.22, name: 'swing2' }, { t: 0.33, name: 'hitOn' }, { t: 0.34, name: 'impact' }, { t: 0.4, name: 'hitOff' }, { t: 0.44, name: 'trailOff' }],
   },
   {
+    // Пробежка по древку алебарды Стража Врат (план §7.5): бег вверх, прыжок, удар в шлем сверху, сальто назад
+    id: 'shaftRun', dur: 0.95, mask: 'full',
+    keys: [
+      { t: 0, pose: { chest: [0.55, 0, 0], spine: [0.25, 0, 0], shR: [0.8, 0, -0.35], elbR: [-0.3, 0, 0], blade: [0.9, 0, 0], shL: [-0.6, 0, 0.35], elbL: [-0.8, 0, 0], hipL: [-1.0, 0, 0], kneeL: [0.4, 0, 0], hipR: [0.5, 0, 0], kneeR: [1.2, 0, 0], head: [-0.5, 0, 0] } },
+      { t: 0.1, ease: 'inOutQuad', pose: { chest: [0.55, 0, 0], spine: [0.25, 0, 0], shR: [0.7, 0, -0.35], shL: [0.5, 0, 0.35], hipL: [0.5, 0, 0], kneeL: [1.2, 0, 0], hipR: [-1.0, 0, 0], kneeR: [0.4, 0, 0] } },
+      { t: 0.2, ease: 'inOutQuad', pose: { chest: [0.55, 0, 0], spine: [0.25, 0, 0], shR: [0.8, 0, -0.35], shL: [-0.6, 0, 0.35], hipL: [-1.0, 0, 0], kneeL: [0.4, 0, 0], hipR: [0.5, 0, 0], kneeR: [1.2, 0, 0] } },
+      { t: 0.3, ease: 'inQuad', pose: { chest: [0.6, 0, 0], spine: [0.3, 0, 0], shR: [0.6, 0, -0.5], shL: [0.6, 0, 0.5], hipL: [-1.0, 0, 0.1], kneeL: [1.5, 0, 0], hipR: [-0.9, 0, -0.1], kneeR: [1.4, 0, 0] } },
+      { t: 0.4, ease: 'outCubic', stretch: 1.1, pose: { chest: [-0.35, 0, 0], spine: [-0.2, 0, 0], shR: [-3.0, 0, -0.1], elbR: [-0.2, 0, 0], blade: [0.2, 0, 0], shL: [-3.0, 0, 0.1], elbL: [-0.3, 0, 0], hipL: [-1.2, 0, 0], kneeL: [1.6, 0, 0], hipR: [-0.2, 0, 0], kneeR: [1.4, 0, 0], head: [0.3, 0, 0] } },
+      { t: 0.48, ease: 'inExpo', stretch: 1.25, pose: { chest: [0.9, 0, 0], spine: [0.3, 0, 0], shR: [-0.4, 0, -0.05], elbR: [0, 0, 0], blade: [-0.6, 0, 0], shL: [-0.4, 0, 0.05], hipL: [-1.3, 0, 0], kneeL: [1.8, 0, 0], hipR: [0.5, 0, 0], kneeR: [1.6, 0, 0], head: [-0.3, 0, 0] } },
+      { t: 0.56, ease: 'outQuad', stretch: 1, pose: { chest: [0.7, 0, 0], shR: [-0.6, 0, -0.3], shL: [-0.6, 0, 0.3], hipL: [-1.5, 0, 0], kneeL: [2.0, 0, 0], hipR: [-1.4, 0, 0], kneeR: [2.0, 0, 0] } },
+      { t: 0.78, ease: 'inOutQuad', spin: 0, pose: { chest: [-0.6, 0, 0], spine: [-0.3, 0, 0], shR: [-1.6, 0, -0.9], shL: [-1.6, 0, 0.9], hipL: [-1.4, 0, 0], kneeL: [1.8, 0, 0], hipR: [-1.3, 0, 0], kneeR: [1.8, 0, 0], head: [0.4, 0, 0] } },
+      { t: 0.95, ease: 'outQuart', pose: { chest: [0.3, 0, 0], spine: [0.1, 0, 0], shR: [-0.5, 0, -0.4], elbR: [-0.4, 0, 0], blade: [0.5, 0, 0], shL: [-0.2, 0, 0.4], hipL: [-0.6, 0, 0.1], kneeL: [0.9, 0, 0], hipR: [-0.4, 0, -0.1], kneeR: [0.8, 0, 0] } },
+    ],
+  },
+  {
     // Победа: взмах клинком за спину, плащ взлетает
     id: 'victory', dur: 1.0, mask: 'full',
     keys: [

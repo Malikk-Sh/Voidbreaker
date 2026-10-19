@@ -24,6 +24,11 @@ const BELL_RING_R = 7, BELL_RING_SPEED = 16, BELL_RING_MULT = 1.6;
 export const CHAIN_R = 3.2;
 export const CHAIN_DUR = 4;
 const CHAIN_N = 9, CHAIN_HIT_R = 0.75, CHAIN_WALL_R = 0.5;
+/** Страж Врат (план §7.5): после серии алебарда застревает в полу; рывок на древко — пробежка к шлему и +40. */
+export const HALBERD_STUCK = 2.5;
+export const SHAFT_STUN = 40;
+const SHAFT_RUN = 0.3, SHAFT_LEAP = 0.18, SHAFT_FLIP = 0.42, SHAFT_TOUCH = 0.8;
+const K_GATE = 1.65;
 /** Похоронный такт: три удара с неравными интервалами; в ярости ритм другой. */
 export const FUNERAL_BEATS: Record<1 | 2, number[]> = { 1: [0.9, 1.3, 2.2], 2: [0.9, 1.75, 2.05] };
 /** Порог ярости: на 50 % HP страж ревёт и переходит во вторую фазу. */
@@ -47,6 +52,8 @@ const BRUTE_POSES: PoseLib = {
   backWind: { chest: [0.1, 0.95, 0], spine: [0, 0.3, 0], shR: [-1.3, 0, 0.9], elbR: [-0.2, 0, 0], shL: [-0.4, 0, 0.3], hipL: [0.2, 0, 0.1], kneeL: [0.4, 0, 0], hipR: [-0.3, 0, -0.1], kneeR: [0.5, 0, 0] },
   backSweep: { chest: [0.15, -1.1, 0], spine: [0, -0.35, 0], shR: [-1.3, 0, -1.1], elbR: [-0.05, 0, 0], shL: [-0.7, 0, 0.7], hipL: [-0.4, 0, 0.1], kneeL: [0.6, 0, 0], hipR: [0.1, 0, -0.1], kneeR: [0.3, 0, 0] },
   charge: { chest: [0.7, 0, 0], spine: [0.3, 0, 0], head: [-0.5, 0, 0], shR: [-0.3, 0, -0.6], elbR: [-1.2, 0, 0], shL: [-0.3, 0, 0.6], elbL: [-1.2, 0, 0], hipL: [-1.0, 0, 0.1], kneeL: [0.9, 0, 0], hipR: [0.6, 0, -0.1], kneeR: [0.5, 0, 0] },
+  // алебарда застряла в полу после серии: корпус наклонён, правая рука держит древко у лезвия
+  stuck: { chest: [0.6, 0, 0], spine: [0.2, 0, 0], shR: [-0.55, 0, 0.1], elbR: [0.2, 0, 0], shL: [-0.5, 0, 0.3], elbL: [-0.6, 0, 0], hipL: [-0.5, 0, 0.1], kneeL: [0.7, 0, 0], hipR: [0.3, 0, -0.1], kneeR: [0.4, 0, 0], head: [-0.2, 0, 0] },
   broken: { chest: [0.7, 0, 0.15], spine: [0.3, 0, 0], shL: [0.35, 0, 0.5], shR: [0.35, 0, -0.5], hipL: [-1.45, 0, 0.2], kneeL: [1.55, 0, 0], hipR: [0.1, 0, -0.2], kneeR: [1.6, 0, 0], head: [-0.4, 0, 0] },
 };
 
@@ -240,13 +247,120 @@ export class GateGuardian extends BruteGuardian {
         { t: 2.6, do: 'hitbox', shape: { line: [10, 2] }, at: 'self', dmg: 0.26, kb: 8 },
         { t: 2.6, do: 'sfx', id: 'slash_enemy' },
         { t: 2.62, do: 'shake', trauma: 0.35 },
-        { t: 2.7, do: 'vulnerable', dur: 1.5 },
+        // алебарда застревает в полу на 2.5 с: окно наказания и древко-мост к шлему
+        { t: 2.62, do: 'pose', id: 'stuck', blend: 0.1 },
+        { t: 2.66, do: 'call', fn: 'stick' },
+        { t: 2.66, do: 'vulnerable', dur: HALBERD_STUCK },
+        { t: 2.66 + HALBERD_STUCK, do: 'call', fn: 'unstick' },
+        { t: 2.66 + HALBERD_STUCK, do: 'pose', id: 'idle', blend: 0.25 },
       ],
     },
     // Вторая фаза: алебарда в пол — три разлома веером к герою
     { id: 'quake', weight: 2, cooldown: 8, phases: [2], unstoppable: true, steps: [], build: () => this.quakeSteps() },
   ];
   constructor(o: SpawnOpts) { super('gateGuardian', 1.65, o); }
+
+  /** Алебарда застряла в полу (с). */
+  halberdT = 0;
+  /** Идёт пробежка героя по древку. */
+  running = false;
+  private sparkT = 0;
+
+  /** Древко: от острия у пола к руке (мировые координаты). */
+  shaft(): { tx: number; tz: number; hx: number; hy: number; hz: number } {
+    const L = this.puppet.layout, s = this.puppet.skel;
+    const t = s.jointPoint(L.idx('handR'), 0, -0.25 * K_GATE, 1.9 * K_GATE, _p);
+    const tx = t.x, tz = t.z;
+    const h = s.jointPoint(L.idx('handR'), 0, -0.25 * K_GATE, 0, _p);
+    return { tx, tz, hx: h.x, hy: h.y, hz: h.z };
+  }
+
+  protected override onCall(w: World, fn: string): void {
+    if (fn === 'stick') {
+      this.halberdT = HALBERD_STUCK;
+      const sh = this.shaft();
+      w.bus.emit('sfx', { id: 'nail', x: sh.tx, z: sh.tz, gain: 1 });
+      w.bus.emit('hitReact', { x: sh.tx, y: 0.2, z: sh.tz, kind: 'stones' });
+    } else if (fn === 'unstick') this.halberdT = 0;
+  }
+
+  protected override think(w: World, dt: number, tick: boolean): void {
+    if (this.halberdT > 0) {
+      this.halberdT = Math.max(0, this.halberdT - dt);
+      // тянет алебарду: искры у острия
+      const sh = this.shaft();
+      if ((this.sparkT -= dt) <= 0) { this.sparkT = 0.18; w.bus.emit('scrape', { x: sh.tx, y: 0.1, z: sh.tz }); }
+      if (!this.running && this.dashOnShaft(w, sh)) this.startShaftRun(w, sh);
+    }
+    super.think(w, dt, tick);
+  }
+
+  /** Рывок на древко: герой в рывке ближе 0.8 м к древку и летит в сторону Стража. */
+  private dashOnShaft(w: World, sh: { tx: number; tz: number; hx: number; hz: number }): boolean {
+    const h = w.hero;
+    if (h.state !== 'dash' || h.dead) return false;
+    const bx = sh.hx - sh.tx, bz = sh.hz - sh.tz, l2 = bx * bx + bz * bz || 1;
+    const u = Math.max(0, Math.min(1, ((h.x - sh.tx) * bx + (h.z - sh.tz) * bz) / l2));
+    const d = Math.hypot(sh.tx + bx * u - h.x, sh.tz + bz * u - h.z);
+    const toward = Math.sin(h.facing) * (this.x - h.x) + Math.cos(h.facing) * (this.z - h.z) > 0;
+    return d < SHAFT_TOUCH && toward;
+  }
+
+  /** Пробежка по древку: вверх к руке, прыжок к шлему, удар сверху (+40 оглушения), сальто назад. */
+  private startShaftRun(w: World, sh: { tx: number; tz: number; hx: number; hy: number; hz: number }): void {
+    const h = w.hero;
+    this.running = true;
+    h.freeze(true);
+    h.scripted = true;
+    h.invulnUntil = Math.max(h.invulnUntil, h.clock + SHAFT_RUN + SHAFT_LEAP + SHAFT_FLIP + 0.3);
+    h.avatar.puppet.play('shaftRun', 1, 0.04);
+    const L = this.puppet.layout;
+    const hd = this.puppet.skel.jointPoint(L.idx('head'), 0, 0.35 * K_GATE, 0.1 * K_GATE, _p);
+    const p0 = { x: h.x, z: h.z }, p1 = { x: sh.hx, y: sh.hy, z: sh.hz }, p2 = { x: hd.x, y: hd.y + 0.3, z: hd.z };
+    const fx = Math.sin(this.facing), fz = Math.cos(this.facing);
+    const land = { x: this.x + fx * 4.6, z: this.z + fz * 4.6 };
+    w.arena.nearestWalkable(land.x, land.z, land);
+    w.bus.emit('shaftRun', { x: h.x, z: h.z });
+    let t = 0, struck = false;
+    const hook = (dt: number): void => {
+      t += dt;
+      if (t < SHAFT_RUN) {
+        const u = t / SHAFT_RUN;
+        h.x = p0.x + (p1.x - p0.x) * u; h.z = p0.z + (p1.z - p0.z) * u; h.y = p1.y * u;
+      } else if (t < SHAFT_RUN + SHAFT_LEAP) {
+        const u = (t - SHAFT_RUN) / SHAFT_LEAP;
+        h.x = p1.x + (p2.x - p1.x) * u; h.z = p1.z + (p2.z - p1.z) * u; h.y = p1.y + (p2.y - p1.y) * u + Math.sin(u * Math.PI) * 0.6;
+      } else {
+        if (!struck) { struck = true; this.helmetHit(w, p2); }
+        const u = Math.min(1, (t - SHAFT_RUN - SHAFT_LEAP) / SHAFT_FLIP);
+        h.x = p2.x + (land.x - p2.x) * u; h.z = p2.z + (land.z - p2.z) * u; h.y = p2.y * (1 - u) + Math.sin(u * Math.PI) * 1.2;
+      }
+      if (t < SHAFT_RUN + SHAFT_LEAP) h.facing = angleOf(this.x - h.x, this.z - h.z);
+      h.trailOn = t > SHAFT_RUN && t < SHAFT_RUN + SHAFT_LEAP + 0.08;
+      if (t >= SHAFT_RUN + SHAFT_LEAP + SHAFT_FLIP) {
+        h.y = 0; h.scripted = false; h.trailOn = false;
+        h.freeze(false);
+        this.running = false;
+        const i = w.stepHooks.indexOf(hook); if (i >= 0) w.stepHooks.splice(i, 1);
+      }
+    };
+    w.stepHooks.push(hook);
+  }
+
+  /** Удар в шлем сверху: тяжёлый урон и +40 к оглушению. */
+  private helmetHit(w: World, at: { x: number; y: number; z: number }): void {
+    const dx = this.x - w.hero.x, dz = this.z - w.hero.z, l = Math.hypot(dx, dz) || 1;
+    w.beginStrike();
+    w.damageEnemy(this, { mult: 2.5, stun: 0, stunKind: 'other', knockback: 0, feel: 'heavy', dirX: dx / l, dirZ: dz / l, source: 'blade', noStagger: true, moveId: 'shaftRun' });
+    w.endStrike({ dirX: dx / l, dirZ: dz / l, source: 'blade', moveId: 'shaftRun' });
+    w.addStunTo(this, SHAFT_STUN);
+    w.bus.emit('helmetHit', { x: at.x, y: at.y, z: at.z });
+  }
+
+  override onStun(): void {
+    super.onStun();
+    this.halberdT = 0;
+  }
 
   private quakeSteps(): Step[] {
     const h = this.w_.hero;

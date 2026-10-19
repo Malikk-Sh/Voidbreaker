@@ -72,6 +72,9 @@ export interface GameEvents {
   bellPulse: { x: number; y: number; z: number; big: boolean };
   /** Полный заряженный удар по колоколу сзади: фиолетовое кольцо героя. */
   bellStrike: { x: number; y: number; z: number; r: number };
+  /** Страж Врат: герой побежал по древку застрявшей алебарды; удар в шлем. */
+  shaftRun: { x: number; z: number };
+  helmetHit: { x: number; y: number; z: number };
   /** Цепи упали с потолка и стали стенами. */
   chains: { x: number; z: number; n: number };
   /** Клинок застрял в камне: окно уязвимости (с). */

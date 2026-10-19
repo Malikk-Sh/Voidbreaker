@@ -207,7 +207,7 @@ export class World {
       e.x = o.x; e.z = o.z;
     }
     const h = this.hero;
-    const heroSolid = h.state !== 'dash' && !h.dead && h.state !== 'fall';
+    const heroSolid = h.state !== 'dash' && !h.dead && h.state !== 'fall' && !h.scripted;
     const list = this.enemies;
     for (let i = 0; i < list.length; i++) {
       const a = list[i];

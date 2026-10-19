@@ -430,3 +430,71 @@ describe('Звонарь: уловки (план §7.4)', () => {
     expect(w.candlesOut).toBe(0);
   });
 });
+
+describe('Страж Врат: застрявшая алебарда (план §7.5)', () => {
+  const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
+  const run = (w: World, sec: number, each?: () => void): void => { const inp = idle(); for (let t = 0; t < sec; t += DT) { w.step(DT, DT, inp, DT); each?.(); } };
+  async function stuckGuard() {
+    const G = await import('../src/world/boss/guardians');
+    const w = arena('gate');
+    w.hero.x = 0; w.hero.z = 7;
+    const g = put(w, new G.GateGuardian({ zone: 0, stage: 2 }), 0, 0);
+    g.phase = 2;
+    g.idleT = 99;
+    g.startPattern(g.patterns.find((p) => p.id === 'combo')!);
+    // герой в стороне: серия мимо
+    w.hero.x = 9; w.hero.z = 6;
+    run(w, 2.75);
+    return { w, g, G };
+  }
+  const dash = (w: World, dx: number, dz: number): void => (w.hero as unknown as { startDash(dx: number, dz: number): void }).startDash(dx, dz);
+
+  it('после серии из трёх ударов алебарда застревает на 2.5 с — окно наказания', async () => {
+    const { w, g, G } = await stuckGuard();
+    expect(g.halberdT).toBeGreaterThan(G.HALBERD_STUCK - 0.2);
+    expect(g.inWindow).toBe(true);
+    // острие у пола перед Стражем
+    const sh = g.shaft();
+    expect(Math.hypot(sh.tx - g.x, sh.tz - g.z)).toBeGreaterThan(2);
+    run(w, G.HALBERD_STUCK);
+    expect(g.halberdT).toBe(0);
+  });
+
+  it('рывок на древко — пробежка к шлему: тяжёлый урон и +40 к оглушению, герой приземляется', async () => {
+    const { w, g, G } = await stuckGuard();
+    const sh = g.shaft();
+    // герой у острия, рывок к Стражу вдоль древка
+    w.hero.x = sh.tx + (sh.tx - g.x) * 0.25; w.hero.z = sh.tz + (sh.tz - g.z) * 0.25;
+    w.hero.invulnUntil = 1e9;
+    let helmet = 0, maxY = 0;
+    w.bus.on('helmetHit', () => helmet++);
+    const hp0 = g.hp, st0 = g.stun!.value;
+    dash(w, g.x - w.hero.x, g.z - w.hero.z);
+    run(w, 0.4, () => { maxY = Math.max(maxY, w.hero.y); });
+    expect(g.running).toBe(true);
+    expect(w.hero.state).toBe('frozen');
+    run(w, 0.3, () => { maxY = Math.max(maxY, w.hero.y); });
+    expect(helmet).toBe(1);
+    expect(maxY).toBeGreaterThan(3);
+    expect(g.hp).toBeLessThan(hp0);
+    expect(g.stun!.value - st0 >= G.SHAFT_STUN * 0.9 || g.stunned).toBe(true);
+    run(w, 0.6);
+    expect(g.running).toBe(false);
+    expect(w.hero.y).toBe(0);
+    expect(w.hero.state).toBe('move');
+  });
+
+  it('рывок мимо древка или после того, как алебарда освободилась, — без пробежки', async () => {
+    const { w, g, G } = await stuckGuard();
+    w.hero.x = g.x + 6; w.hero.z = g.z - 3;
+    dash(w, 0, 1);
+    run(w, 0.3);
+    expect(g.running).toBe(false);
+    run(w, G.HALBERD_STUCK);
+    const sh = g.shaft();
+    w.hero.x = sh.tx; w.hero.z = sh.tz + 0.5;
+    dash(w, g.x - w.hero.x, g.z - w.hero.z);
+    run(w, 0.3);
+    expect(g.running).toBe(false);
+  });
+});
