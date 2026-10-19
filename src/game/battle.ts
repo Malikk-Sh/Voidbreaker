@@ -24,7 +24,10 @@ import '../world/boss/guardians';
 import { Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
-import { G } from '../render/materials';
+import { G, obsidianMaterial } from '../render/materials';
+import { buildCrater, buildHullShard } from '../gen/zone/space';
+import { createEnemy } from '../world/enemies/factory';
+import { landingTrack, type LandingSpots } from './prologueTracks';
 
 
 const _top = new THREE.Vector3();
@@ -35,6 +38,11 @@ export const STEP = 1 / 60;
 const DEBUG_NAV = typeof location !== 'undefined' && new URLSearchParams(location.search).has('nav');
 
 export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef }
+/** prologue — бой 1-1 начинается приземлением Пилота (план §8.2, планы 6–8), а не пролётом над ареной. */
+export interface BattleOpts { prologue?: boolean }
+
+/** Кратер от падения Пилота в центре 1-1 (план §8.5). */
+const CRATER = { x: 0, z: 0.5 };
 
 /**
  * Бой на этапе: мир + арена + директор волн + VFX + камера + «сочность». Цикл — фиксированный шаг 60 Гц
@@ -91,7 +99,10 @@ export class Battle {
   private readonly baseHemi = G.uHemiTop.value.clone();
   private readonly baseMoon = G.uMoonColor.value.clone();
 
-  constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout) {
+  /** Приземление пролога: свечи гаснут волной, визор, обломок-клинок. */
+  private landing: { quench: boolean; r: number; visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean } | null = null;
+
+  constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout, readonly opts: BattleOpts = {}) {
     const r = ctx.renderer;
     const Q = QUALITY[r.quality];
     this.arena = new Arena(ARENAS[stage.arena]);
@@ -109,6 +120,7 @@ export class Battle {
 
     this.view = buildArenaView(this.arena, `stage:${stage.id}`, ZONE1_LOOK, Q.decor);
     this.group.add(this.view.root);
+    if (stage.id === '1-1') this.group.add(...craterMeshes());
     this.flames = new Flames(this.view.flames);
     this.pools = new LightPools(320);
     this.pools.setStatic(this.view.pools);
@@ -131,7 +143,8 @@ export class Battle {
     const b = this.arena.bounds;
     const sx = ARENAS[stage.arena].parts[0].x, sz = Math.min(b.maxZ - 3, (b.maxZ + b.minZ) / 2 + (b.maxZ - b.minZ) * 0.25);
     const o = { x: 0, z: 0 };
-    this.arena.nearestWalkable(sx, sz, o);
+    if (opts.prologue) this.arena.nearestWalkable(CRATER.x, CRATER.z, o);
+    else this.arena.nearestWalkable(sx, sz, o);
     this.world.hero.spawn(o.x, o.z, Math.PI);
     this.abilities.resetCooldowns();
     this.cam.snap(o.x, o.z - 1);
@@ -156,13 +169,15 @@ export class Battle {
     this.director = new Director(this.directorHost());
     this.bindEvents();
     ctx.time.reset();
-    if (!stage.boss) {
+    if (opts.prologue) this.startLanding();
+    else if (!stage.boss) {
       // пролёт над ареной; первая волна — когда камера опустится к Пилоту
       const ab = this.arena.bounds;
       this.runner.introTime = 3.0;
       this.cine.stageIntro(stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => this.runner.skipIntro());
     }
-    ctx.music.play(stage.boss ? hierophantSong() : stageSong(stage.id), 0.3);
+    // в прологе музыка 1-1 вступает после титула
+    if (!opts.prologue) ctx.music.play(stage.boss ? hierophantSong() : stageSong(stage.id), 0.3);
     // тема Стража запекается заранее — переключение на его появлении без паузы
     const guardianWave = stage.waves.find((wv) => wv.guardian);
     if (guardianWave) ctx.music.preload(guardianSong(guardianWave.spawns[0].enemy));
@@ -176,7 +191,10 @@ export class Battle {
       if (e.index > 0) S.music.stinger('stinger');
       if (this.stage.tutorial === 'basics' && e.index === 0 && !S.flag('tut_move')) {
         S.setFlag('tut_move');
-        hud.showHint(S.input.lastDevice === 'touch' ? 'Левый палец — движение • Кнопка — атака' : 'WASD — движение • ЛКМ / J — атака');
+        // стику учит падение в прологе (план §8.2): остаётся только атака
+        const fell = S.flag('prologue');
+        if (S.input.lastDevice === 'touch') hud.showHint(fell ? 'Кнопка — атака' : 'Левый палец — движение • Кнопка — атака');
+        else hud.showHint(fell ? 'ЛКМ / J — атака' : 'WASD — движение • ЛКМ / J — атака');
       }
       // обучение ульты (план §6.7): в толпе второй волны Свечного зала Резонанс сразу полон
       if (this.stage.tutorial === 'ult' && e.index === 1 && this.abilities.loadout.r && !S.flag('tut_ult_crowd')) {
@@ -290,6 +308,7 @@ export class Battle {
     this.douseOut.length = 0;
     this.flames.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut, realDt, this.douseOut);
     this.pools.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut);
+    if (this.landing) this.updateLanding(realDt);
     for (const p of this.douseOut) this.vfx.smokePuff(p[0], p[1], p[2]);
     this.vfx.sync(this.world, realDt, dtW);
     this.view.syncTiles();
@@ -461,6 +480,96 @@ export class Battle {
   /** Логика сцен (шаг do: 'call'): регистрируют пролог, босс, kill-cam. */
   readonly sceneCalls = new Map<string, (arg?: number) => void>();
 
+  /**
+   * Пролог, планы 6–8 (план §8.2): Пилот падает в кратер, ударная волна гасит свечи, визор загорается,
+   * обломок обшивки «Инея» вспыхивает Пустотой и становится клинком, из темноты выползает Шелуха.
+   */
+  private startLanding(): void {
+    const w = this.world, h = w.hero, ctx = this.ctx;
+    this.runner.introTime = 1e9;
+    const spots: LandingSpots = { x: h.x, z: h.z, shardX: h.x + 1.0, shardZ: h.z - 1.5, huskX: -2, huskZ: -10 };
+    const hp = { x: 0, z: 0 };
+    this.arena.nearestWalkable(spots.huskX, spots.huskZ, hp);
+    spots.huskX = hp.x; spots.huskZ = hp.z;
+    const shard = new THREE.Mesh(buildHullShard(), obsidianMaterial({ rim: '#9fb4d0', rimStrength: 0.6, rimPower: 2.2, emissive: '#d6c4ff', emissive2: '#ffd29a', emissiveStrength: 1.4 }));
+    shard.position.set(spots.shardX, 0, spots.shardZ);
+    this.group.add(shard);
+    this.landing = { quench: false, r: 0, visorT: -1, igniteT: -1, shard, music: false };
+    const L = this.landing;
+    const calls = this.sceneCalls;
+    let thaw = () => {};
+    calls.set('landStart', () => {
+      h.y = 9; h.bladeTarget = 0.001; h.avatar.bladeScale = 0.001; h.avatar.resetCloth();
+    });
+    calls.set('impact', () => {
+      h.y = 0;
+      w.bus.emit('shockwave', { x: h.x, z: h.z, r: 9, color: 'gold', strength: 1 });
+      this.cam.addTrauma(0.75);
+      this.vfx.debris.burst(h.x, 0.2, h.z, 0, 0, 14, 7, 0.2);
+      this.vfx.burst(26, { x: h.x, y: 0.25, z: h.z, life: 1.4, size: 0.6, size1: 1.9, color: C.dust, alpha: 0.5, drag: 2.4, frame: 'smoke' }, { v: 8, vy: 0.5 }, false);
+      L.quench = true; L.r = 0;
+      ctx.input.vibrate(60);
+    });
+    calls.set('visor', () => { if (L.visorT < 0) L.visorT = 0; });
+    calls.set('idle', () => { h.avatar.puppet.anim.stop(0.3); });
+    calls.set('ignite', () => {
+      if (L.igniteT >= 0) return;
+      L.igniteT = 0;
+      shard.visible = false;
+      h.bladeTarget = 1;
+      h.avatar.handPos(_top);
+      this.vfx.rings.spawn(_top.x, _top.z, 0.3, 4.5, 0.6, C.voidHot, 0.3, 0.9, _top.y);
+      this.vfx.burst(30, { x: _top.x, y: _top.y, z: _top.z, life: 0.7, size: 0.1, size1: 0.01, color: C.voidHot, drag: 2.5, frame: 'spark', stretch: 1.6 }, { v: 7, vy: 3 });
+      this.vfx.lights.flash(_top.x, _top.y, _top.z, C.voidHot, 4, 9, 0.9);
+    });
+    calls.set('husk', () => {
+      if (w.enemies.length) return;
+      const e = createEnemy('husk', { zone: w.zone, stage: w.stage, mode: w.mode });
+      e.x = spots.huskX; e.z = spots.huskZ;
+      e.facing = Math.atan2(h.x - e.x, h.z - e.z);
+      // проявляется из тьмы и ждёт: нападает только когда управление вернётся
+      const brain = e as unknown as { think: (...a: unknown[]) => void };
+      const think = brain.think;
+      brain.think = () => {};
+      thaw = () => { brain.think = think; };
+      w.addEnemy(e);
+    });
+    calls.set('title', () => {
+      if (L.quench) { L.quench = false; this.pools.quench(0, 0, 0); }
+      ctx.hud.bigBanner('VOIDBREAKER', 'Разрушитель Пустоты', 'void', 2.8, 70);
+      this.cam.addTrauma(0.35);
+    });
+    calls.set('music', () => {
+      if (L.music) return;
+      L.music = true;
+      ctx.music.play(stageSong(this.stage.id), 0.3);
+    });
+    this.playScene(landingTrack(spots), () => {
+      // конец сцены или пропуск: всё в конечное состояние, первая волна
+      calls.get('ignite')!();
+      calls.get('music')!();
+      thaw();
+      if (L.quench) { L.quench = false; this.pools.quench(0, 0, 0); }
+      h.y = 0; h.avatar.puppet.anim.stop(0.3);
+      this.runner.introTime = 0;
+      this.runner.skipIntro();
+    }, { hud: false });
+  }
+
+  private updateLanding(realDt: number): void {
+    const L = this.landing!, h = this.world.hero;
+    if (L.quench) {
+      // волна гасит свечи от кратера наружу
+      L.r = Math.min(26, L.r + realDt * 34);
+      this.flames.quench(h.x, h.z, L.r, realDt, this.douseOut);
+      this.pools.quench(h.x, h.z, L.r);
+    }
+    // визор загорается, на клинке — вспышка Пустоты, дальше — как обычно
+    if (L.visorT >= 0) { L.visorT += realDt; h.glowBoost = Math.min(1.2, L.visorT * 2.4) * (L.igniteT >= 0 ? Math.max(0, 1 - L.igniteT / 2.5) : 1); }
+    if (L.igniteT >= 0) { L.igniteT += realDt; h.glowBoost += Math.max(0, 1.6 - L.igniteT * 1.6); }
+    if (!this.director.active && !L.quench && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; }
+  }
+
   /** Слои музыки по интенсивности боя (GDD §18.3). */
   private updateMusic(realDt: number): void {
     this.intensityT -= realDt;
@@ -525,4 +634,19 @@ export class Battle {
     G.uMoonColor.value.copy(this.baseMoon);
     this.ctx.time.reset();
   }
+}
+
+/** Кратер 1-1: вздыбленные плиты и тёмное пятно копоти — без свечения (фиолетовый — только у Пилота). */
+function craterMeshes(): THREE.Object3D[] {
+  const rubble = new THREE.Mesh(buildCrater(), obsidianMaterial({ rim: ZONE1_LOOK.rim, rimStrength: 0.14, rimPower: 3.2, emissive: ZONE1_LOOK.veins, emissive2: ZONE1_LOOK.warm, emissiveStrength: 1.8 }));
+  rubble.position.set(CRATER.x, 0, CRATER.z);
+  const scorch = new THREE.Mesh(new THREE.CircleGeometry(3.1, 40), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2,
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'varying vec2 vUv; void main() { float d = length(vUv - 0.5) * 2.0; gl_FragColor = vec4(0.01, 0.012, 0.018, smoothstep(1.0, 0.2, d) * 0.7); }',
+  }));
+  scorch.rotation.x = -Math.PI / 2;
+  scorch.position.set(CRATER.x, 0.015, CRATER.z);
+  scorch.renderOrder = 2;
+  return [scorch, rubble];
 }

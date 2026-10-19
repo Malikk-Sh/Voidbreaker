@@ -146,9 +146,11 @@ export class Hud {
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.clearRect(0, 0, this.w, this.h);
     this.drawCineOverlay();
-    if (!this.visible || !f) return;
+    if (!f) return;
     const s = this.scale;
     const L = 20 * s + this.safe.l, R = this.w - 20 * s - this.safe.r, T = 14 * s + this.safe.t, B = this.h - 16 * s - this.safe.b;
+    // сцена со скрытым HUD: остаются только титры и реплики
+    if (!this.visible) { this.drawBanners(dt); this.drawSubtitle(dt, s, L, T); return; }
     g.globalAlpha = 0.95;
     this.drawWorldMarks(f);
     this.drawChevrons(f);
@@ -169,6 +171,22 @@ export class Hud {
     this.drawBanners(dt);
     this.drawSubtitle(dt, s, L, T);
     if (f.showFps) { g.fillStyle = UI.dim; g.font = `600 ${Math.round(11 * s)}px ${FONT_TECH}`; g.textAlign = 'left'; g.fillText(`${f.fps.toFixed(0)} FPS`, L, B - 70 * s); }
+    g.globalAlpha = 1;
+  }
+
+  /** Кадр вне боя (пролог, план §8.2): реплики, подсказки, баннеры, пропуск; input — показать сенсорное управление. */
+  drawScene(dt: number, input: Input | null, touchAlpha = 0.95): void {
+    this.time += dt;
+    const g = this.g, s = this.scale;
+    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    g.clearRect(0, 0, this.w, this.h);
+    this.drawCineOverlay();
+    const L = 20 * s + this.safe.l, T = 14 * s + this.safe.t;
+    g.globalAlpha = touchAlpha;
+    if (input) this.drawTouch(input, s);
+    g.globalAlpha = 0.95;
+    this.drawBanners(dt);
+    this.drawSubtitle(dt, s, L, T);
     g.globalAlpha = 1;
   }
 

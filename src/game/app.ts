@@ -5,13 +5,14 @@ import { stageById, ZONE1 } from '../data/stages';
 import { applyReward, computeReward, computeStats, type Reward, type StageResult } from '../meta/progression';
 import { writeSave } from '../meta/save';
 import { hubSong } from '../audio/music';
-import { titleScreen, prologueScreen } from '../ui/screens/title';
+import { titleScreen } from '../ui/screens/title';
 import { hubScreen } from '../ui/screens/hub';
 import { mapScreen } from '../ui/screens/map';
 import { resultsScreen } from '../ui/screens/results';
 import { pauseScreen } from '../ui/screens/pause';
 import { settingsScreen } from '../ui/screens/settings';
-import type { BattleOutcome } from './battle';
+import type { BattleOpts, BattleOutcome } from './battle';
+import { Prologue } from './prologue';
 import { LORE } from '../data/lore';
 
 export type ScreenId = 'title' | 'hub' | 'map' | 'settings' | 'prologue';
@@ -37,6 +38,8 @@ export class App {
   private screenEl: HTMLElement | null = null;
   private overlayEl: HTMLElement | null = null;
   showcase: Showcase | null = null;
+  /** Пролог «Падение» (план §8.2): сцена на движке вместо экрана меню. */
+  prologue: Prologue | null = null;
   current: ScreenId | 'battle' | 'results' = 'title';
   private pauseBtn: HTMLElement;
   lastDeathSource = '';
@@ -49,7 +52,8 @@ export class App {
     root.appendChild(h('div', { class: 'vb-rotate' }, h('div', {}, 'ПОВЕРНИТЕ УСТРОЙСТВО', h('br'), h('span', { class: 'vb-dim', style: { fontSize: '11px' } }, 'игра в ландшафтном режиме'))));
     this.pauseBtn = h('button', { class: 'vb-iconbtn', style: { position: 'absolute', top: 'max(8px, env(safe-area-inset-top))', right: 'max(12px, env(safe-area-inset-right))', zIndex: '6', pointerEvents: 'auto', display: 'none', opacity: '0' }, 'aria-label': 'Пауза', onClick: () => this.pause() });
     root.appendChild(this.pauseBtn);
-    this.game.onFrame = (dt) => this.showcase?.update(dt);
+    this.game.onFrame = (dt) => { this.showcase?.update(dt); this.prologue?.update(dt); };
+    this.cinemaPlayers.set('prologue', () => wipe(this.layer, () => this.playPrologue(true)));
     this.game.onBattleEnd = (o) => this.onBattleEnd(o);
     this.game.onPauseRequest = () => { if (this.current === 'battle' && !this.overlayEl) this.showPause(); };
     this.game.ctx.input.onPause = () => { if (this.current === 'battle') this.togglePause(); };
@@ -84,12 +88,13 @@ export class App {
     const run = () => {
       this.closeOverlay();
       if (this.game.battle) { this.game.endBattle(); this.pauseBtn.style.display = 'none'; }
+      this.stopPrologue();
+      if (id === 'prologue') { this.playPrologue(false); return; }
       this.current = id;
       this.ctx.input.enabled = false;
       this.ctx.time.paused = false;
       switch (id) {
         case 'title': this.ensureShowcase('title'); this.mount(titleScreen(this)); break;
-        case 'prologue': this.ensureShowcase('title'); this.mount(prologueScreen(this)); break;
         case 'hub': this.ensureShowcase('hub'); this.mount(hubScreen(this)); break;
         case 'map': this.ensureShowcase('map'); this.mount(mapScreen(this)); break;
         case 'settings': this.ensureShowcase(this.settingsFrom === 'title' ? 'title' : 'hub'); this.mount(settingsScreen(this, () => this.go(this.settingsFrom))); break;
@@ -103,20 +108,45 @@ export class App {
   settingsFrom: 'title' | 'hub' = 'hub';
   openSettings(from: 'title' | 'hub'): void { this.settingsFrom = from; this.go('settings'); }
 
-  startStage(id: string): void {
+  startStage(id: string, opts: BattleOpts = {}): void {
     const def = stageById(id);
     if (!def) return;
     this.ctx.audio.unlock();
-    wipe(this.layer, () => {
+    const run = () => {
       this.closeOverlay();
       this.screenEl?.remove(); this.screenEl = null;
       if (this.showcase) { this.showcase.dispose(); this.showcase = null; }
-      this.game.startBattle(def);
+      this.stopPrologue();
+      this.game.startBattle(def, opts);
       this.current = 'battle';
       this.pauseBtn.style.display = 'block';
       const b = this.game.battle!;
       b.world.bus.on('playerHurt', (e) => { this.lastDeathSource = e.source; });
+    };
+    // после пролога — без разреза: белая вспышка купола переходит во вспышку приземления
+    if (opts.prologue) run(); else wipe(this.layer, run);
+  }
+
+  /** Пролог: первый запуск — потом бой 1-1 с приземлением; повтор из Кинозала — назад в Святилище. */
+  private playPrologue(replay: boolean): void {
+    this.closeOverlay();
+    this.screenEl?.remove(); this.screenEl = null;
+    if (this.showcase) { this.showcase.dispose(); this.showcase = null; }
+    this.stopPrologue();
+    this.current = 'prologue';
+    this.prologue = new Prologue(this.ctx, this.layer, () => {
+      this.stopPrologue();
+      if (replay) { this.go('hub', false); return; }
+      this.ctx.setFlag('prologue');
+      this.startStage('1-1', { prologue: true });
     });
+  }
+
+  private stopPrologue(): void {
+    if (!this.prologue) return;
+    this.prologue.dispose();
+    this.prologue = null;
+    this.ctx.input.enabled = false;
   }
 
   // ------------------------------------------------------------------ пауза

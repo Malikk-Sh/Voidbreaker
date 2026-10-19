@@ -48,38 +48,3 @@ export function titleScreen(app: App): HTMLElement {
   addEventListener('keydown', onKey);
   return el;
 }
-
-/** Пролог: 2–4 строки бегущим текстом, пропуск тапом — и в бой (GDD §2.3, §20). */
-export function prologueScreen(app: App): HTMLElement {
-  const lines = [
-    'Корабль «Иней» разбился о шпиль собора, построенного вокруг умирающей звезды.',
-    'Уцелели клинок из обломка обшивки — и Каэлис, бортовой ИИ, переписавший себя в доспех.',
-    '— Пилот. Вставай. Звёзды гаснут, и, кажется, нас уже ждут.',
-  ];
-  const box = h('div', { class: 'vb-col', style: { maxWidth: '660px', gap: '18px', fontSize: '18px', lineHeight: '1.65', color: '#ede6d6' } });
-  const el = h('div', { class: 'vb-screen', style: { display: 'grid', placeItems: 'center', background: 'radial-gradient(ellipse at 50% 45%, rgba(10,15,22,.82), rgba(5,7,10,.96))', cursor: 'pointer' } },
-    box,
-    h('div', { class: 'vb-caps vb-pulse', style: { position: 'absolute', bottom: '24px', right: '28px', fontSize: '10px' } }, 'тап — пропустить'),
-  );
-  let li = 0, ci = 0, done = false;
-  let cur: HTMLElement | null = null;
-  const finish = () => {
-    if (done) return;
-    done = true;
-    app.ctx.setFlag('prologue');
-    app.startStage('1-1');
-  };
-  const tick = () => {
-    if (done) return;
-    if (li >= lines.length) { setTimeout(finish, 1200); return; }
-    if (!cur) { cur = h('div', { class: 'vb-type' }); box.appendChild(cur); if (li === 2) { cur.style.color = '#d6c4ff'; cur.style.fontWeight = '700'; } }
-    ci++;
-    cur.textContent = lines[li].slice(0, ci);
-    if (ci % 3 === 0 && li === 2) app.ctx.audio.speak('и', 1.1);
-    if (ci >= lines[li].length) { li++; ci = 0; cur = null; setTimeout(tick, 650); return; }
-    setTimeout(tick, 28);
-  };
-  setTimeout(tick, 400);
-  el.addEventListener('pointerdown', () => { if (li < lines.length) { li = lines.length; box.innerHTML = lines.map((l) => `<div>${l}</div>`).join(''); setTimeout(finish, 600); } else finish(); });
-  return el;
-}

@@ -39,6 +39,8 @@ export class HeroAvatar {
   private ghostTimer = 0;
   ghostsOn = false;
   bladeScale = 1;
+  /** Высота корня над полом (м): прыжки, падение в провал, сцены пролога. Входит в матрицы до расчёта ткани. */
+  lift = 0;
   stretch = 1;
   squash = 1;
   private time = 0;
@@ -139,7 +141,7 @@ export class HeroAvatar {
     s.facing = facing + r.spin;
     s.x = x + r.z * sf + r.x * cf;
     s.z = z + r.z * cf - r.x * sf;
-    s.y = this.gait.bob + r.y - this.lungeW * 0.11;
+    s.y = this.lift + this.gait.bob + r.y - this.lungeW * 0.11;
     // скорость поворота корпуса: от неё плащ раскрывается во вращении
     if (adt > 0) {
       let dy = s.facing - this.prevYaw;

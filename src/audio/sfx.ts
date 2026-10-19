@@ -1,4 +1,4 @@
-import { arp, bell, choir, chips, crunch, env, glassTail, industrial, kick, metal, mtof, noiseHit, osc, pluck, punch, saturator, sub, tom, transient, voidHiss, type Ctx } from './synth';
+import { arp, bell, boom, choir, chips, crunch, env, glassTail, industrial, kick, metal, mtof, noiseHit, osc, pink, pluck, punch, saturator, sub, tom, transient, voidHiss, type Ctx } from './synth';
 
 /**
  * Рецепты SFX (GDD §18.5). Все звуки синтезируются и «запекаются» в буферы при загрузке (OfflineAudioContext);
@@ -221,6 +221,46 @@ export const SFX: Record<string, SfxRecipe> = {
   victory: { reverb: 0.25, len: 4.5, render: (c, o, t) => { choir(c, o, t, [50, 57, 62, 66, 69], 3, 0.07, 'a', 'o'); [62, 66, 69, 74].forEach((n, i) => bell(c, o, t + i * 0.25, mtof(n), 0.1, 2.5)); } },
   defeat: { reverb: 0.25, len: 4, render: (c, o, t) => { choir(c, o, t, [38, 45, 50, 53], 2.8, 0.06, 'o', 'u'); bell(c, o, t, mtof(38), 0.15, 3.5); } },
   boss_intro: { reverb: 0.25, len: 4, render: (c, o, t) => { kick(c, o, t, 1.1, 22); body(c, o, t, 50, 28, 2, 0.8); bell(c, o, t, 65.4, 0.3, 4); const { f } = noiseHit(c, o, t, 2.5, 200, 0.3, 'lowpass', 1); f.frequency.exponentialRampToValueAtTime(60, t + 2.4); } },
+  // пролог «Падение» (план §8.2): гул орбиты, тревога «Инея», удар луча, ветер падения с хором, витраж, приземление
+  drone: { len: 4, reverb: 0.3, render: (c, o, t) => {
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 180; f.connect(o);
+    for (const d of [-9, 0, 11]) { const x = c.createOscillator(); x.type = 'sawtooth'; x.frequency.value = mtof(26); x.detune.value = d; const g = c.createGain(); env(g.gain, t, 0.09, 1.2, 2.6, 0.0001, 0.6); x.connect(g).connect(f); x.start(t); x.stop(t + 4); }
+  } },
+  alarm: { len: 0.7, render: (c, o, t) => {
+    for (const [at, n] of [[0, 76], [0.18, 71]] as const) { osc(c, 'triangle', mtof(n), t + at, 0.16, o, 0.11, 0.005, 0.15); osc(c, 'sine', mtof(n - 12), t + at, 0.16, o, 0.06, 0.005, 0.15); }
+  } },
+  hull_hit: { len: 3, reverb: 0.2, render: (c, o, t) => {
+    boom(c, o, t, 0.8); industrial(c, o, t + 0.02, 0.5, 180); crunch(c, o, t, 420, 0.2, 0.5);
+    for (let i = 0; i < 6; i++) metal(c, o, t + 0.05 + i * 0.13 + Math.random() * 0.05, 700 + Math.random() * 1600, 0.08, 0.5);
+    sweep(c, o, t + 0.1, 2400, 200, 2.2, 0.18, 0.9);
+  } },
+  fall_wind: { len: 10, reverb: 0.15, render: (c, o, t) => {
+    // шум ветра (петля), фильтр поднимается: скорость растёт
+    const src = c.createBufferSource(); src.buffer = pink(c); src.loop = true;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.7;
+    f.frequency.setValueAtTime(260, t); f.frequency.exponentialRampToValueAtTime(1500, t + 9);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 1.2); g.gain.linearRampToValueAtTime(0.75, t + 8.6); g.gain.exponentialRampToValueAtTime(0.0001, t + 9.5);
+    src.connect(f).connect(g).connect(o); src.start(t); src.stop(t + 9.6);
+    // нарастание хора: ре-фригийский, голоса прибывают
+    choir(c, o, t + 2.5, [50, 57], 6.5, 0.05, 'u', 'a');
+    choir(c, o, t + 5, [62, 65, 69], 4.2, 0.06, 'o', 'a');
+  } },
+  glass_break: { len: 3.2, reverb: 0.3, render: (c, o, t) => {
+    transient(c, o, t, 4200, 0.6); crunch(c, o, t, 2600, 0.12, 0.4); chips(c, o, t + 0.01, 8, 0.2, 0.06);
+    glassTail(c, o, t + 0.02, 34, 0.07); glassTail(c, o, t + 0.35, 18, 0.04);
+    [93, 98, 100, 105].forEach((n, i) => bell(c, o, t + 0.05 + i * 0.09, mtof(n), 0.035, 2.4));
+  } },
+  land_impact: { len: 3, reverb: 0.25, render: (c, o, t) => {
+    kick(c, o, t, 1.2, 24); sub(c, o, t, 70, 26, 1.4, 0.9); boom(c, o, t, 0.7);
+    for (let i = 0; i < 10; i++) noiseHit(c, o, t + 0.08 + Math.random() * 0.8, 0.08, 400 + Math.random() * 1200, 0.12, 'bandpass', 2);
+  } },
+  blade_ignite: { len: 2.4, reverb: 0.3, render: (c, o, t) => {
+    voidHiss(c, o, t, 0.5, 0.3, 900); sweep(c, o, t, 300, 5200, 0.55, 0.22, 1.6);
+    metal(c, o, t + 0.5, 2600, 0.18, 1.4); sub(c, o, t + 0.5, 90, 40, 0.5, 0.6);
+    choir(c, o, t + 0.45, [62, 69, 74], 1.6, 0.06, 'a', 'o');
+  } },
+  title_stamp: { len: 2.5, reverb: 0.3, render: (c, o, t) => { kick(c, o, t, 1.1, 30); industrial(c, o, t, 0.4, 140); bell(c, o, t, mtof(50), 0.18, 2.2); } },
   tom_hit: { len: 0.6, render: (c, o, t) => tom(c, o, t, 90, 0.7) },
   arp_blip: { len: 0.3, render: (c, o, t) => arp(c, o, t, 74, 0.2, 0.06) },
 };

@@ -208,7 +208,8 @@ function relicsTab(app: App, refresh: () => void): HTMLElement {
 /** Кинозал (план §8.1): увиденные сцены можно пересмотреть. */
 function cinemaSection(app: App): HTMLElement {
   const s = app.ctx.save;
-  const open = CINEMA.filter((c) => (s.cine[c.id] ?? 0) > 0);
+  // пролог открыт и тем, кто прошёл прежний текстовый пролог: новую сцену можно посмотреть здесь
+  const open = CINEMA.filter((c) => (s.cine[c.id] ?? 0) > 0 || (c.id === 'prologue' && !!s.flags.prologue));
   return h('div', { class: 'vb-card' },
     h('div', { class: 'vb-name', style: { color: UI.goldHi, fontSize: '14px' } }, 'Кинозал'),
     open.length

@@ -80,6 +80,22 @@ export class Flames {
     this.litAttr.needsUpdate = true;
   }
 
+  /**
+   * Ударная волна гасит свечи в круге r (приземление в прологе, план §8.2): пламя срывается за доли секунды.
+   * Зажигаются обратно тем же douse(…, 0), когда круг снят.
+   */
+  quench(cx: number, cz: number, r: number, dt: number, out: [number, number, number][]): void {
+    for (let i = 0; i < this.points.length; i++) {
+      const p = this.points[i];
+      if (Math.hypot(p[0] - cx, p[2] - cz) > r) continue;
+      const was = this.lit[i];
+      this.lit[i] = Math.max(0, was - dt * 14);
+      if (was > 0.5 && this.lit[i] <= 0.5) out.push(p);
+      this.doused = true;
+    }
+    this.litAttr.needsUpdate = true;
+  }
+
   dispose(): void { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); }
 }
 
@@ -154,7 +170,7 @@ export class LightPools {
    */
   tintNear(x: number, z: number, radius: number, rgb: [number, number, number], k: number): void {
     const o = this.orig;
-    const dark = this.dFrac > 0;
+    const dark = this.dFrac > 0 || this.qR > 0;
     if (!o || (k <= 0.001 && !this.tinted && !dark)) return;
     for (let i = 0; i < this.staticCount; i++) {
       const j = i * 4, d = Math.hypot(this.data[j] - x, this.data[j + 1] - z);
@@ -164,7 +180,8 @@ export class LightPools {
       let lit = 1;
       if (dark) {
         const a = (((Math.atan2(this.data[j] - this.dX, this.data[j + 1] - this.dZ) - this.dFrom) % TAU) + TAU) % TAU / TAU;
-        lit = Math.min(1, Math.max(0.12, (a - this.dFrac) / 0.05 + 0.5));
+        lit = this.dFrac > 0 ? Math.min(1, Math.max(0.12, (a - this.dFrac) / 0.05 + 0.5)) : 1;
+        if (this.qR > 0) lit = Math.min(lit, Math.max(0.12, (Math.hypot(this.data[j] - this.qX, this.data[j + 1] - this.qZ) - this.qR) / 1.5 + 0.5));
       }
       this.col[j] = (o[j] + (rgb[0] * lum * 1.6 - o[j]) * w) * lit;
       this.col[j + 1] = (o[j + 1] + (rgb[1] * lum * 1.6 - o[j + 1]) * w) * lit;
@@ -176,6 +193,9 @@ export class LightPools {
   private dX = 0; private dZ = 0; private dFrom = 0; private dFrac = 0;
   /** Погасить статичные пятна по кругу (вместе со свечами); применяется в tintNear. */
   douse(cx: number, cz: number, from: number, frac: number): void { this.dX = cx; this.dZ = cz; this.dFrom = from; this.dFrac = frac; }
+  private qX = 0; private qZ = 0; private qR = 0;
+  /** Погасить статичные пятна в круге (ударная волна приземления); r = 0 — снять. */
+  quench(x: number, z: number, r: number): void { this.qX = x; this.qZ = z; this.qR = r; }
 
   private write(i: number, x: number, z: number, r: number, color: string | [number, number, number], intensity: number, flicker: number): void {
     const c = typeof color === 'string' ? hexToLinear(color) : color;

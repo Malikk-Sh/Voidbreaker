@@ -212,10 +212,10 @@ export class Hero implements Actor {
     const a = this.avatar;
     a.ghostsOn = this.state === 'dash' || (this.state === 'charged' && this.stateT < 0.12) || (this.move?.id === 'lunge' && this.stateT < 0.12);
     a.stretch = this.state === 'dash' ? 1 + 0.35 * Math.sin(Math.min(1, this.stateT / PLAYER_BASE.dashTime) * Math.PI) : 1;
-    a.bladeScale += ((this.eclipse ? 2 : 1) - a.bladeScale) * Math.min(1, dt * 12);
-    a.glow = this.resonance / 100 * 1.2 + (this.eclipse ? 1.5 : 0) + (this.chargeLevel ? 0.6 * this.chargeLevel : 0);
+    a.bladeScale += ((this.eclipse ? 2 : this.bladeTarget) - a.bladeScale) * Math.min(1, dt * 12);
+    a.glow = this.resonance / 100 * 1.2 + (this.eclipse ? 1.5 : 0) + (this.chargeLevel ? 0.6 * this.chargeLevel : 0) + this.glowBoost;
+    a.lift = this.y;
     a.update(dt, this.x, this.z, this.facing, dist, speed, clamp(accel, -40, 40), this.state !== 'attack');
-    a.puppet.skel.y += this.y;
   }
 
   // ------------------------------------------------------------------ ввод
@@ -701,6 +701,10 @@ export class Hero implements Actor {
 
   /** Скриптовое движение (пробежка по древку): герой не расталкивается с врагами, позицию ведёт сценарий. */
   scripted = false;
+  /** Размер клинка вне ульты: в прологе клинка ещё нет (≈0), он вырастает из обломка обшивки. */
+  bladeTarget = 1;
+  /** Подсветка визора и шрама поверх Резонанса (сцены: визор загорается после падения). */
+  glowBoost = 0;
 
   freeze(on: boolean): void {
     if (on) { this.state = 'frozen'; this.hitActive = false; this.trailOn = false; this.vx = this.vz = 0; this.avatar.puppet.anim.stop(0.15); }

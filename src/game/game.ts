@@ -8,7 +8,7 @@ import { loadSave, writeSave, type SaveData } from '../meta/save';
 import { computeStats } from '../meta/progression';
 import { stageById, type StageDef } from '../data/stages';
 import type { Loadout } from '../world/abilities';
-import { Battle, type BattleOutcome } from './battle';
+import { Battle, type BattleOpts, type BattleOutcome } from './battle';
 import type { GameContext } from './context';
 
 export type Screen = 'title' | 'hub' | 'map' | 'battle' | 'results';
@@ -167,15 +167,16 @@ export class Game {
     return { q: s.loadout.q, e: s.loadout.e, r: s.loadout.r, levels: { ...s.abilities } };
   }
 
-  startBattle(def: StageDef): void {
+  startBattle(def: StageDef, opts: BattleOpts = {}): void {
     this.endBattle();
     this.ctx.audio.unlock();
     const stats = computeStats(this.ctx.save, this.ctx.settings.autoAim);
-    const b = new Battle(this.ctx, def, stats, this.loadout());
+    // HUD виден по умолчанию; сцена в конструкторе боя (пролог) может его скрыть
+    this.ctx.hud.visible = true;
+    const b = new Battle(this.ctx, def, stats, this.loadout(), opts);
     b.onEnd = (o) => this.onBattleEnd?.(o);
     this.battle = b;
     this.screen = 'battle';
-    this.ctx.hud.visible = true;
     this.ctx.input.enabled = true;
     this.ctx.input.reset();
     (window as unknown as { __vb: unknown }).__vb = { game: this, battle: b, world: b.world };
