@@ -75,6 +75,12 @@ export interface GameEvents {
   /** Страж Врат: герой побежал по древку застрявшей алебарды; удар в шлем. */
   shaftRun: { x: number; z: number };
   helmetHit: { x: number; y: number; z: number };
+  /** Аффикс «Отдача» (план §7.6): заряды полны — гул и свечение; волна; идеальное уклонение сквозь неё. */
+  recoilCharge: { x: number; z: number };
+  recoilWave: { x: number; z: number; r: number };
+  recoilDodge: { x: number; z: number };
+  /** Аффикс «Тень»: копия появилась (spawn) или исчезла (gone). */
+  shadow: { kind: 'spawn' | 'gone'; x: number; z: number };
   /** Цепи упали с потолка и стали стенами. */
   chains: { x: number; z: number; n: number };
   /** Клинок застрял в камне: окно уязвимости (с). */

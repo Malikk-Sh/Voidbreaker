@@ -1,4 +1,5 @@
 import type { Shape } from './combat';
+import type { Enemy } from './enemy';
 
 /**
  * Телеграф (GDD §15.8): красный контур формы атаки с заливкой от центра к краю,
@@ -14,6 +15,12 @@ export interface Telegraph {
   fade: number;
   /** Высота метки над полом (для «колокола», падающего сверху, — тень). */
   shadow?: boolean;
+  /** Кто поставил метку (враг, чей шаг шёл): по ней атаку повторяет «Тень». */
+  owner?: Enemy | null;
+  /** Метка-повтор «Тени» — тёмная. */
+  echo?: boolean;
+  /** Не атака (щит Аколита, псалм) — «Тень» её не повторяет. */
+  buff?: boolean;
 }
 
 export type ProjectileKind = 'orb' | 'acolyteOrb' | 'stone' | 'needle' | 'censerBall' | 'wave' | 'ring';

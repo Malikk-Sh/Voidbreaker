@@ -184,22 +184,12 @@ export class StageRunner {
     });
   }
 
-  /** Элита на 50 %: подкрепление (триггер этапа) и Зеркальный аффикс — раздвоение. */
-  private onEliteHalf(e: Enemy): void {
+  /** Элита на 50 %: подкрепление (триггер этапа). */
+  private onEliteHalf(_e: Enemy): void {
     const wave = this.wave;
     wave?.triggers?.forEach((tr, k) => {
       const key = `${this.waveIdx}:${k}`;
       if (tr.when === 'eliteHp<0.5' && !this.firedTriggers.has(key)) { this.firedTriggers.add(key); this.queue(tr.spawn, 0.3); }
     });
-    if (e.elite.includes('mirror')) {
-      const c = createEnemy(e.kind as SpawnDef['enemy'], { zone: this.w.zone, stage: this.w.stage, elite: e.elite.filter((a) => a !== 'mirror'), mode: this.w.mode });
-      c.hp = Math.round(e.hp); c.maxHp = c.hp;
-      c.halfTriggered = true;
-      const o = { x: 0, z: 0 };
-      this.w.arena.nearestWalkable(e.x + 1.5, e.z, o);
-      c.x = o.x; c.z = o.z;
-      this.w.addEnemy(c);
-      this.w.bus.emit('portal', { x: c.x, z: c.z });
-    }
   }
 }

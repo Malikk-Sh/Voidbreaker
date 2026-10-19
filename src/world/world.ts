@@ -5,6 +5,7 @@ import { swapRemove } from '../core/pool';
 import { FEEL, type FeelId } from '../data/feel';
 import type { StunKind } from '../data/weapons';
 import { RESONANCE } from '../data/player';
+import { RECOIL } from '../data/enemies';
 import type { Input } from '../input/input';
 import { addStun, endStun, triggerStun, type Actor } from './actor';
 import { NavGrid } from './nav';
@@ -14,6 +15,7 @@ import type { Enemy } from './enemy';
 import type { Hazard, Pickup, Projectile, ProjectileKind, RingWave, Telegraph } from './entities';
 import type { GameEvents } from './events';
 import { Hero } from './hero';
+import { ShadowCopy } from './shadow';
 import { RankTracker } from './rank';
 import type { AbilityHost } from './abilityHost';
 
@@ -119,6 +121,10 @@ export class World {
   magnet = false;
   /** Дополнительные «наблюдатели» шага (босс-скрипты, директор волн). */
   readonly stepHooks: ((dt: number) => void)[] = [];
+  /** Копии аффикса «Тень» (план §7.6). */
+  readonly shadows: ShadowCopy[] = [];
+  /** Враг, чей шаг сейчас идёт: его метки помечаются владельцем. */
+  private stepping: Enemy | null = null;
   /** Свечи арены гаснут по кругу, пока Звонарь заряжает сильный удар (план §7.4): доля круга 0..1 и его начало. */
   candlesOut = 0;
   candlesFrom = 0;
@@ -153,6 +159,7 @@ export class World {
   addEnemy(e: Enemy): void {
     this.enemies.push(e);
     e.onAdded(this);
+    if (e.elite.includes('shadow')) this.shadows.push(new ShadowCopy(e, this));
     this.bus.emit('spawned', { actor: e });
   }
 
@@ -172,7 +179,13 @@ export class World {
     this.nav.update(dtW, this.hero.x, this.hero.z);
     // свечи загораются снова, если их никто не гасит (Звонарь держит долю, пока заряжает удар)
     this.candlesOut = Math.max(0, this.candlesOut - dtW * 0.8);
-    for (const e of this.enemies) e.step(this, dtW);
+    for (const e of this.enemies) { this.stepping = e; e.step(this, dtW); }
+    this.stepping = null;
+    for (let i = this.shadows.length - 1; i >= 0; i--) {
+      const s = this.shadows[i];
+      s.step(this, dtW);
+      if (!s.alive && s.vis <= 0) swapRemove(this.shadows, i);
+    }
     this.integrate(dtW, dtH);
     this.stepProjectiles(dtW);
     this.stepRingWaves(dtW);
@@ -330,6 +343,7 @@ export class World {
     // реакция по классу врага (план §7.1)
     e.react(this, p.feel === 'heavy' || feel === 'break', FEEL[feel].spring, p.dirX, p.dirZ);
     if (p.source === 'blade' && !e.dead) e.onBladeHit(this, p, kind);
+    if (!shatter) e.recoilHit(this, !!p.finisher);
     if (!p.noResonance) h.addResonance(RESONANCE.perHit + (p.finisher ? RESONANCE.perFinisher - RESONANCE.perHit : 0));
     this.rank.hit(!!p.finisher);
     if (p.abilityId) this.rank.used(p.abilityId);
@@ -479,6 +493,8 @@ export class World {
     // нить Псаломщика: +25 % урона
     if (atk?.psalmLinked) dmg *= 1.25;
     const res = h.receiveAttack(dmg, dx, dz, src.kind, kb, heavy);
+    // Отдача: идеальное уклонение сквозь волну — +20 Резонанса
+    if (res === 'perfect' && src.kind === 'recoil') { h.addResonance(RECOIL.dodgeResonance); this.bus.emit('recoilDodge', { x: h.x, z: h.z }); }
     if (res === 'perfect' && atk) {
       if (!atk.isGuardian && !atk.isBoss) atk.lagT = 0.2;
       else { this.lastBossPerfect = this.time; this.addStunTo(atk, STUN_PERFECT_DODGE); }
@@ -495,7 +511,7 @@ export class World {
   }
 
   addTelegraph(shape: Shape, dur: number, white = false, shadow = false): Telegraph {
-    const t: Telegraph = { shape, t: 0, dur: Math.max(0.05, dur), white, alive: true, fade: 0, shadow };
+    const t: Telegraph = { shape, t: 0, dur: Math.max(0.05, dur), white, alive: true, fade: 0, shadow, owner: this.stepping };
     this.telegraphs.push(t);
     return t;
   }
@@ -748,6 +764,7 @@ export class World {
     if (this.tempWalls.length) this.arena.version++;
     this.tempWalls.length = 0;
     this.candlesOut = 0;
+    this.shadows.length = 0;
     this.enemies.length = 0; this.projectiles.length = 0; this.telegraphs.length = 0; this.hazards.length = 0; this.pickups.length = 0; this.ringWaves.length = 0;
     this.stepHooks.length = 0;
   }

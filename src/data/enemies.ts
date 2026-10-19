@@ -49,11 +49,20 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   hierophant: { id: 'hierophant', name: 'Иерофант Скорби', hp: 9000, dmg: 34, speed: 2.6, radius: 2.2, mass: 999, height: 7.5, stun: 120, stunDur: 3.5, drop: 0, staggerable: false },
 };
 
-export type Affix = 'hasted' | 'explosive' | 'chorus' | 'vampiric' | 'mirror' | 'burning' | 'gravity';
+/**
+ * Аффиксы элиты (план §7.6): «Отдача» и «Тень» (заменила «Зеркальный»). «Хор», «Пылающий», «Гравитационный» —
+ * из GDD, пока не реализованы (TODO(design)).
+ */
+export type Affix = 'hasted' | 'explosive' | 'chorus' | 'vampiric' | 'recoil' | 'shadow' | 'burning' | 'gravity';
 
 export const AFFIX_NAMES: Record<Affix, string> = {
-  hasted: 'Ускоренный', explosive: 'Взрывной', chorus: 'Хор', vampiric: 'Вампирический', mirror: 'Зеркальный', burning: 'Пылающий', gravity: 'Гравитационный',
+  hasted: 'Ускоренный', explosive: 'Взрывной', chorus: 'Хор', vampiric: 'Вампирический', recoil: 'Отдача', shadow: 'Тень', burning: 'Пылающий', gravity: 'Гравитационный',
 };
+
+/** Отдача: заряды за удары, на 8 — красная волна r 3.5 (телеграф 0.7 с); уклонение сквозь неё — +20 Резонанса. */
+export const RECOIL = { max: 8, r: 3.5, tele: 0.7, dodgeResonance: 20 };
+/** Тень: копия повторяет каждую атаку через 0.6 с со своей позиции, 40 % урона. */
+export const SHADOW = { delay: 0.6, dmg: 0.4, offset: 1.4 };
 
 /** Масштабирование врагов (GDD §13.1): z — зона 0..4, s — этап 0..5. */
 export function scaleHp(base: number, z: number, s: number, mode = 1): number {

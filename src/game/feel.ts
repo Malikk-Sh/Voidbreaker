@@ -348,6 +348,18 @@ export class FeelSystem {
         this.input.vibrate(60);
         this.hud.flashText('В ШЛЕМ!', UI_GOLD, e.x, e.y + 0.8, e.z);
       }),
+      // аффиксы элиты (план §7.6)
+      b.on('recoilCharge', (e) => this.audio.play('recoil_charge', { pan: this.pan(e.x) })),
+      b.on('recoilWave', (e) => {
+        this.audio.play('recoil_wave', { pan: this.pan(e.x) });
+        this.vfx.impact(e.x, e.z, e.r, C.hungerHot, 1.2);
+        this.cam.addTrauma(this.near(e.x, e.z, 7) ? 0.45 : 0.15);
+      }),
+      b.on('recoilDodge', (e) => this.hud.flashText('+20 РЕЗОНАНСА', '#B794FF', e.x, 2.4, e.z, true)),
+      b.on('shadow', (e) => {
+        this.vfx.shadowPuff(e.x, e.z, e.kind === 'gone');
+        this.audio.play('portal', { gain: e.kind === 'gone' ? 0.5 : 0.3, pitch: 0.7, pan: this.pan(e.x) });
+      }),
       b.on('chains', (e) => {
         this.audio.play('chain_drop', { pan: this.pan(e.x) });
         for (const c of this.w.tempWalls) if (c.t < 0.05) this.vfx.impact(c.x, c.z, 0.9, C.ember, 0.5);

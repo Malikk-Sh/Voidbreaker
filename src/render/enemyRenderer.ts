@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { buildAcolyte, buildBrute, buildCrawler, buildCrucifier, buildEye, buildHusk, buildMantis, buildPsalmist, type RigBuild } from '../gen/chars/enemies';
 import { buildHierophant } from '../gen/chars/hierophant';
 import type { Enemy } from '../world/enemy';
+import type { ShadowCopy } from '../world/shadow';
 import { RigBatch } from './rigbatch';
 
 /** Сборщики геометрии по id рига (кэш на сессию: сид → одна и та же модель). */
@@ -49,13 +50,20 @@ export class EnemyRenderer {
   /** Прогреть батчи заранее (без фриза при первом спавне). */
   warm(ids: string[]): void { for (const id of ids) this.batch(id); }
 
-  render(enemies: Enemy[]): void {
+  render(enemies: Enemy[], shadows: readonly ShadowCopy[] = []): void {
     for (const b of this.batches.values()) b.begin();
     for (const e of enemies) {
       const p = e.puppet;
       const b = this.batch(p.layout.def.id);
-      const eliteGlow = e.elite.length ? 0.5 : 0;
+      // элита светится; Отдача — ярче с каждым зарядом, на волне — полностью
+      const eliteGlow = e.elite.length ? 0.5 + e.recoil * 0.12 + (e.recoilTele ? 1.2 : 0) : 0;
       b.push(p.skel.world, Math.min(1, p.flash), p.dissolve, p.boost + eliteGlow, p.crack);
+    }
+    // «Тень»: полупрозрачная тёмно-багровая копия — растворена наполовину, светится своим багровым
+    for (const s of shadows) {
+      if (!s.ready || s.vis <= 0) continue;
+      const b = this.batch(s.owner.puppet.layout.def.id);
+      b.push(s.world, 0, 1 - 0.55 * s.vis, 1.1 * s.vis, 0.35);
     }
     for (const b of this.batches.values()) b.end();
   }

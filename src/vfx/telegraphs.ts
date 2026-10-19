@@ -5,6 +5,8 @@ import type { RingWave, Telegraph } from '../world/entities';
 
 const RED = new THREE.Vector3(...hexToLinear('#FF4A57')).multiplyScalar(1.6);
 const WHITE = new THREE.Vector3(1.6, 1.55, 1.7);
+/** Повтор «Тени» — тёмно-багровый. */
+const ECHO = new THREE.Vector3(...hexToLinear('#8a1020')).multiplyScalar(1.3);
 
 interface Decal { mesh: THREE.Mesh; u: Record<string, THREE.IUniform>; used: boolean }
 
@@ -114,7 +116,7 @@ export class TelegraphView {
       const prog = Math.min(1, t.t / t.dur);
       u.uProg.value = prog;
       u.uAlpha.value = t.fade > 0 ? Math.max(0, 1 - t.fade / 0.15) * (t.t >= t.dur ? 1.6 : 1) : Math.min(1, t.t / 0.06);
-      (u.uColor.value as THREE.Vector3).copy(t.white ? WHITE : RED);
+      (u.uColor.value as THREE.Vector3).copy(t.white ? WHITE : t.echo ? ECHO : RED);
       u.uHatch.value = this.hatch;
       m.rotation.set(0, 0, 0);
       switch (s.k) {

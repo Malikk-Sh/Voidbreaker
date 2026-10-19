@@ -61,7 +61,7 @@ export class Acolyte extends Enemy {
           const t = this.pickAlly(w);
           if (t) {
             this.castTarget = t; this.mode = 'shield';
-            this.telegraph(w, { k: 'circle', x: t.x, z: t.z, r: t.radius + 0.6 }, SHIELD_TELE, false, 'chime');
+            this.telegraph(w, { k: 'circle', x: t.x, z: t.z, r: t.radius + 0.6 }, SHIELD_TELE, false, 'chime').buff = true;
             this.setState('telegraph');
             break;
           }

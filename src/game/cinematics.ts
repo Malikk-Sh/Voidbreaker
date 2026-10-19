@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Ease } from '../core/ease';
 import { clamp } from '../core/math';
 import type { StageDef } from '../data/stages';
+import { AFFIX_NAMES } from '../data/enemies';
 import type { CameraRig } from '../world/camera';
 import type { Enemy } from '../world/enemy';
 import type { World } from '../world/world';
@@ -198,7 +199,9 @@ export class Cinematics {
   elite(e: Enemy): void {
     if (this.shot) return;
     this.host.slow(0.55, 0.35);
-    this.host.banner('ЭЛИТА', e.def.name, 'hunger', 1.5, 36);
+    // название и аффиксы: игрок сразу знает, чему учит эта элита
+    const affixes = e.elite.map((a) => AFFIX_NAMES[a]).join(' · ');
+    this.host.banner('ЭЛИТА', affixes ? `${e.def.name} — ${affixes}` : e.def.name, 'hunger', 1.5, 36);
   }
 
   private play(s: Omit<Shot, 't'>): void {

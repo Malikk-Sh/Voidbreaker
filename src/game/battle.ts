@@ -291,7 +291,7 @@ export class Battle {
     const runeTarget = this.arena.edge === 'abyss' && this.stage.boss ? 0 : 1;
     this.rune.u.uAlpha.value += (runeTarget - this.rune.u.uAlpha.value) * Math.min(1, realDt * 2);
     // рендер врагов и героя
-    this.enemies.render(this.world.enemies);
+    this.enemies.render(this.world.enemies, this.world.shadows);
     h.avatar.render(true, h.blinking);
     // камера
     this.updateCamera(realDt);

@@ -289,6 +289,12 @@ export class BattleVfx {
     this.lights.flash(x, y, z, C.void, 6, r * 1.5, 0.4);
   }
 
+  /** «Тень» проявилась или рассеялась: багровый дым на её месте. */
+  shadowPuff(x: number, z: number, big: boolean): void {
+    this.burst(big ? 14 : 8, { x, y: 1.0, z, life: 0.8, size: 0.5, size1: 1.4, color: C.dark, alpha: 0.6, drag: 2.5, frame: 'smoke' }, { v: 2, vy: 1 }, false);
+    this.burst(big ? 12 : 6, { x, y: 1.2, z, life: 0.5, size: 0.08, size1: 0.01, color: C.hunger, drag: 2, frame: 'spark', stretch: 1 }, { v: 4, vy: 2 });
+  }
+
   /** Искры от клинка, волочащегося по полу. */
   scrape(x: number, y: number, z: number): void {
     this.burst(2, { x, y, z, life: 0.28, size: 0.06, size1: 0.01, color: C.ember, gravity: -10, drag: 2, frame: 'spark', stretch: 1.3 }, { v: 2.5, vy: 1.6 });

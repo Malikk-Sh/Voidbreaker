@@ -85,8 +85,8 @@ export const ZONE1: StageDef[] = [
       { spawns: [{ enemy: 'eye', count: 2, at: ['left', 'right'] }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 1 }, { enemy: 'husk', count: 6, pattern: 'ring', delay: 1.5, stagger: 0.12 }] },
       // сбросить Голема в колодец заряженным ударом
       { spawns: [{ enemy: 'golem', count: 1, at: ['center'] }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1 }, { enemy: 'husk', count: 6, pattern: 'edges', delay: 3 }] },
-      // Раскол элиты
-      { spawns: [{ enemy: 'golem', count: 1, at: ['top'], elite: ['hasted'] }],
+      // Раскол элиты; Отдача — заканчивай серию финишером
+      { spawns: [{ enemy: 'golem', count: 1, at: ['top'], elite: ['recoil'] }],
         triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 } }] },
     ],
   },
@@ -99,8 +99,8 @@ export const ZONE1: StageDef[] = [
       { spawns: [{ enemy: 'eye', count: 2, at: ['left', 'right'] }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1.5 }, { enemy: 'husk', count: 4, pattern: 'ring', delay: 3 }] },
       // кого бить первым: Псаломщик связывает Распинателя и Жнеца
       { spawns: [{ enemy: 'psalmist', count: 1, at: ['top'] }, { enemy: 'crucifier', count: 1, pattern: 'far', delay: 0.5 }, { enemy: 'reaper', count: 1, pattern: 'edges', delay: 1 }, { enemy: 'husk', count: 4, pattern: 'ring', delay: 2.5, stagger: 0.12 }] },
-      // Раскол элиты; Голем на мосту
-      { spawns: [{ enemy: 'reaper', count: 1, at: ['left'], elite: ['explosive', 'hasted'] }, { enemy: 'golem', count: 1, at: ['right'], delay: 1.5 }],
+      // Раскол элиты; Тень повторяет выпад — меняй позицию после уклонения; Голем на мосту
+      { spawns: [{ enemy: 'reaper', count: 1, at: ['left'], elite: ['shadow', 'explosive'] }, { enemy: 'golem', count: 1, at: ['right'], delay: 1.5 }],
         triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 } }] },
     ],
   },

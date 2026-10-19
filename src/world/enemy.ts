@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { angleOf, clamp, dampAngle } from '../core/math';
 import { Ease } from '../core/ease';
 import type { Affix, EnemyDef } from '../data/enemies';
-import { ELITE, scaleDmg, scaleHp } from '../data/enemies';
+import { ELITE, RECOIL, scaleDmg, scaleHp } from '../data/enemies';
 import { Puppet } from '../anim/puppet';
 import type { RigLayout } from '../anim/skeleton';
 import type { ClipDef } from '../anim/clip';
@@ -90,6 +90,10 @@ export abstract class Enemy implements Actor {
   /** Метки Пустоты (план §6.1): удары клинка кладут до 5 стопок; гаснут через 4 с без ударов. */
   marks = 0;
   private markT = 0;
+  /** Отдача (аффикс, план §7.6): заряды от полученных ударов; на 8 — красная волна. */
+  recoil = 0;
+  /** Телеграф волны Отдачи (0.7 с), пока заряжается. */
+  recoilTele: Telegraph | null = null;
   /** Звёзд оглушения над головой в прошлом шаге. */
   private starsLeft = 0;
   /** Сколько секунд герой недостижим из клетки врага. */
@@ -194,9 +198,12 @@ export abstract class Enemy implements Actor {
     const c = this.puppet.crack;
     if (this.shatterPending) this.puppet.crack = -1;
     else if (this.stunned) this.puppet.crack = 0.6 + 0.3 * Math.sin(this.time * 11);
+    else if (this.recoilTele) this.puppet.crack = 0.85 + 0.15 * Math.sin(this.time * 30);
+    else if (this.recoil > 0) this.puppet.crack = 0.06 + 0.06 * this.recoil;
     else if (this.marks > 0) this.puppet.crack = -(0.12 + 0.12 * this.marks);
     else this.puppet.crack = Math.sign(c) * Math.max(0, Math.abs(c) - dt * 2);
     if (this.dazeT > 0) this.dazeT -= dt;
+    if (this.recoilTele) this.stepRecoil(w);
     if (this.shieldFrom && (this.shieldFrom.dead || !this.shieldFrom.spawned)) { this.shieldFrom = null; this.shieldMul = 1; }
     if (this.airDur > 0) {
       // удар в воздухе «подвешивает»: полёт не идёт дальше, пока держит жонглирование
@@ -268,6 +275,31 @@ export abstract class Enemy implements Actor {
       touched = true;
     }
     if (touched) s.update();
+  }
+
+  /**
+   * Отдача: каждый удар — заряд; финишер сбрасывает в 0. На 8 — полное свечение, нарастающий гул и через 0.7 с
+   * красная ударная волна r 3.5. Учит заканчивать серию финишером, а не «закликивать».
+   */
+  recoilHit(w: World, finisher: boolean): void {
+    if (this.dead || this.recoilTele || !this.elite.includes('recoil')) return;
+    if (finisher) { this.recoil = 0; return; }
+    this.recoil = Math.min(RECOIL.max, this.recoil + 1);
+    if (this.recoil < RECOIL.max) return;
+    this.recoilTele = w.addTelegraph({ k: 'circle', x: this.x, z: this.z, r: RECOIL.r }, RECOIL.tele);
+    this.lastTeleDur = RECOIL.tele;
+    w.bus.emit('recoilCharge', { x: this.x, z: this.z });
+  }
+
+  private stepRecoil(w: World): void {
+    const t = this.recoilTele!;
+    if (t.shape.k === 'circle') { t.shape.x = this.x; t.shape.z = this.z; }
+    if (t.t < t.dur) return;
+    this.recoilTele = null;
+    this.recoil = 0;
+    w.enemyStrike({ x: this.x, z: this.z, id: this.id, kind: 'recoil', elite: this.elite }, { k: 'circle', x: this.x, z: this.z, r: RECOIL.r }, this.dmg, 7);
+    w.bus.emit('shockwave', { x: this.x, z: this.z, r: RECOIL.r + 1, color: 'hunger', strength: 1 });
+    w.bus.emit('recoilWave', { x: this.x, z: this.z, r: RECOIL.r });
   }
 
   /** Опрокинут тяжёлым ударом (дуэлянт): секунды до подъёма. */
@@ -500,8 +532,15 @@ export abstract class Enemy implements Actor {
   /** Оглушение: атака отменяется, враг «плывёт» (элита 2.5 с, Голем 1.8 с, Страж 3 с, Иерофант 3.5 с). */
   onStun(): void {
     this.cancelTelegraph();
+    this.cancelRecoil();
     this.token = null;
     this.setState('stunned');
+  }
+
+  /** Волна Отдачи гаснет: оглушение или смерть. */
+  cancelRecoil(): void {
+    if (this.recoilTele) { this.recoilTele.alive = false; this.recoilTele = null; }
+    this.recoil = 0;
   }
 
   /** Оглушение кончилось (таймер или Раскол): пробуждение. */
@@ -514,6 +553,7 @@ export abstract class Enemy implements Actor {
     if (this.dead) return;
     this.dead = true;
     this.cancelTelegraph();
+    this.cancelRecoil();
     this.token = null;
     this.state = 'dead';
     this.deathT = 0;

@@ -498,3 +498,127 @@ describe('Страж Врат: застрявшая алебарда (план �
     expect(g.running).toBe(false);
   });
 });
+
+describe('элитные аффиксы: Отдача и Тень (план §7.6)', () => {
+  const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
+  const run = (w: World, sec: number): void => { const inp = idle(); for (let t = 0; t < sec; t += DT) w.step(DT, DT, inp, DT); };
+  const hit = (w: World, e: Enemy, finisher = false): void => {
+    w.damageEnemy(e, { mult: 0.01, stun: 0, knockback: 0, feel: finisher ? 'heavy' : 'light', dirX: 0, dirZ: -1, source: 'blade', finisher });
+  };
+  const frozen = (e: Enemy): void => { (e as unknown as { think(): void }).think = () => {}; };
+
+  it('«Зеркальный» заменён «Тенью»; Отдача — с 1-4, Тень — с 1-5', async () => {
+    const { AFFIX_NAMES } = await import('../src/data/enemies');
+    const { ZONE1, stageById } = await import('../src/data/stages');
+    expect(Object.keys(AFFIX_NAMES)).not.toContain('mirror');
+    expect(AFFIX_NAMES.shadow).toBe('Тень');
+    expect(AFFIX_NAMES.recoil).toBe('Отдача');
+    const affixes = (id: string) => stageById(id)!.waves.flatMap((wv) => wv.spawns.flatMap((s) => s.elite ?? []));
+    expect(affixes('1-4')).toContain('recoil');
+    expect(affixes('1-5')).toContain('shadow');
+    expect(ZONE1.length).toBeGreaterThan(0);
+  });
+
+  it('Отдача: каждый удар — заряд, финишер сбрасывает; на 8 — волна r 3.5 через 0.7 с', async () => {
+    const { Golem } = await import('../src/world/enemies/golem');
+    const { RECOIL } = await import('../src/data/enemies');
+    const w = arena();
+    const g = put(w, new Golem({ zone: 0, stage: 0, elite: ['recoil'], hpMul: 50 }), 0, 0);
+    frozen(g);
+    for (let i = 0; i < 7; i++) hit(w, g);
+    expect(g.recoil).toBe(7);
+    expect(g.recoilTele).toBe(null);
+    hit(w, g, true);
+    expect(g.recoil).toBe(0);
+    let waves = 0;
+    w.bus.on('recoilWave', () => waves++);
+    for (let i = 0; i < RECOIL.max; i++) hit(w, g);
+    expect(g.recoilTele).not.toBe(null);
+    expect(g.recoilTele!.dur).toBeCloseTo(RECOIL.tele);
+    w.hero.x = 0; w.hero.z = 2.5; w.hero.invulnUntil = 0;
+    const hp = w.hero.hp;
+    run(w, RECOIL.tele - 0.1);
+    expect(waves).toBe(0);
+    run(w, 0.15);
+    expect(waves).toBe(1);
+    expect(w.hero.hp).toBeLessThan(hp);
+    expect(g.recoil).toBe(0);
+  });
+
+  it('Отдача: идеальное уклонение сквозь волну — +20 Резонанса; оглушение гасит волну', async () => {
+    const { Golem } = await import('../src/world/enemies/golem');
+    const { RECOIL } = await import('../src/data/enemies');
+    const w = arena();
+    const g = put(w, new Golem({ zone: 0, stage: 0, elite: ['recoil'], hpMul: 50 }), 0, 0);
+    frozen(g);
+    w.hero.x = 0; w.hero.z = 2.5;
+    (w.hero as unknown as { receiveAttack(): string }).receiveAttack = () => 'perfect';
+    w.hero.resonance = 0;
+    for (let i = 0; i < RECOIL.max; i++) hit(w, g);
+    run(w, RECOIL.tele + 0.05);
+    expect(w.hero.resonance).toBeGreaterThanOrEqual(RECOIL.dodgeResonance);
+    for (let i = 0; i < RECOIL.max; i++) hit(w, g);
+    expect(g.recoilTele).not.toBe(null);
+    w.addStunTo(g, 999);
+    expect(g.recoilTele).toBe(null);
+    expect(g.recoil).toBe(0);
+  });
+
+  it('Тень: повторяет атаку через 0.6 с со своей позиции, 40 % урона; прерванную — не повторяет', async () => {
+    const { Reaper } = await import('../src/world/enemies/reaper');
+    const { SHADOW } = await import('../src/data/enemies');
+    const w = arena();
+    const r = put(w, new Reaper({ zone: 0, stage: 0, elite: ['shadow'], hpMul: 50 }), 0, 0);
+    frozen(r);
+    expect(w.shadows.length).toBe(1);
+    const s = w.shadows[0];
+    run(w, SHADOW.delay + 0.1);
+    expect(s.ready).toBe(true);
+    // поза копии — поза оригинала со сдвигом
+    const m = r.puppet.skel.world;
+    expect(s.world[12] - m[12]).toBeCloseTo(s.ox, 3);
+    // атака оригинала (метка с владельцем) — копия повторяет её на 0.6 с позже со сдвигом
+    const shape = { k: 'circle' as const, x: 0, z: 0, r: 1.2 };
+    const t = w.addTelegraph(shape, 0.5); t.owner = r;
+    // герой только под повтором, а не под оригиналом
+    w.hero.x = s.ox; w.hero.z = s.oz; w.hero.invulnUntil = 0;
+    const hp = w.hero.hp;
+    run(w, SHADOW.delay - 0.05);
+    expect(w.telegraphs.some((x) => x.echo)).toBe(false);
+    run(w, 0.1);
+    const echo = w.telegraphs.find((x) => x.echo)!;
+    expect(echo.shape.x).toBeCloseTo(s.ox, 3);
+    expect(echo.shape.z).toBeCloseTo(s.oz, 3);
+    run(w, 0.55);
+    const lost = hp - w.hero.hp;
+    expect(lost).toBeGreaterThan(0);
+    expect(lost).toBeLessThanOrEqual(Math.ceil(r.dmg * SHADOW.dmg));
+    // прерванная атака: метку сняли на половине — повтора нет
+    const t2 = w.addTelegraph({ ...shape }, 0.8); t2.owner = r;
+    run(w, 0.3);
+    t2.alive = false;
+    run(w, SHADOW.delay + 0.2);
+    expect(w.telegraphs.filter((x) => x.echo && x.alive).length).toBe(0);
+  });
+
+  it('Тень исчезает при оглушении оригинала — вместе с ещё не повторёнными атаками', async () => {
+    const { Reaper } = await import('../src/world/enemies/reaper');
+    const w = arena();
+    const r = put(w, new Reaper({ zone: 0, stage: 0, elite: ['shadow'], hpMul: 50 }), 0, 0);
+    frozen(r);
+    run(w, 0.8);
+    const s = w.shadows[0];
+    const t = w.addTelegraph({ k: 'circle', x: 0, z: 0, r: 1 }, 1.0); t.owner = r;
+    run(w, 0.7);
+    expect(w.telegraphs.some((x) => x.echo && x.alive)).toBe(true);
+    let gone = 0;
+    w.bus.on('shadow', (e) => { if (e.kind === 'gone') gone++; });
+    w.addStunTo(r, 999);
+    run(w, DT);
+    expect(s.alive).toBe(false);
+    expect(gone).toBe(1);
+    expect(w.telegraphs.some((x) => x.echo && x.alive)).toBe(false);
+    run(w, 0.5);
+    expect(w.shadows.length).toBe(0);
+  });
+});

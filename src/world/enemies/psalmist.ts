@@ -123,8 +123,9 @@ export class Psalmist extends Enemy {
     this.casting = t;
     t.forEach((e, i) => {
       const sh = { k: 'circle' as const, x: e.x, z: e.z, r: e.radius + 0.5 };
-      if (i === 0) this.telegraph(w, sh, PSALM_TELE, false, 'chime');
-      else this.extra.push(w.addTelegraph(sh, PSALM_TELE * this.teleMul));
+      // псалм — не атака: «Тень» его не повторяет
+      if (i === 0) this.telegraph(w, sh, PSALM_TELE, false, 'chime').buff = true;
+      else { const t = w.addTelegraph(sh, PSALM_TELE * this.teleMul); t.buff = true; this.extra.push(t); }
     });
     this.setState('telegraph');
   }
