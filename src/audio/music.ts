@@ -26,6 +26,8 @@ export class Sequencer {
   /** Слои текущей песни. У каждой песни свои шины: старая затухает и отключается, не смешиваясь с новой. */
   private layers = {} as Record<Layer, GainNode>;
   private bus: GainNode | null = null;
+  /** Отправка песни в реверберацию: своя шина, чтобы хвосты старой песни глохли вместе с ней. */
+  private send: GainNode | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private next = 0;
   step = 0;
@@ -48,6 +50,8 @@ export class Sequencer {
     if (!ctx) return false;
     this.bus = ctx.createGain();
     this.bus.connect(this.engine.musicBus);
+    this.send = ctx.createGain();
+    this.send.connect(this.engine.reverbSend);
     for (const l of LAYERS) { const g = ctx.createGain(); g.gain.value = 0; g.connect(this.bus); this.layers[l] = g; }
     return true;
   }
@@ -89,13 +93,16 @@ export class Sequencer {
   stop(fade = 0.5): void {
     this.gen++;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    const ctx = this.engine.ctx, bus = this.bus;
-    if (ctx && bus) {
-      // запланированные и звучащие хвосты (пэды, хор, колокола) глушатся вместе с шиной старой песни
+    const ctx = this.engine.ctx, bus = this.bus, send = this.send;
+    if (ctx && bus && send) {
+      // запланированные и звучащие хвосты (пэды, хор, колокола) глушатся вместе с шиной старой песни;
+      // реверберационная отправка идёт мимо шины, поэтому гасится отдельно — иначе пэды Святилища звучат в бою
       bus.gain.setTargetAtTime(0, ctx.currentTime, fade / 3);
-      setTimeout(() => bus.disconnect(), (fade * 2 + 0.2) * 1000);
+      send.gain.setTargetAtTime(0, ctx.currentTime, fade / 3);
+      setTimeout(() => { bus.disconnect(); send.disconnect(); }, (fade * 2 + 0.2) * 1000);
     }
     this.bus = null;
+    this.send = null;
     this.layers = {} as Record<Layer, GainNode>;
     this.song = null;
   }
@@ -138,12 +145,12 @@ export class Sequencer {
   /** Воспроизвести запечённый буфер в слой. */
   buf(name: string, t: number, layer: Layer, gain = 1, rate = 1): void {
     const ctx = this.engine.ctx, b = this.bufs.get(this.key(name));
-    if (!ctx || !b || !this.layers[layer]) return;
+    if (!ctx || !b || !this.layers[layer] || !this.send) return;
     const s = ctx.createBufferSource(); s.buffer = b;
     s.playbackRate.value = rate * Math.pow(2, this.engine.musicDetune / 1200);
     const g = ctx.createGain(); g.gain.value = gain;
     s.connect(g).connect(this.layers[layer]);
-    if (layer === 'A' || layer === 'D') { const r = ctx.createGain(); r.gain.value = 0.35; g.connect(r).connect(this.engine.reverbSend); }
+    if (layer === 'A' || layer === 'D') { const r = ctx.createGain(); r.gain.value = 0.35; g.connect(r).connect(this.send); }
     s.start(t);
   }
 
