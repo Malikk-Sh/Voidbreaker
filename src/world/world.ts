@@ -302,6 +302,7 @@ export class World {
   damageEnemy(e: Enemy, p: StrikeParams): HitResult | null {
     if (e.dead || !e.targetable) return null;
     if (e.preHit(this, p)) return null;
+    e.lastHitStunned = e.stunned;
     const h = this.hero;
     if (e.invulnerable) {
       this.bus.emit('hit', { target: e, dmg: 0, crit: false, feel: 'light', dirX: p.dirX, dirZ: p.dirZ, x: e.x, y: e.height * 0.6, z: e.z, source: p.source, shielded: true });
@@ -472,6 +473,7 @@ export class World {
     this.run.dmgDealt += dmg;
     this.run.shatters++;
     e.shatterPending = false;
+    e.lastHitStunned = true;
     endStun(e.stun);
     e.onStunEnd(this);
     e.onDamaged(this, dmg, before);

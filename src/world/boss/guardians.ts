@@ -118,7 +118,23 @@ abstract class BruteGuardian extends ScriptedEnemy {
     out.x = _p.x; out.y = _p.y; out.z = _p.z;
   }
 
-  override get invulnerable(): boolean { return this.cur?.id === 'rage'; }
+  override get invulnerable(): boolean { return this.killcam || this.cur?.id === 'rage'; }
+
+  /**
+   * Последний удар по оглушённому Стражу (план §8.4): он не умирает сразу — встаёт на колено, неуязвим,
+   * бой показывает kill-cam, в конце сцены его добивают.
+   */
+  override onLethal(w: World): boolean {
+    if (!this.lastHitStunned || this.killcamDone) return true;
+    if (!this.killcam) {
+      this.killcam = true;
+      this.cur = null; this.move = null; this.y = 0;
+      this.vulnerableT = 0;
+      this.setPose('broken', 0.12);
+      w.bus.emit('killcam', { target: this, kind: this.kind, x: this.x, z: this.z });
+    }
+    return false;
+  }
 
   /** Ярость (50 % HP): рёв, ударная волна, ускорение шага, новые приёмы второй фазы. */
   override onDamaged(w: World, dmg: number, before: number): void {
@@ -133,6 +149,7 @@ abstract class BruteGuardian extends ScriptedEnemy {
   private rageQueued = false;
 
   protected override think(w: World, dt: number, tick: boolean): void {
+    if (this.killcam) { this.vx = this.vz = 0; return; }
     // ярость ждёт конца оглушения — рёв не обрывает окно наказания (и заменяет рёв пробуждения)
     if (this.rageQueued && this.state !== 'stunned' && !this.move) {
       this.awakenQueued = false;
@@ -154,7 +171,7 @@ abstract class BruteGuardian extends ScriptedEnemy {
     const pose = this.blendPose(dt);
     for (const [j, e] of pose) setJoint(out, L, j, e[0], e[1], e[2]);
     s.x = this.x; s.z = this.z; s.facing = this.facing;
-    s.y = this.y + this.gait.bob * 1.4 - (this.state === 'stunned' ? 0.7 : 0);
+    s.y = this.y + this.gait.bob * 1.4 - (this.state === 'stunned' || this.killcam ? 0.7 : 0);
     s.tiltX = this.puppet.springZ * 0.06; s.tiltZ = -this.puppet.springX * 0.06;
     s.update();
     this.puppet.boost = this.coreGlow * 1.2 + (this.vulnerableT > 0 ? 0.5 : 0);

@@ -49,7 +49,7 @@ const STAGE_INTRO: Record<string, { sub: string; line: string }> = {
   '1-6': { sub: 'Колокол звонит по спасению', line: 'Слышишь звон? Звонарь знает, что мы идём.' },
 };
 
-const GUARDIAN: Record<string, { title: string; intro: string; rage: string; down: string }> = {
+export const GUARDIAN: Record<string, { title: string; intro: string; rage: string; down: string }> = {
   gateGuardian: {
     title: 'Хранитель порога',
     intro: 'Страж Врат. Алебарда длиннее, чем кажется — бей после размаха.',

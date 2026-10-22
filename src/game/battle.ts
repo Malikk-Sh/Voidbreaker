@@ -17,7 +17,8 @@ import type { MusicCue } from './director';
 import { effectiveFlashes, type Settings } from '../meta/settings';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
-import { Cinematics } from './cinematics';
+import { Cinematics, GUARDIAN } from './cinematics';
+import { killBellTrack, killGateTrack } from '../world/boss/guardianScenes';
 import { Director, type CineTrack, type DirectorActor, type SkyParam } from './director';
 import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
@@ -221,8 +222,10 @@ export class Battle {
     b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian); });
     b.on('kill', (e) => {
       const en = e.target as Enemy;
-      if (en.isGuardian && !en.isBoss) this.cine.guardianDown(en);
+      // после kill-cam облёт не нужен — сцена уже показала конец
+      if (en.isGuardian && !en.isBoss && !en.killcamDone) this.cine.guardianDown(en);
     });
+    b.on('killcam', (e) => this.playKillcam(e.target as Enemy));
     b.on('heroDeath', () => { this.endT = 2.4; this.outcome = 'lost'; });
     b.on('dash', () => {
       this.dashCount++;
@@ -566,6 +569,54 @@ export class Battle {
       markSeen: (id: string) => { ctx.save.cine[id] = (ctx.save.cine[id] ?? 0) + 1; ctx.persist(); },
       overlay: (skip: number, tap: { k: number; hit: boolean } | null) => ctx.hud.cineOverlay(skip, tap),
     };
+  }
+
+  /**
+   * Kill-cam Стража (план §8.4): 3–4 с без летербокса, пропускается. Страж на колене и неуязвим; в конце
+   * сцены (или при пропуске) его добивают.
+   */
+  private playKillcam(e: Enemy): void {
+    const w = this.world, h = w.hero, ctx = this.ctx;
+    const spots = { gx: e.x, gz: e.z, hx: h.x, hz: h.z };
+    const dirX = e.x - h.x, dirZ = e.z - h.z;
+    this.cine.clear(this.cam);
+    let done = false;
+    const crumble = () => {
+      if (done) return;
+      done = true;
+      e.killcamDone = true;
+      e.killcam = false;
+      w.killEnemy(e, dirX, dirZ, 7);
+      w.bus.emit('sfx', { id: 'shatter_big', x: e.x, z: e.z });
+      w.bus.emit('shake', { trauma: 0.5 });
+      ctx.hud.bigBanner('СТРАЖ ПОВЕРЖЕН', e.def.name, 'gold', 2.0, 50);
+      const g = GUARDIAN[e.kind];
+      if (g) setTimeout(() => this.feel.voice(g.down, 0), 700);
+    };
+    this.sceneCalls.set('crumble', crumble);
+    if (e.kind === 'gateGuardian') {
+      this.sceneCalls.set('knee', () => {
+        w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
+        w.bus.emit('sfx', { id: 'blade_scrape', x: e.x, z: e.z });
+        w.bus.emit('shake', { trauma: 0.3 });
+        this.vfx.hitSparks(e.x, 0.9, e.z, -dirX, -dirZ, 1, true);
+      });
+      this.sceneCalls.set('helmet', () => {
+        w.bus.emit('sfx', { id: 'bell_crack', x: e.x, z: e.z });
+        w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
+        // свет из трещин шлема
+        this.vfx.lights.flash(e.x, e.height, e.z, [1.6, 1.4, 1.0], 6, 7, 1.2);
+        this.vfx.burst(24, { x: e.x, y: e.height * 0.95, z: e.z, life: 0.6, size: 0.12, size1: 0.02, color: C.core, drag: 2, frame: 'spark', stretch: 1.5 }, { v: 6, vy: 3 });
+      });
+      this.playScene(killGateTrack(spots), crumble, { letterbox: false, hud: false });
+    } else {
+      this.sceneCalls.set('bell', () => {
+        w.bus.emit('sfx', { id: 'boss_bell', x: e.x, z: e.z });
+        // фиолетовое кольцо проходит сквозь Звонаря
+        w.bus.emit('shockwave', { x: e.x, z: e.z, r: 9, color: 'void', strength: 1.1 });
+      });
+      this.playScene(killBellTrack(spots), crumble, { letterbox: false, hud: false });
+    }
   }
 
   /** Логика сцен (шаг do: 'call'): регистрируют пролог, босс, kill-cam. */

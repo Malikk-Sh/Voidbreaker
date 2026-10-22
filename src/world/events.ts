@@ -96,6 +96,8 @@ export interface GameEvents {
   waveClear: { index: number; total: number };
   stageClear: Record<string, never>;
   bossPhase: { phase: number };
+  /** Страж добит по оглушённому: вместо смерти — kill-cam (план §8.4). */
+  killcam: { target: unknown; kind: string; x: number; z: number };
   /** Перехват фазы босса (план §8.3.1). */
   bossIntercept: { x: number; z: number };
   /** Страж на 50 % HP: рёв, вторая фаза (кинематографичная вставка). */

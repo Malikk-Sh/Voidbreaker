@@ -600,6 +600,11 @@ export abstract class Enemy implements Actor {
   onLethal(_w: World): boolean { return true; }
   /** Летит над бездной: арена не ограничивает движение. */
   flying = false;
+  /** Последний удар пришёлся по оглушённому (kill-cam Стражей, план §8.4). */
+  lastHitStunned = false;
+  /** Идёт kill-cam: враг на колене, неуязвим, ждёт конца сцены; Done — сцена сыграна, можно умирать. */
+  killcam = false;
+  killcamDone = false;
   /** До расчёта урона: true — попадание поглощено (перехват фазы босса). */
   preHit(_w: World, _p: StrikeParams): boolean { return false; }
 
