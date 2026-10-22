@@ -51,6 +51,8 @@ const POSES: PoseLib = {
  * Учит уклонению сквозь волны, приоритету целей, игре от окон уязвимости.
  */
 export class Hierophant extends ScriptedEnemy {
+  /** Звон на сильную долю музыки (только вид, ставит бой; план §8.7, п. 9). */
+  beatGlow = 0;
   ctrl: HierophantController | null = null;
   private swing = 0;
   private bob = 0;
@@ -435,7 +437,8 @@ export class Hierophant extends ScriptedEnemy {
     s.update();
     // окно перехвата: ядро бьётся бело-фиолетовым светом
     const open = this.ctrl?.interceptOpen ? 1 : 0;
-    this.puppet.boost = this.coreGlow + (this.vulnerableT > 0 ? 0.6 : 0) + (this.transitioning > 0 ? 1.5 : 0) + open * 1.6 + (this.phase >= 3 ? 0.8 : 0);
+    this.puppet.boost = this.coreGlow + (this.vulnerableT > 0 ? 0.6 : 0) + (this.transitioning > 0 ? 1.5 : 0) + open * 1.6 + (this.phase >= 3 ? 0.8 : 0) + this.beatGlow * 0.9;
+    this.beatGlow = Math.max(0, this.beatGlow - dt * 3);
     if (open) this.puppet.flash = Math.max(this.puppet.flash, 0.35 + 0.25 * Math.sin(this.bob * 22));
     this.coreGlow = Math.max(0, this.coreGlow - dt);
   }

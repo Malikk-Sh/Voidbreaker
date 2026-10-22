@@ -26,8 +26,8 @@ export interface ArenaView {
   lightConstellations(): void;
   /** Анимация живого декора (реальное время). */
   update(realDt: number): void;
-  /** Витражи и прожилки вспыхивают фиолетовым (ульта, план §8.5): 0 — обычные. */
-  tintGlass(k: number): void;
+  /** Витражи и прожилки вспыхивают фиолетовым (ульта, план §8.5): 0 — обычные; pulse — ярче на сильную долю (§8.7). */
+  tintGlass(k: number, pulse?: number): void;
   /** Дальние шпили склоняются к арене (фазы босса, план §8.5): 0 — стоят, 1 — наклон ~4°; медленно. */
   leanSpires(k: number): void;
   /** Колонны-укрытия отдельными мешами (1-2: рушатся), по порядку arena.covers; иначе пусто. */
@@ -785,9 +785,9 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     rays,
     rayColor,
     leanSpires(k: number) { leanT = k; },
-    tintGlass(k: number) {
-      decorMat.uniforms.uEmissiveColor.value.copy(glassBase).lerp(GLASS_VOID, k);
-      decorMat.uniforms.uEmissiveColor2.value.copy(glassBase2).lerp(GLASS_VOID, k * 0.7);
+    tintGlass(k: number, pulse = 0) {
+      decorMat.uniforms.uEmissiveColor.value.copy(glassBase).lerp(GLASS_VOID, k).multiplyScalar(1 + pulse);
+      decorMat.uniforms.uEmissiveColor2.value.copy(glassBase2).lerp(GLASS_VOID, k * 0.7).multiplyScalar(1 + pulse);
     },
     dispose() {
       root.traverse((o) => {

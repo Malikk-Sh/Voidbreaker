@@ -69,6 +69,8 @@ const CORONA_RAGE = new THREE.Vector3(1.2, 0.18, 0.22);
 let fullShattersLeft = 2;
 
 const _kp = new THREE.Vector3(), _kh = new THREE.Vector3();
+/** Сильная доля: насколько ярче витражи и корона луны на пике пульса. */
+export const BEAT = { glass: 0.5, moon: 0.35 };
 /** Уровни музыки (интенсивность слоёв A–D): исследование — только A, бой, финал — всё. Последняя волна: +полтона. */
 export const MUSIC_LEVEL = { explore: 0.1, fight: 0.3, final: 1 };
 export const FINAL_TRANSPOSE = 100;
@@ -103,6 +105,10 @@ export class Battle {
   private readonly ash: AshFall;
   /** Живой дрон Каэлис (план §8.6). */
   readonly kaelis = new KaelisDrone();
+  /** Пульс сильной доли (1 → 0): луна и витражи. */
+  private beatPulse = 0;
+  /** Корона луны без пульса доли (к ней тянется фаза босса). */
+  private readonly coronaNow = new THREE.Vector3();
   /** Тишина перед фирменной атакой (план §8.7, п. 5): до приглушения и до удара (мировые с). */
   private readonly sigs: { duck: number; hit: number }[] = [];
   /** Окно слабого места у босса/Стража в прошлом кадре — луч-указатель на его открытии. */
@@ -213,6 +219,7 @@ export class Battle {
     this.director = new Director(this.directorHost());
     const su = ctx.renderer.sky.u;
     this.skyBase = { size: su.uMoonSize.value, corona: su.uCorona.value.clone() };
+    this.coronaNow.copy(this.skyBase.corona);
     // мир помнит победу (план §8.3.2): звезда зоны горит на всех её аренах
     const lit = ctx.save.stars[`z${stage.zone + 1}`] ?? 0;
     this.skyCine.starLit = lit > 0 ? 1 : 0;
@@ -233,7 +240,14 @@ export class Battle {
     // тема Стража запекается заранее — переключение на его появлении без паузы
     const guardianWave = stage.waves.find((wv) => wv.guardian);
     if (guardianWave) ctx.music.preload(guardianSong(guardianWave.spawns[0].enemy));
-    ctx.music.onBeat = (bar, beat) => { if (beat === 0) this.rune.u.uPulse.value = 0.5; void bar; };
+    // синхронизация с боем (план §8.7, п. 9): сильная доля — руна, луна, витражи, звон Иерофанта
+    ctx.music.onBeat = (bar, beat) => {
+      void bar;
+      if (beat !== 0) return;
+      this.rune.u.uPulse.value = 0.5;
+      this.beatPulse = 1;
+      if (this.runner.boss instanceof Hierophant) this.runner.boss.beatGlow = 1;
+    };
   }
 
   private bindEvents(): void {
@@ -563,7 +577,8 @@ export class Battle {
     m.violet = Math.max(0, m.violet - realDt / 2.5);
     f.uViolet.value = m.violet;
     m.glass = Math.max(0, m.glass - realDt / 1.6);
-    this.view.tintGlass(m.glass);
+    this.beatPulse = Math.max(0, this.beatPulse - realDt * 3.5);
+    this.view.tintGlass(m.glass, this.beatPulse * BEAT.glass);
   }
 
   /** Луч из провала в небо после казни (план §8.3.2). */
@@ -651,7 +666,9 @@ export class Battle {
     if (this.boss) this.view.leanSpires(ph / 2);
     sky.uMoonSize.value += (this.skyBase.size * (1 + 0.12 * ph) - sky.uMoonSize.value) * Math.min(1, realDt);
     _corona.copy(this.skyBase.corona).lerp(CORONA_RAGE, 0.3 * ph);
-    sky.uCorona.value.lerp(_corona, Math.min(1, realDt));
+    this.coronaNow.lerp(_corona, Math.min(1, realDt));
+    // пульс луны на сильную долю: корона вспыхивает поверх своей фазы
+    sky.uCorona.value.copy(this.coronaNow).multiplyScalar(1 + this.beatPulse * BEAT.moon);
     sky.uStarLit.value = this.skyCine.starLit;
     sky.uStar2.value = this.skyCine.star2;
     sky.uSkyCrack.value = this.skyCine.crack;
@@ -872,6 +889,8 @@ export class Battle {
     if (w.rank.rankIdx >= 3 || this.runner.guardian || this.boss) x = 0.9;
     if (this.runner.phase === 'breather' || this.runner.phase === 'intro') x = MUSIC_LEVEL.explore;
     if (this.boss) this.ctx.music.final = this.boss.phase >= 3;
+    // ранг SS — медный акцент на каждую долю
+    this.ctx.music.accent = w.rank.rankIdx >= 5;
     if (this.ctx.music.final || w.hero.eclipse) x = MUSIC_LEVEL.final;
     if (Math.abs(x - this.ctx.music.intensity) > 0.01) this.ctx.music.setIntensity(x);
   }
@@ -933,6 +952,7 @@ export class Battle {
     this.ctx.renderer.sky.u.uCorona.value.copy(this.skyBase.corona);
     this.ctx.audio.musicTranspose = 0;
     this.ctx.music.final = false;
+    this.ctx.music.accent = false;
     G.uHemiTop.value.copy(this.baseHemi);
     G.uMoonColor.value.copy(this.baseMoon);
     this.ctx.time.reset();

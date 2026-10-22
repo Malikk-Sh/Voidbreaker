@@ -49,6 +49,8 @@ export class Sequencer {
   intensity = 0;
   /** Фаза босса / вариант паттерна. */
   phase = 0;
+  /** Ранг SS: медный акцент на каждую долю (план §8.7, п. 9). */
+  accent = false;
   /** Последняя волна этапа / фаза III (план §8.7, уровень 4): вокальные текстуры и глубокие удары поверх всех слоёв.
    *  Переживает смену песни (Страж на последней волне), снимается боем. */
   final = false;
@@ -387,6 +389,7 @@ function epicSong(cfg: EpicCfg): Song {
       }
       const stab = rage ? inBar % 4 === 0 || inBar === 14 : cfg.brassAt.includes(inBar);
       if (stab) s.buf('brass_' + ch, t, 'D', rage ? 0.75 : 0.7);
+      else if (s.accent && inBar % 4 === 0) s.buf('brass_' + ch, t, 'D', 0.5);
       if (cfg.harsh && (rage ? inBar % 4 === 0 : inBar === 0 || inBar === 8)) s.buf('chant_' + ch, t, 'D', 0.8);
       // Голод в темах Стражей и босса: сползание в конце каждой четвёртой строки
       if (cfg.harsh && inCycle % 4 === 3 && inBar === 8) s.buf('hunger', t, 'D', 0.75);

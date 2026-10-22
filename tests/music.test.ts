@@ -96,3 +96,18 @@ describe('запечённые фразы и арфа (план §8.7, пп. 6�
     expect(f.bufs.some((b) => b.startsWith('bass_') && b.split('_').length === 3)).toBe(true);
   });
 });
+
+describe('синхронизация с боем (план §8.7, п. 9)', () => {
+  it('ранг SS: медный акцент на каждую долю', () => {
+    const song = stageSong('1-1');
+    const count = (accent: boolean) => {
+      const f = fakeSeq(false);
+      (f.s as unknown as { accent: boolean }).accent = accent;
+      for (let step = 0; step < 16 * 8; step++) song.schedule(f.s, step, step * 0.1);
+      return f.bufs.filter((b) => b.startsWith('brass_')).length;
+    };
+    // 8 тактов × 4 доли — каждая с медью (часть — уже стабы темы)
+    expect(count(true)).toBeGreaterThanOrEqual(32);
+    expect(count(false)).toBeLessThan(count(true));
+  });
+});
