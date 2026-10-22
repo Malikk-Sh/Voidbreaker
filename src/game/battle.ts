@@ -42,6 +42,8 @@ export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef
 /** prologue — бой 1-1 начинается приземлением Пилота (план §8.2, планы 6–8), а не пролётом над ареной. */
 export interface BattleOpts { prologue?: boolean }
 
+/** Титул за безупречную казнь Иерофанта (план §8.3.2). */
+export const FLAWLESS_TITLE = 'Безупречная казнь';
 /** Кратер от падения Пилота в центре 1-1 (план §8.5). */
 const CRATER = { x: 0, z: 0.5 };
 
@@ -70,7 +72,7 @@ export class Battle {
   /** Дорожки режиссёра (план §8.1): пролог, интро и казнь босса, kill-cam Стражей. */
   readonly director: Director;
   /** Параметры неба, которые ведёт сцена (поверх боевых). */
-  readonly skyCine: Record<SkyParam, number> = { starLit: 0, eclipse: 0, crack: 0 };
+  readonly skyCine: Record<SkyParam, number> = { starLit: 0, eclipse: 0, crack: 0, star2: 0 };
   /** Актёры-реквизит сцены по имени (корабль, обломки…). */
   readonly props = new Map<string, DirectorActor>();
   readonly abilities: Abilities;
@@ -168,6 +170,10 @@ export class Battle {
       once: (f) => { if (ctx.flag(f)) return false; ctx.setFlag(f); return true; },
     });
     this.director = new Director(this.directorHost());
+    // мир помнит победу (план §8.3.2): звезда зоны горит на всех её аренах
+    const lit = ctx.save.stars[`z${stage.zone + 1}`] ?? 0;
+    this.skyCine.starLit = lit > 0 ? 1 : 0;
+    this.skyCine.star2 = lit >= 2 ? 1 : 0;
     this.bindEvents();
     ctx.time.reset();
     if (opts.prologue) this.startLanding();
@@ -207,7 +213,8 @@ export class Battle {
     b.on('waveClear', () => { S.audio.play('wave_clear', { gain: 0.6 }); this.view.lightConstellations(); });
     b.on('stageClear', () => {
       this.outcome = 'won';
-      if (this.stage.boss) { this.endT = 1.8; return; }
+      // казнь (план §8.3.2): экран наград — только когда сцена досмотрена
+      if (this.stage.boss) { this.endT = this.director.active ? -1 : 1.8; return; }
       this.endT = this.cine.busy === 'down' ? 4.6 : 2.9;
       this.cine.victory();
     });
@@ -314,6 +321,7 @@ export class Battle {
     this.flames.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut, realDt, this.douseOut);
     this.pools.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut);
     this.updateQuench(realDt);
+    this.updateBeam(realDt);
     if (this.landing) this.updateLanding(realDt);
     for (const p of this.douseOut) this.vfx.smokePuff(p[0], p[1], p[2]);
     this.vfx.sync(this.world, realDt, dtW);
@@ -342,6 +350,12 @@ export class Battle {
   }
 
   private step(dtW: number, dtH: number, dtR: number): void {
+    // «ДОБИТЬ»: атака по оглушённому боссу на краю смерти запускает казнь, а не удар
+    const inp = this.ctx.input;
+    if (this.boss?.executable && !this.director.active && inp.buffer.peek('attack', inp.now)) {
+      inp.buffer.consume('attack', inp.now);
+      this.boss.execute?.();
+    }
     this.world.step(dtW, dtH, this.ctx.input, dtR);
     if (!this.boss && this.runner.boss instanceof Hierophant) this.boss = new HierophantController(this.bossHost(), this.runner.boss);
     this.boss?.step(dtW);
@@ -385,10 +399,39 @@ export class Battle {
       transpose: (cents) => { ctx.audio.musicTranspose = cents; },
       duck: (level, hold) => ctx.music.duck(level, hold),
       starDir: () => { const d = ctx.renderer.sky.u.uMoonDir.value; return [d.x, d.y, d.z]; },
+      sceneHit: (id) => this.director.hits.has(id),
+      pages: (x, y, z) => {
+        // обсидиан и страницы молитвенников осыпаются в бездну
+        this.vfx.debris.burst(x, y, z, 0, 0, 18, 9, 0.24);
+        for (let i = 0; i < 70; i++) this.vfx.norm.emit({ x: x + fxRng.spread(1.5), y: y + fxRng.spread(2), z: z + fxRng.spread(1.5), vx: fxRng.spread(3), vz: fxRng.spread(3), vy: fxRng.range(-1, 3), gravity: -3.5, drag: 1.2, life: fxRng.range(2.5, 4), size: fxRng.range(0.1, 0.2), size1: 0.08, color: [0.86, 0.82, 0.72], frame: 'shard', spin: fxRng.spread(6) });
+      },
+      beam: (x, z) => { this.beamAt = { x, z, t: 0 }; this.feel.whiteFlash(0.45); },
+      saveStar: (flawless) => {
+        const s = ctx.save, key = `z${this.stage.zone + 1}`;
+        s.stars[key] = Math.max(s.stars[key] ?? 0, flawless ? 2 : 1);
+        if (flawless) {
+          if (!s.titles.includes(FLAWLESS_TITLE)) s.titles.push(FLAWLESS_TITLE);
+          if (!s.lore.includes('execution_z1')) s.lore.push('execution_z1');
+        }
+        ctx.persist();
+      },
+      finishFight: () => { if (this.outcome === 'won') this.endT = 1.2; },
       dust: (x, z) => {
         for (let i = 0; i < 46; i++) this.vfx.norm.emit({ x: x + fxRng.spread(9), y: fxRng.range(7, 11), z: z + fxRng.spread(8), vy: -fxRng.range(0.5, 1.5), gravity: -1.5, life: 2.6, size: fxRng.range(0.15, 0.35), size1: 0.6, color: C.dust, alpha: 0.4, drag: 0.6, frame: 'smoke' });
       },
     };
+  }
+
+  /** Луч из провала в небо после казни (план §8.3.2). */
+  private beamAt: { x: number; z: number; t: number } | null = null;
+  private updateBeam(realDt: number): void {
+    const b = this.beamAt;
+    if (!b) return;
+    b.t += realDt;
+    if (b.t > 2.6) { this.beamAt = null; return; }
+    const k = Math.min(1, b.t / 0.3) * Math.min(1, (2.6 - b.t) / 0.8);
+    for (let i = 0; i < 5; i++) this.vfx.add.emit({ x: b.x + fxRng.spread(0.6), y: fxRng.range(-8, 4), z: b.z + fxRng.spread(0.6), vy: fxRng.range(26, 40), life: 1.6, size: fxRng.range(0.8, 1.6) * k, size1: 0.2, color: [2.2, 1.9, 1.3], frame: 'flare' });
+    this.vfx.lights.add(b.x, 3, b.z, [1.6, 1.4, 1.0], 5 * k, 14);
   }
 
   /** Свечи гаснут в круге r от точки волной (r растёт); r = 0 — снова зажечь (план §8.2, §8.3). */
@@ -457,6 +500,7 @@ export class Battle {
     const sky = this.ctx.renderer.sky.u;
     sky.uEclipse.value = Math.max(this.eclipseK, this.skyCine.eclipse);
     sky.uStarLit.value = this.skyCine.starLit;
+    sky.uStar2.value = this.skyCine.star2;
     sky.uSkyCrack.value = this.skyCine.crack;
     G.uHemiTop.value.copy(this.baseHemi).lerp(ECLIPSE_HEMI, this.eclipseK * 0.8);
     G.uMoonColor.value.copy(this.baseMoon).lerp(ECLIPSE_MOON, this.eclipseK * 0.7);
@@ -509,7 +553,7 @@ export class Battle {
       timeScale: (scale: number, dur: number) => ctx.time.cinematic(dur, scale),
       sky: (p: SkyParam, v: number) => { this.skyCine[p] = v; },
       skyValue: (p: SkyParam) => this.skyCine[p],
-      music: (cue: 'silence' | 'stinger' | 'leitmotif' | 'resolve') => this.feel.musicCue(cue),
+      music: (cue: MusicCue) => this.feel.musicCue(cue),
       sfx: (id: string, gain: number) => ctx.audio.play(id, { gain }),
       say: (line: string, sp: 'kaelis' | 'boss') => this.feel.voice(line, 0, sp),
       banner: (text: string, sub: string | undefined, color: 'gold' | 'void' | 'hunger' | 'white' | 'ether' | 'steel', dur: number, size: number) => ctx.hud.bigBanner(text, sub, color, dur, size),
@@ -639,6 +683,7 @@ export class Battle {
       stageLabel: this.stage.boss ? 'БОСС' : `${this.stage.zone + 1}-${this.stage.index + 1}`,
       stageName: this.stage.name,
       showTouch: this.ctx.input.touchUi,
+      execute: !!this.boss?.executable && !this.director.active,
       fps: this.fps,
       showFps: this.ctx.settings.showFps,
       debugNav: DEBUG_NAV,
@@ -672,6 +717,8 @@ export class Battle {
     this.ctx.renderer.post.state.pinch.w = 0;
     this.ctx.renderer.sky.u.uEclipse.value = 0;
     this.ctx.renderer.sky.u.uSkyCrack.value = 0;
+    this.ctx.renderer.sky.u.uStarLit.value = 0;
+    this.ctx.renderer.sky.u.uStar2.value = 0;
     this.ctx.audio.musicTranspose = 0;
     G.uHemiTop.value.copy(this.baseHemi);
     G.uMoonColor.value.copy(this.baseMoon);

@@ -20,6 +20,10 @@ export interface SaveData {
   lore: string[];
   /** Сколько раз видена каждая сцена (план §8.1): дважды — укороченная версия; открытые — в Кинозале. */
   cine: Record<string, number>;
+  /** Звёзды зон, загоревшиеся после боссов (план §8.3.2): 1 — горит, 2 — и вторая малая (безупречная казнь). */
+  stars: Record<string, number>;
+  /** Титулы (безупречная казнь и т.п.). */
+  titles: string[];
 }
 
 const KEY = 'voidbreaker.save.v1';
@@ -41,6 +45,8 @@ export function newSave(): SaveData {
     flags: {},
     lore: [],
     cine: {},
+    stars: {},
+    titles: [],
   };
 }
 
@@ -78,6 +84,8 @@ export function migrate(d: Partial<SaveData>): SaveData {
   s.bosses = { ...d.bosses };
   s.lore = d.lore ?? [];
   s.cine = { ...d.cine };
+  s.stars = { ...d.stars };
+  s.titles = d.titles ?? [];
   s.relics = d.relics ?? [];
   return s;
 }

@@ -12,4 +12,7 @@ export interface BossController {
   cameraTarget(): { x: number; z: number } | null;
   cameraOverride(cam: CameraRig, camera: THREE.PerspectiveCamera, realDt: number): void;
   hudBoss(): Enemy | null;
+  /** Казнь доступна — кнопка атаки горит «ДОБИТЬ» (план §8.3.2). */
+  readonly executable?: boolean;
+  execute?(): void;
 }

@@ -31,6 +31,8 @@ export class Showcase {
   private lights = new LightManager();
   private t = 0;
   mode: ShowcaseView = 'title';
+  /** Звезда зоны в небе Святилища и карты (план §8.3.2): 0 — погасшая, 1 — горит, 2 — и вторая малая. */
+  starLit = 0;
   private camPos = new THREE.Vector3(0, 30, 30);
   private camLook = new THREE.Vector3();
   private flourishT = 6;
@@ -73,6 +75,9 @@ export class Showcase {
     this.lights.add(_b.x, _b.y, _b.z, VOID, 0.6, 3);
     this.lights.end(dt);
     this.rune.u.uPulse.value = 0.15 + Math.sin(this.t * 0.8) * 0.1;
+    const sky = this.renderer.sky.u;
+    sky.uStarLit.value = this.starLit > 0 ? 1 : 0;
+    sky.uStar2.value = this.starLit >= 2 ? 1 : 0;
     this.updateCamera(dt);
   }
 

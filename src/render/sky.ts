@@ -41,6 +41,8 @@ export class Sky {
     /** Погасшая звезда зоны загорелась (план §8.3.2); трещина в небе (фаза III). */
     uStarLit: { value: 0 },
     uSkyCrack: { value: 0 },
+    /** Вторая малая звезда рядом — безупречная казнь (план §8.3.2). */
+    uStar2: { value: 0 },
   };
 
   constructor() {
@@ -58,7 +60,7 @@ export class Sky {
         uniform mat4 uInvVP; uniform vec3 uCam; uniform float uTime;
         uniform sampler2D uNoise;
         uniform vec3 uDeep, uNebula, uNebula2, uNebula3, uCorona, uMoonCore, uMoonDir, uBoltDir;
-        uniform float uMoonSize, uStars, uPulse, uBolt, uStarFlare, uEclipse, uStarLit, uSkyCrack;
+        uniform float uMoonSize, uStars, uPulse, uBolt, uStarFlare, uEclipse, uStarLit, uSkyCrack, uStar2;
         varying vec2 vNdc;
 
         float n2(vec2 p) { return texture2D(uNoise, p).r; }
@@ -134,6 +136,13 @@ export class Sky {
             col += starC * exp(-max(rr - 1.0, 0.0) * 1.5) * 0.9 * uStarLit;
             float spikes = pow(abs(cos(ang * 3.5)), 24.0) * exp(-max(rr - 1.0, 0.0) * 0.45);
             col += starC * spikes * 0.6 * uStarLit;
+          }
+          // вторая малая звезда — безупречная казнь
+          if (uStar2 > 0.001) {
+            vec2 sp = vec2(dot(dir, side), dot(dir, up)) / uMoonSize - vec2(2.9, 1.6);
+            float sd = length(sp);
+            float sp4 = pow(abs(cos(atan(sp.y, sp.x) * 2.0)), 30.0) * exp(-sd * 0.9);
+            col += vec3(1.6, 1.4, 1.0) * (smoothstep(0.32, 0.0, sd) * 3.0 + exp(-sd * 2.2) * 0.6 + sp4 * 0.8) * uStar2;
           }
           // трещина в небе (фаза III Иерофанта): багровая ломаная через диск, растёт от центра
           if (uSkyCrack > 0.001) {

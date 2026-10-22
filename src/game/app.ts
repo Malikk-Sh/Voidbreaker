@@ -76,6 +76,7 @@ export class App {
       this.showcase.snapCamera();
     }
     this.showcase.mode = view;
+    this.showcase.starLit = this.ctx.save.stars.z1 ?? 0;
   }
 
   private mount(el: HTMLElement): void {

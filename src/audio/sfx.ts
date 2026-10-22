@@ -268,6 +268,15 @@ export const SFX: Record<string, SfxRecipe> = {
     brass(c, sat, t + 0.1, [38, 45, 50], 2.2, 0.09, true);
     sub(c, o, t + 1.5, 55, 30, 1.2, 0.8); kick(c, o, t + 1.5, 0.9, 26);
   } },
+  // казнь Иерофанта (план §8.3.2): музыка обрывается в одну хоровую ноту, нарастание хора, звон в ушах, луч в небо
+  choir_note: { len: 3.4, reverb: 0.35, render: (c, o, t) => choir(c, o, t, [62], 2.8, 0.1, 'o', 'u') },
+  choir_rise: { len: 3, reverb: 0.3, render: (c, o, t) => { choir(c, o, t, [50, 57], 2.2, 0.06, 'u', 'a'); choir(c, o, t + 0.9, [62, 66, 69], 1.6, 0.07, 'a', 'o'); } },
+  ear_ring: { len: 3.2, reverb: 0, render: (c, o, t) => { osc(c, 'sine', 6200, t + 0.2, 2.8, o, 0.035, 0.05, 2.7); osc(c, 'sine', 6260, t + 0.2, 2.8, o, 0.02, 0.05, 2.7); } },
+  beam_up: { len: 4, reverb: 0.35, render: (c, o, t) => {
+    sweep(c, o, t, 200, 6000, 1.6, 0.25, 1.4);
+    [62, 66, 69, 74].forEach((n, i) => bell(c, o, t + 0.4 + i * 0.18, mtof(n), 0.09, 3));
+    choir(c, o, t + 0.3, [50, 57, 62, 66], 3, 0.07, 'a', 'o');
+  } },
   tom_hit: { len: 0.6, render: (c, o, t) => tom(c, o, t, 90, 0.7) },
   arp_blip: { len: 0.3, render: (c, o, t) => arp(c, o, t, 74, 0.2, 0.06) },
 };

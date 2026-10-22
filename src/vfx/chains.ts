@@ -7,7 +7,7 @@ import type { World } from '../world/world';
 const MAX = 420;
 /** Шаг звеньев и высота цепи (уходит за верх кадра). */
 const STEP = 0.26, TOP = 9;
-const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1);
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), _up = new THREE.Vector3(0, 1, 0), _d = new THREE.Vector3();
 
 /**
  * Цепи «Колокольного плена» (план §7.4): падают с потолка за 0.12 с, качаются, пока стоят стеной,
@@ -17,7 +17,7 @@ export class ChainsView {
   readonly mesh: THREE.InstancedMesh;
 
   /** Цепи сцены (спуск Иерофанта, план §8.3): от y0 вверх на len, без стены. */
-  hang: { x: number; z: number; y0: number; len: number }[] = [];
+  hang: { x: number; z: number; y0: number; len: number; to?: { x: number; y: number; z: number } }[] = [];
 
   constructor() {
     const b = new GeomBuilder();
@@ -42,6 +42,18 @@ export class ChainsView {
       }
     }
     for (const c of this.hang) {
+      if (c.to) {
+        // наклонная цепь от пола к колоколу (казнь): звенья вдоль отрезка
+        const dx = c.to.x - c.x, dy = c.to.y - c.y0, dz = c.to.z - c.z, L = Math.hypot(dx, dy, dz) || 1;
+        _q.setFromUnitVectors(_up, _d.set(dx / L, dy / L, dz / L));
+        for (let k = 0; k * STEP < L && n < MAX; k++) {
+          const u = (k * STEP) / L;
+          _q2.setFromAxisAngle(_d, (k % 2) * Math.PI / 2).multiply(_q);
+          _m.compose(_p.set(c.x + dx * u, c.y0 + dy * u, c.z + dz * u), _q2, _s);
+          this.mesh.setMatrixAt(n++, _m);
+        }
+        continue;
+      }
       for (let k = 0; k * STEP < c.len && n < MAX; k++) {
         const u = k * STEP / c.len;
         _e.set(Math.sin(w.time * 1.7 + c.x) * 0.05 * u, (k % 2) * Math.PI / 2, 0);

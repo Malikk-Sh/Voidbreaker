@@ -5,8 +5,8 @@ import type { CameraRig } from '../world/camera';
 
 export type V3 = [number, number, number];
 export type BannerColor = 'gold' | 'void' | 'hunger' | 'white' | 'ether' | 'steel';
-export type SkyParam = 'starLit' | 'eclipse' | 'crack';
-export type MusicCue = 'silence' | 'stinger' | 'leitmotif' | 'resolve';
+export type SkyParam = 'starLit' | 'eclipse' | 'crack' | 'star2';
+export type MusicCue = 'silence' | 'stinger' | 'leitmotif' | 'major' | 'resolve';
 
 /**
  * Шаг дорожки (план §8.1) — тот же язык, что у паттернов боссов: время от начала сцены и действие.

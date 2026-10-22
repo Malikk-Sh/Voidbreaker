@@ -31,6 +31,8 @@ export interface HudFrame {
   stageLabel: string;
   stageName: string;
   showTouch: boolean;
+  /** Казнь босса доступна: кнопка атаки горит «ДОБИТЬ» (план §8.3.2). */
+  execute?: boolean;
   fps: number;
   showFps: boolean;
   /** Отладка навигации (?nav): стрелки поля потоков и непроходимые клетки вокруг героя. */
@@ -164,6 +166,7 @@ export class Hud {
     this.drawRank(f, R, s);
     this.drawAbilities(f, R, B, s);
     if (f.showTouch) this.drawTouch(f.input, s);
+    if (f.execute) this.drawExecute(f, s);
     this.drawBranchHint(dt, f, s);
     this.drawNums(dt, f);
     this.drawWorldTexts(dt, f);
@@ -188,6 +191,23 @@ export class Hud {
     this.drawBanners(dt);
     this.drawSubtitle(dt, s, L, T);
     g.globalAlpha = 1;
+  }
+
+  /** «ДОБИТЬ»: пульсирующая надпись и фиолетовое кольцо вокруг кнопки атаки. */
+  private drawExecute(f: HudFrame, s: number): void {
+    const g = this.g, a = 0.75 + 0.25 * Math.sin(this.time * 8);
+    g.save();
+    g.globalAlpha = a;
+    g.shadowColor = '#B794FF'; g.shadowBlur = 18 * s;
+    this.text('ДОБИТЬ', this.w / 2, this.h * 0.7, 30 * s, '#F1E8FF', 'bodyBold', 'center');
+    g.shadowBlur = 0;
+    this.text(f.showTouch ? 'кнопка атаки' : 'ЛКМ / J', this.w / 2, this.h * 0.7 + 26 * s, 12 * s, UI.void, 'tech', 'center');
+    const btn = f.showTouch ? f.input.buttons.find((b) => b.id === 'attack') : undefined;
+    if (btn) {
+      g.strokeStyle = '#B794FF'; g.lineWidth = 3 * s; g.shadowColor = '#8B5CF6'; g.shadowBlur = 14 * s;
+      g.beginPath(); g.arc(btn.x, btn.y, btn.r * (1.18 + 0.06 * Math.sin(this.time * 8)), 0, Math.PI * 2); g.stroke();
+    }
+    g.restore();
   }
 
   /** Пропуск сцены удержанием атаки — кольцо заполняется; касание-тайминг — сходящееся кольцо. */

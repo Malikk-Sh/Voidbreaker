@@ -3,11 +3,11 @@ import { World } from '../src/world/world';
 import { Arena } from '../src/world/arena';
 import { ARENAS } from '../src/data/arenas';
 import { Abilities } from '../src/world/abilities';
-import { Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHASE2_AT, PHASE3_AT, SATS, SERMON_SHIELD, type BossHost } from '../src/world/boss/hierophant';
+import { EXEC_HP, Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHASE2_AT, PHASE3_AT, SATS, SERMON_SHIELD, type BossHost } from '../src/world/boss/hierophant';
 import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
 import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
 import { VOID_BLADE } from '../src/data/weapons';
-import { DESCEND_FROM, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
+import { DESCEND_FROM, EXEC_T, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { InputBuffer, type Input } from '../src/input/input';
@@ -28,7 +28,7 @@ function setup(hx = 0, hz = 8): { w: World; b: Hierophant } {
 }
 
 /** Бой-хост без рендера: сцену проигрывает настоящий режиссёр, вызовы — логика шагов 'call'. */
-function fakeHost(w: World, b: Hierophant, hold = () => false) {
+function fakeHost(w: World, b: Hierophant, hold = () => false, tap = () => false) {
   const log: string[] = [];
   let calls: Record<string, (arg?: number) => void> = {};
   let onEnd: ((s: boolean) => void) | null = null;
@@ -36,7 +36,7 @@ function fakeHost(w: World, b: Hierophant, hold = () => false) {
   const director = new Director({
     actor: (who) => (who === 'hero' ? hero : who === 'boss' ? b : null),
     call: (fn, arg) => { log.push(fn); calls[fn]?.(arg); },
-    holding: hold, tapped: () => false, seen: () => 0, markSeen: () => {},
+    holding: hold, tapped: tap, seen: () => 0, markSeen: () => {},
   });
   const host: BossHost = {
     world: w, say: () => {}, banner: () => {}, letterbox: () => {}, slow: () => {}, flash: () => {}, starFlare: () => {}, musicPhase: () => {},
@@ -44,6 +44,7 @@ function fakeHost(w: World, b: Hierophant, hold = () => false) {
     scene: (track: CineTrack, c, end) => { calls = c; onEnd = end; director.play(track, (s) => onEnd?.(s)); },
     music: (cue) => log.push(`music:${cue}`), startSong: () => log.push('song'), quench: (_x, _z, r) => log.push(`quench:${r}`),
     runes: () => {}, chains: () => {}, dust: () => {}, sky: (pp, v) => log.push(`sky:${pp}:${v}`), transpose: (c) => log.push(`transpose:${c}`), duck: () => log.push('duck'), starDir: () => [0.42, -0.5, -0.76],
+    sceneHit: (id) => director.hits.has(id), pages: () => log.push('pages'), beam: () => log.push('beam'), saveStar: (f) => log.push(`star:${f}`), finishFight: () => log.push('finish'),
   };
   return { host, log, director };
 }
@@ -177,8 +178,8 @@ describe('Иерофант 2.0 (план §8.3)', () => {
   /** Бой с контроллером после интро (пропущено). */
   function fight(hx = 0, hz = 8) {
     const { w, b } = setup(hx, hz);
-    let held = false;
-    const fh = fakeHost(w, b, () => held);
+    let held = false, tapNow = false;
+    const fh = fakeHost(w, b, () => held, () => { const t = tapNow; tapNow = false; return t; });
     const ctrl = new HierophantController(fh.host, b);
     const cam = new CameraRig(), input = idle();
     const tick = (sec: number, each?: () => void) => {
@@ -186,7 +187,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     };
     held = true; tick(1.2); held = false;
     expect(ctrl.phase).toBe(1);
-    return { w, b, ctrl, tick, log: fh.log, hold: (v: boolean) => { held = v; } };
+    return { w, b, ctrl, tick, log: fh.log, director: fh.director, hold: (v: boolean) => { held = v; }, tap: () => { tapNow = true; } };
   }
   const full = (w: World, b: Hierophant) => w.damageEnemy(b, { mult: 4.5, stun: 30, stunKind: 'charged', knockback: 3, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade', finisher: true });
   const light = (w: World, b: Hierophant) => w.damageEnemy(b, { mult: 1, stun: 4, knockback: 1, feel: 'light', dirX: 0, dirZ: -1, source: 'blade' });
@@ -271,5 +272,81 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     for (const g of gaps) expect(g).toBeCloseTo(SATS.period / SATS.n, 0);
     for (const tl of teles) expect(tl.dur).toBeGreaterThanOrEqual(0.8);
     expect(w.bellSats.length).toBe(SATS.n);
+  });
+
+  /** До фазы III через сцены переходов. */
+  function toPhase3() {
+    const f = fight();
+    const { w, b, tick } = f;
+    b.hp = b.maxHp * PHASE2_AT + 1; light(w, b);
+    tick(INTERCEPT_WINDOW + 5);
+    b.hp = b.maxHp * PHASE3_AT + 1; light(w, b);
+    tick(INTERCEPT_WINDOW + 4);
+    expect(f.ctrl.phase).toBe(3);
+    return f;
+  }
+
+  it('казнь: «ДОБИТЬ» только в фазе III при ≤ 6 % HP и оглушении; без казни не умирает', () => {
+    const { w, b, ctrl, tick } = toPhase3();
+    b.hp = b.maxHp * 0.1;
+    w.stunEnemy(b);
+    expect(ctrl.executable).toBe(false);
+    b.hp = b.maxHp * EXEC_HP - 1;
+    expect(ctrl.executable).toBe(true);
+    expect(b.canShatter).toBe(false);
+    // урон не убивает: только казнь
+    for (let i = 0; i < 30; i++) full(w, b);
+    expect(b.dead).toBe(false);
+    expect(b.hp).toBeGreaterThanOrEqual(1);
+    tick(5);
+    expect(b.stunned).toBe(false);
+    expect(ctrl.executable).toBe(false);
+  });
+
+  it('казнь целиком: касание по кольцу — безупречная (вторая звезда), босс осыпается, бой закрывается в конце', () => {
+    const { w, b, ctrl, tick, log, director, tap } = toPhase3();
+    b.hp = b.maxHp * EXEC_HP - 1;
+    w.stunEnemy(b);
+    ctrl.execute();
+    expect(ctrl.executing).toBe(true);
+    expect(director.id).toBe('hierophantEnd');
+    let t = 0, tapped = false, diedAt = -1;
+    tick(EXEC_T.end + 1, () => {
+      t += DT;
+      if (!tapped && t > EXEC_T.tap + 0.3) { tapped = true; tap(); }
+      if (diedAt < 0 && b.dead) diedAt = t;
+    });
+    // умирает отложенным разрезом, а не раньше; бой закрывается после сцены
+    expect(diedAt).toBeGreaterThan(EXEC_T.cut - 0.1);
+    expect(diedAt).toBeLessThan(EXEC_T.cut + 0.3);
+    expect(log).toContain('star:true');
+    expect(log).toContain('sky:star2:1');
+    expect(log[log.length - 1]).toBe('finish');
+  });
+
+  it('пропуск казни удержанием: логика и звезда применяются сразу', () => {
+    const { w, b, ctrl, tick, log, hold } = toPhase3();
+    w.hero.receiveAttack(10, 0, 1, 'test', 0);
+    b.hp = b.maxHp * EXEC_HP - 1;
+    w.stunEnemy(b);
+    ctrl.execute();
+    tick(0.5); hold(true); tick(1); hold(false);
+    expect(b.dead).toBe(true);
+    expect(log).toContain('finish');
+    expect(log.some((l) => l.startsWith('star:'))).toBe(true);
+  });
+
+  it('дорожка казни: 12–15 с, планы по порядку, касание — в замедленном прыжке', () => {
+    const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 6, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76] });
+    expect(tr.dur).toBeGreaterThanOrEqual(12);
+    expect(tr.dur).toBeLessThanOrEqual(15);
+    const order = tr.steps.filter((s) => s.do === 'call').sort((a, b) => a.t - b.t).map((s) => (s.do === 'call' ? s.fn : ''));
+    expect(order).toEqual(['freeze', 'dash', 'ghostsOff', 'flare', 'strike', 'toll', 'cut', 'beam', 'star2', 'calm', 'end']);
+    const tapStep = tr.steps.find((s) => s.do === 'tap')!;
+    const slow = tr.steps.find((s) => s.do === 'time' && s.t === EXEC_T.jump)!;
+    expect(tapStep.t).toBeGreaterThanOrEqual(slow.t);
+    expect(tapStep.t).toBeLessThan(EXEC_T.strike);
+    expect(tr.steps.some((s) => s.do === 'say' && s.line === 'Одна звезда. Осталось четыре.')).toBe(true);
+    expect(tr.steps.some((s) => s.do === 'sky' && s.param === 'starLit' && s.to === 1)).toBe(true);
   });
 });

@@ -159,6 +159,8 @@ export class Prologue {
 
     this.group.add(this.ring, this.ship.mesh, ...this.beams, this.hero.group, this.rocks, this.plates, this.spires, this.rose, this.domeRing, this.norm.mesh, this.add.mesh);
     r.scene.add(this.group);
+    // звезда ещё мертва: пролог — до Иерофанта (и при пересмотре из Кинозала)
+    r.sky.u.uStarLit.value = 0; r.sky.u.uStar2.value = 0; r.sky.u.uSkyCrack.value = 0;
     // в космосе нет тумана: кольцо за 600 м видно целиком
     G.uFogRange.value.set(500, 1400);
     G.uFogHeight.value.set(-5000, -6000);

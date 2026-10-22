@@ -14,7 +14,7 @@ import type { BossController } from './bossBase';
 import { ScriptedEnemy, type PoseLib } from './scripted';
 import type { Pattern, Step } from './timeline';
 import type { CineTrack, MusicCue } from '../../game/director';
-import { collapseTrack, crackTrack, DESCEND_FROM, hierophantIntroTrack } from './hierophantScenes';
+import { collapseTrack, crackTrack, DESCEND_FROM, executionTrack, hierophantIntroTrack } from './hierophantScenes';
 import type { StrikeParams } from '../world';
 
 /** Фазы (план §8.3): I «Литургия» 100–60 %, II «Набат» 60–25 %, III «Последний звон» 25–0 %. */
@@ -24,6 +24,8 @@ export const PHASE3_AT = 0.25;
 export const INTERCEPT_WINDOW = 1.2;
 /** Огонь колокола открыт в фазе III: урон ×1.5. */
 export const PHASE3_DMG = 1.5;
+/** Добивание (план §8.3.2): фаза III, HP не выше этой доли и оглушён — кнопка атаки горит «ДОБИТЬ». */
+export const EXEC_HP = 0.06;
 /** Фаза III: облёт арены на цепях (радиус м, рад/с, высота м). */
 export const ORBIT = { r: 8.5, w: 0.3, speed: 4.5, y: 1.4 };
 /** Колокола-спутники: три на кольце r, вращаются навстречу боссу; звонят по очереди со сдвигом period/3. */
@@ -181,7 +183,8 @@ export class Hierophant extends ScriptedEnemy {
   protected poses(): PoseLib { return POSES; }
 
   override get invulnerable(): boolean { return this.transitioning > 0 || this.dying || this.state === 'spawn' || this.idleT > 100; }
-  override get canShatter(): boolean { return !this.dying && this.transitioning <= 0; }
+  /** На краю смерти в фазе III Раскол уступает казни. */
+  override get canShatter(): boolean { return !this.dying && this.transitioning <= 0 && !(this.phase >= 3 && this.hp <= this.maxHp * EXEC_HP); }
 
   private censerSteps(): Step[] {
     const h = this.w_.hero;
@@ -309,9 +312,20 @@ export class Hierophant extends ScriptedEnemy {
 
   override onLethal(_w: World): boolean {
     if (this.phase < 3) { this.hp = 1; this.ctrl?.startTransition(this.phase + 1 as 2 | 3); return false; }
-    if (this.dying) return true;
-    this.ctrl?.startDeath();
+    // фаза III: умирает только от казни
+    if (this.dying || this.ctrl?.executing || !this.ctrl) return true;
+    this.hp = 1;
     return false;
+  }
+
+  /** Оглушённый в фазе III падает с цепей на ближний мост (казнь идёт там). */
+  private landFrom: { x: number; z: number; y: number; tx: number; tz: number; t: number } | null = null;
+  override onStun(): void {
+    super.onStun();
+    if (this.phase < 3 || !this.w_) return;
+    const o = { x: 0, z: 0 };
+    this.w_.arena.nearestWalkable(this.x, this.z, o);
+    this.landFrom = { x: this.x, z: this.z, y: this.y, tx: o.x, tz: o.z, t: 0 };
   }
 
   /** Перехват фазы (план §8.3.1): полный заряд или ульта в окне — новая фаза начнётся с оглушением. */
@@ -383,6 +397,13 @@ export class Hierophant extends ScriptedEnemy {
   }
 
   protected animate(dt: number): void {
+    if (this.landFrom) {
+      const f = this.landFrom;
+      f.t += dt;
+      const u = Math.min(1, f.t / 0.6), e = u * u;
+      this.x = f.x + (f.tx - f.x) * e; this.z = f.z + (f.tz - f.z) * e; this.y = f.y * (1 - e);
+      if (u >= 1 || !this.stunned) this.landFrom = null;
+    }
     const s = this.puppet.skel, L = s.layout, out = s.rot;
     out.set(L.restRot);
     this.bob += dt;
@@ -464,13 +485,23 @@ export interface BossHost {
   /** Пыль с потолка. */
   dust(x: number, z: number): void;
   /** Параметр неба сцены (трещина фазы III). */
-  sky(param: 'crack' | 'starLit', v: number): void;
+  sky(param: 'crack' | 'starLit' | 'star2', v: number): void;
   /** Сдвиг музыки в центах (фаза III — +100). */
   transpose(cents: number): void;
   /** Провал громкости песни (такт тишины). */
   duck(level: number, hold: number): void;
   /** Направление на погасшую звезду неба. */
   starDir(): [number, number, number];
+  /** Касание-тайминг сцены попало. */
+  sceneHit(id: string): boolean;
+  /** Страницы и обсидиан осыпаются в бездну. */
+  pages(x: number, y: number, z: number): void;
+  /** Луч из провала в небо. */
+  beam(x: number, z: number): void;
+  /** Звезда зоны загорелась навсегда (flawless — и вторая малая, титул, запись в журнале). */
+  saveStar(flawless: boolean): void;
+  /** Казнь досмотрена — бой можно закрывать. */
+  finishFight(): void;
 }
 
 /**
@@ -489,6 +520,12 @@ export class HierophantController implements BossController {
   private readonly entered = new Set<number>();
   /** Перехват — один раз за бой (без бонуса к наградам). */
   interceptUsed = false;
+  /** Идёт казнь (план §8.3.2). */
+  executing = false;
+  /** В фазе III герой получил урон (безупречная казнь — без него или по кольцу-таймингу). */
+  private p3Hurt = false;
+  private flawless = false;
+  private finished = false;
   private interceptHinted = false;
   private deathT = -1;
   private lines = 0;
@@ -505,6 +542,7 @@ export class HierophantController implements BossController {
     boss.ctrl = this;
     boss.homeX = 0; boss.homeZ = 0;
     const h = host.world.hero, b = boss;
+    host.world.bus.on('playerHurt', () => { if (this.phase >= 3) this.p3Hurt = true; });
     // интро 2.0 (план §8.3): босс ждёт под сводом, сцена спускает его по цепям
     b.y = DESCEND_FROM;
     host.scene(hierophantIntroTrack({ hx: h.x, hz: h.z, bx: b.x, bz: b.z }), {
@@ -710,6 +748,89 @@ export class HierophantController implements BossController {
       b.restRange = [1.4, 2.2];
       this.chainsOn = true;
     }
+  }
+
+  /** Кнопка атаки горит «ДОБИТЬ»: фаза III, ≤ 6 % HP, оглушён. */
+  get executable(): boolean {
+    const b = this.boss;
+    return this.introDone && this.phase >= 3 && !this.executing && !b.dead && b.stunned && b.hp <= b.maxHp * EXEC_HP;
+  }
+
+  /** Казнь (план §8.3.2): сцена режиссёра; босс оглушён до конца, умирает отложенным разрезом. */
+  execute(): void {
+    if (!this.executable) return;
+    const b = this.boss, w = this.host.world, h = w.hero, H = this.host;
+    this.executing = true;
+    // всё вокруг замирает: снаряды, кольца, метки, спутники
+    if (b.stun) { b.stun.stunned = 99; b.stun.total = 99; }
+    w.projectiles.length = 0; w.ringWaves.length = 0;
+    for (const t of w.telegraphs) t.alive = false;
+    for (const e of w.enemies) if (e !== b && !e.dead) w.killEnemy(e, 0, 1, 3);
+    for (const s of b.sats) { s.tele = false; s.t = 0; }
+    h.scripted = true;
+    const dx = b.x - h.x, dz = b.z - h.z, dl = Math.hypot(dx, dz) || 1;
+    const fx = dx / dl, fz = dz / dl;
+    const c = { x: 0, z: 0 }, l = { x: 0, z: 0 };
+    w.arena.nearestWalkable(b.x - fx * 2.6, b.z - fz * 2.6, c);
+    w.arena.nearestWalkable(b.x + fx * 3.2, b.z + fz * 3.2, l);
+    b.bellPos(this.tmp);
+    const bellY = Math.max(4, this.tmp.y);
+    // цепь от колокола к полу — по ней Пилот взбегает
+    const chain = { x: c.x, z: c.z, y0: 0, len: 0, to: { x: b.x - fx * 0.8, y: bellY + 0.4, z: b.z - fz * 0.8 } };
+    this.chainsOn = false;
+    H.chains([chain]);
+    H.scene(executionTrack({ bx: b.x, bz: b.z, hx: h.x, hz: h.z, cx: c.x, cz: c.z, bellY, lx: l.x, lz: l.z, star: H.starDir() }), {
+      freeze: () => { H.slow(0.05, 0.5); H.duck(0, 30); w.bus.emit('sfx', { id: 'choir_note', x: b.x, z: b.z }); },
+      dash: () => { h.sceneGhosts = true; w.bus.emit('sfx', { id: 'dash', x: h.x, z: h.z }); },
+      ghostsOff: () => { h.sceneGhosts = false; },
+      flare: () => { h.glowBoost = 2.2; },
+      strike: () => {
+        this.flawless = H.sceneHit('perfect') || !this.p3Hurt;
+        w.bus.emit('sfx', { id: 'shatter_cut', x: b.x, z: b.z });
+        w.bus.emit('sfx', { id: 'hit_heavy', x: b.x, z: b.z });
+        w.bus.emit('shockwave', { x: b.x, z: b.z, r: this.flawless ? 15 : 7, color: 'void', strength: this.flawless ? 1.6 : 1 });
+        H.flash(this.flawless ? 1 : 0.8);
+      },
+      toll: () => {
+        H.chains([]);
+        H.music('silence');
+        w.bus.emit('sfx', { id: 'boss_bell', x: b.x, z: b.z });
+        w.bus.emit('sfx', { id: 'ear_ring', x: b.x, z: b.z });
+        w.bus.emit('shake', { trauma: 0.3 });
+      },
+      cut: () => this.cut(),
+      beam: () => { H.beam(b.x, b.z); w.bus.emit('sfx', { id: 'beam_up', x: b.x, z: b.z }); },
+      star2: () => { if (this.flawless) H.sky('star2', 1); },
+      calm: () => { h.glowBoost = 0; h.sceneGhosts = false; h.avatar.puppet.anim.stop(0.8); },
+      end: () => this.finish(),
+    }, () => { this.cut(); this.finish(); });
+  }
+
+  /** Отложенный разрез: босс раскалывается по линии удара и осыпается в бездну. */
+  private cut(): void {
+    const b = this.boss, w = this.host.world, h = w.hero;
+    if (b.dead) return;
+    b.dying = true;
+    b.bellPos(this.tmp);
+    this.host.pages(b.x, this.tmp.y, b.z);
+    w.bellSats.length = 0;
+    this.host.chains([]);
+    w.killEnemy(b, b.x - h.x, b.z - h.z, 7);
+    w.bus.emit('sfx', { id: 'shatter_big', x: b.x, z: b.z });
+    w.bus.emit('shake', { trauma: 0.6 });
+    w.bus.emit('bossDeath', { x: b.x, z: b.z });
+  }
+
+  private finish(): void {
+    if (this.finished) return;
+    this.finished = true;
+    const h = this.host.world.hero;
+    h.scripted = false; h.sceneGhosts = false; h.glowBoost = 0; h.y = 0;
+    this.host.sky('starLit', 1);
+    if (this.flawless) this.host.sky('star2', 1);
+    this.host.saveStar(this.flawless);
+    this.host.banner('ИЕРОФАНТ ПОВЕРЖЕН', this.flawless ? 'Безупречная казнь' : 'Колокол умолк');
+    this.host.finishFight();
   }
 
   startDeath(): void {

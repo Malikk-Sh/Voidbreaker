@@ -554,8 +554,12 @@ export class FeelSystem {
   setLetterbox(v: number): void { this.letterbox = v; }
 
   /** Музыкальные реплики сцен (план §8.1): тишина, стингер, лейтмотив Пилота, разрешение. */
-  musicCue(cue: 'silence' | 'stinger' | 'leitmotif' | 'resolve'): void {
+  musicCue(cue: 'silence' | 'stinger' | 'leitmotif' | 'major' | 'resolve'): void {
     if (cue === 'silence') this.music.setIntensity(0, 0.12);
+    else if (cue === 'major') {
+      // лейтмотив в мажоре — звезда загорелась (план §8.3.2): D–E–F♯–D–C♯–D
+      [62, 64, 66, 62, 61, 62].forEach((n, i) => this.audio.play('motif_note', { gain: 0.85, pitch: Math.pow(2, (n - 62) / 12), delay: i * 0.34, vary: 0 }));
+    }
     else if (cue === 'stinger') this.music.stinger('stinger');
     else if (cue === 'resolve') this.music.setIntensity(0.6, 1.5);
     else {

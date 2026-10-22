@@ -210,7 +210,7 @@ export class Hero implements Actor {
 
   private animate(dt: number, dist: number, speed: number, accel = 0): void {
     const a = this.avatar;
-    a.ghostsOn = this.state === 'dash' || (this.state === 'charged' && this.stateT < 0.12) || (this.move?.id === 'lunge' && this.stateT < 0.12);
+    a.ghostsOn = this.sceneGhosts || this.state === 'dash' || (this.state === 'charged' && this.stateT < 0.12) || (this.move?.id === 'lunge' && this.stateT < 0.12);
     a.stretch = this.state === 'dash' ? 1 + 0.35 * Math.sin(Math.min(1, this.stateT / PLAYER_BASE.dashTime) * Math.PI) : 1;
     a.bladeScale += ((this.eclipse ? 2 : this.bladeTarget) - a.bladeScale) * Math.min(1, dt * 12);
     a.glow = this.resonance / 100 * 1.2 + (this.eclipse ? 1.5 : 0) + (this.chargeLevel ? 0.6 * this.chargeLevel : 0) + this.glowBoost;
@@ -705,6 +705,8 @@ export class Hero implements Actor {
   bladeTarget = 1;
   /** Подсветка визора и шрама поверх Резонанса (сцены: визор загорается после падения). */
   glowBoost = 0;
+  /** Остаточные образы в сцене (рывок казни). */
+  sceneGhosts = false;
 
   freeze(on: boolean): void {
     if (on) { this.state = 'frozen'; this.hitActive = false; this.trailOn = false; this.vx = this.vz = 0; this.avatar.puppet.anim.stop(0.15); }
