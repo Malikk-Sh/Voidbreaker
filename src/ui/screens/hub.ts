@@ -11,6 +11,7 @@ import { titleCanvas } from '../font';
 import { enterFullscreen, exitFullscreen, fullscreenSupported, isFullscreen } from '../fullscreen';
 import { iconCanvas, type IconId } from '../icons';
 import { UI } from '../theme';
+import { emblemSvg, litRays } from '../emblem';
 
 type Tab = 'stats' | 'altar' | 'forge' | 'relics' | 'lore';
 
@@ -68,9 +69,12 @@ export function hubScreen(app: App, initial: Tab = 'stats'): HTMLElement {
   const panelW = 'min(600px, 58vw)';
   const el = h('div', { class: 'vb-screen vb-fade' },
     h('div', { class: 'vb-row', style: { position: 'absolute', top: 'max(10px, env(safe-area-inset-top))', left: 'max(18px, env(safe-area-inset-left))', right: 'max(18px, env(safe-area-inset-right))', justifyContent: 'space-between', alignItems: 'flex-start' } },
-      h('div', { class: 'vb-col', style: { gap: '0' } },
-        titleCanvas('Святилище', 26, { color: 'gold', glow: 0.6, spacing: 0.08 }),
-        h('div', { class: 'vb-caps', style: { marginTop: '-12px', marginLeft: '14px', fontSize: '9px', color: UI.dim } }, 'Обсидиановый собор · убежище Пилота')),
+      h('div', { class: 'vb-row', style: { gap: '6px', alignItems: 'center' } },
+        // эмблема прогресса (план §8.8): луч за каждого побеждённого босса
+        h('div', { title: `Лучей звезды: ${litRays(save)} из 7`, style: { lineHeight: '0' } }, emblemSvg(54, litRays(save))),
+        h('div', { class: 'vb-col', style: { gap: '0' } },
+          titleCanvas('Святилище', 26, { color: 'gold', glow: 0.6, spacing: 0.08 }),
+          h('div', { class: 'vb-caps', style: { marginTop: '-12px', marginLeft: '14px', fontSize: '9px', color: UI.dim } }, 'Обсидиановый собор · убежище Пилота'))),
       h('div', { class: 'vb-row', style: { gap: '14px' } }, curSlot,
         fullscreenSupported() ? iconBtn('fullscreen', 'Полный экран', () => { void (isFullscreen() ? exitFullscreen() : enterFullscreen()); }) : null,
         iconBtn('gear', 'Настройки', () => app.openSettings('hub'))),

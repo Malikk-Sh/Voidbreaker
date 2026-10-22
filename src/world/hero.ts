@@ -145,7 +145,13 @@ export class Hero implements Actor {
     this.clock += dt;
     this.stateT += dt;
     const S = this.stats;
-    if (this.dead) { this.avatar.puppet.skel.stepDebris(dt); this.animate(dt, 0, 0); return; }
+    if (this.dead) {
+      // поражение (план §8.8): осколки Пилота разлетаются и растворяются в Пустоте
+      this.avatar.puppet.skel.stepDebris(dt);
+      if (this.stateT > 0.6) this.avatar.puppet.dissolve = Math.min(1, this.avatar.puppet.dissolve + dt * 0.7);
+      this.animate(dt, 0, 0);
+      return;
+    }
 
     // перезарядка рывка: по одному заряду
     if (this.dashCharges < S.dashCharges) {
@@ -696,7 +702,8 @@ export class Hero implements Actor {
     if (this.dead) return;
     this.state = 'victory'; this.stateT = 0;
     this.hitActive = false; this.trailOn = false;
-    this.avatar.puppet.play('victory', 1, 0.1);
+    // послебоевая тишина (план §8.8): Пилот медленно опускает клинок
+    this.avatar.puppet.play('lowerBlade', 1, 0.25);
   }
 
   /** Скриптовое движение (пробежка по древку): герой не расталкивается с врагами, позицию ведёт сценарий. */

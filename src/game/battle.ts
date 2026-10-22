@@ -69,6 +69,9 @@ const CORONA_RAGE = new THREE.Vector3(1.2, 0.18, 0.22);
 let fullShattersLeft = 2;
 
 const _kp = new THREE.Vector3(), _kh = new THREE.Vector3();
+/** Последний враг волны: масштаб времени, длительность (с), наезд камеры. Послебоевая тишина (с). */
+export const WAVE_END = { scale: 0.3, sec: 0.4, push: 0.06 };
+export const POST_SILENCE = 2.5;
 /** Сильная доля: насколько ярче витражи и корона луны на пике пульса. */
 export const BEAT = { glass: 0.5, moon: 0.35 };
 /** Уровни музыки (интенсивность слоёв A–D): исследование — только A, бой, финал — всё. Последняя волна: +полтона. */
@@ -105,6 +108,8 @@ export class Battle {
   private readonly ash: AshFall;
   /** Живой дрон Каэлис (план §8.6). */
   readonly kaelis = new KaelisDrone();
+  /** Наезд «волна закрыта» (реальные с до конца). */
+  private waveEndT = 0;
   /** Пульс сильной доли (1 → 0): луна и витражи. */
   private beatPulse = 0;
   /** Корона луны без пульса доли (к ней тянется фаза босса). */
@@ -282,7 +287,9 @@ export class Battle {
       this.outcome = 'won';
       // казнь (план §8.3.2): экран наград — только когда сцена досмотрена
       if (this.stage.boss) { this.endT = this.director.active ? -1 : 1.8; return; }
-      this.endT = this.cine.busy === 'down' ? 4.6 : 2.9;
+      // послебоевая тишина (план §8.8): музыка стихает, обломки ещё падают, Пилот опускает клинок — потом награды
+      S.music.stop(POST_SILENCE * 0.8);
+      this.endT = this.cine.busy === 'down' ? 4.6 : Math.max(2.9, POST_SILENCE + 0.4);
       this.cine.victory();
     });
     b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian, this.events.overhead()); });
@@ -294,6 +301,11 @@ export class Battle {
     });
     b.on('kill', (e) => {
       const en = e.target as Enemy;
+      // последний враг волны (план §8.8): замедление 0.3 на 0.4 с и наезд 6 % — «волна закрыта»
+      if (this.runner.phase === 'wave' && !this.runner.spawnsPending && !this.world.enemies.some((x) => !x.dead && x !== en) && !this.stage.boss) {
+        this.ctx.time.slow(WAVE_END.scale, WAVE_END.sec);
+        this.waveEndT = WAVE_END.sec + 0.35;
+      }
       // после kill-cam облёт не нужен — сцена уже показала конец
       if (en.isGuardian && !en.isBoss && !en.killcamDone) this.cine.guardianDown(en);
     });
@@ -635,6 +647,10 @@ export class Battle {
       for (const e of this.world.enemies) if (!e.dead && Math.hypot(e.x - h.x, e.z - h.z) < 13) near++;
       if (near >= 12) zoom = 1 + Math.min(0.12, (near - 11) * 0.02);
       this.bossFrame = 0;
+    }
+    if (this.waveEndT > 0) {
+      this.waveEndT -= realDt;
+      zoom *= 1 - WAVE_END.push * Math.min(1, this.waveEndT / 0.25, (WAVE_END.sec + 0.35 - this.waveEndT) / 0.12);
     }
     this.feel.baseZoom = zoom;
     // со Стражем и боссом камера наклоняется до ~49°: в кадре горизонт и луна (план §8.5)

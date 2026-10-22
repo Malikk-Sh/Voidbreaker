@@ -19,6 +19,9 @@ const STEP_PITCH: Record<string, number> = {
 };
 import type { AudioEngine } from '../audio/engine';
 import { MOTIF, type Sequencer } from '../audio/music';
+
+/** Смертельный удар по Пилоту: замедление (реальные с, масштаб времени). */
+export const DEATH_SLOW = { sec: 0.5, scale: 0.25 };
 import type { Time } from '../core/time';
 import type { Input } from '../input/input';
 import type { Post } from '../render/post';
@@ -171,11 +174,14 @@ export class FeelSystem {
         this.time.addHitstop(0.06);
       }),
       b.on('heroDeath', (e) => {
-        this.time.cinematic(1.4, 0.25);
+        // смертельный удар (план §8.8): 0.5 с замедления — видно, что произошло; дальше Пилот распадается
+        this.time.cinematic(DEATH_SLOW.sec, DEATH_SLOW.scale);
         this.vfx.shatter(e.x, 1.2, e.z, 0, 1, 1);
         this.audio.play('death');
         this.cam.addTrauma(0.6);
-        this.music.setIntensity(0, 1.5);
+        // музыка смолкает: разбитый лейтмотив прозвучит на экране поражения
+        this.music.stop(1.5);
+        this.voice('Пилот… Пилот!', 0);
       }),
       b.on('secondWind', (e) => {
         this.time.addHitstop(0.2);

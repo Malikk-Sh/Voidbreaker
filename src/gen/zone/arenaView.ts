@@ -121,7 +121,7 @@ function constellationMaterial(color: string): THREE.ShaderMaterial {
 }
 const BANNER = [hexToLinear('#4a1018'), hexToLinear('#14303c')];
 
-/** Знамя: полотнище с ласточкиным хвостом, золотая перекладина и ромб-эмблема. */
+/** Знамя: полотнище с ласточкиным хвостом, золотая перекладина и вышитая семиконечная звезда. */
 function banner(g: GeomBuilder, h: number, color: [number, number, number], seed: number): void {
   const rng = new Rng(seed);
   const s = new THREE.Shape();
@@ -129,7 +129,8 @@ function banner(g: GeomBuilder, h: number, color: [number, number, number], seed
   s.moveTo(-w, 0); s.lineTo(w, 0); s.lineTo(w, -h); s.lineTo(0.0, -h + tail); s.lineTo(-w, -h); s.closePath();
   g.add(new THREE.ExtrudeGeometry(s, { depth: 0.03, bevelEnabled: false }), { color, shade: 0.12 });
   g.add(box(w * 2 + 0.3, 0.07, 0.07), { matrix: mat(0, 0.03, 0.02), color: GOLD });
-  g.add(prism(4, 0.17, 0.17, 0.02), { matrix: mat(0, -h * 0.42, 0.045, Math.PI / 2, 0, 0), color: GOLD, shade: 0.05 });
+  // вышитая семиконечная звезда (план §8.8)
+  g.add(starPlate(7, 0.22, 0.1, 0.02), { matrix: mat(0, -h * 0.42, 0.045, Math.PI / 2, 0, 0), color: GOLD, shade: 0.05 });
   g.add(prism(4, 0.08, 0.08, 0.025), { matrix: mat(0, -h * 0.42, 0.05, Math.PI / 2, 0, 0), emissive: 1.2 });
   g.add(box(w * 2 - 0.12, 0.035, 0.04), { matrix: mat(0, -0.16, 0.03), color: GOLD });
 }

@@ -6,6 +6,7 @@ import { fmtNum, fmtTime, h, svg } from '../dom';
 import { titleCanvas } from '../font';
 import { iconCanvas } from '../icons';
 import { currencyBar } from './hub';
+import { emblemSvg, litRays, starPoints } from '../emblem';
 
 /** Позиции звёзд созвездия Зоны 01 (доли «рамки» 16:9). */
 const POS: Record<string, [number, number]> = {
@@ -60,10 +61,12 @@ export function mapScreen(app: App): HTMLElement {
           g.appendChild(svg('path', { d: 'M-7 -2 h14 v12 h-14 z M-5 -2 v-5 a5 5 0 0 1 10 0 v5', fill: 'none', stroke: '#f0d9a0', 'stroke-width': 1.5 }));
         } else if (cleared) g.appendChild(svg('circle', { r: 9, fill: '#fff6dc', filter: 'url(#vbGlow)' }));
       } else {
+        // узел — семиконечная звезда (план §8.8): загорается по числу ★ (0 — тёмная, 3 — сияет)
         const r = sel ? 24 : 19;
-        const pts = `0,${-r} ${r * 0.35},${-r * 0.35} ${r},0 ${r * 0.35},${r * 0.35} 0,${r} ${-r * 0.35},${r * 0.35} ${-r},0 ${-r * 0.35},${-r * 0.35}`;
+        const n0 = st?.stars ?? 0;
         if (sel) g.appendChild(svg('circle', { r: 36, fill: 'none', stroke: 'rgba(240,217,160,.7)', 'stroke-width': 1, 'stroke-dasharray': '3 5' }));
-        g.appendChild(svg('polygon', { points: pts, fill: cleared ? '#f0d9a0' : unlocked ? 'rgba(22,32,44,.95)' : 'rgba(16,20,26,.8)', stroke: unlocked ? '#f0d9a0' : 'rgba(110,120,130,.5)', 'stroke-width': 1.5, filter: cleared ? 'url(#vbGlow)' : '' }));
+        const fill = !unlocked ? 'rgba(16,20,26,.8)' : ['rgba(22,32,44,.95)', '#6e5a34', '#c9ac6c', '#fff0c8'][n0];
+        g.appendChild(svg('polygon', { points: starPoints(r, 0.48), fill, stroke: unlocked ? '#f0d9a0' : 'rgba(110,120,130,.5)', 'stroke-width': 1.5, filter: n0 >= 2 ? 'url(#vbGlow)' : '', 'data-stars': n0 }));
         const lbl = svg('text', { y: -32, 'text-anchor': 'middle', fill: unlocked ? '#ede6d6' : '#5b6470', 'font-size': 17, 'font-family': 'Tektur, sans-serif', 'letter-spacing': 1 });
         lbl.textContent = d.id;
         g.appendChild(lbl);
@@ -118,7 +121,7 @@ export function mapScreen(app: App): HTMLElement {
       h('div', { class: 'vb-row', style: { alignItems: 'flex-start' } },
         h('button', { class: 'vb-iconbtn', 'aria-label': 'Назад', onClick: () => { app.sfx('ui_back'); app.go('hub'); } }, iconCanvas('back', 22, '#f0d9a0', 'rgba(240,200,120,.5)')),
         h('div', { class: 'vb-col', style: { gap: '0' } },
-          h('div', { class: 'vb-row', style: { gap: '2px' } }, titleCanvas(ZONE1_INFO.num, 24, { color: 'steel', face: 'tech' }), titleCanvas(ZONE1_INFO.name, 22, { color: 'gold', glow: 0.5, spacing: 0.06 })),
+          h('div', { class: 'vb-row', style: { gap: '2px', alignItems: 'center' } }, h('div', { style: { lineHeight: '0', marginRight: '4px' } }, emblemSvg(40, litRays(s))), titleCanvas(ZONE1_INFO.num, 24, { color: 'steel', face: 'tech' }), titleCanvas(ZONE1_INFO.name, 22, { color: 'gold', glow: 0.5, spacing: 0.06 })),
           h('div', { class: 'vb-caps', style: { marginTop: '-12px', marginLeft: '14px', color: '#8b95a3' } }, `«${ZONE1_INFO.subtitle}» · звёзды ${stars} / 18`),
           h('div', { style: { marginLeft: '14px', marginTop: '6px' } }, intro))),
       currencyBar(app)),

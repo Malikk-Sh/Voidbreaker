@@ -43,6 +43,8 @@ export class StageRunner {
   }
 
   get waveTotal(): number { return this.def.waves.length; }
+  /** Есть ещё не вышедшие враги текущей волны. */
+  get spawnsPending(): boolean { return this.pending.length > 0; }
 
   /** Интро пропущено (кат-сцена закончилась раньше) — первая волна почти сразу. */
   skipIntro(): void { if (this.phase === 'intro') this.introTime = Math.min(this.introTime, this.t + 0.2); }
