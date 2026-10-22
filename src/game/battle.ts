@@ -22,6 +22,7 @@ import { FeelSystem } from './feel';
 import { Cinematics, GUARDIAN, STAGE_VISTA_T } from './cinematics';
 import { Ambience, AMBIENCE, AMB_LEVEL } from '../audio/ambience';
 import { AshFall, BeamDust } from '../vfx/atmosphere';
+import { KaelisDrone } from '../vfx/kaelis';
 import { killBellTrack, killGateTrack } from '../world/boss/guardianScenes';
 import { Director, type CineTrack, type DirectorActor, type SkyParam } from './director';
 import type { Enemy } from '../world/enemy';
@@ -66,6 +67,8 @@ const CORONA_RAGE = new THREE.Vector3(1.2, 0.18, 0.22);
 /** Полных Расколов на сессию (план §5.6): первые два — полная версия, дальше — короткая. */
 let fullShattersLeft = 2;
 
+const _kp = new THREE.Vector3(), _kh = new THREE.Vector3();
+
 export class Battle {
   readonly world: World;
   readonly arena: Arena;
@@ -92,6 +95,10 @@ export class Battle {
   /** Пыль в лучах из окон и пепел на разной глубине (план §8.5). */
   private readonly beamDust: BeamDust | null;
   private readonly ash: AshFall;
+  /** Живой дрон Каэлис (план §8.6). */
+  readonly kaelis = new KaelisDrone();
+  /** Окно слабого места у босса/Стража в прошлом кадре — луч-указатель на его открытии. */
+  private windowWas = false;
   private flames: Flames;
   private pools: LightPools;
   private rune: RuneCircle;
@@ -159,6 +166,9 @@ export class Battle {
     this.ash = new AshFall(this.vfx.quality);
     this.group.add(this.ash.mesh);
     if (this.beamDust) this.group.add(this.beamDust.mesh);
+    this.group.add(this.kaelis.group, this.kaelis.beamMesh);
+    this.world.hero.avatar.kaelisHidden = true;
+    ctx.audio.onSpeak = (sp, syl) => { if (sp === 'kaelis') this.kaelis.speak(syl); };
     const amb = AMBIENCE[stage.id];
     this.ambience = amb ? new Ambience(ctx.audio, amb) : null;
 
@@ -245,6 +255,11 @@ export class Battle {
       this.cine.victory();
     });
     b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian, this.events.overhead()); });
+    // Каэлис указывает лучом на оглушённого босса/Стража (план §8.6)
+    b.on('stun', (e) => {
+      const t = e.target as Enemy;
+      if (e.boss || t.isGuardian) this.kaelis.point(e.x, t.height * 0.6, e.z);
+    });
     b.on('kill', (e) => {
       const en = e.target as Enemy;
       // после kill-cam облёт не нужен — сцена уже показала конец
@@ -348,6 +363,7 @@ export class Battle {
     // шлейф клинка: сэмплы рукоять/кончик
     const h = this.world.hero;
     if (h.trailOn && !h.dead) { h.bladePoints(this.bladeA, this.bladeB); this.vfx.trail.push(this.bladeA, this.bladeB, h.swingWeight); }
+    this.updateKaelis(realDt);
     // ступени ранга (план §6.6): A — шлейф толще и ярче, искры гуще; S — следы и альтернативные финишеры; SS — аура
     const ri = this.world.rank.rankIdx;
     this.vfx.rankTier = ri >= 5 ? 3 : ri >= 4 ? 2 : ri >= 3 ? 1 : 0;
@@ -479,6 +495,16 @@ export class Battle {
     if (!this.arena.walkable(x, z)) return;
     for (const s of this.scars.spots) if (s.alive && Math.hypot(s.x - x, s.z - z) < size * 0.5) return;
     this.scars.add(x, z, size, strength);
+  }
+
+  /** Каэлис: следует за суставом у плеча; луч — на открытие окна слабого места босса/Стража. */
+  private updateKaelis(realDt: number): void {
+    const h = this.world.hero;
+    const focus = this.runner.boss ?? this.runner.guardian;
+    const open = !!focus && !focus.dead && focus.inWindow;
+    if (open && !this.windowWas && focus) this.kaelis.point(focus.x, focus.height * 0.6, focus.z);
+    this.windowWas = open;
+    this.kaelis.update(realDt, h.avatar.kaelisPos(_kp), h.hp / h.maxHp, h.eclipse, _kh.set(h.x, 0, h.z), this.ctx.renderer.camera);
   }
 
   /** Настроение арены (план §8.5): свечи гаснут на 0.4 с, фиолетовая вспышка победы, витражи на ульте. */
@@ -846,6 +872,8 @@ export class Battle {
 
   dispose(): void {
     this.ambience?.stop();
+    this.ctx.audio.onSpeak = null;
+    this.kaelis.dispose();
     this.cine.clear(this.cam);
     this.director.clear(this.cam);
     this.feel.dispose();

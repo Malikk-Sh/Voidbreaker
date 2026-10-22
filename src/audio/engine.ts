@@ -236,21 +236,33 @@ export class AudioEngine {
     this.musicFilter.frequency.setTargetAtTime(freq, this.ctx.currentTime, tau);
   }
 
+  /** Слоги каждой реплики: [начало, длительность] (с, от момента вызова) — по ним пульсирует дрон Каэлис. */
+  onSpeak: ((speaker: 'kaelis' | 'boss', syllables: [number, number][]) => void) | null = null;
+
   /** «Голос машины» Каэлис: формантные слоги-блипы в ритме текста с металлическим фильтром (GDD §18.6). */
   speak(text: string, pitch = 1, speaker: 'kaelis' | 'boss' = 'kaelis'): void {
+    // ритм слогов — и без звука (контекст не открыт): дрон всё равно «говорит» гранями
+    const n = Math.min(14, Math.max(2, Math.round(text.replace(/[^а-яёa-z]/gi, '').length / 3)));
+    const syl: { at: number; dur: number }[] = [];
+    let at = 0.02;
+    for (let i = 0; i < n; i++) {
+      const dur = 0.05 + Math.random() * 0.05;
+      syl.push({ at, dur });
+      at += dur + 0.025 + Math.random() * 0.03;
+    }
+    this.onSpeak?.(speaker, syl.map((x) => [x.at, x.dur]));
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
-    const syll = Math.min(14, Math.max(2, Math.round(text.replace(/[^а-яёa-z]/gi, '').length / 3)));
-    let t = ctx.currentTime + 0.02;
+    const t0 = ctx.currentTime;
     const out = ctx.createGain(); out.gain.value = speaker === 'boss' ? 0.5 : 0.35;
     const comb = ctx.createDelay(0.02); comb.delayTime.value = speaker === 'boss' ? 0.009 : 0.0035;
     const fb = ctx.createGain(); fb.gain.value = 0.45;
     out.connect(this.voiceBus); out.connect(comb); comb.connect(fb).connect(comb); comb.connect(this.voiceBus);
     const s = ctx.createGain(); s.gain.value = 0.25; out.connect(s).connect(this.reverbSend);
     const base = speaker === 'boss' ? 70 : 190 * pitch;
-    for (let i = 0; i < syll; i++) {
-      const dur = 0.05 + Math.random() * 0.05;
-      const f0 = base * (1 + (Math.random() - 0.5) * 0.25) * (i === syll - 1 ? 0.85 : 1);
+    syl.forEach(({ at: st, dur }, i) => {
+      const t = t0 + st;
+      const f0 = base * (1 + (Math.random() - 0.5) * 0.25) * (i === n - 1 ? 0.85 : 1);
       const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f0;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -262,8 +274,7 @@ export class AudioEngine {
       }
       g.connect(out);
       o.start(t); o.stop(t + dur + 0.02);
-      t += dur + 0.025 + Math.random() * 0.03;
-    }
+    });
   }
 
   get time(): number { return this.ctx?.currentTime ?? 0; }

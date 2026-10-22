@@ -128,8 +128,10 @@ export class HeroAvatar {
       addJoint(s.rot, this.J.spine, -lz * 0.6, 0, lx * 0.6);
       addJoint(s.rot, this.J.chest, -lz * 0.4, 0, lx * 0.4);
     }
-    // Каэлис парит у плеча
+    // Каэлис парит у плеча (в бою её рисует живой дрон — vfx/kaelis, здесь только точка)
     s.off[this.iKaelis * 3 + 1] = Math.sin(this.time * 2.2) * 0.06;
+    const ks = this.kaelisHidden ? 0 : 1;
+    s.scl[this.iKaelis * 3] = ks; s.scl[this.iKaelis * 3 + 1] = ks; s.scl[this.iKaelis * 3 + 2] = ks;
     s.setRotEuler(this.iKaelis, Math.sin(this.time * 0.9) * 0.3, this.time * 2.0, 0);
     // клинок ×2 в ульте «Затмение»
     s.scl[this.iBlade * 3] = this.bladeScale; s.scl[this.iBlade * 3 + 1] = this.bladeScale; s.scl[this.iBlade * 3 + 2] = this.bladeScale;
@@ -279,6 +281,8 @@ export class HeroAvatar {
 
   handPos(out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPos(this.iHandR, out); }
   chestPos(out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPos(this.iChest, out); }
+  /** Скрыть дрона в риге: его рисует отдельный KaelisDrone (бой). */
+  kaelisHidden = false;
   kaelisPos(out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPos(this.iKaelis, out); }
 
   dispose(): void {
