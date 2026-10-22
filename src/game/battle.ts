@@ -12,7 +12,7 @@ import { Abilities, type Loadout } from '../world/abilities';
 import { Arena } from '../world/arena';
 import { CameraRig } from '../world/camera';
 import type { HeroStats } from '../world/heroStats';
-import { StageRunner } from '../world/stage';
+import { BREATHER, StageRunner } from '../world/stage';
 import { World } from '../world/world';
 import { guardianSong, hierophantSong, stageSong } from '../audio/music';
 import type { MusicCue } from './director';
@@ -21,6 +21,7 @@ import type { GameContext } from './context';
 import { FeelSystem } from './feel';
 import { Cinematics, GUARDIAN, STAGE_VISTA_T } from './cinematics';
 import { Ambience, AMBIENCE, AMB_LEVEL } from '../audio/ambience';
+import { RISER_LEN } from '../audio/sfx';
 import { AshFall, BeamDust } from '../vfx/atmosphere';
 import { KaelisDrone } from '../vfx/kaelis';
 import { killBellTrack, killGateTrack } from '../world/boss/guardianScenes';
@@ -68,6 +69,9 @@ const CORONA_RAGE = new THREE.Vector3(1.2, 0.18, 0.22);
 let fullShattersLeft = 2;
 
 const _kp = new THREE.Vector3(), _kh = new THREE.Vector3();
+/** Уровни музыки (интенсивность слоёв A–D): исследование — только A, бой, финал — всё. Последняя волна: +полтона. */
+export const MUSIC_LEVEL = { explore: 0.1, fight: 0.3, final: 1 };
+export const FINAL_TRANSPOSE = 100;
 /** Тишина перед фирменной атакой: за сколько до удара (с) и до какой громкости (−18 дБ). */
 export const SIG = { lead: 0.5, level: 0.126 };
 
@@ -237,6 +241,9 @@ export class Battle {
     b.on('waveStart', (e) => {
       if (!this.stage.boss) hud.waveBanner(e.index, e.total);
       if (e.index > 0) S.music.stinger('stinger');
+      // порталы открылись — тайко и «бум»; последняя волна — уровень 4: +полтона, все слои, хор и удары
+      if (!this.stage.boss) S.music.stinger('waveHit');
+      if (!this.stage.boss && e.total > 1 && e.index === e.total - 1) { S.music.final = true; S.audio.musicTranspose = FINAL_TRANSPOSE; }
       if (this.stage.tutorial === 'basics' && e.index === 0 && !S.flag('tut_move')) {
         S.setFlag('tut_move');
         // стику учит падение в прологе (план §8.2): остаётся только атака
@@ -250,7 +257,13 @@ export class Battle {
         setTimeout(() => this.world.hero.addResonance(100), 2500);
       }
     });
-    b.on('waveClear', () => { S.audio.play('wave_clear', { gain: 0.6 }); this.view.lightConstellations(); });
+    b.on('waveClear', (e) => {
+      S.audio.play('wave_clear', { gain: 0.6 });
+      this.view.lightConstellations();
+      // за такт до следующей волны — райзер: пик приходится на открытие порталов
+      if (e.index + 1 < e.total && !this.stage.boss) S.audio.play('riser', { delay: Math.max(0, BREATHER - RISER_LEN), gain: 0.7, vary: 0 });
+      if (e.index + 1 >= e.total) { S.music.final = false; S.audio.musicTranspose = 0; }
+    });
     b.on('stageClear', () => {
       this.outcome = 'won';
       // казнь (план §8.3.2): экран наград — только когда сцена досмотрена
@@ -852,11 +865,14 @@ export class Battle {
     if (w.hero.dead || this.outcome !== 'playing') return;
     let alive = 0, elite = false;
     for (const e of w.enemies) if (!e.dead) { alive++; if (e.elite.length || e.isGuardian || e.isBoss) elite = true; }
-    let x = 0.3;
+    // четыре уровня (план §8.7, п. 2): 1 — между волнами только A; 2 — волна, +B (и C, D по накалу);
+    // 3 — оглушение босса — стингер поверх (feel); 4 — последняя волна / фаза III — все слои
+    let x = MUSIC_LEVEL.fight;
     if (alive >= 4 || elite) x = 0.6;
     if (w.rank.rankIdx >= 3 || this.runner.guardian || this.boss) x = 0.9;
-    if (this.runner.phase === 'breather' || this.runner.phase === 'intro') x = Math.min(x, 0.3);
-    if (w.hero.eclipse) x = 1;
+    if (this.runner.phase === 'breather' || this.runner.phase === 'intro') x = MUSIC_LEVEL.explore;
+    if (this.boss) this.ctx.music.final = this.boss.phase >= 3;
+    if (this.ctx.music.final || w.hero.eclipse) x = MUSIC_LEVEL.final;
     if (Math.abs(x - this.ctx.music.intensity) > 0.01) this.ctx.music.setIntensity(x);
   }
 
@@ -916,6 +932,7 @@ export class Battle {
     this.ctx.renderer.sky.u.uMoonSize.value = this.skyBase.size;
     this.ctx.renderer.sky.u.uCorona.value.copy(this.skyBase.corona);
     this.ctx.audio.musicTranspose = 0;
+    this.ctx.music.final = false;
     G.uHemiTop.value.copy(this.baseHemi);
     G.uMoonColor.value.copy(this.baseMoon);
     this.ctx.time.reset();

@@ -49,6 +49,9 @@ export class Sequencer {
   intensity = 0;
   /** Фаза босса / вариант паттерна. */
   phase = 0;
+  /** Последняя волна этапа / фаза III (план §8.7, уровень 4): вокальные текстуры и глубокие удары поверх всех слоёв.
+   *  Переживает смену песни (Страж на последней волне), снимается боем. */
+  final = false;
   readonly rng = new Rng(Date.now() >>> 0);
   onBeat: ((bar: number, beat: number) => void) | null = null;
   /** Поколение запуска: отложенные onBeat и загрузки старых песен игнорируются. */
@@ -232,6 +235,8 @@ function drumBakes(): Record<string, BakeSpec> {
     // стингер волны: колокол, удар, хор и лейтмотив Пилота медью (первые четыре ноты)
     stinger: { len: 3, render: (c, o, t) => { bell(c, o, t, mtof(62), 0.2, 3); kick(c, o, t, 0.6, 35); choir(c, o, t, [50, 57, 62, 65], 1.4, 0.06, 'a', 'o'); motifBrass(c, o, t + 0.05, 4, 0.11, -12, 0.065); } },
     bellAb: { len: 4, render: (c, o, t) => bell(c, o, t, mtof(56), 0.16, 4) },
+    // порталы волны открылись: тайко и «бум» (план §8.7, п. 4)
+    waveHit: { len: 2.8, render: (c, o, t) => { taiko(c, o, t, 55, 0.9); boom(c, o, t, 0.6); } },
     // хоровой акцент: финишер на ранге SS, рывок ранга
     choirHit: { len: 1.6, render: (c, o, t) => { choir(c, o, t, [62, 69, 74, 77], 0.5, 0.07, 'a', 'o'); taiko(c, o, t, 70, 0.4); } },
     // оглушение Стража или босса: медный удар на ♭II и тайко — «сбили с ног»
@@ -349,6 +354,11 @@ function epicSong(cfg: EpicCfg): Song {
         if (inCycle % 4 === 0) s.buf('swell_' + ch, t, 'D', 0.7);
       }
       if (inBar === 0 && inCycle === 0 && (cfg.harsh || rage)) s.buf('boom', t, 'D', 0.55);
+      // уровень 4: скандирующий хор каждые полтакта и «бум» каждые два такта
+      if (s.final) {
+        if (inBar % 8 === 0) s.buf('chant_' + ch, t, 'D', 0.7);
+        if (inBar === 0 && inCycle % 2 === 0 && inCycle !== 0) s.buf('boom', t, 'D', 0.45);
+      }
       const stab = rage ? inBar % 4 === 0 || inBar === 14 : cfg.brassAt.includes(inBar);
       if (stab) s.buf('brass_' + ch, t, 'D', rage ? 0.75 : 0.7);
       if (cfg.harsh && (rage ? inBar % 4 === 0 : inBar === 0 || inBar === 8)) s.buf('chant_' + ch, t, 'D', 0.8);

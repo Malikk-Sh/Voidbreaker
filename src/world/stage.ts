@@ -14,6 +14,9 @@ interface Pending { def: SpawnDef; i: number; n: number; at: number; elite?: Spa
  * Директор волн (GDD §3.2, §9.5): 3–5 волн, между ними 2.5 с передышки (подбор осколков магнитом, стингер «ВОЛНА 02»).
  * Спаун — через портал-разлом 0.8 с, вне радиуса 3 м от героя. Триггеры подкреплений по HP элиты/стража.
  */
+/** Передышка между волнами (с мирового времени): под неё строится райзер музыки (план §8.7). */
+export const BREATHER = 2.5;
+
 export class StageRunner {
   phase: Phase = 'intro';
   waveIdx = -1;
@@ -73,7 +76,7 @@ export class StageRunner {
         break;
       }
       case 'breather':
-        if (this.t >= 2.5) { w.magnet = false; this.startWave(this.waveIdx + 1); }
+        if (this.t >= BREATHER) { w.magnet = false; this.startWave(this.waveIdx + 1); }
         break;
       default: break;
     }

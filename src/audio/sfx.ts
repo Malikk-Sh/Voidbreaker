@@ -15,6 +15,9 @@ export interface SfxRecipe {
   render: (ctx: Ctx, out: AudioNode, t: number) => void;
 }
 
+/** Длина райзера (с): пик приходится на открытие порталов волны. */
+export const RISER_LEN = 1.6;
+
 /** Медленно бродящая кривая (для порывов ветра): n точек в [lo, hi]. */
 const wander = (n: number, lo: number, hi: number): Float32Array => {
   const a = new Float32Array(n);
@@ -246,6 +249,22 @@ export const SFX: Record<string, SfxRecipe> = {
   } },
   // имя Иерофанта: удар и его тритон колокола D–A♭
   boss_intro: { reverb: 0.25, len: 4.5, render: (c, o, t) => { kick(c, o, t, 1.1, 22); body(c, o, t, 50, 28, 2, 0.8); bell(c, o, t, mtof(TRITONE[0] - 24), 0.3, 4); bell(c, o, t + 0.55, mtof(TRITONE[1] - 24), 0.26, 3.8); const { f } = noiseHit(c, o, t, 2.5, 200, 0.3, 'lowpass', 1); f.frequency.exponentialRampToValueAtTime(60, t + 2.4); } },
+  // райзер за такт до волны (план §8.7, п. 4): шум с поднимающимся фильтром + «реверс» тарелки, пик — в конце
+  riser: { len: RISER_LEN, reverb: 0.2, render: (c, o, t) => {
+    const L = RISER_LEN;
+    const { f, s: ns } = noiseHit(c, o, t, L, 300, 0.001, 'bandpass', 1.4, 'pink');
+    ns.loop = true;
+    f.frequency.setValueAtTime(250, t); f.frequency.exponentialRampToValueAtTime(5200, t + L * 0.97);
+    const sw = c.createBufferSource(), g = c.createGain();
+    const b = c.createBuffer(1, Math.floor(c.sampleRate * L), c.sampleRate), d = b.getChannelData(0);
+    // реверс: экспоненциальный подъём шума — как отыгранная назад тарелка
+    for (let i = 0; i < d.length; i++) { const u = i / d.length; d[i] = (Math.random() * 2 - 1) * Math.pow(u, 4) * 0.35 * (u < 0.985 ? 1 : (1 - u) / 0.015); }
+    sw.buffer = b;
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
+    g.gain.value = 1; sw.connect(hp).connect(g).connect(o); sw.start(t);
+    const ng = c.createGain(); ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(0.16, t + L * 0.97); ng.gain.linearRampToValueAtTime(0, t + L);
+    f.disconnect(); f.connect(ng).connect(o);
+  } },
   // удар сигнатурной атаки в тишине (план §8.7, п. 5): низкочастотный импульс
   sub_pulse: { len: 1.2, reverb: 0.1, render: (c, o, t) => { sub(c, o, t, 70, 30, 0.6, 0.9); kick(c, o, t, 0.6, 30); } },
   // пролог «Падение» (план §8.2): гул орбиты, тревога «Инея», удар луча, ветер падения с хором, витраж, приземление

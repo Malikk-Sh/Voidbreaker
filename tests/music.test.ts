@@ -32,3 +32,41 @@ describe('музыка (план §8.7)', () => {
     expect(got.length).toBe(1);
   });
 });
+
+import { stageSong, type Sequencer } from '../src/audio/music';
+import { MUSIC_LEVEL } from '../src/game/battle';
+import { BREATHER } from '../src/world/stage';
+import { RISER_LEN } from '../src/audio/sfx';
+import { Rng } from '../src/core/rng';
+
+/** Заглушка секвенсора: записывает, что песня ставит в слои. */
+function fakeSeq(final: boolean) {
+  const bufs: string[] = [], lives: string[] = [];
+  const s = { rng: new Rng(3), phase: 0, final, detuneCents: 0, buf: (n: string) => { bufs.push(n); }, live: (l: string) => { lives.push(l); } };
+  return { s: s as unknown as Sequencer, bufs, lives };
+}
+
+describe('уровни музыки и последняя волна (план §8.7, пп. 2–4)', () => {
+  it('уровни: между волнами только слой A, в бою — +B, финал — все слои', () => {
+    expect(MUSIC_LEVEL.explore).toBeLessThan(0.2);
+    expect(MUSIC_LEVEL.fight).toBeGreaterThanOrEqual(0.2);
+    expect(MUSIC_LEVEL.fight).toBeLessThan(0.5);
+    expect(MUSIC_LEVEL.final).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it('последняя волна: скандирующий хор и «бумы» поверх темы; без неё — нет', () => {
+    const song = stageSong('1-2');
+    for (const final of [false, true]) {
+      const f = fakeSeq(final);
+      for (let step = 0; step < 16 * 16; step++) song.schedule(f.s, step, step * 0.1);
+      const chants = f.bufs.filter((b) => b.startsWith('chant_')).length, booms = f.bufs.filter((b) => b === 'boom').length;
+      if (final) { expect(chants).toBeGreaterThan(16); expect(booms).toBeGreaterThan(2); }
+      else { expect(chants).toBe(0); expect(booms).toBe(0); }
+    }
+  });
+
+  it('райзер помещается в передышку и пикует на открытии порталов', () => {
+    expect(RISER_LEN).toBeLessThanOrEqual(BREATHER);
+    expect(RISER_LEN).toBeGreaterThan(1);
+  });
+});
