@@ -55,7 +55,9 @@ const CRATER = { x: 0, z: 0.5 };
 /** Свет арены в Затмении (план §6.9): небо и полусфера уходят в фиолетовый. */
 const ECLIPSE_HEMI = new THREE.Vector3(0.09, 0.05, 0.2);
 const ECLIPSE_MOON = new THREE.Vector3(0.42, 0.24, 0.8);
-const _cutPos = new THREE.Vector3(), _cutLook = new THREE.Vector3();
+const _cutPos = new THREE.Vector3(), _cutLook = new THREE.Vector3(), _corona = new THREE.Vector3();
+/** Корона в фазах босса уходит в багровый. */
+const CORONA_RAGE = new THREE.Vector3(1.2, 0.18, 0.22);
 
 /** Полных Расколов на сессию (план §5.6): первые два — полная версия, дальше — короткая. */
 let fullShattersLeft = 2;
@@ -171,6 +173,8 @@ export class Battle {
       once: (f) => { if (ctx.flag(f)) return false; ctx.setFlag(f); return true; },
     });
     this.director = new Director(this.directorHost());
+    const su = ctx.renderer.sky.u;
+    this.skyBase = { size: su.uMoonSize.value, corona: su.uCorona.value.clone() };
     // мир помнит победу (план §8.3.2): звезда зоны горит на всех её аренах
     const lit = ctx.save.stars[`z${stage.zone + 1}`] ?? 0;
     this.skyCine.starLit = lit > 0 ? 1 : 0;
@@ -268,7 +272,10 @@ export class Battle {
       if (e.kind === 'link' && !S.flag('tut_psalmist')) { S.setFlag('tut_psalmist'); hud.showHint('Псаломщик связал врагов нитью. Убей его первым — связанные будут оглушены'); }
     });
     b.on('shatterStart', () => { fullShattersLeft = this.world.fullShatters; });
-    b.on('ultimate', () => { this.ultCut = 0.9; });
+    b.on('ultimate', () => { this.ultCut = 0.9; this.mood.violet = 1; this.mood.glass = 1; });
+    // живые свечи (план §8.5): тяжёлый удар босса или Стража гасит все на 0.4 с; Раскол сильного — фиолетовая вспышка
+    b.on('impact', (e) => { if (e.r >= 3 && (this.boss || this.runner.guardian)) this.mood.outT = 0.4; });
+    b.on('shatter', (e) => { const t = e.target as Enemy; if (t.isBoss || t.isGuardian) this.mood.violet = 1; });
     b.on('stun', () => {
       if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Враг оглушён — финишер или заряженный удар: РАСКОЛ'); }
     });
@@ -325,6 +332,7 @@ export class Battle {
     this.pools.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut);
     this.updateQuench(realDt);
     this.updateBeam(realDt);
+    this.updateMood(realDt);
     if (this.landing) this.updateLanding(realDt);
     for (const p of this.douseOut) this.vfx.smokePuff(p[0], p[1], p[2]);
     this.vfx.sync(this.world, realDt, dtW);
@@ -425,6 +433,34 @@ export class Battle {
     };
   }
 
+  /** Настроение арены (план §8.5): свечи гаснут на 0.4 с, фиолетовая вспышка победы, витражи на ульте. */
+  private readonly mood = { outT: 0, violet: 0, glass: 0 };
+  private readonly skyBase: { size: number; corona: THREE.Vector3 };
+
+  private updateMood(realDt: number): void {
+    const w = this.world, f = this.flames.u, m = this.mood;
+    // пламя тянется к самому сильному живому: босс, Страж, элита
+    let target: Enemy | null = null, k = 0;
+    for (const e of w.enemies) {
+      if (e.dead || !e.spawned) continue;
+      const kk = e.isBoss ? 1 : e.isGuardian ? 0.85 : e.elite.length ? 0.55 : 0;
+      if (kk > k) { k = kk; target = e; }
+    }
+    f.uLean.value += ((target ? k : 0) - f.uLean.value) * Math.min(1, realDt * 2);
+    if (target) f.uLeanAt.value.set(target.x, 1, target.z);
+    m.outT -= realDt;
+    const out = m.outT > 0 ? 1 : 0;
+    f.uOut.value += (out - f.uOut.value) * Math.min(1, realDt * (out ? 30 : 4));
+    // ярость Стража и фазы босса — пламя краснеет
+    const g = this.runner.guardian, ph = this.boss?.phase ?? 0;
+    const red = g && !g.dead && (g as { phase?: number }).phase === 2 ? 0.7 : ph >= 3 ? 0.75 : ph === 2 ? 0.45 : 0;
+    f.uRed.value += (red - f.uRed.value) * Math.min(1, realDt * 1.5);
+    m.violet = Math.max(0, m.violet - realDt / 2.5);
+    f.uViolet.value = m.violet;
+    m.glass = Math.max(0, m.glass - realDt / 1.6);
+    this.view.tintGlass(m.glass);
+  }
+
   /** Луч из провала в небо после казни (план §8.3.2). */
   private beamAt: { x: number; z: number; t: number } | null = null;
   private updateBeam(realDt: number): void {
@@ -481,6 +517,8 @@ export class Battle {
       this.bossFrame = 0;
     }
     this.feel.baseZoom = zoom;
+    // со Стражем и боссом камера наклоняется до ~49°: в кадре горизонт и луна (план §8.5)
+    cam.tilt += ((focusBoss ? 0.86 : 0.96) - cam.tilt) * Math.min(1, realDt * 1.2);
     const lead = this.world.hero.state === 'move' ? 0.18 : 0;
     cam.update(realDt, tx, tz, h.vx * lead, h.vz * lead, this.ctx.renderer.camera);
     this.boss?.cameraOverride(cam, this.ctx.renderer.camera, realDt);
@@ -502,6 +540,11 @@ export class Battle {
     this.eclipseK += (ek - this.eclipseK) * Math.min(1, realDt * (ek ? 3 : 1.2));
     const sky = this.ctx.renderer.sky.u;
     sky.uEclipse.value = Math.max(this.eclipseK, this.skyCine.eclipse);
+    // реакция неба на фазы босса (план §8.5): луна ближе, корона багровеет
+    const ph = Math.max(0, (this.boss?.phase ?? 1) - 1);
+    sky.uMoonSize.value += (this.skyBase.size * (1 + 0.12 * ph) - sky.uMoonSize.value) * Math.min(1, realDt);
+    _corona.copy(this.skyBase.corona).lerp(CORONA_RAGE, 0.3 * ph);
+    sky.uCorona.value.lerp(_corona, Math.min(1, realDt));
     sky.uStarLit.value = this.skyCine.starLit;
     sky.uStar2.value = this.skyCine.star2;
     sky.uSkyCrack.value = this.skyCine.crack;
@@ -770,6 +813,8 @@ export class Battle {
     this.ctx.renderer.sky.u.uSkyCrack.value = 0;
     this.ctx.renderer.sky.u.uStarLit.value = 0;
     this.ctx.renderer.sky.u.uStar2.value = 0;
+    this.ctx.renderer.sky.u.uMoonSize.value = this.skyBase.size;
+    this.ctx.renderer.sky.u.uCorona.value.copy(this.skyBase.corona);
     this.ctx.audio.musicTranspose = 0;
     G.uHemiTop.value.copy(this.baseHemi);
     G.uMoonColor.value.copy(this.baseMoon);

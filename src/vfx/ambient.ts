@@ -15,6 +15,11 @@ export class Flames {
   private readonly lit: Float32Array;
   private readonly litAttr: THREE.InstancedBufferAttribute;
   private doused = false;
+  /**
+   * Живые свечи (план §8.5): наклон пламени к точке (элита, Страж, босс), общее гашение на тяжёлом ударе босса,
+   * багровый оттенок ярости, фиолетовая вспышка — только от победы героя (Раскол босса, ульта).
+   */
+  readonly u = { uLeanAt: { value: new THREE.Vector3() }, uLean: { value: 0 }, uOut: { value: 0 }, uRed: { value: 0 }, uViolet: { value: 0 } };
   constructor(private readonly points: [number, number, number][], scale = 1) {
     const g = new THREE.InstancedBufferGeometry();
     const [pos, uv] = QUAD();
@@ -28,19 +33,28 @@ export class Flames {
     g.setAttribute('iLit', this.litAttr);
     g.instanceCount = points.length;
     const m = new THREE.ShaderMaterial({
-      uniforms: { uTime: G.uTime, uScale: { value: scale }, uColor: { value: new THREE.Vector3(...hexToLinear('#FFB866')) } },
+      uniforms: { uTime: G.uTime, uScale: { value: scale }, uColor: { value: new THREE.Vector3(...hexToLinear('#FFB866')) }, ...this.u },
       vertexShader: /* glsl */ `
-        attribute vec4 iPos; attribute float iLit; uniform float uTime, uScale; varying vec2 vUv; varying float vSeed;
+        attribute vec4 iPos; attribute float iLit; uniform float uTime, uScale, uLean, uOut; uniform vec3 uLeanAt; varying vec2 vUv; varying float vSeed;
         void main() {
           vUv = uv; vSeed = iPos.w;
           float fl = 1.0 + 0.12 * sin(uTime * 13.0 + iPos.w) + 0.08 * sin(uTime * 23.0 + iPos.w * 2.0);
           vec4 mv = viewMatrix * vec4(iPos.xyz, 1.0);
-          mv.xy += vec2(position.x * 0.07, (position.y * 0.5 + 0.35) * 0.2 * fl) * uScale * iLit;
+          float lit = iLit * (1.0 - uOut);
+          float top = position.y * 0.5 + 0.5;
+          mv.xy += vec2(position.x * 0.07, (position.y * 0.5 + 0.35) * 0.2 * fl) * uScale * lit;
+          // пламя тянется к сильному врагу: ближние — сильнее
+          if (uLean > 0.001) {
+            vec4 tv = viewMatrix * vec4(uLeanAt, 1.0);
+            vec2 d = tv.xy - mv.xy; float l = length(d);
+            float k = uLean / (1.0 + l * 0.08);
+            mv.xy += (l > 1e-3 ? d / l : vec2(0.0)) * top * 0.16 * k * uScale * lit;
+          }
           gl_Position = projectionMatrix * mv;
         }
       `,
       fragmentShader: /* glsl */ `
-        uniform float uTime; uniform vec3 uColor; varying vec2 vUv; varying float vSeed;
+        uniform float uTime, uRed, uViolet; uniform vec3 uColor; varying vec2 vUv; varying float vSeed;
         void main() {
           vec2 p = vUv * 2.0 - 1.0;
           float sway = sin(uTime * 7.0 + vSeed + p.y * 3.0) * 0.12 * (p.y + 1.0) * 0.5;
@@ -49,7 +63,9 @@ export class Flames {
           float d = abs(p.x) / max(w, 0.05);
           float body = smoothstep(1.0, 0.2, d) * smoothstep(1.0, 0.3, p.y) * smoothstep(-1.0, -0.7, p.y);
           float core = smoothstep(0.55, 0.0, d) * smoothstep(0.4, -0.6, p.y);
-          vec3 col = uColor * body * 3.0 + vec3(1.0, 0.95, 0.85) * core * 4.0;
+          vec3 base = mix(mix(uColor, vec3(0.95, 0.08, 0.1), uRed), vec3(0.62, 0.38, 1.3), uViolet);
+          vec3 coreC = mix(mix(vec3(1.0, 0.95, 0.85), vec3(1.0, 0.55, 0.5), uRed), vec3(0.95, 0.85, 1.4), uViolet);
+          vec3 col = base * body * 3.0 + coreC * core * 4.0;
           gl_FragColor = vec4(col, 1.0);
         }
       `,

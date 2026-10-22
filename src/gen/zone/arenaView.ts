@@ -25,6 +25,8 @@ export interface ArenaView {
   lightConstellations(): void;
   /** Анимация живого декора (реальное время). */
   update(realDt: number): void;
+  /** Витражи и прожилки вспыхивают фиолетовым (ульта, план §8.5): 0 — обычные. */
+  tintGlass(k: number): void;
   dispose(): void;
 }
 
@@ -200,6 +202,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   const D = new GeomBuilder();
   D.rng = rng;
   const decorMat = obsidianMaterial({ rim: look.rim, rimStrength: 0.14, rimPower: 3.2, emissive: look.veins, emissive2: look.warm, emissiveStrength: 1.8 });
+  const glassBase = decorMat.uniforms.uEmissiveColor.value.clone(), glassBase2 = decorMat.uniforms.uEmissiveColor2.value.clone();
   const place = (fn: (g: GeomBuilder) => void, x: number, y: number, z: number, ry = 0, s = 1) => {
     const g = new GeomBuilder(); g.rng = new Rng(rng.int(0, 1e6));
     fn(g);
@@ -694,6 +697,10 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       u.uGlow.value = cTime < 1.2 ? 1 : Math.max(0, 1 - (cTime - 1.2) / 3);
       if (cTime > 4.5) { cTime = -1; u.uGlow.value = 0; u.uProgress.value = -1; }
     },
+    tintGlass(k: number) {
+      decorMat.uniforms.uEmissiveColor.value.copy(glassBase).lerp(GLASS_VOID, k);
+      decorMat.uniforms.uEmissiveColor2.value.copy(glassBase2).lerp(GLASS_VOID, k * 0.7);
+    },
     dispose() {
       root.traverse((o) => {
         if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as ObsidianMaterial).dispose(); }
@@ -701,6 +708,9 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     },
   };
 }
+
+/** Цвет витражей во вспышке ульты. */
+const GLASS_VOID = new THREE.Vector3(...hexToLinear('#B794FF')).multiplyScalar(1.4);
 
 /** Врата: высокая стрельчатая арка с опущенной решёткой. */
 function gateArch(g: GeomBuilder): void {
