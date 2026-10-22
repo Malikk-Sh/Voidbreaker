@@ -6,6 +6,7 @@ import { EnemyRenderer } from '../render/enemyRenderer';
 import { QUALITY } from '../render/renderer';
 import { Flames, LightPools, RuneCircle } from '../vfx/ambient';
 import { BattleVfx } from '../vfx/battleVfx';
+import { FloorScars } from '../vfx/scars';
 import { Abilities, type Loadout } from '../world/abilities';
 import { Arena } from '../world/arena';
 import { CameraRig } from '../world/camera';
@@ -80,6 +81,8 @@ export class Battle {
   readonly props = new Map<string, DirectorActor>();
   readonly abilities: Abilities;
   readonly group = new THREE.Group();
+  /** Следы боя на полу (план §8.5). */
+  readonly scars = new FloorScars();
   private flames: Flames;
   private pools: LightPools;
   private rune: RuneCircle;
@@ -138,7 +141,7 @@ export class Battle {
     this.vfx.quality = r.quality === 'low' ? 0.5 : r.quality === 'medium' ? 0.75 : 1;
     this.vfx.tele.hatch = ctx.settings.hatch;
     this.vfx.camera = ctx.renderer.camera;
-    this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group);
+    this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group, this.scars.mesh);
     this.enemies.warm(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'psalmist', 'brute']);
     r.scene.add(this.group);
 
@@ -275,7 +278,10 @@ export class Battle {
     b.on('ultimate', () => { this.ultCut = 0.9; this.mood.violet = 1; this.mood.glass = 1; });
     // живые свечи (план §8.5): тяжёлый удар босса или Стража гасит все на 0.4 с; Раскол сильного — фиолетовая вспышка
     b.on('impact', (e) => { if (e.r >= 3 && (this.boss || this.runner.guardian)) this.mood.outT = 0.4; });
-    b.on('shatter', (e) => { const t = e.target as Enemy; if (t.isBoss || t.isGuardian) this.mood.violet = 1; });
+    b.on('shatter', (e) => { const t = e.target as Enemy; if (t.isBoss || t.isGuardian) this.mood.violet = 1; this.scar(e.x, e.z, 2.2, 1); });
+    // следы боя: тяжёлые удары оставляют трещины и сколы (к концу боя арена выглядит иначе)
+    b.on('impact', (e) => { if (e.r >= 2 && (e.kind === 'slam' || e.r >= 3)) this.scar(e.x, e.z, Math.min(3.2, e.r * 0.75), 0.9); });
+    b.on('strike', (e) => { if (e.source === 'blade' && (e.feel === 'heavy' || e.feel === 'break')) this.scar(e.x, e.z, e.feel === 'break' ? 1.8 : 1.2, 0.7); });
     b.on('stun', () => {
       if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Враг оглушён — финишер или заряженный удар: РАСКОЛ'); }
     });
@@ -337,6 +343,11 @@ export class Battle {
     for (const p of this.douseOut) this.vfx.smokePuff(p[0], p[1], p[2]);
     this.vfx.sync(this.world, realDt, dtW);
     this.view.syncTiles();
+    // пол ушёл в бездну — следы с ним
+    if (this.arena.version !== this.scarArenaV) {
+      this.scarArenaV = this.arena.version;
+      this.scars.spots.forEach((s, i) => { if (s.alive && !this.arena.walkable(s.x, s.z)) this.scars.remove(i); });
+    }
     this.view.update(realDt);
     this.rune.u.uPulse.value *= Math.exp(-realDt * 4);
     // руны гаснут, когда пол под ними обрушился (вторая фаза босса)
@@ -433,8 +444,16 @@ export class Battle {
     };
   }
 
+  /** След боя, если пол под ним цел; рядом с недавним — не дублировать. */
+  private scar(x: number, z: number, size: number, strength: number): void {
+    if (!this.arena.walkable(x, z)) return;
+    for (const s of this.scars.spots) if (s.alive && Math.hypot(s.x - x, s.z - z) < size * 0.5) return;
+    this.scars.add(x, z, size, strength);
+  }
+
   /** Настроение арены (план §8.5): свечи гаснут на 0.4 с, фиолетовая вспышка победы, витражи на ульте. */
   private readonly mood = { outT: 0, violet: 0, glass: 0 };
+  private scarArenaV = -1;
   private readonly skyBase: { size: number; corona: THREE.Vector3 };
 
   private updateMood(realDt: number): void {
@@ -802,6 +821,7 @@ export class Battle {
     this.ctx.renderer.scene.remove(this.group);
     this.view.dispose();
     this.flames.dispose();
+    this.scars.dispose();
     this.enemies.dispose();
     this.vfx.clear();
     this.ctx.music.onBeat = null;
