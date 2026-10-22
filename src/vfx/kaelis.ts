@@ -60,9 +60,9 @@ export class KaelisDrone {
       this.group.add(mesh);
       return { mesh, u };
     };
-    const shell = mk(octa(0.085, 0.14, 0.085).toNonIndexed(), false);
+    const shell = mk(octa(0.085, 0.14, 0.085), false);
     shell.mesh.geometry.computeVertexNormals();
-    const core = mk(octa(0.045, 0.075, 0.045).toNonIndexed(), true);
+    const core = mk(octa(0.045, 0.075, 0.045), true);
     core.mesh.geometry.computeVertexNormals();
     const ring = mk(new THREE.TorusGeometry(0.12, 0.009, 3, 24), true);
     ring.mesh.rotation.x = Math.PI / 2;

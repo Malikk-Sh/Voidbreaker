@@ -68,6 +68,8 @@ const CORONA_RAGE = new THREE.Vector3(1.2, 0.18, 0.22);
 let fullShattersLeft = 2;
 
 const _kp = new THREE.Vector3(), _kh = new THREE.Vector3();
+/** Тишина перед фирменной атакой: за сколько до удара (с) и до какой громкости (−18 дБ). */
+export const SIG = { lead: 0.5, level: 0.126 };
 
 export class Battle {
   readonly world: World;
@@ -97,6 +99,8 @@ export class Battle {
   private readonly ash: AshFall;
   /** Живой дрон Каэлис (план §8.6). */
   readonly kaelis = new KaelisDrone();
+  /** Тишина перед фирменной атакой (план §8.7, п. 5): до приглушения и до удара (мировые с). */
+  private readonly sigs: { duck: number; hit: number }[] = [];
   /** Окно слабого места у босса/Стража в прошлом кадре — луч-указатель на его открытии. */
   private windowWas = false;
   private flames: Flames;
@@ -255,6 +259,7 @@ export class Battle {
       this.cine.victory();
     });
     b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian, this.events.overhead()); });
+    b.on('signature', (e) => { this.sigs.push({ duck: e.impactIn - SIG.lead, hit: e.impactIn }); });
     // Каэлис указывает лучом на оглушённого босса/Стража (план §8.6)
     b.on('stun', (e) => {
       const t = e.target as Enemy;
@@ -364,6 +369,7 @@ export class Battle {
     const h = this.world.hero;
     if (h.trailOn && !h.dead) { h.bladePoints(this.bladeA, this.bladeB); this.vfx.trail.push(this.bladeA, this.bladeB, h.swingWeight); }
     this.updateKaelis(realDt);
+    this.updateSignatures(dtW);
     // ступени ранга (план §6.6): A — шлейф толще и ярче, искры гуще; S — следы и альтернативные финишеры; SS — аура
     const ri = this.world.rank.rankIdx;
     this.vfx.rankTier = ri >= 5 ? 3 : ri >= 4 ? 2 : ri >= 3 ? 1 : 0;
@@ -495,6 +501,17 @@ export class Battle {
     if (!this.arena.walkable(x, z)) return;
     for (const s of this.scars.spots) if (s.alive && Math.hypot(s.x - x, s.z - z) < size * 0.5) return;
     this.scars.add(x, z, size, strength);
+  }
+
+  /** Фирменная атака: за SIG.lead с до удара музыка падает до −18 дБ за 0.15 с; в момент удара — низкий импульс. */
+  private updateSignatures(dtW: number): void {
+    for (let i = this.sigs.length - 1; i >= 0; i--) {
+      const s = this.sigs[i];
+      const wasDuck = s.duck > 0;
+      s.duck -= dtW; s.hit -= dtW;
+      if (wasDuck && s.duck <= 0) this.ctx.music.duck(SIG.level, Math.max(0.05, s.hit - 0.15), 0.15, 0.6);
+      if (s.hit <= 0) { this.ctx.audio.play('sub_pulse', { gain: 0.9 }); this.sigs.splice(i, 1); }
+    }
   }
 
   /** Каэлис: следует за суставом у плеча; луч — на открытие окна слабого места босса/Стража. */

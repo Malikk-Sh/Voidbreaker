@@ -2,6 +2,19 @@ import type { AudioEngine } from './engine';
 import { bass, bell, boom, brass, choir, hat, industrial, kick, mtof, organ, pad, snare, strings, taiko, tom, arp, type Ctx } from './synth';
 import { Rng } from '../core/rng';
 
+/**
+ * Мотивы (план §8.7): лейтмотив Пилота D–E♭–F–D–C–D (ре фригийский); Иерофант — тритон колокола D–A♭;
+ * Голод — хроматическое сползание вниз.
+ */
+export const MOTIF = [62, 63, 65, 62, 60, 62];
+export const TRITONE = [62, 56];
+export const HUNGER_SLIDE = [0, -1, -2, -3];
+
+/** Лейтмотив медью: notes — сколько нот мотива, step — шаг (с), shift — сдвиг (полутона). */
+export function motifBrass(c: Ctx, o: AudioNode, t: number, notes = 6, step = 0.18, shift = 0, gain = 0.07): void {
+  MOTIF.slice(0, notes).forEach((n, i) => brass(c, o, t + i * step, [n + shift], i === notes - 1 ? step * 3 : step * 0.9, gain));
+}
+
 type Layer = 'A' | 'B' | 'C' | 'D';
 const LAYERS: Layer[] = ['A', 'B', 'C', 'D'];
 
@@ -216,7 +229,9 @@ function drumBakes(): Record<string, BakeSpec> {
     bellD: { len: 4, render: (c, o, t) => bell(c, o, t, mtof(62), 0.18, 4) },
     bellA: { len: 4, render: (c, o, t) => bell(c, o, t, mtof(57), 0.16, 4) },
     bellLow: { len: 5, render: (c, o, t) => bell(c, o, t, mtof(38), 0.3, 5) },
-    stinger: { len: 3, render: (c, o, t) => { bell(c, o, t, mtof(62), 0.2, 3); kick(c, o, t, 0.6, 35); choir(c, o, t, [50, 57, 62, 65], 1.4, 0.06, 'a', 'o'); } },
+    // стингер волны: колокол, удар, хор и лейтмотив Пилота медью (первые четыре ноты)
+    stinger: { len: 3, render: (c, o, t) => { bell(c, o, t, mtof(62), 0.2, 3); kick(c, o, t, 0.6, 35); choir(c, o, t, [50, 57, 62, 65], 1.4, 0.06, 'a', 'o'); motifBrass(c, o, t + 0.05, 4, 0.11, -12, 0.065); } },
+    bellAb: { len: 4, render: (c, o, t) => bell(c, o, t, mtof(56), 0.16, 4) },
     // хоровой акцент: финишер на ранге SS, рывок ранга
     choirHit: { len: 1.6, render: (c, o, t) => { choir(c, o, t, [62, 69, 74, 77], 0.5, 0.07, 'a', 'o'); taiko(c, o, t, 70, 0.4); } },
     // оглушение Стража или босса: медный удар на ♭II и тайко — «сбили с ног»
@@ -271,6 +286,8 @@ interface EpicCfg {
   harsh?: boolean;
   /** Иерофант: набат колоколов во второй фазе. */
   tocsin?: boolean;
+  /** Колокола — тритоном D–A♭ (мотив Иерофанта), а не квинтой. */
+  tritone?: boolean;
 }
 
 /**
@@ -287,7 +304,11 @@ function epicSong(cfg: EpicCfg): Song {
   const hatsOn16 = cfg.groove === 'drive' || cfg.groove === 'double' || cfg.groove === 'gallop';
   return {
     id: cfg.id, bpm: cfg.bpm,
-    bake: { ...drumBakes(), ...chordBakes(barSec, chords, true) },
+    bake: {
+      ...drumBakes(), ...chordBakes(barSec, chords, true),
+      // мотив Голода (Стражи, босс): медь сползает вниз по полутонам восьмыми
+      ...(cfg.harsh ? { hunger: { len: barSec * 0.5 + 0.8, render: (c: Ctx, o: AudioNode, t: number) => HUNGER_SLIDE.forEach((d, i) => brass(c, o, t + i * barSec / 8, [cfg.root + 12 + d], barSec / 8 * 0.95, 0.06)) } } : {}),
+    },
     schedule(s, step, t) {
       const inBar = step % 16, bar = (step / 16) | 0, inCycle = bar % 8;
       if (step % 128 === 0) { prog = s.rng.pick(cfg.progs); bassPat = s.rng.pick(BASS_PAT); }
@@ -303,6 +324,8 @@ function epicSong(cfg: EpicCfg): Song {
         if (cfg.organ) s.live('A', (c, o, tt) => organ(c, o, tt, mtof(root - 12) * Math.pow(2, det / 1200), barSec * 2 - 0.1, 0.06), t);
       }
       if (inBar === 0 && inCycle % 4 === 0 && (cfg.bells || cfg.tocsin)) s.buf(cfg.tocsin ? 'bellLow' : 'bellD', t, 'A', 0.5);
+      // тритон Иерофанта: ответ колокола на ♭5 через полтакта
+      if (cfg.tritone && inBar === 8 && inCycle % 4 === 0) s.buf('bellAb', t, 'A', 0.45);
       // B — бас восьмыми, бочка грува, струнное остинато
       if (inBar % 2 === 0) s.live('B', (c, o, tt) => bass(c, o, tt, root - 12 + bassPat[(inBar / 2) | 0], 0.15, cfg.harsh ? 0.24 : 0.2, det), t);
       const kv = rage && cfg.harsh ? (inBar % 2 === 0 ? 1 : 0.75) : KICK[cfg.groove][inBar];
@@ -329,6 +352,8 @@ function epicSong(cfg: EpicCfg): Song {
       const stab = rage ? inBar % 4 === 0 || inBar === 14 : cfg.brassAt.includes(inBar);
       if (stab) s.buf('brass_' + ch, t, 'D', rage ? 0.75 : 0.7);
       if (cfg.harsh && (rage ? inBar % 4 === 0 : inBar === 0 || inBar === 8)) s.buf('chant_' + ch, t, 'D', 0.8);
+      // Голод в темах Стражей и босса: сползание в конце каждой четвёртой строки
+      if (cfg.harsh && inCycle % 4 === 3 && inBar === 8) s.buf('hunger', t, 'D', 0.75);
       if (inBar % 2 === 1 && !cfg.harsh) {
         const lead = [...tones, tones[0] + 12];
         const n = lead[((step >> 1) * 3) % lead.length] + 24;
@@ -337,7 +362,7 @@ function epicSong(cfg: EpicCfg): Song {
       // набат: колокол каждую долю, к концу цикла — восьмыми
       if (cfg.tocsin && rage) {
         const dense = inCycle >= 6 ? 2 : 4;
-        if (inBar % dense === 0) s.buf(inBar % 8 === 0 ? 'bellD' : 'bellA', t, 'D', 0.35);
+        if (inBar % dense === 0) s.buf(inBar % 8 === 0 ? 'bellD' : cfg.tritone ? 'bellAb' : 'bellA', t, 'D', 0.35);
       }
     },
   };
@@ -371,7 +396,11 @@ export function hubSong(): Song {
   const bpm = 84, barSec = (60 / bpm) * 4;
   return {
     id: 'hub', bpm,
-    bake: { ...chordBakes(barSec, CHORDS), bellD: drumBakes().bellD, bellA: drumBakes().bellA },
+    bake: {
+      ...chordBakes(barSec, CHORDS), bellD: drumBakes().bellD, bellA: drumBakes().bellA,
+      // лейтмотив Пилота хором (план §8.7): Святилище помнит его
+      motifChoir: { len: 6.5, render: (c, o, t) => MOTIF.forEach((n, i) => choir(c, o, t + i * 0.7, [n, n - 12], i === 5 ? 2.2 : 0.85, 0.05, 'o', 'u')) },
+    },
     schedule(s, step, t) {
       const inBar = step % 16, bar = (step / 16) | 0;
       const chord = ['Dm', 'Bb', 'Eb', 'Dm'][((bar % 8) / 2) | 0];
@@ -380,6 +409,7 @@ export function hubSong(): Song {
         s.buf('choir_' + chord, t, 'A', 0.5);
       }
       if (inBar === 0 && bar % 4 === 0) s.buf(bar % 8 === 0 ? 'bellD' : 'bellA', t, 'A', 0.4);
+      if (inBar === 0 && bar % 8 === 4) s.buf('motifChoir', t, 'A', 0.9);
       if (inBar % 4 === 2 && s.rng.chance(0.35)) {
         const tones = CHORDS[chord];
         s.live('A', (c, o, tt) => arp(c, o, tt, s.rng.pick(tones) + 24, 0.4, 0.02), t);
@@ -392,6 +422,6 @@ export function hubSong(): Song {
 export function hierophantSong(): Song {
   return epicSong({
     id: 'hierophant', bpm: 140, root: 50, progs: [['i', 'bII', 'iv', 'bII'], ['i', 'bVI', 'bII', 'V']],
-    groove: 'taiko', ost: OST.pulse, brassAt: [0, 6, 10], organ: true, harsh: true, tocsin: true,
+    groove: 'taiko', ost: OST.pulse, brassAt: [0, 6, 10], organ: true, harsh: true, tocsin: true, tritone: true,
   });
 }

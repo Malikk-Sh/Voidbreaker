@@ -1,3 +1,4 @@
+import { motifBrass, MOTIF, TRITONE } from './music';
 import { arp, bell, boom, brass, choir, chips, crunch, env, glassTail, industrial, kick, metal, mtof, noiseBuffer, noiseHit, osc, pink, pluck, punch, saturator, sub, tom, transient, voidHiss, type Ctx } from './synth';
 
 /**
@@ -227,9 +228,26 @@ export const SFX: Record<string, SfxRecipe> = {
     for (const [at, dur, fq] of [[0.1, 0.55, 900], [1.05, 0.7, 600]] as const) noiseHit(c, o, t + at, dur, fq, 0.06, 'bandpass', 0.8, 'pink');
   } },
   rank_up: { len: 1.2, render: (c, o, t) => { bell(c, o, t, mtof(81), 0.08, 1.1); sweep(c, o, t, 800, 4000, 0.15, 0.15, 1.5); } },
-  victory: { reverb: 0.25, len: 4.5, render: (c, o, t) => { choir(c, o, t, [50, 57, 62, 66, 69], 3, 0.07, 'a', 'o'); [62, 66, 69, 74].forEach((n, i) => bell(c, o, t + i * 0.25, mtof(n), 0.1, 2.5)); } },
-  defeat: { reverb: 0.25, len: 4, render: (c, o, t) => { choir(c, o, t, [38, 45, 50, 53], 2.8, 0.06, 'o', 'u'); bell(c, o, t, mtof(38), 0.15, 3.5); } },
-  boss_intro: { reverb: 0.25, len: 4, render: (c, o, t) => { kick(c, o, t, 1.1, 22); body(c, o, t, 50, 28, 2, 0.8); bell(c, o, t, 65.4, 0.3, 4); const { f } = noiseHit(c, o, t, 2.5, 200, 0.3, 'lowpass', 1); f.frequency.exponentialRampToValueAtTime(60, t + 2.4); } },
+  // победа: хор и колокола, лейтмотив Пилота медью целиком (план §8.7)
+  victory: { reverb: 0.25, len: 4.8, render: (c, o, t) => { choir(c, o, t, [50, 57, 62, 66, 69], 3, 0.07, 'a', 'o'); [62, 66, 69, 74].forEach((n, i) => bell(c, o, t + i * 0.25, mtof(n), 0.1, 2.5)); motifBrass(c, o, t + 0.15, 6, 0.2, -12, 0.06); } },
+  // поражение: лейтмотив разбитым — ноты плывут вниз, тянутся, последняя обрывается, не дойдя до тоники
+  defeat: { reverb: 0.35, len: 5, render: (c, o, t) => {
+    choir(c, o, t, [38, 45, 50, 53], 2.8, 0.05, 'o', 'u'); bell(c, o, t, mtof(38), 0.15, 3.5);
+    let at = t + 0.3;
+    MOTIF.slice(0, 5).forEach((n, i) => {
+      const f = mtof(n) * Math.pow(2, -(i * i * 6) / 1200), dur = 0.45 + i * 0.12;
+      const x = c.createOscillator(); x.type = 'triangle';
+      x.frequency.setValueAtTime(f, at); x.frequency.linearRampToValueAtTime(f * Math.pow(2, -(20 + i * 18) / 1200), at + dur);
+      const fl = c.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = 1400 - i * 180;
+      const g = c.createGain(); env(g.gain, at, 0.09 * (1 - i * 0.12), 0.01, i === 4 ? 0.18 : dur);
+      x.connect(fl).connect(g).connect(o); x.start(at); x.stop(at + dur + 0.1);
+      at += dur + 0.05 + i * 0.06;
+    });
+  } },
+  // имя Иерофанта: удар и его тритон колокола D–A♭
+  boss_intro: { reverb: 0.25, len: 4.5, render: (c, o, t) => { kick(c, o, t, 1.1, 22); body(c, o, t, 50, 28, 2, 0.8); bell(c, o, t, mtof(TRITONE[0] - 24), 0.3, 4); bell(c, o, t + 0.55, mtof(TRITONE[1] - 24), 0.26, 3.8); const { f } = noiseHit(c, o, t, 2.5, 200, 0.3, 'lowpass', 1); f.frequency.exponentialRampToValueAtTime(60, t + 2.4); } },
+  // удар сигнатурной атаки в тишине (план §8.7, п. 5): низкочастотный импульс
+  sub_pulse: { len: 1.2, reverb: 0.1, render: (c, o, t) => { sub(c, o, t, 70, 30, 0.6, 0.9); kick(c, o, t, 0.6, 30); } },
   // пролог «Падение» (план §8.2): гул орбиты, тревога «Инея», удар луча, ветер падения с хором, витраж, приземление
   drone: { len: 4, reverb: 0.3, render: (c, o, t) => {
     const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 180; f.connect(o);

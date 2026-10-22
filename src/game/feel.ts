@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { CRIT_HITSTOP, FEEL } from '../data/feel';
 
 /** Лейтмотив Пилота (план §8.7): D–E♭–F–D–C–D, ре фригийский. */
-const MOTIF = [62, 63, 65, 62, 60, 62];
 
 /** Материал гибели: мокрая Шелуха, каменные големы и Стражи, энергетическое Око (план §5.2.1). */
 const DEATH_SOUND: Record<string, string> = {
@@ -19,7 +18,7 @@ const STEP_PITCH: Record<string, number> = {
   slash1: 1.0, slash2: 1.06, spin: 0.94, rift: 0.8, flurry: 1.08, lunge: 1.0, rising: 0.96, skycut: 1.04, skyfall: 0.78, cross: 0.85, counter: 0.9, charged: 0.82,
 };
 import type { AudioEngine } from '../audio/engine';
-import type { Sequencer } from '../audio/music';
+import { MOTIF, type Sequencer } from '../audio/music';
 import type { Time } from '../core/time';
 import type { Input } from '../input/input';
 import type { Post } from '../render/post';

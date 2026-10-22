@@ -154,6 +154,11 @@ export abstract class ScriptedEnemy extends Enemy {
     this.snapX = h.x; this.snapZ = h.z;
     this.tempo = (this.frenzy ? 1.25 : 1) * (this.slowT > 0 ? 0.7 : 1);
     this.setState('attack');
+    // фирменная атака: музыка смолкнет перед ударом (момент удара — конец первого белого телеграфа)
+    if (p.unstoppable) {
+      const tele = p.steps.find((st) => st.do === 'telegraph' && st.white) ?? p.steps.find((st) => st.do === 'telegraph');
+      if (tele && tele.do === 'telegraph') this.w_.bus.emit('signature', { x: this.x, z: this.z, impactIn: (tele.t + tele.dur) / this.tempo });
+    }
   }
 
   /** Ссылка на мир (выставляется при добавлении). */

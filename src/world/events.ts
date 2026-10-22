@@ -45,6 +45,8 @@ export interface GameEvents {
   slide: { x: number; z: number; dirX: number; dirZ: number };
   chargeReady: { level: number };
   impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell' };
+  /** Фирменная (неостановимая) атака Стража/босса началась: удар через impactIn с мирового времени (план §8.7, п. 5). */
+  signature: { x: number; z: number; impactIn: number };
   /** Раскол: финишер или полный заряд по оглушённому врагу — взрыв трещин, оглушение кончается. */
   shatter: { target: Actor; x: number; y: number; z: number; boss: boolean; dmg: number };
   /**
