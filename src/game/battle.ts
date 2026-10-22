@@ -6,7 +6,7 @@ import { EnemyRenderer } from '../render/enemyRenderer';
 import { QUALITY } from '../render/renderer';
 import { Flames, LightPools, RuneCircle } from '../vfx/ambient';
 import { BattleVfx } from '../vfx/battleVfx';
-import { FloorScars } from '../vfx/scars';
+import { BOSS_SCAR_LIFE, FloorScars, SCAR_LIFE } from '../vfx/scars';
 import { ArenaEvents } from './arenaEvents';
 import { Abilities, type Loadout } from '../world/abilities';
 import { Arena } from '../world/arena';
@@ -85,7 +85,7 @@ export class Battle {
   readonly abilities: Abilities;
   readonly group = new THREE.Group();
   /** Следы боя на полу (план §8.5). */
-  readonly scars = new FloorScars();
+  readonly scars: FloorScars;
   /** Своё событие арены (план §8.5). */
   readonly events: ArenaEvents;
   private readonly ambience: Ambience | null;
@@ -121,6 +121,7 @@ export class Battle {
   private landing: { visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean } | null = null;
 
   constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout, readonly opts: BattleOpts = {}) {
+    this.scars = new FloorScars(stage.boss ? BOSS_SCAR_LIFE : SCAR_LIFE);
     const r = ctx.renderer;
     const Q = QUALITY[r.quality];
     this.arena = new Arena(ARENAS[stage.arena]);
@@ -297,7 +298,12 @@ export class Battle {
     b.on('impact', (e) => { if (e.r >= 3 && (this.boss || this.runner.guardian)) this.mood.outT = 0.4; });
     b.on('shatter', (e) => { const t = e.target as Enemy; if (t.isBoss || t.isGuardian) this.mood.violet = 1; this.scar(e.x, e.z, 2.2, 1); });
     // следы боя: тяжёлые удары оставляют трещины и сколы (к концу боя арена выглядит иначе)
-    b.on('impact', (e) => { if (e.r >= 2 && (e.kind === 'slam' || e.r >= 3)) this.scar(e.x, e.z, Math.min(3.2, e.r * 0.75), 0.9); });
+    // арена помнит бой (план §8.5): где Пилот много бил, ответный удар раскалывает пол сильнее
+    b.on('impact', (e) => {
+      if (e.r < 2 || (e.kind !== 'slam' && e.r < 3)) return;
+      const wear = this.events.wearAt(e.x, e.z);
+      this.scar(e.x, e.z, Math.min(4, e.r * 0.75 * (1 + 0.6 * wear)), 0.9 + 0.3 * wear);
+    });
     b.on('strike', (e) => { if (e.source === 'blade' && (e.feel === 'heavy' || e.feel === 'break')) this.scar(e.x, e.z, e.feel === 'break' ? 1.8 : 1.2, 0.7); });
     b.on('stun', () => {
       if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Враг оглушён — финишер или заряженный удар: РАСКОЛ'); }
@@ -585,6 +591,8 @@ export class Battle {
     sky.uEclipse.value = Math.max(this.eclipseK, this.skyCine.eclipse);
     // реакция неба на фазы босса (план §8.5): луна ближе, корона багровеет
     const ph = Math.max(0, (this.boss?.phase ?? 1) - 1);
+    // дальние шпили склоняются к арене с каждой фазой
+    if (this.boss) this.view.leanSpires(ph / 2);
     sky.uMoonSize.value += (this.skyBase.size * (1 + 0.12 * ph) - sky.uMoonSize.value) * Math.min(1, realDt);
     _corona.copy(this.skyBase.corona).lerp(CORONA_RAGE, 0.3 * ph);
     sky.uCorona.value.lerp(_corona, Math.min(1, realDt));

@@ -4,6 +4,8 @@ import { G } from '../render/materials';
 /** Следов боя на полу одновременно (план §8.5) и сколько живёт один (с). */
 export const SCARS_MAX = 24;
 export const SCAR_LIFE = 60;
+/** У босса арена помнит бой дольше — следы фазы I видны в фазе III (план §8.5). */
+export const BOSS_SCAR_LIFE = 150;
 
 /**
  * Следы боя (план §8.5): трещины и сколы в местах тяжёлых ударов — к концу боя арена выглядит иначе.
@@ -19,7 +21,7 @@ export class FloorScars {
   /** Где лежат следы (для снятия над провалом). */
   readonly spots: { x: number; z: number; alive: boolean }[] = [];
 
-  constructor() {
+  constructor(readonly life = SCAR_LIFE) {
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute([-1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1], 3));
     g.setIndex([0, 2, 1, 0, 3, 2]);
@@ -29,7 +31,7 @@ export class FloorScars {
     g.setAttribute('iA', this.a); g.setAttribute('iB', this.b);
     g.instanceCount = 0;
     const m = new THREE.ShaderMaterial({
-      uniforms: { uTime: G.uTime, uNoise: G.uNoise, uLife: { value: SCAR_LIFE } },
+      uniforms: { uTime: G.uTime, uNoise: G.uNoise, uLife: { value: life } },
       vertexShader: /* glsl */ `
         attribute vec4 iA; attribute vec4 iB; uniform float uTime, uLife;
         varying vec2 vP; varying float vSeed, vK;

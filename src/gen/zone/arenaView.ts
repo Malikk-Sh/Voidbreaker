@@ -27,6 +27,8 @@ export interface ArenaView {
   update(realDt: number): void;
   /** Витражи и прожилки вспыхивают фиолетовым (ульта, план §8.5): 0 — обычные. */
   tintGlass(k: number): void;
+  /** Дальние шпили склоняются к арене (фазы босса, план §8.5): 0 — стоят, 1 — наклон ~4°; медленно. */
+  leanSpires(k: number): void;
   /** Колонны-укрытия отдельными мешами (1-2: рушатся), по порядку arena.covers; иначе пусто. */
   coverMeshes: THREE.Mesh[];
   /** Лучи света из окон фасада (в них видна пыль, план §8.5): верх, низ, ширина у пола; их цвет. */
@@ -672,6 +674,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   // ---------- дальний фон: шпили из бездны, парящие руины ----------
   const F = new GeomBuilder();
   const frng = new Rng(seed + ':far');
+  const leaners: { g: GeomBuilder; x: number; y: number; z: number }[] = [];
   F.rng = frng;
   for (let i = 0; i < 18; i++) {
     const a = frng.range(-Math.PI * 0.75, Math.PI * 0.75) + Math.PI;
@@ -680,7 +683,10 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     const h = frng.range(180, 320);
     const g = new GeomBuilder(); g.rng = new Rng(frng.int(0, 1e6));
     spire(g, { h, r: frng.range(5, 12), tiers: frng.int(3, 6), ruin: frng.chance(0.35) ? frng.range(0.2, 0.5) : 0, seed: frng.int(0, 1e6) });
-    F.append(g, mat(x, -h * frng.range(0.75, 0.95), z));
+    const y = -h * frng.range(0.75, 0.95);
+    // у босса шпили — отдельными мешами: в его фазах они склоняются к арене
+    if (style === 'boss') leaners.push({ g, x, y, z });
+    else F.append(g, mat(x, y, z));
   }
   for (let i = 0; i < 26; i++) {
     const a = frng.range(0, Math.PI * 2);
@@ -709,6 +715,16 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   const far = new THREE.Mesh(F.build(), farMat);
   far.frustumCulled = false;
   root.add(far);
+  const spires = leaners.map(({ g, x, y, z }) => {
+    const m = new THREE.Mesh(g.build(), farMat);
+    m.position.set(x, y, z);
+    m.frustumCulled = false;
+    root.add(m);
+    // ось наклона: вершина уходит к центру арены
+    const d = Math.hypot(x, z) || 1;
+    return { m, axis: new THREE.Vector3(-z / d, 0, x / d), spin: (x > 0 ? 1 : -1) * (0.5 + frng.next() * 0.5) };
+  });
+  let leanK = 0, leanT = 0, spinA = 0;
   if (style === 'boss') {
     const dome = buildDomeRose(22, 67);
     for (const g of [dome.rose, dome.ring]) {
@@ -726,6 +742,11 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     root, floor, flames, pools, runeRadius, syncTiles,
     lightConstellations() { cTime = 0; },
     update(realDt: number) {
+      if (spires.length && (leanK > 0.001 || leanT > 0)) {
+        leanK += (leanT - leanK) * Math.min(1, realDt / 6);
+        spinA += realDt * 0.01 * leanK;
+        for (const s of spires) s.m.quaternion.setFromAxisAngle(s.axis, 0.07 * leanK).multiply(_qs.setFromAxisAngle(_up, spinA * s.spin));
+      }
       if (!constellations || cTime < 0) return;
       cTime += realDt;
       const u = constellations.material.uniforms;
@@ -737,6 +758,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     coverMeshes,
     rays,
     rayColor,
+    leanSpires(k: number) { leanT = k; },
     tintGlass(k: number) {
       decorMat.uniforms.uEmissiveColor.value.copy(glassBase).lerp(GLASS_VOID, k);
       decorMat.uniforms.uEmissiveColor2.value.copy(glassBase2).lerp(GLASS_VOID, k * 0.7);
@@ -748,6 +770,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     },
   };
 }
+
+const _qs = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
 
 /** Цвет витражей во вспышке ульты. */
 const GLASS_VOID = new THREE.Vector3(...hexToLinear('#B794FF')).multiplyScalar(1.4);

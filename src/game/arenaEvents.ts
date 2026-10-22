@@ -4,6 +4,7 @@ import type { StageDef } from '../data/stages';
 import { buildGiantBell, buildGiantGate, buildGuardianSilhouette, buildWreck } from '../gen/zone/setPieces';
 import { ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
 import { obsidianMaterial } from '../render/materials';
+import { TileState, type Tile } from '../world/arena';
 import { overlaps, type Shape } from '../world/combat';
 import type { Enemy } from '../world/enemy';
 import type { World } from '../world/world';
@@ -15,6 +16,10 @@ export const COLUMN_FALL = { dur: 0.65, len: 3.8, w: 1.5, reach: 2.6, dmg: 6 };
 /** 1-5: какие пролёты моста рушатся после волн (индексы частей арены) и предупреждение (с). */
 export const BRIDGE_SPANS = [1, 2, 5];
 export const SPAN_WARN = 1.4;
+/** Парящие плиты (мост 1-5, мосты Иерофанта): от тяжёлого удара плиты в радиусе r качаются на ±amp м, гаснут за dur с. */
+export const TILE_BOB = { amp: 0.05, r: 2.6, dur: 1.1 };
+/** Память арены: клетка 2 м, вклад удара Пилота (обычный / тяжёлый), потолок, время забывания (с). */
+export const WEAR = { cell: 2, hit: 0.08, heavy: 0.2, max: 1.5, tau: 40 };
 /** 1-6: высота подвеса и масштаб колокола (нижний край на y − 7.4·scale). */
 export const BELL = { y: 34, scale: 1.4 };
 /** 1-3: ворота-гигант стоят на месте дальнего фасада — чуть за краем арены. */
@@ -37,12 +42,21 @@ export class ArenaEvents {
   private readonly falling: { m: THREE.Mesh; t: number; dx: number; dz: number; hit: boolean; axis: THREE.Vector3; x: number; z: number }[] = [];
   private readonly standing: { m: THREE.Mesh; cover: { x: number; z: number; r: number } }[] = [];
   private spanIdx = 0;
+  private readonly bob = new Map<Tile, { t: number; a: number; ph: number }>();
+  private readonly floats: boolean;
+  private readonly wear: Float32Array;
+  private readonly wearW: number;
+  private readonly wearH: number;
   private readonly cx: number;
   private readonly stageId: string;
 
   constructor(private readonly w: World, view: ArenaView, group: THREE.Group, private readonly vfx: BattleVfx, stage: StageDef) {
     const b = w.arena.bounds, id = stage.id;
     this.stageId = id;
+    this.floats = id === '1-5' || !!stage.boss;
+    this.wearW = Math.ceil((b.maxX - b.minX) / WEAR.cell) + 1;
+    this.wearH = Math.ceil((b.maxZ - b.minZ) / WEAR.cell) + 1;
+    this.wear = new Float32Array(this.wearW * this.wearH);
     const enemyMat = obsidianMaterial({ rim: ZONE1_LOOK.rim, rimStrength: 0.25, rimPower: 3, emissive: ZONE1_LOOK.veins, emissive2: '#E11D2E', emissiveStrength: 1.8 });
     const add = (g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
       const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.frustumCulled = false; group.add(o); return o;
@@ -68,6 +82,8 @@ export class ArenaEvents {
       this.bell = add(buildGiantBell(), obsidianMaterial({ rim: '#c9a253', rimStrength: 0.35, rimPower: 2.6, emissive: '#FFB866', emissive2: '#FF8A3D', emissiveStrength: 1.2 }), cx, BELL.y, bz);
       this.bell.scale.setScalar(BELL.scale);
     }
+    // TODO(design): в святилище Иерофанта колонн-укрытий нет; «колонна, разбитая в фазе I, лежит обломками в фазе II»
+    // (план §8.5) заработает и там, если они появятся: отдельные меши колонн + shove на арене босса
     if (id === '1-2') view.coverMeshes.forEach((m, i) => { const c = w.arena.covers[i]; if (c) this.standing.push({ m, cover: c }); });
 
     const bus = w.bus;
@@ -91,6 +107,14 @@ export class ArenaEvents {
       bus.on('impact', (e) => { if (e.r >= 2.5 || e.kind === 'slam') this.shove(e.x, e.z); });
       bus.on('strike', (e) => { if (e.source === 'blade' && (e.feel === 'heavy' || e.feel === 'break')) this.shove(e.x, e.z); });
     }
+    // парящие плиты качаются от тяжёлых ударов; память арены копит удары Пилота
+    bus.on('impact', (e) => { if (e.kind !== 'land' && e.r >= 2) this.shake(e.x, e.z, Math.max(TILE_BOB.r, e.r), 1); });
+    bus.on('strike', (e) => {
+      if (e.source !== 'blade' && e.source !== 'ability') return;
+      const heavy = e.feel === 'heavy' || e.feel === 'break';
+      if (heavy) this.shake(e.x, e.z, TILE_BOB.r * 0.7, 0.6);
+      this.addWear(e.x, e.z, heavy ? WEAR.heavy : WEAR.hit);
+    });
   }
 
   /**
@@ -117,9 +141,66 @@ export class ArenaEvents {
   /** camY — высота камеры: колокол виден, только пока камера ниже его края (сверху он лишь заслонял бы бой). */
   update(realDt: number, dtW: number, camY = 0): void {
     if (this.bell) this.bell.visible = camY < this.bell.position.y - 7.4 * BELL.scale;
+    this.updateBob(dtW);
+    const fade = Math.exp(-dtW / WEAR.tau);
+    for (let i = 0; i < this.wear.length; i++) this.wear[i] *= fade;
     this.fieldOut += (this.fieldTarget - this.fieldOut) * Math.min(1, realDt * (this.fieldTarget > this.fieldOut ? 0.9 : 1.6));
     this.updateBell(dtW);
     this.updateColumns(dtW);
+  }
+
+  // ------------------------------------------------------------------ парящие плиты
+  /** Мост 1-5 и мосты Иерофанта (когда пол ушёл в бездну): плиты рядом с ударом качаются — только вид. */
+  private shake(x: number, z: number, r: number, k: number): void {
+    if (!this.floats || (this.stageId !== '1-5' && this.w.arena.edge !== 'abyss')) return;
+    for (const t of this.w.arena.tiles) {
+      if (t.state !== TileState.Alive) continue;
+      const d = Math.hypot(t.x - x, t.z - z);
+      if (d > r) continue;
+      // соседние плиты — в разные стороны: мост «дышит», а не прыгает целиком
+      const sign = ((t.i + t.j) & 1) ? 1 : -1;
+      const a = TILE_BOB.amp * k * (1 - d / r) * sign;
+      const cur = this.bob.get(t);
+      if (!cur || Math.abs(a) > Math.abs(cur.a) * Math.exp(-cur.t * 3)) this.bob.set(t, { t: 0, a, ph: d * 1.7 });
+    }
+  }
+
+  private updateBob(dt: number): void {
+    for (const [t, b] of this.bob) {
+      b.t += dt;
+      // плиту забрал провал — её высотой правит арена
+      if (t.state !== TileState.Alive) { this.bob.delete(t); continue; }
+      if (b.t >= TILE_BOB.dur) { t.y = 0; t.rot = 0; t.dirty = true; this.bob.delete(t); continue; }
+      const env = Math.exp(-b.t * 3) * (1 - b.t / TILE_BOB.dur);
+      t.y = b.a * env * Math.cos(b.t * 14 - b.ph);
+      t.rot = b.a * 0.5 * env * Math.sin(b.t * 11 - b.ph);
+      t.dirty = true;
+    }
+  }
+
+  // ------------------------------------------------------------------ память арены
+  private cellAt(x: number, z: number): number {
+    const b = this.w.arena.bounds;
+    const i = Math.floor((x - b.minX) / WEAR.cell), j = Math.floor((z - b.minZ) / WEAR.cell);
+    return i < 0 || j < 0 || i >= this.wearW || j >= this.wearH ? -1 : j * this.wearW + i;
+  }
+
+  private addWear(x: number, z: number, v: number): void {
+    const c = this.cellAt(x, z);
+    if (c >= 0) this.wear[c] = Math.min(WEAR.max, this.wear[c] + v);
+  }
+
+  /** Насколько здесь «набито» ударами Пилота: 0..1 (клетка и немного соседей — пятно, а не клетка). */
+  wearAt(x: number, z: number): number {
+    const c = this.cellAt(x, z);
+    if (c < 0) return 0;
+    let sum = 0, n = 0;
+    for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) {
+      if (!dx && !dz) continue;
+      const k = this.cellAt(x + dx * WEAR.cell, z + dz * WEAR.cell);
+      if (k >= 0) { sum += this.wear[k]; n++; }
+    }
+    return Math.min(1, 0.7 * this.wear[c] + 0.3 * (n ? sum / n : 0));
   }
 
   // ------------------------------------------------------------------ 1-6 колокол

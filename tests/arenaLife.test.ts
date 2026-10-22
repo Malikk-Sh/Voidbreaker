@@ -21,7 +21,8 @@ import { Arena, TileState } from '../src/world/arena';
 import { Abilities } from '../src/world/abilities';
 import { ARENAS, inPart } from '../src/data/arenas';
 import { stageById } from '../src/data/stages';
-import { ArenaEvents, BRIDGE_SPANS, COLUMN_FALL } from '../src/game/arenaEvents';
+import { ArenaEvents, BRIDGE_SPANS, COLUMN_FALL, TILE_BOB, WEAR } from '../src/game/arenaEvents';
+import { BOSS_SCAR_LIFE } from '../src/vfx/scars';
 import { createEnemy } from '../src/world/enemies/factory';
 import type { ArenaView } from '../src/gen/zone/arenaView';
 import type { BattleVfx } from '../src/vfx/battleVfx';
@@ -84,5 +85,42 @@ describe('события арен (план §8.5)', () => {
         expect(bell.visible).toBe(false);
       }
     }
+  });
+
+  it('парящие плиты: на мосту 1-5 тяжёлый удар качает плиты рядом на ±5 см и отпускает; на стенной арене — нет', () => {
+    const w = new World(new Arena(ARENAS.bridge), 'ev');
+    const ev = new ArenaEvents(w, view(0), new THREE.Group(), vfx, stageById('1-5')!);
+    const c0 = ARENAS.bridge.parts[0];
+    const t0 = w.arena.tiles.filter((t) => t.state === TileState.Alive).sort((a, b) => Math.hypot(a.x - c0.x, a.z - c0.z) - Math.hypot(b.x - c0.x, b.z - c0.z))[0];
+    const v0 = w.arena.version;
+    w.bus.emit('impact', { x: t0.x, z: t0.z, r: 3, kind: 'slam' });
+    let maxY = 0;
+    for (let t = 0; t < TILE_BOB.dur * 0.5; t += 1 / 60) { ev.update(1 / 60, 1 / 60); maxY = Math.max(maxY, Math.abs(t0.y)); }
+    expect(maxY).toBeGreaterThan(0.005);
+    expect(maxY).toBeLessThanOrEqual(TILE_BOB.amp + 1e-6);
+    for (let t = 0; t < TILE_BOB.dur; t += 1 / 60) ev.update(1 / 60, 1 / 60);
+    expect(t0.y).toBe(0);
+    expect(t0.state).toBe(TileState.Alive);
+    expect(w.arena.version).toBe(v0); // только вид: навигация не пересобирается
+
+    const w2 = new World(new Arena(ARENAS.fall), 'ev');
+    const ev2 = new ArenaEvents(w2, view(0), new THREE.Group(), vfx, stageById('1-1')!);
+    w2.bus.emit('impact', { x: 0, z: 0, r: 3, kind: 'slam' });
+    for (let t = 0; t < 0.3; t += 1 / 60) ev2.update(1 / 60, 1 / 60);
+    expect(w2.arena.tiles.every((t) => t.y === 0)).toBe(true);
+  });
+
+  it('арена помнит бой: удары Пилота копят «износ» в месте боя, он медленно забывается; следы босса живут дольше', () => {
+    const w = new World(new Arena(ARENAS.naves), 'ev');
+    const ev = new ArenaEvents(w, view(0), new THREE.Group(), vfx, stageById('1-1')!);
+    const hit = (x: number, z: number, feel = 'light') => w.bus.emit('strike', { n: 1, crit: false, feel: feel as never, x, z, dirX: 0, dirZ: 1, source: 'blade', boss: false });
+    for (let i = 0; i < 12; i++) hit(2, 1, i % 4 === 0 ? 'heavy' : 'light');
+    const here = ev.wearAt(2, 1);
+    expect(here).toBeGreaterThan(0.4);
+    expect(ev.wearAt(-8, -6)).toBe(0);
+    for (let t = 0; t < WEAR.tau; t += 0.5) ev.update(0.5, 0.5);
+    expect(ev.wearAt(2, 1)).toBeLessThan(here * 0.45);
+    expect(BOSS_SCAR_LIFE).toBeGreaterThan(SCAR_LIFE * 2);
+    expect(new FloorScars(BOSS_SCAR_LIFE).life).toBe(BOSS_SCAR_LIFE);
   });
 });
