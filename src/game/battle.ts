@@ -7,6 +7,7 @@ import { QUALITY } from '../render/renderer';
 import { Flames, LightPools, RuneCircle } from '../vfx/ambient';
 import { BattleVfx } from '../vfx/battleVfx';
 import { FloorScars } from '../vfx/scars';
+import { ArenaEvents } from './arenaEvents';
 import { Abilities, type Loadout } from '../world/abilities';
 import { Arena } from '../world/arena';
 import { CameraRig } from '../world/camera';
@@ -18,7 +19,7 @@ import type { MusicCue } from './director';
 import { effectiveFlashes, type Settings } from '../meta/settings';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
-import { Cinematics, GUARDIAN } from './cinematics';
+import { Cinematics, GUARDIAN, STAGE_VISTA_T } from './cinematics';
 import { killBellTrack, killGateTrack } from '../world/boss/guardianScenes';
 import { Director, type CineTrack, type DirectorActor, type SkyParam } from './director';
 import type { Enemy } from '../world/enemy';
@@ -83,6 +84,8 @@ export class Battle {
   readonly group = new THREE.Group();
   /** Следы боя на полу (план §8.5). */
   readonly scars = new FloorScars();
+  /** Своё событие арены (план §8.5). */
+  readonly events: ArenaEvents;
   private flames: Flames;
   private pools: LightPools;
   private rune: RuneCircle;
@@ -144,6 +147,7 @@ export class Battle {
     this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group, this.scars.mesh);
     this.enemies.warm(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'psalmist', 'brute']);
     r.scene.add(this.group);
+    this.events = new ArenaEvents(this.world, this.view, this.group, this.vfx, stage);
 
     this.runner = new StageRunner(this.world, stage);
     this.world.stepHooks.push((dt) => this.runner.step(dt));
@@ -188,8 +192,9 @@ export class Battle {
     else if (!stage.boss) {
       // пролёт над ареной; первая волна — когда камера опустится к Пилоту
       const ab = this.arena.bounds;
-      this.runner.introTime = 3.0;
-      this.cine.stageIntro(stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => this.runner.skipIntro());
+      const vista = this.events.vista(this.world.hero.x, this.world.hero.z);
+      this.runner.introTime = vista ? STAGE_VISTA_T.end - 0.1 : 3.0;
+      this.cine.stageIntro(stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => this.runner.skipIntro(), vista);
     }
     // в прологе музыка 1-1 вступает после титула; тема босса — с его именем в интро (план §8.3)
     if (stage.boss) { this.runner.introTime = 0.05; ctx.music.preload(hierophantSong()); }
@@ -226,7 +231,7 @@ export class Battle {
       this.endT = this.cine.busy === 'down' ? 4.6 : 2.9;
       this.cine.victory();
     });
-    b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian); });
+    b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian, this.events.overhead()); });
     b.on('kill', (e) => {
       const en = e.target as Enemy;
       // после kill-cam облёт не нужен — сцена уже показала конец
@@ -334,8 +339,11 @@ export class Battle {
     // свечи гаснут по кругу, пока Звонарь заряжает удар (план §7.4): пламя, пятна света и дымок от погасших
     const ab = this.arena.bounds, acx = (ab.minX + ab.maxX) / 2, acz = (ab.minZ + ab.maxZ) / 2;
     this.douseOut.length = 0;
-    this.flames.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut, realDt, this.douseOut);
-    this.pools.douse(acx, acz, this.world.candlesFrom, this.world.candlesOut);
+    // 1-4: волны гасят свечное поле (и его пятна света), зачистка — зажигает
+    this.events.update(realDt, dtW, this.ctx.renderer.camera.position.y);
+    const out = Math.max(this.world.candlesOut, this.events.fieldOut);
+    this.flames.douse(acx, acz, this.world.candlesFrom, out, realDt, this.douseOut);
+    this.pools.douse(acx, acz, this.world.candlesFrom, out);
     this.updateQuench(realDt);
     this.updateBeam(realDt);
     this.updateMood(realDt);

@@ -27,6 +27,8 @@ export interface ArenaView {
   update(realDt: number): void;
   /** Витражи и прожилки вспыхивают фиолетовым (ульта, план §8.5): 0 — обычные. */
   tintGlass(k: number): void;
+  /** Колонны-укрытия отдельными мешами (1-2: рушатся), по порядку arena.covers; иначе пусто. */
+  coverMeshes: THREE.Mesh[];
   dispose(): void;
 }
 
@@ -286,19 +288,22 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       }
     }
     // фасад на дальней стороне: аркада + розетка (ширина — по самой дальней части: апсида, рукав трансепта)
+    // на Вратах фасада нет: вместо него стоят ворота-гигант (план §8.5, game/arenaEvents)
     const fw = farPart.w * 0.72;
     const count = Math.max(3, Math.round(fw / 4.4));
     const glass = style === 'candles' || style === 'boss' ? 0.9 : 0.5;
-    place((g) => arcade(g, count, 3.2, 4.2, rng.int(0, 1e5), glass), farPart.x, 0, farZ - 1.6);
-    place((g) => {
-      roseWindow(g, 2.6, 12, rng.int(0, 1e5), 1.0);
-    }, farPart.x, 11.2, farZ - 1.9);
-    place((g) => {
-      g.color = OBS;
-      g.add(box(fw + 3, 6.5, 0.8), { matrix: mat(0, 11.2, 0) });
-      for (let k = -1; k <= 1; k += 2) g.add(prism(4, 0.6, 0, 6.5), { matrix: mat(k * (fw / 2 + 1), 14.4, 0, 0, Math.PI / 4) });
-      g.add(prism(4, 1.0, 0, 7), { matrix: mat(0, 14.4, 0, 0, Math.PI / 4) });
-    }, farPart.x, 0, farZ - 2.4);
+    if (style !== 'gate') {
+      place((g) => arcade(g, count, 3.2, 4.2, rng.int(0, 1e5), glass), farPart.x, 0, farZ - 1.6);
+      place((g) => {
+        roseWindow(g, 2.6, 12, rng.int(0, 1e5), 1.0);
+      }, farPart.x, 11.2, farZ - 1.9);
+      place((g) => {
+        g.color = OBS;
+        g.add(box(fw + 3, 6.5, 0.8), { matrix: mat(0, 11.2, 0) });
+        for (let k = -1; k <= 1; k += 2) g.add(prism(4, 0.6, 0, 6.5), { matrix: mat(k * (fw / 2 + 1), 14.4, 0, 0, Math.PI / 4) });
+        g.add(prism(4, 1.0, 0, 7), { matrix: mat(0, 14.4, 0, 0, Math.PI / 4) });
+      }, farPart.x, 0, farZ - 2.4);
+    }
     if (style === 'gate') {
       // Врата: огромная арка с решёткой
       place((g) => gateArch(g), p0.x, 0, farZ - 1.0);
@@ -333,6 +338,20 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
         const c = candelabra(D, x, z, 0.5, rng.int(4, 6), rng.int(0, 1e5));
         flames.push(...c.flames);
         pools.push({ x, z, r: 3.0, color: look.warm, intensity: 0.5, flicker: 1 });
+      }
+      // свечное поле (план §8.5): тысячи свечей на трёх ярусах-ступенях вдоль стен — волны гасят их и зажигают
+      for (let tier = 0; tier < 3; tier++) {
+        const n = 150 - tier * 20, inset = 0.45 + tier * 0.55, base = 0.12 + (2 - tier) * 0.22;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + rng.spread(0.01) + tier * 0.02;
+          const r = boundaryAt(def, a, p0.x, p0.z) - inset;
+          const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
+          if (z > nearZ - 1.2) continue;
+          const h = rng.range(0.08, 0.32);
+          if (i % 2 === 0) D.add(box(0.5, base, 0.5), { matrix: mat(x, base / 2 - 0.02, z, 0, a, 0), color: OBS, shade: 0.05 });
+          D.add(prism(5, 0.045, 0.04, h), { matrix: mat(x + rng.spread(0.12), base, z + rng.spread(0.12)), color: hexToLinear('#5a4a3a') });
+          flames.push([x, base + h + 0.06, z]);
+        }
       }
       // оплывшие свечи на полу у стен
       for (let i = 0; i < 26; i++) {
@@ -407,13 +426,25 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     }
   }
   // ---------- укрытия: обломанные колонны посреди зала (невысокие — не заслоняют бой), на части — свечи ----------
+  // 1-2 Нефы (план §8.5): колонны рушатся от тяжёлых ударов — каждая своим мешем
+  const breakable = def.id === 'naves';
+  const coverMeshes: THREE.Mesh[] = [];
   for (const c of arena.covers) {
     // низкая колонна-постамент: капитель на высоте h + 0.08 (см. column)
     const h = rng.range(2.9, 3.4);
-    place((g) => column(g, { h, r: c.r * 0.8, sides: 8, broken: false, seed: rng.int(0, 1e5) }), c.x, 0, c.z, rng.range(0, Math.PI));
+    if (breakable) {
+      const cg = new GeomBuilder(); cg.rng = new Rng(rng.int(0, 1e6));
+      column(cg, { h, r: c.r * 0.8, sides: 8, broken: false, seed: rng.int(0, 1e5) });
+      const m = new THREE.Mesh(cg.build(), decorMat);
+      m.position.set(c.x, 0, c.z);
+      m.rotation.y = rng.range(0, Math.PI);
+      m.frustumCulled = false;
+      root.add(m);
+      coverMeshes.push(m);
+    } else place((g) => column(g, { h, r: c.r * 0.8, sides: 8, broken: false, seed: rng.int(0, 1e5) }), c.x, 0, c.z, rng.range(0, Math.PI));
     D.add(prism(8, c.r * 1.25, c.r * 1.15, 0.2), { matrix: mat(c.x, 0, c.z, 0, Math.PI / 8), color: OBS_HI, shade: 0.08 });
     rubble(D, c.x + rng.spread(1.2), c.z + rng.spread(1.2), 0.6, 3, rng.int(0, 1e5));
-    if (rng.next() < 0.6) {
+    if (!breakable && rng.next() < 0.6) {
       for (let k = 0; k < 3; k++) {
         const a = rng.range(0, Math.PI * 2), rr = c.r * 0.45;
         const ch = rng.range(0.12, 0.3);
@@ -465,10 +496,10 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     }
     pools.push({ x: hole.x, z: hole.z, r: Math.max(hole.w, hole.h) * 0.75, color: look.veins, intensity: 0.45, flicker: 0.3 });
     if (style === 'candles') {
-      // свечи по краю колодца
-      for (let i = 0; i < 18; i++) {
-        const a = (i / 18) * Math.PI * 2 + rng.spread(0.08);
-        const r = partEdge(hole, a) + rng.range(0.3, 0.6);
+      // свечи по краю колодца — двумя кольцами
+      for (let i = 0; i < 64; i++) {
+        const a = (i / 32) * Math.PI * 2 + rng.spread(0.06);
+        const r = partEdge(hole, a) + (i < 32 ? rng.range(0.25, 0.5) : rng.range(0.7, 1.0));
         const x = hole.x + Math.sin(a) * r, z = hole.z + Math.cos(a) * r;
         const h = rng.range(0.12, 0.45);
         D.add(prism(6, 0.075, 0.065, h), { matrix: mat(x, 0, z), color: WAX });
@@ -697,6 +728,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       u.uGlow.value = cTime < 1.2 ? 1 : Math.max(0, 1 - (cTime - 1.2) / 3);
       if (cTime > 4.5) { cTime = -1; u.uGlow.value = 0; u.uProgress.value = -1; }
     },
+    coverMeshes,
     tintGlass(k: number) {
       decorMat.uniforms.uEmissiveColor.value.copy(glassBase).lerp(GLASS_VOID, k);
       decorMat.uniforms.uEmissiveColor2.value.copy(glassBase2).lerp(GLASS_VOID, k * 0.7);

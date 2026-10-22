@@ -14,6 +14,9 @@ export const QUALITY: Record<QualityLevel, {
   high: { scale: 1.0, maxDpr: 2.0, bloomLevels: 4, msaa: 4, particles: 4000, decor: 1.0, verlet: 4, farLayers: 3 },
 };
 
+/** Игровой угол обзора камеры (вертикальный, °). */
+export const CAM_FOV = 30;
+
 export class Renderer {
   readonly gl: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -32,7 +35,7 @@ export class Renderer {
     this.gl.autoClear = false;
     this.gl.setClearColor(0x05070a, 1);
     initSharedTextures();
-    this.camera = new THREE.PerspectiveCamera(30, 16 / 9, 1, 900);
+    this.camera = new THREE.PerspectiveCamera(CAM_FOV, 16 / 9, 1, 900);
     this.scene.add(this.sky.mesh);
     this.post = new Post(this.gl, QUALITY[quality].msaa);
     this.applyQuality();
