@@ -3,7 +3,7 @@ import { World } from '../src/world/world';
 import { Arena } from '../src/world/arena';
 import { ARENAS } from '../src/data/arenas';
 import { Abilities } from '../src/world/abilities';
-import { Hierophant, HierophantController, INTERCEPT_WINDOW, PHASE2_AT, PHASE3_AT, SERMON_SHIELD, type BossHost } from '../src/world/boss/hierophant';
+import { Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHASE2_AT, PHASE3_AT, SATS, SERMON_SHIELD, type BossHost } from '../src/world/boss/hierophant';
 import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
 import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
 import { VOID_BLADE } from '../src/data/weapons';
@@ -241,5 +241,35 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     // огонь открыт: урон ×1.5
     tick(0.2);
     expect(b.shieldMul).toBe(1.5);
+  });
+
+  it('фаза III: облетает арену на цепях над бездной; три спутника звонят по очереди, каждый с меткой ≥ 0.8 с', () => {
+    const { w, b, ctrl, tick } = fight();
+    b.hp = b.maxHp * PHASE2_AT + 1; light(w, b);
+    tick(INTERCEPT_WINDOW + 5);
+    b.hp = b.maxHp * PHASE3_AT + 1; light(w, b);
+    tick(INTERCEPT_WINDOW + 4);
+    expect(ctrl.phase).toBe(3);
+    const rings: number[] = [], teles: { t: number; dur: number }[] = [];
+    let t = 0;
+    w.bus.on('enemyAttack', (e) => { if (e.kind === 'bell') rings.push(t); });
+    const teleSeen = new Set<object>();
+    let overAbyss = false;
+    tick(12, () => {
+      t += DT;
+      if (!w.arena.walkable(b.x, b.z)) overAbyss = true;
+      b.idleT = 50; // только облёт и спутники
+      for (const tl of w.telegraphs) if (!teleSeen.has(tl) && tl.shape.k === 'circle' && (tl.shape as { r: number }).r === 1.6) { teleSeen.add(tl); teles.push({ t, dur: tl.dur }); }
+    });
+    // над бездной, на радиусе облёта
+    expect(Math.hypot(b.x, b.z)).toBeGreaterThan(ORBIT.r - 1.2);
+    expect(overAbyss).toBe(true);
+    expect(b.flying).toBe(true);
+    // звон по очереди: шаг ≈ period / 3
+    expect(rings.length).toBeGreaterThanOrEqual(5);
+    const gaps = rings.slice(1).map((r, i) => r - rings[i]);
+    for (const g of gaps) expect(g).toBeCloseTo(SATS.period / SATS.n, 0);
+    for (const tl of teles) expect(tl.dur).toBeGreaterThanOrEqual(0.8);
+    expect(w.bellSats.length).toBe(SATS.n);
   });
 });

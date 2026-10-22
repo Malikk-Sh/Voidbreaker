@@ -24,6 +24,10 @@ export const PHASE3_AT = 0.25;
 export const INTERCEPT_WINDOW = 1.2;
 /** Огонь колокола открыт в фазе III: урон ×1.5. */
 export const PHASE3_DMG = 1.5;
+/** Фаза III: облёт арены на цепях (радиус м, рад/с, высота м). */
+export const ORBIT = { r: 8.5, w: 0.3, speed: 4.5, y: 1.4 };
+/** Колокола-спутники: три на кольце r, вращаются навстречу боссу; звонят по очереди со сдвигом period/3. */
+export const SATS = { n: 3, r: 5.5, w: -0.22, period: 5.4, tele: 0.9, ring: { speed: 5.5, width: 0.8, maxR: 13, gaps: 2, gapW: 1.3, dmg: 0.12 } };
 /** Щит Проповеди при двух обелисках (доля срезанного урона). */
 export const SERMON_SHIELD = 0.7;
 
@@ -52,6 +56,10 @@ export class Hierophant extends ScriptedEnemy {
   transitioning = 0;
   /** Фаза III: колокол треснул, огонь внутри открыт. */
   bellCracked = false;
+  /** Угол облёта (фаза III). */
+  orbitA = 0;
+  /** Колокола-спутники: угол на кольце, таймер звона, точка метки. */
+  readonly sats = Array.from({ length: SATS.n }, (_, i) => ({ a: (i / SATS.n) * Math.PI * 2, t: -i * SATS.period / SATS.n, tele: false, tx: 0, tz: 0 }));
   homeX = 0; homeZ = -2;
   /** Скорость «качания» колокола (звон). */
   private sway = 0;
@@ -130,7 +138,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 2.1, do: 'vulnerable', dur: 1.2 },
     ] },
     // Цепи кадил: кадила летят по мостам как боулинг, разрушают плиты (возрождаются через 6 с)
-    { id: 'chains', weight: 3, cooldown: 6, phases: [2, 3], steps: [], build: () => this.chainSteps() },
+    { id: 'chains', weight: 3, cooldown: 6, phases: [2], steps: [], build: () => this.chainSteps() },
     // Литания: три веера игл из-под рясы, каждый доворачивает на героя
     { id: 'litany', weight: 2, cooldown: 6, phases: [1], range: [4, 40], steps: [
       { t: 0, do: 'pose', id: 'sermon', blend: 0.35 },
@@ -330,10 +338,47 @@ export class Hierophant extends ScriptedEnemy {
     for (const e of this.summoned) if (e instanceof Obelisk && !e.dead) ob++;
     this.shieldMul = this.phase >= 3 ? PHASE3_DMG : 1 - SERMON_SHIELD * Math.min(2, ob) / 2;
     super.think(w, dt, tick);
+    // фаза III: облетает арену по кругу на цепях, спутники звонят
+    if (this.phase >= 3) { this.circleArena(dt); this.stepSats(w, dt); return; }
     // фаза II: между атаками дрейфует к «дому» (центр креста)
     if (this.stationary && !this.cur && !this.move) {
       const dx = this.homeX - this.x, dz = this.homeZ - this.z, d = Math.hypot(dx, dz);
       if (d > 0.5) { this.x += (dx / d) * Math.min(d, 1.6 * dt); this.z += (dz / d) * Math.min(d, 1.6 * dt); }
+    }
+  }
+
+  /** Облёт (план §8.3, фаза III): над бездной по кругу, во время атак — медленнее; паттерн с прыжком — свой путь. */
+  private circleArena(dt: number): void {
+    this.flying = true;
+    if (this.move) return;
+    this.orbitA += dt * ORBIT.w * (this.cur ? 0.35 : 1);
+    this.steer(Math.sin(this.orbitA) * ORBIT.r, Math.cos(this.orbitA) * ORBIT.r, ORBIT.speed, dt);
+    this.y += (ORBIT.y + Math.sin(this.time * 1.3) * 0.3 - this.y) * Math.min(1, dt * 2);
+  }
+
+  /** Спутники: метка 0.9 с под колоколом → кольцо с разрывами; оглушённый босс — спутники молчат (новые не начинают). */
+  private stepSats(w: World, dt: number): void {
+    const h = w.hero;
+    w.bellSats.length = 0;
+    for (const s of this.sats) {
+      s.a += SATS.w * dt;
+      const x = Math.sin(s.a) * SATS.r, z = Math.cos(s.a) * SATS.r;
+      if (!this.stunned || s.tele) s.t += dt;
+      if (!s.tele && s.t >= SATS.period - SATS.tele) {
+        s.tele = true; s.tx = x; s.tz = z;
+        w.addTelegraph({ k: 'circle', x, z, r: 1.6 }, SATS.tele, false, false);
+        w.bus.emit('telegraph', { kind: 'chime', x, z, src: this.kind });
+      }
+      if (s.t >= SATS.period) {
+        s.t -= SATS.period; s.tele = false;
+        const R = SATS.ring, toHero = Math.atan2(h.x - s.tx, h.z - s.tz);
+        const gaps = Array.from({ length: R.gaps }, (_, i) => ({ a: toHero + Math.PI + w.rng.spread(1.2) + (i * Math.PI * 2) / R.gaps, w: R.gapW }));
+        w.addRingWave(s.tx, s.tz, R.speed, R.width, R.maxR, gaps, R.dmg * this.dmgUnit, this.id, 0);
+        w.bus.emit('enemyAttack', { kind: 'bell', x: s.tx, z: s.tz });
+        w.bus.emit('sfx', { id: 'chime_ring', x: s.tx, z: s.tz });
+      }
+      const glow = s.tele ? clamp((s.t - (SATS.period - SATS.tele)) / SATS.tele, 0, 1) : 0;
+      w.bellSats.push({ x, y: 3.4 + Math.sin(this.time * 1.7 + s.a) * 0.25, z, glow });
     }
   }
 
@@ -491,7 +536,9 @@ export class HierophantController implements BossController {
       b.bellPos(this.tmp);
       const top = this.tmp.y + 3.2, len = Math.max(4, 22 - top);
       const sx = Math.cos(b.facing) * 1.5, sz = -Math.sin(b.facing) * 1.5;
-      this.host.chains([{ x: b.x + sx, z: b.z + sz, y0: top, len }, { x: b.x - sx, z: b.z - sz, y0: top, len }]);
+      const list = [{ x: b.x + sx, z: b.z + sz, y0: top, len }, { x: b.x - sx, z: b.z - sz, y0: top, len }];
+      for (const s of this.host.world.bellSats) list.push({ x: s.x, z: s.z, y0: s.y + 0.6, len: 16 });
+      this.host.chains(b.dead ? [] : list);
     }
     if (this.hintT >= 0) {
       this.hintT += dt;
@@ -656,13 +703,22 @@ export class HierophantController implements BossController {
     b.transitioning = 0;
     b.idleT = 0.6;
     b.setPose('idle', 0.4);
-    this.zoomMul = to === 2 ? 1.25 : 1.3;
+    this.zoomMul = to === 2 ? 1.25 : 1.35;
+    if (to === 3) {
+      // облёт начинается с его места; между атаками — передышка длиннее: звонят спутники
+      b.orbitA = Math.atan2(b.x, b.z);
+      b.restRange = [1.4, 2.2];
+      this.chainsOn = true;
+    }
   }
 
   startDeath(): void {
     if (this.deathT >= 0) return;
     const b = this.boss, w = this.host.world;
     this.deathT = 0;
+    w.bellSats.length = 0;
+    this.chainsOn = false; this.host.chains([]);
+    b.flying = false;
     b.dying = true;
     b.cur = null; b.move = null;
     b.setPose('phase', 0.2);

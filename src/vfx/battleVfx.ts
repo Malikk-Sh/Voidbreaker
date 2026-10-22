@@ -23,6 +23,7 @@ import { StunStars } from './stunStars';
 import { FloorRiftsView } from './floorRifts';
 import { FloorSpikes } from './floorSpikes';
 import { ChainsView } from './chains';
+import { BellSatsView } from './bellSats';
 
 const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLinear(h); return [c[0] * k, c[1] * k, c[2] * k]; };
 export const C = {
@@ -57,6 +58,7 @@ export class BattleVfx {
   readonly spikes = new FloorSpikes();
   /** Цепи Звонаря — временные стены (план §7.4). */
   readonly chains = new ChainsView();
+  readonly bellSats = new BellSatsView();
   /** Рясы Псаломщиков — ткань Верле, по сетке на каждого (план §7.3). */
   private robes = new Map<Psalmist, ClothMesh>();
   /** Ступень ранга (план §6.6): 0 — ниже A, 1 — A, 2 — S, 3 — SS. Только визуал, без бонуса к урону. */
@@ -81,7 +83,7 @@ export class BattleVfx {
     this.add = new Particles(maxParticles, true);
     this.norm = new Particles(Math.round(maxParticles * 0.35), false);
     this.pools = pools;
-    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh, this.chains.mesh);
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh, this.chains.mesh, this.bellSats.mesh);
     for (const m of this.debris.meshes) this.group.add(m);
     // серпы: выдавленный полумесяц с эмиссивной кромкой
     const b = new GeomBuilder();
@@ -622,6 +624,12 @@ export class BattleVfx {
     this.rifts.sync(ab.floorRifts);
     this.spikes.update(dtW);
     this.chains.sync(w);
+    this.bellSats.sync(w);
+    for (const b of w.bellSats) {
+      if (b.glow <= 0) continue;
+      this.sprites.add(b.x, b.y - 0.5, b.z, 0.7 + b.glow * 0.9, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], 0.35 + b.glow * 0.5, 'dot');
+      this.lights.add(b.x, b.y, b.z, C.hunger, 1 + b.glow * 2, 5);
+    }
     for (const r of ab.floorRifts) {
       if (!fxRng.chance(0.5 * this.quality)) continue;
       const d = fxRng.next() * r.len;
@@ -727,7 +735,7 @@ export class BattleVfx {
   clear(): void {
     for (const m of this.robes.values()) { this.group.remove(m.mesh); m.dispose(); }
     this.robes.clear();
-    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear(); this.chains.clear();
+    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear(); this.chains.clear(); this.bellSats.clear();
   }
 }
 

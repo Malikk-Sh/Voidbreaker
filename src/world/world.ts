@@ -128,6 +128,8 @@ export class World {
   /** Враг, чей шаг сейчас идёт: его метки помечаются владельцем. */
   private stepping: Enemy | null = null;
   /** Свечи арены гаснут по кругу, пока Звонарь заряжает сильный удар (план §7.4): доля круга 0..1 и его начало. */
+  /** Колокола-спутники Иерофанта (фаза III): позиция и свечение перед звоном — для рендера. */
+  bellSats: { x: number; y: number; z: number; glow: number }[] = [];
   candlesOut = 0;
   candlesFrom = 0;
   /** Временные стены (цепи Звонаря): укрытия арены с таймером; навигация перестраивается по версии арены. */
@@ -209,6 +211,8 @@ export class World {
     const o = { x: 0, z: 0 };
     for (const e of this.enemies) {
       if (e.dead || e.state === 'spawn') continue;
+      // летящий босс (Иерофант на цепях, фаза III) — над бездной, без столкновений с ареной
+      if (e.flying) { e.x += e.vx * dtW; e.z += e.vz * dtW; continue; }
       this.arena.move(e.x, e.z, e.vx * dtW, e.vz * dtW, e.radius, o);
       // пропасть или провал в полу: враг, сброшенный ударом с края, падает (стражи в ямы не помещаются)
       const nx = e.x + e.vx * dtW, nz = e.z + e.vz * dtW;
