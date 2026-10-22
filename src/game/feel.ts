@@ -19,6 +19,7 @@ const STEP_PITCH: Record<string, number> = {
 };
 import type { AudioEngine } from '../audio/engine';
 import { MOTIF, type Sequencer } from '../audio/music';
+import { KAELIS_LINES } from '../data/lines';
 
 /** Смертельный удар по Пилоту: замедление (реальные с, масштаб времени). */
 export const DEATH_SLOW = { sec: 0.5, scale: 0.25 };
@@ -483,6 +484,7 @@ export class FeelSystem {
 
   /** Короткая фраза Каэлис (субтитры + «речь» блипами), не чаще чем раз в minGap с. */
   voice(line: string, minGap = 4, speaker: 'kaelis' | 'boss' = 'kaelis'): void {
+    if (speaker === 'kaelis' && !KAELIS_LINES) return;
     const now = this.time.real;
     if (now - this.lastVoice < minGap && speaker === 'kaelis') return;
     this.lastVoice = now;

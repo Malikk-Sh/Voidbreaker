@@ -17,6 +17,7 @@ import type { GameContext } from './context';
 import { Director, type DirectorHost } from './director';
 import { FALL, FallField } from './prologueFall';
 import { DOME_IMPACT, prologueTrack, SPACE, SpaceBasis } from './prologueTracks';
+import { KAELIS_LINES } from '../data/lines';
 
 type Seg = 'dark' | 'space' | 'fall' | 'done';
 
@@ -193,7 +194,7 @@ export class Prologue {
       actor: () => null,
       timeScale: (scale, dur) => ctx.time.cinematic(dur, scale),
       sfx: (id, gain) => ctx.audio.play(id, { gain }),
-      say: (line, sp) => { ctx.hud.subtitle(line, sp); ctx.audio.speak(line, 1, sp); },
+      say: (line, sp) => { if (sp === 'boss' || KAELIS_LINES) { ctx.hud.subtitle(line, sp); ctx.audio.speak(line, 1, sp); } },
       banner: (text, sub, color, dur, size) => ctx.hud.bigBanner(text, sub, color, dur, size),
       flash: (v) => { this.flash = Math.max(this.flash, ctx.settings.flashes ? v : v * 0.25); },
       letterbox: (v) => { this.lbTarget = v; },
@@ -212,7 +213,7 @@ export class Prologue {
       case 'dark': this.seg = 'dark'; this.darkTarget = 1; break;
       case 'space':
         this.seg = 'space'; this.darkTarget = 0; this.spaceT = arg ?? 0;
-        this.ctx.audio.speak('иней', 1.3);
+        if (KAELIS_LINES) this.ctx.audio.speak('иней', 1.3);
         break;
       case 'beams': this.beamsOn = true; break;
       case 'hit': this.breakShip(); break;
@@ -286,7 +287,7 @@ export class Prologue {
     // текст печатается в первые секунды, с блипами голоса Каэлис
     const n = Math.min(TEXT.length, Math.max(0, Math.floor((this.realT - 0.3) / 0.04)));
     if (this.seg === 'dark' && !this.hitDone && n > this.shown) {
-      if (Math.floor(n / 4) > Math.floor(this.shown / 4)) this.ctx.audio.speak('и', 1.25);
+      if (KAELIS_LINES && Math.floor(n / 4) > Math.floor(this.shown / 4)) this.ctx.audio.speak('и', 1.25);
       this.shown = n;
       this.typed.textContent = TEXT.slice(0, n);
       this.rest.textContent = TEXT.slice(n);
