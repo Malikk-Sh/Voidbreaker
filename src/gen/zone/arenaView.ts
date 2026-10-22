@@ -29,6 +29,9 @@ export interface ArenaView {
   tintGlass(k: number): void;
   /** Колонны-укрытия отдельными мешами (1-2: рушатся), по порядку arena.covers; иначе пусто. */
   coverMeshes: THREE.Mesh[];
+  /** Лучи света из окон фасада (в них видна пыль, план §8.5): верх, низ, ширина у пола; их цвет. */
+  rays: { top: THREE.Vector3; bot: THREE.Vector3; w: number }[];
+  rayColor: string;
   dispose(): void;
 }
 
@@ -639,6 +642,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   root.add(decor);
 
   // ---------- лучи света из окон фасада ----------
+  const rays: { top: THREE.Vector3; bot: THREE.Vector3; w: number }[] = [];
+  const rayColor = style === 'candles' ? '#2a2112' : '#13262e';
   if (wall) {
     const pos: number[] = [], uv: number[] = [], idx: number[] = [];
     const nRays = Math.round(rng.range(3, 5));
@@ -648,6 +653,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       const top = new THREE.Vector3(tx, rng.range(9, 12), farZ - 1.4);
       const bot = new THREE.Vector3(tx + rng.range(1.2, 2.6), 0.05, farZ + rng.range(5, 9));
       const w = rng.range(1.4, 2.6);
+      rays.push({ top, bot, w });
       const k = pos.length / 3;
       pos.push(top.x - w * 0.35, top.y, top.z, top.x + w * 0.35, top.y, top.z, bot.x + w / 2, bot.y, bot.z, bot.x - w / 2, bot.y, bot.z);
       uv.push(0, 0, 1, 0, 1, 1, 0, 1);
@@ -657,10 +663,10 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
-    const rays = new THREE.Mesh(g, godRayMaterial(style === 'candles' ? '#2a2112' : '#13262e'));
-    rays.frustumCulled = false;
-    rays.renderOrder = 5;
-    root.add(rays);
+    const rayMesh = new THREE.Mesh(g, godRayMaterial(rayColor));
+    rayMesh.frustumCulled = false;
+    rayMesh.renderOrder = 5;
+    root.add(rayMesh);
   }
 
   // ---------- дальний фон: шпили из бездны, парящие руины ----------
@@ -729,6 +735,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       if (cTime > 4.5) { cTime = -1; u.uGlow.value = 0; u.uProgress.value = -1; }
     },
     coverMeshes,
+    rays,
+    rayColor,
     tintGlass(k: number) {
       decorMat.uniforms.uEmissiveColor.value.copy(glassBase).lerp(GLASS_VOID, k);
       decorMat.uniforms.uEmissiveColor2.value.copy(glassBase2).lerp(GLASS_VOID, k * 0.7);

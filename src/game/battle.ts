@@ -20,6 +20,8 @@ import { effectiveFlashes, type Settings } from '../meta/settings';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
 import { Cinematics, GUARDIAN, STAGE_VISTA_T } from './cinematics';
+import { Ambience, AMBIENCE, AMB_LEVEL } from '../audio/ambience';
+import { AshFall, BeamDust } from '../vfx/atmosphere';
 import { killBellTrack, killGateTrack } from '../world/boss/guardianScenes';
 import { Director, type CineTrack, type DirectorActor, type SkyParam } from './director';
 import type { Enemy } from '../world/enemy';
@@ -86,6 +88,10 @@ export class Battle {
   readonly scars = new FloorScars();
   /** Своё событие арены (план §8.5). */
   readonly events: ArenaEvents;
+  private readonly ambience: Ambience | null;
+  /** Пыль в лучах из окон и пепел на разной глубине (план §8.5). */
+  private readonly beamDust: BeamDust | null;
+  private readonly ash: AshFall;
   private flames: Flames;
   private pools: LightPools;
   private rune: RuneCircle;
@@ -148,6 +154,12 @@ export class Battle {
     this.enemies.warm(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'psalmist', 'brute']);
     r.scene.add(this.group);
     this.events = new ArenaEvents(this.world, this.view, this.group, this.vfx, stage);
+    this.beamDust = this.view.rays.length ? new BeamDust(this.view.rays, this.view.rayColor, this.vfx.quality) : null;
+    this.ash = new AshFall(this.vfx.quality);
+    this.group.add(this.ash.mesh);
+    if (this.beamDust) this.group.add(this.beamDust.mesh);
+    const amb = AMBIENCE[stage.id];
+    this.ambience = amb ? new Ambience(ctx.audio, amb) : null;
 
     this.runner = new StageRunner(this.world, stage);
     this.world.stepHooks.push((dt) => this.runner.step(dt));
@@ -341,6 +353,10 @@ export class Battle {
     this.douseOut.length = 0;
     // 1-4: волны гасят свечное поле (и его пятна света), зачистка — зажигает
     this.events.update(realDt, dtW, this.ctx.renderer.camera.position.y);
+    // тихий фон арены: между волнами слышен, в бою уходит под музыку
+    this.ambience?.set(this.runner.phase === 'wave' ? AMB_LEVEL.fight : AMB_LEVEL.calm);
+    this.ambience?.update(realDt);
+    this.ash.follow(this.cam.focus.x, this.cam.focus.z);
     const out = Math.max(this.world.candlesOut, this.events.fieldOut);
     this.flames.douse(acx, acz, this.world.candlesFrom, out, realDt, this.douseOut);
     this.pools.douse(acx, acz, this.world.candlesFrom, out);
@@ -821,6 +837,7 @@ export class Battle {
   }
 
   dispose(): void {
+    this.ambience?.stop();
     this.cine.clear(this.cam);
     this.director.clear(this.cam);
     this.feel.dispose();
@@ -830,6 +847,8 @@ export class Battle {
     this.view.dispose();
     this.flames.dispose();
     this.scars.dispose();
+    this.ash.dispose();
+    this.beamDust?.dispose();
     this.enemies.dispose();
     this.vfx.clear();
     this.ctx.music.onBeat = null;

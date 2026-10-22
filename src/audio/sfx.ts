@@ -1,4 +1,4 @@
-import { arp, bell, boom, brass, choir, chips, crunch, env, glassTail, industrial, kick, metal, mtof, noiseHit, osc, pink, pluck, punch, saturator, sub, tom, transient, voidHiss, type Ctx } from './synth';
+import { arp, bell, boom, brass, choir, chips, crunch, env, glassTail, industrial, kick, metal, mtof, noiseBuffer, noiseHit, osc, pink, pluck, punch, saturator, sub, tom, transient, voidHiss, type Ctx } from './synth';
 
 /**
  * Рецепты SFX (GDD §18.5). Все звуки синтезируются и «запекаются» в буферы при загрузке (OfflineAudioContext);
@@ -9,8 +9,17 @@ export interface SfxRecipe {
   variants?: number;
   /** Отправка в реверберацию по умолчанию (удары — 0.05–0.08; колокола, ульта, рёв — больше). */
   reverb?: number;
+  /** Бесшовная петля: рендерится len + loop секунд, хвост длиной loop вплетается в начало. */
+  loop?: number;
   render: (ctx: Ctx, out: AudioNode, t: number) => void;
 }
+
+/** Медленно бродящая кривая (для порывов ветра): n точек в [lo, hi]. */
+const wander = (n: number, lo: number, hi: number): Float32Array => {
+  const a = new Float32Array(n);
+  for (let i = 0; i < n; i++) a[i] = lo + Math.random() * (hi - lo);
+  return a;
+};
 
 const sweep = (ctx: Ctx, out: AudioNode, t: number, f0: number, f1: number, dur: number, gain: number, q = 1.2): void => {
   const { f } = noiseHit(ctx, out, t, dur, f0, gain, 'bandpass', q, 'pink');
@@ -279,4 +288,42 @@ export const SFX: Record<string, SfxRecipe> = {
   } },
   tom_hit: { len: 0.6, render: (c, o, t) => tom(c, o, t, 90, 0.7) },
   arp_blip: { len: 0.3, render: (c, o, t) => arp(c, o, t, 74, 0.2, 0.06) },
+  // тихий фон арены между волнами (план §8.5): ветер в проломах, далёкий хор — петли; редкий колокол, капли
+  amb_wind: { len: 9, loop: 1.5, reverb: 0.1, render: (c, o, t) => {
+    const L = 10.5;
+    for (const side of [-0.45, 0.45]) {
+      const pan = c.createStereoPanner(); pan.pan.value = side; pan.connect(o);
+      // гул сквозняка: широкая полоса, центр и громкость медленно бродят
+      const src = c.createBufferSource(); src.buffer = noiseBuffer(c, L);
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.7;
+      bp.frequency.setValueCurveAtTime(wander(10, 240, 620), t, L);
+      const g = c.createGain(); g.gain.setValueCurveAtTime(wander(10, 0.12, 0.3), t, L);
+      src.connect(bp).connect(g).connect(pan);
+      // свист в щелях: узкая полоса повыше, редкие всплески
+      const src2 = c.createBufferSource(); src2.buffer = noiseBuffer(c, L);
+      const bp2 = c.createBiquadFilter(); bp2.type = 'bandpass'; bp2.Q.value = 10;
+      bp2.frequency.setValueCurveAtTime(wander(8, 650, 1150), t, L);
+      const g2 = c.createGain(); g2.gain.setValueCurveAtTime(wander(8, 0, 1).map((v) => (v > 0.7 ? 0.12 : 0.01)), t, L);
+      src2.connect(bp2).connect(g2).connect(pan);
+      src.start(t); src2.start(t);
+    }
+  } },
+  amb_choir: { len: 10, loop: 2, reverb: 0.55, render: (c, o, t) => {
+    // далеко, за стенами: глухо (ФНЧ) и тихо
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1100; f.connect(o);
+    choir(c, f, t, [50, 57, 62, 65], 14, 0.075, 'o', 'u');
+  } },
+  amb_bell: { len: 7, reverb: 0.7, render: (c, o, t) => {
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 760; f.connect(o);
+    bell(c, f, t, mtof(38), 0.2, 6.5);
+  } },
+  amb_drop: { len: 0.9, variants: 3, reverb: 0.6, render: (c, o, t) => {
+    const f0 = 1300 + Math.random() * 900;
+    for (const [at, k, gn] of [[0, 1, 0.07], [0.085, 1.32, 0.022]] as const) {
+      const x = c.createOscillator(); x.type = 'sine';
+      x.frequency.setValueAtTime(f0 * k, t + at); x.frequency.exponentialRampToValueAtTime(f0 * k * 0.55, t + at + 0.06);
+      const g = c.createGain(); env(g.gain, t + at, gn, 0.002, 0.09);
+      x.connect(g).connect(o); x.start(t + at); x.stop(t + at + 0.2);
+    }
+  } },
 };

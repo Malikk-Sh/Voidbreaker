@@ -107,12 +107,13 @@ export class AudioEngine {
       const n = r.variants ?? 1;
       for (let v = 0; v < n; v++) {
         // стерео: варианты одного звука разведены по панораме ±0.2
-        const off = new OfflineAudioContext(2, Math.ceil(sr * r.len), sr);
+        const off = new OfflineAudioContext(2, Math.ceil(sr * (r.len + (r.loop ?? 0))), sr);
         const pan = off.createStereoPanner(); pan.pan.value = n > 1 ? ((v / (n - 1)) - 0.5) * 0.4 : 0;
         pan.connect(off.destination);
         const g = off.createGain(); g.connect(pan);
         try { r.render(off, g, 0.005); } catch (e) { console.warn('sfx render', id, e); continue; }
-        jobs.push(off.startRendering().then((buf) => {
+        jobs.push(off.startRendering().then((raw) => {
+          const buf = r.loop ? seamless(ctx, raw, Math.ceil(sr * r.len), Math.ceil(sr * r.loop)) : raw;
           const list = this.buffers.get(id) ?? [];
           list.push(buf);
           this.buffers.set(id, list);
@@ -149,6 +150,19 @@ export class AudioEngine {
     this.active++;
     src.onended = () => { this.active--; };
     src.start(now + (o.delay ?? 0));
+  }
+
+  /** Запустить запечённую петлю (фон арены): громкость — через gain, остановка — stop(). */
+  startLoop(id: string, reverb = 0): LoopHandle | null {
+    const ctx = this.ctx;
+    const buf = this.buffers.get(id)?.[0];
+    if (!ctx || ctx.state !== 'running' || !buf) return null;
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const gain = ctx.createGain(); gain.gain.value = 0;
+    src.connect(gain).connect(this.sfxBus);
+    if (reverb > 0) { const s = ctx.createGain(); s.gain.value = reverb; gain.connect(s).connect(this.reverbSend); }
+    src.start();
+    return { gain, stop: () => { try { src.stop(); } catch { /* уже остановлена */ } gain.disconnect(); } };
   }
 
   /** Приглушение музыки на тяжёлых ударах (−3 дБ, GDD §18.7). */
@@ -256,3 +270,19 @@ export class AudioEngine {
 }
 
 export { mtof };
+
+export interface LoopHandle { gain: GainNode; stop(): void }
+
+/** Петля без шва: последние xf сэмплов (за len) вплетаются в первые xf с равномощным кроссфейдом. */
+function seamless(ctx: BaseAudioContext, raw: AudioBuffer, len: number, xf: number): AudioBuffer {
+  const out = ctx.createBuffer(raw.numberOfChannels, len, raw.sampleRate);
+  for (let ch = 0; ch < raw.numberOfChannels; ch++) {
+    const a = raw.getChannelData(ch), o = out.getChannelData(ch);
+    o.set(a.subarray(0, len));
+    for (let i = 0; i < xf && len + i < a.length; i++) {
+      const k = (i / xf) * Math.PI * 0.5;
+      o[i] = a[i] * Math.sin(k) + a[len + i] * Math.cos(k);
+    }
+  }
+  return out;
+}

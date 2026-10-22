@@ -31,6 +31,9 @@ export const C = {
   ember: lin('#FF8A3D', 2), gold: lin('#B8954E', 1.5), dust: lin('#3a3150'), dark: lin('#0b0910'), ether: lin('#F4F1FF', 3),
   star: lin('#4aa3c8'), starHot: lin('#9fe4f7', 2.2),
 };
+/** Пыль, поднятая волной с пола: светлее дыма удара — её видно на обсидиане и в лучах. */
+const WAVE_DUST = lin('#5d586a');
+
 
 const _wp = { x: 0, y: 0, z: 0 };
 const _v = new THREE.Vector3(), _w = new THREE.Vector3();
@@ -76,7 +79,8 @@ export class BattleVfx {
   private wellMeshes: THREE.Mesh[] = [];
   private ambientT = 0;
   /** Пыль/искры атмосферы зоны (слой 7, GDD §17.5). */
-  atmosphere: 'dust' | 'embers' | 'none' = 'dust';
+  /** Частицы в воздухе вокруг Пилота. Пыль теперь только в лучах света, а пепел — свой слой (vfx/atmosphere). */
+  atmosphere: 'dust' | 'embers' | 'none' = 'none';
   quality = 1;
 
   constructor(maxParticles: number, pools: LightPools) {
@@ -168,8 +172,24 @@ export class BattleVfx {
       this.norm.emit({ x: x + Math.sin(a) * r * 0.3, y: 0.2, z: z + Math.cos(a) * r * 0.3, vx: Math.sin(a) * r * 2.2, vz: Math.cos(a) * r * 2.2, vy: fxRng.range(0.3, 1.5), life: 0.8, size: 0.5, size1: 1.3, color: C.dust, alpha: 0.55, drag: 3.5, frame: 'smoke' });
     }
     this.burst(10 * strength, { x, y: 0.2, z, life: 0.5, size: 0.08, size1: 0.02, color, gravity: -12, drag: 1.5, frame: 'spark', stretch: 1 }, { v: r * 2.5, vy: 6 });
+    if (r >= 2.5) this.waveDust(x, z, r);
     this.debris.burst(x, 0.2, z, 0, 0, Math.round(6 * strength * this.quality), 4, 0.18);
     this.lights.flash(x, 1, z, color, 3 * strength, r * 2.5, 0.3);
+  }
+
+  /**
+   * Ударная волна поднимает пыль с пола (план §8.5): за фронтом волны (≈3r м/с) встаёт и долго висит
+   * низкая пылевая завеса — дальше от центра, чем быстрый клуб удара.
+   */
+  waveDust(x: number, z: number, r: number): void {
+    const n = Math.round(Math.min(28, 10 + r * 4) * this.quality);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + fxRng.spread(0.25), rr = r * fxRng.range(0.55, 1.15);
+      this.norm.emit({
+        x: x + Math.sin(a) * rr, y: 0.1, z: z + Math.cos(a) * rr, vx: Math.sin(a) * 0.7, vz: Math.cos(a) * 0.7, vy: fxRng.range(0.3, 0.75),
+        life: fxRng.range(1.7, 2.4), size: 0.5, size1: fxRng.range(1.5, 2.2), color: WAVE_DUST, alpha: 0.34, drag: 1.1, frame: 'smoke', delay: rr / (r * 3),
+      });
+    }
   }
 
   /** Портал спавна (0.8 с красный разлом). */
