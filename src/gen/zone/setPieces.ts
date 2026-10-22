@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { hexToLinear } from '../../core/math';
 import { Rng } from '../../core/rng';
+import { G } from '../../render/materials';
 import { GeomBuilder, mat } from '../geom/build';
 import { GOLD, OBS, OBS_DEEP } from '../geom/kit';
 import { bipyramid, box, lathe, octa, prism, shard } from '../geom/prims';
@@ -110,4 +111,88 @@ export function buildGiantBell(): THREE.BufferGeometry {
   b.add(box(1.0, 0.8, 9), { matrix: mat(0, 0.6, 0), color: OBS });
   b.add(box(1.4, 1.2, 1.4), { matrix: mat(0, 0, 0), color: OBS });
   return b.build();
+}
+
+/**
+ * Обсидиановая «молящаяся» фигура (план §8.6): на коленях, голова склонена, руки сложены перед собой. ≈1.05 м,
+ * лицом к +z. Рассыпается от ударной волны (game/arenaEvents).
+ */
+export function buildPrayingFigure(seed: number): THREE.BufferGeometry {
+  const rng = new Rng(seed);
+  const b = new GeomBuilder(); b.rng = rng; b.color = OBS;
+  b.add(lathe([[0.4, 0], [0.38, 0.14], [0.3, 0.38], [0.0, 0.46]], 7, rng.next()), { matrix: mat(0, 0, -0.05) });
+  const lean = rng.range(0.25, 0.5);
+  b.add(box(0.34, 0.5, 0.22), { matrix: mat(0, 0.62, 0.04, lean, 0, 0) });
+  b.add(lathe([[0.15, 0], [0.16, 0.12], [0.1, 0.24], [0.0, 0.3]], 6), { matrix: mat(0, 0.86, 0.04 + Math.sin(lean) * 0.32, lean + 0.25, 0, 0) });
+  for (const s of [-1, 1]) b.add(box(0.07, 0.3, 0.07), { matrix: mat(s * 0.09, 0.78, 0.2, -1.0 + lean * 0.5, 0, -s * 0.25) });
+  b.add(octa(0.06, 0.08, 0.05), { matrix: mat(0, 0.88, 0.33) });
+  return b.build();
+}
+
+/** Фреска (план §8.6): kind 0 — люди молятся звезде; 1 — звезда с багровой пастью, люди пали ниц. 4:3. */
+export function frescoMaterial(kind: 0 | 1, seed: number): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uNoise: G.uNoise, uTime: G.uTime, uKind: { value: kind }, uSeed: { value: seed } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: /* glsl */ `
+      uniform sampler2D uNoise; uniform float uKind, uSeed, uTime; varying vec2 vUv;
+      float n2(vec2 p) { return texture2D(uNoise, p).r; }
+      float sdBox(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
+      mat2 rot(float a) { return mat2(cos(a), -sin(a), sin(a), cos(a)); }
+      // коленопреклонённый силуэт лицом к +x; начало — у колен на земле
+      float figure(vec2 p, float s, float lean) {
+        p /= s;
+        float d = sdBox(p - vec2(0.0, 0.17), vec2(0.27, 0.17));
+        vec2 q = rot(-lean) * (p - vec2(0.02, 0.36)); d = min(d, sdBox(q - vec2(0.0, 0.24), vec2(0.12, 0.26)));
+        vec2 hp = vec2(0.02, 0.36) + rot(lean) * vec2(0.0, 0.62);
+        d = min(d, length(p - hp) - 0.12);
+        vec2 a = rot(-0.9 - lean * 0.6) * (p - (vec2(0.02, 0.36) + rot(lean) * vec2(0.08, 0.42)));
+        d = min(d, sdBox(a - vec2(0.0, 0.16), vec2(0.045, 0.17)));
+        return d * s;
+      }
+      void main() {
+        vec2 uv = vUv, p = (uv - 0.5) * vec2(1.333, 1.0);
+        vec3 gold = vec3(0.5, 0.38, 0.16);
+        vec3 col = mix(vec3(0.07, 0.052, 0.038), vec3(0.13, 0.098, 0.068), n2(uv * vec2(2.0, 1.5) + uSeed));
+        // звезда в нимбе с лучами
+        vec2 sp = p - vec2(0.0, 0.17);
+        float r = length(sp), ang = atan(sp.y, sp.x);
+        col += gold * exp(-r * r * 10.0) * 0.32;
+        col += gold * smoothstep(0.55, 1.0, cos(ang * 14.0)) * smoothstep(0.5, 0.12, r) * 0.18 * (1.0 - uKind * 0.5);
+        float star = r - 0.13 * (0.55 + 0.45 * (0.5 + 0.5 * cos(ang * 7.0 + 1.5708)));
+        col = mix(col, gold * 1.3, smoothstep(0.006, -0.004, star));
+        if (uKind > 0.5) {
+          // багровая пасть в сердце звезды: зубы по кругу, глотка темнеет к центру
+          float mouth = smoothstep(0.092, 0.084, r);
+          float tooth = step(abs(fract(ang * 11.0 / 6.2832) - 0.5) * 2.0, (r - 0.05) / 0.035) * step(0.05, r);
+          vec3 maw = mix(vec3(0.42, 0.03, 0.05), vec3(0.05, 0.0, 0.01), smoothstep(0.08, 0.0, r)) * (0.85 + 0.15 * sin(uTime * 1.3));
+          col = mix(col, maw, mouth);
+          col = mix(col, vec3(0.55, 0.5, 0.42), tooth * mouth);
+          // потёки вниз из пасти
+          float cx = p.x * 7.0 + 0.5;
+          float on = step(0.55, n2(vec2(floor(cx) * 0.173, uSeed * 0.31)));
+          float len = 0.12 + 0.25 * n2(vec2(floor(cx) * 0.29, 0.7 + uSeed));
+          float drip = on * smoothstep(0.12, 0.0, abs(fract(cx) - 0.5)) * step(abs(p.x), 0.22) * step(0.1 - len, p.y) * step(p.y, 0.08);
+          col = mix(col, vec3(0.3, 0.01, 0.03), drip * 0.8);
+        }
+        // люди по обе стороны — к звезде; у пасти — пали ниц
+        float lean = mix(0.35, 1.15, uKind);
+        float d = 1e3;
+        for (int i = 0; i < 3; i++) {
+          float fi = float(i), x0 = 0.24 + fi * 0.15, s = 0.2 - fi * 0.025;
+          d = min(d, figure(vec2(p.x + x0, p.y + 0.43), s, lean + fi * 0.05));
+          d = min(d, figure(vec2(-(p.x - x0), p.y + 0.43), s, lean + fi * 0.04));
+        }
+        col = mix(col, vec3(0.018, 0.014, 0.012), smoothstep(0.004, -0.003, d));
+        // время: отслоения штукатурки, трещины, рамка, затемнение к краям
+        float flake = smoothstep(0.63, 0.67, n2(uv * vec2(5.0, 3.6) + uSeed * 3.1));
+        col = mix(col, vec3(0.15, 0.135, 0.12), flake * 0.85);
+        col *= 1.0 - 0.6 * smoothstep(0.012, 0.0, abs(n2(uv * vec2(1.3, 1.0) + uSeed * 1.7) - 0.5));
+        float fr = max(abs(p.x) / 0.666, abs(p.y) / 0.5);
+        col = mix(col, gold * 0.7, smoothstep(0.925, 0.935, fr) * (1.0 - smoothstep(0.955, 0.965, fr)));
+        col *= 0.6 + 0.4 * (1.0 - smoothstep(0.3, 0.75, length(p)));
+        gl_FragColor = vec4(col * 0.8, 1.0);
+      }
+    `,
+  });
 }

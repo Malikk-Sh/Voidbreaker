@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { inPart } from '../data/arenas';
 import type { StageDef } from '../data/stages';
-import { buildGiantBell, buildGiantGate, buildGuardianSilhouette, buildWreck } from '../gen/zone/setPieces';
-import { ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
+import { buildGiantBell, buildGiantGate, buildGuardianSilhouette, buildPrayingFigure, buildWreck } from '../gen/zone/setPieces';
+import { boundaryAt, ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
 import { obsidianMaterial } from '../render/materials';
 import { TileState, type Tile } from '../world/arena';
 import { overlaps, type Shape } from '../world/combat';
@@ -20,6 +20,8 @@ export const SPAN_WARN = 1.4;
 export const TILE_BOB = { amp: 0.05, r: 2.6, dur: 1.1 };
 /** Память арены: клетка 2 м, вклад удара Пилота (обычный / тяжёлый), потолок, время забывания (с). */
 export const WEAR = { cell: 2, hit: 0.08, heavy: 0.2, max: 1.5, tau: 40 };
+/** Молящиеся фигуры (план §8.6): сколько на арене со стенами; рассыпаются от волны ближе r + reach м. */
+export const PRAYERS = { n: 6, reach: 1.2 };
 /** 1-6: высота подвеса и масштаб колокола (нижний край на y − 7.4·scale). */
 export const BELL = { y: 34, scale: 1.4 };
 /** 1-3: ворота-гигант стоят на месте дальнего фасада — чуть за краем арены. */
@@ -43,6 +45,8 @@ export class ArenaEvents {
   private readonly standing: { m: THREE.Mesh; cover: { x: number; z: number; r: number } }[] = [];
   private spanIdx = 0;
   private readonly bob = new Map<Tile, { t: number; a: number; ph: number }>();
+  /** Обсидиановые «молящиеся» по краю арены — лицом к центру; рассыпаются от ударной волны. */
+  readonly prayers: { m: THREE.Mesh; x: number; z: number; alive: boolean }[] = [];
   private readonly floats: boolean;
   private readonly wear: Float32Array;
   private readonly wearW: number;
@@ -86,6 +90,22 @@ export class ArenaEvents {
     // (план §8.5) заработает и там, если они появятся: отдельные меши колонн + shove на арене босса
     if (id === '1-2') view.coverMeshes.forEach((m, i) => { const c = w.arena.covers[i]; if (c) this.standing.push({ m, cover: c }); });
 
+    // молящиеся по краю арены (план §8.6): между колоннами, на ободе за краем пола, лицом к центру
+    if (w.arena.def.edge === 'wall') {
+      const def = w.arena.def, p0 = def.parts[0];
+      const mat = obsidianMaterial({ rim: ZONE1_LOOK.rim, rimStrength: 0.35, rimPower: 2.8, emissive: ZONE1_LOOK.veins, emissive2: ZONE1_LOOK.warm, emissiveStrength: 1 });
+      for (let k = 0; k < PRAYERS.n; k++) {
+        // дальняя половина и бока — ближняя к камере сторона закрыла бы бой
+        const a = Math.PI * 0.42 + (k / (PRAYERS.n - 1)) * Math.PI * 1.16;
+        const r = boundaryAt(def, a, p0.x, p0.z) + 0.25;
+        const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
+        if (z > b.maxZ - 3.5) continue;
+        const m = add(buildPrayingFigure(31 + k), mat, x, 0, z);
+        m.rotation.y = Math.atan2(-Math.sin(a), -Math.cos(a));
+        this.prayers.push({ m, x, z, alive: true });
+      }
+    }
+
     const bus = w.bus;
     bus.on('spawned', (e) => {
       if (!(e.actor as Enemy).isGuardian) return;
@@ -107,6 +127,8 @@ export class ArenaEvents {
       bus.on('impact', (e) => { if (e.r >= 2.5 || e.kind === 'slam') this.shove(e.x, e.z); });
       bus.on('strike', (e) => { if (e.source === 'blade' && (e.feel === 'heavy' || e.feel === 'break')) this.shove(e.x, e.z); });
     }
+    // ударная волна рассыпает молящихся
+    bus.on('impact', (e) => { if (e.kind !== 'land') this.crumble(e.x, e.z, e.r); });
     // парящие плиты качаются от тяжёлых ударов; память арены копит удары Пилота
     bus.on('impact', (e) => { if (e.kind !== 'land' && e.r >= 2) this.shake(e.x, e.z, Math.max(TILE_BOB.r, e.r), 1); });
     bus.on('strike', (e) => {
@@ -147,6 +169,21 @@ export class ArenaEvents {
     this.fieldOut += (this.fieldTarget - this.fieldOut) * Math.min(1, realDt * (this.fieldTarget > this.fieldOut ? 0.9 : 1.6));
     this.updateBell(dtW);
     this.updateColumns(dtW);
+  }
+
+  // ------------------------------------------------------------------ молящиеся
+  private crumble(x: number, z: number, r: number): void {
+    for (const p of this.prayers) {
+      if (!p.alive) continue;
+      const dx = p.x - x, dz = p.z - z, d = Math.hypot(dx, dz);
+      if (d > r + PRAYERS.reach) continue;
+      p.alive = false;
+      p.m.visible = false;
+      const nx = d > 0.1 ? dx / d : 0, nz = d > 0.1 ? dz / d : 1;
+      this.vfx.debris.burst(p.x, 0.5, p.z, nx, nz, 9, 3.5, 0.15);
+      for (let i = 0; i < 3; i++) this.vfx.smokePuff(p.x + (i - 1) * 0.25, 0.3, p.z);
+      this.w.bus.emit('sfx', { id: 'shatter_stone', x: p.x, z: p.z, gain: 0.45 });
+    }
   }
 
   // ------------------------------------------------------------------ парящие плиты

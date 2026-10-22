@@ -221,7 +221,8 @@ export function candelabra(b: GeomBuilder, x: number, z: number, h: number, cand
 }
 
 /** Статуя в капюшоне: профиль вращения мантии + капюшон + тёмная впадина лица + меч остриём вниз. */
-export function hoodedStatue(b: GeomBuilder, h: number, seed: number, sword = true): void {
+/** broken — лицо отбито (план §8.6): вместо впадины со взглядом — свежий скол, обломки у постамента. */
+export function hoodedStatue(b: GeomBuilder, h: number, seed: number, sword = true, broken = false): void {
   const rng = new Rng(seed);
   b.color = OBS;
   b.add(prism(6, 0.9 * h / 4, 0.8 * h / 4, 0.4), { matrix: mat(0, 0, 0), rng });
@@ -234,10 +235,18 @@ export function hoodedStatue(b: GeomBuilder, h: number, seed: number, sword = tr
   const hood = lathe([[0.36, 0], [0.4, 0.3], [0.3, 0.65], [0.0, 0.95]], 6);
   hood.scale(s, s, s);
   b.add(hood, { matrix: mat(0, 0.4 + 2.95 * s, 0.02 * s, -0.25), rng });
-  // впадина лица — тёмная, с тусклыми глазами
-  b.add(box(0.36 * s, 0.32 * s, 0.1 * s), { matrix: mat(0, 0.4 + 3.25 * s, 0.32 * s, -0.25), color: [0, 0, 0], shade: 0 });
-  b.add(box(0.05 * s, 0.03 * s, 0.05 * s), { matrix: mat(-0.08 * s, 0.4 + 3.3 * s, 0.36 * s), emissive: 0.6, color: OBS_DEEP });
-  b.add(box(0.05 * s, 0.03 * s, 0.05 * s), { matrix: mat(0.08 * s, 0.4 + 3.3 * s, 0.36 * s), emissive: 0.6, color: OBS_DEEP });
+  if (broken) {
+    // свежий скол: светлая косая плоскость на месте лица и края капюшона, осколки лица — на постаменте
+    b.add(box(0.5 * s, 0.46 * s, 0.08 * s), { matrix: mat(0.03 * s, 0.4 + 3.2 * s, 0.3 * s, -0.55, 0.2, 0.35), color: OBS_HI, shade: 0.3, rng });
+    for (let k = 0; k < 3; k++) {
+      b.add(rock(rng.range(0.08, 0.14) * s * 2, 0, 0.35, rng.int(0, 999)), { matrix: mat(rng.spread(0.5) * s, 0.42, (0.55 + rng.next() * 0.3) * s), color: OBS_HI, shade: 0.25 });
+    }
+  } else {
+    // впадина лица — тёмная, с тусклыми глазами
+    b.add(box(0.36 * s, 0.32 * s, 0.1 * s), { matrix: mat(0, 0.4 + 3.25 * s, 0.32 * s, -0.25), color: [0, 0, 0], shade: 0 });
+    b.add(box(0.05 * s, 0.03 * s, 0.05 * s), { matrix: mat(-0.08 * s, 0.4 + 3.3 * s, 0.36 * s), emissive: 0.6, color: OBS_DEEP });
+    b.add(box(0.05 * s, 0.03 * s, 0.05 * s), { matrix: mat(0.08 * s, 0.4 + 3.3 * s, 0.36 * s), emissive: 0.6, color: OBS_DEEP });
+  }
   if (sword) {
     b.add(box(0.12 * s, 2.0 * s, 0.03 * s), { matrix: mat(0, 0.4 + 1.25 * s, 0.62 * s), rng });
     b.add(box(0.7 * s, 0.08 * s, 0.08 * s), { matrix: mat(0, 0.4 + 2.3 * s, 0.6 * s), color: GOLD, rng });

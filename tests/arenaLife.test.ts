@@ -21,7 +21,7 @@ import { Arena, TileState } from '../src/world/arena';
 import { Abilities } from '../src/world/abilities';
 import { ARENAS, inPart } from '../src/data/arenas';
 import { stageById } from '../src/data/stages';
-import { ArenaEvents, BRIDGE_SPANS, COLUMN_FALL, TILE_BOB, WEAR } from '../src/game/arenaEvents';
+import { ArenaEvents, BELL, BRIDGE_SPANS, COLUMN_FALL, PRAYERS, TILE_BOB, WEAR } from '../src/game/arenaEvents';
 import { BOSS_SCAR_LIFE } from '../src/vfx/scars';
 import { createEnemy } from '../src/world/enemies/factory';
 import type { ArenaView } from '../src/gen/zone/arenaView';
@@ -78,7 +78,7 @@ describe('события арен (план §8.5)', () => {
       if (v) { expect(v.look.y).toBeGreaterThan(v.pos.y); expect(v.pos.y).toBeLessThan(2); }
       expect(!!ev.overhead(), id).toBe(id === '1-6');
       if (id === '1-6') {
-        const bell = g.children[g.children.length - 1];
+        const bell = g.children.find((c) => c.position.y === BELL.y)!;
         ev.update(1 / 60, 1 / 60, 18);
         expect(bell.visible).toBe(true);
         ev.update(1 / 60, 1 / 60, 40);
@@ -122,5 +122,27 @@ describe('события арен (план §8.5)', () => {
     expect(ev.wearAt(2, 1)).toBeLessThan(here * 0.45);
     expect(BOSS_SCAR_LIFE).toBeGreaterThan(SCAR_LIFE * 2);
     expect(new FloorScars(BOSS_SCAR_LIFE).life).toBe(BOSS_SCAR_LIFE);
+  });
+
+  it('молящиеся фигуры (план §8.6): стоят на ободе стенных арен лицом к центру, рассыпаются только от ударной волны рядом', () => {
+    const fx = { n: 0 };
+    const vfx2 = { debris: { burst: () => { fx.n++; } }, smokePuff: () => {} } as unknown as BattleVfx;
+    const w = new World(new Arena(ARENAS.naves), 'ev');
+    const ev = new ArenaEvents(w, view(0), new THREE.Group(), vfx2, stageById('1-2')!);
+    expect(ev.prayers.length).toBeGreaterThanOrEqual(3);
+    for (const q of ev.prayers) expect(w.arena.walkable(q.x, q.z)).toBe(false);
+    const q = ev.prayers[0];
+    // приземление рядом и далёкий удар — не трогают
+    w.bus.emit('impact', { x: q.x, z: q.z, r: 1, kind: 'land' });
+    w.bus.emit('impact', { x: q.x + 10, z: q.z + 10, r: 2, kind: 'slam' });
+    expect(q.alive).toBe(true);
+    w.bus.emit('impact', { x: q.x * 0.85, z: q.z * 0.85, r: 2, kind: 'slam' });
+    expect(q.alive).toBe(false);
+    expect(q.m.visible).toBe(false);
+    expect(fx.n).toBeGreaterThan(0);
+    expect(Math.hypot(q.x * 0.15, q.z * 0.15)).toBeLessThan(2 + PRAYERS.reach);
+    // мост над бездной — без них
+    const w2 = new World(new Arena(ARENAS.bridge), 'ev');
+    expect(new ArenaEvents(w2, view(0), new THREE.Group(), vfx2, stageById('1-5')!).prayers.length).toBe(0);
   });
 });

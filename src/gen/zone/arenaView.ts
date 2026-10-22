@@ -10,6 +10,7 @@ import {
 } from '../geom/kit';
 import { obsidianMaterial, type ObsidianMaterial } from '../../render/materials';
 import { TileState, type Arena } from '../../world/arena';
+import { frescoMaterial } from './setPieces';
 
 export interface LightPoolDef { x: number; z: number; r: number; color: string; intensity: number; flicker: number }
 
@@ -70,7 +71,7 @@ function tileGeometry(t: number, variant: number, seed: number): THREE.BufferGeo
 }
 
 /** Граница внешнего контура (провалы не в счёт): расстояние от центра до края по направлению. */
-function boundaryAt(def: ArenaDef, a: number, cx = 0, cz = 0): number {
+export function boundaryAt(def: ArenaDef, a: number, cx = 0, cz = 0): number {
   const dx = Math.sin(a), dz = Math.cos(a);
   let r = 0.5;
   while (r < 60 && inOutline(def, cx + dx * r, cz + dz * r)) r += 0.25;
@@ -245,6 +246,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     D.add(shard(rng.range(10, 26), rad, 6, 0.3, rng.int(0, 999)), { matrix: matAlong(x, -1.0 - rad * 0.25, z, rng.spread(0.05), -1, rng.spread(0.05)), color: OBS_DEEP });
   }
 
+  // рассказ окружением (план §8.6): свой генератор, чтобы не сдвигать раскладку остального декора
+  const srng = new Rng(seed + ':story');
   if (wall) {
     // периметр: колонны, статуи, канделябры
     const p0 = def.parts[0];
@@ -267,7 +270,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
         continue;
       }
       if (i % 3 === 1 && style !== 'candles') {
-        place((g) => hoodedStatue(g, rng.range(3.4, 4.2), rng.int(0, 1e5)), x, 0, z, Math.atan2(-Math.sin(a), -Math.cos(a)));
+        // половине статуй отбили лица
+        place((g) => hoodedStatue(g, rng.range(3.4, 4.2), rng.int(0, 1e5), true, srng.next() < 0.5), x, 0, z, Math.atan2(-Math.sin(a), -Math.cos(a)));
       } else {
         const broken = rng.next() < 0.18;
         // по бокам колонны ниже — ближе к камере они не должны закрывать арену
@@ -291,6 +295,28 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
           pools.push({ x: cx, z: cz, r: 3.6, color: look.warm, intensity: 0.55, flicker: 1 });
         }
       }
+    }
+    // фрески по дальней стене слева и справа от фасада: люди молятся звезде; дальше по пути — звезда с пастью
+    const story: 0 | 1 = FRESCO_MAW.has(def.id) ? 1 : 0;
+    const spots: { a: number; x: number; z: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      // в промежутках между колоннами периметра, по дальней половине, не на фасаде
+      const a = ((i + 0.5) / n) * Math.PI * 2 + 0.001;
+      const r = boundaryAt(def, a, p0.x, p0.z) + 2.3;
+      const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
+      if (z > (farZ + nearZ) / 2 - 1 || Math.abs(x - farPart.x) < farPart.w * 0.36 + 1.8) continue;
+      spots.push({ a, x, z });
+    }
+    // по две с каждой стороны — ближе к дальней стене
+    const pick = [-1, 1].flatMap((sd) => spots.filter((q) => Math.sign(q.x - farPart.x) === sd).sort((u, v) => u.z - v.z).slice(0, 2));
+    for (const { a, x, z } of pick) {
+      const ry = Math.atan2(-Math.sin(a), -Math.cos(a));
+      D.add(box(3.5, 3.0, 0.35), { matrix: mat(x, 1.5, z, 0, ry, 0), color: OBS, shade: 0.1 });
+      D.add(box(3.75, 0.22, 0.55), { matrix: mat(x, 3.05, z, 0, ry, 0), color: GOLD, shade: 0.2 });
+      const fm = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 2.25), frescoMaterial(story, srng.next() * 10));
+      fm.position.set(x + Math.sin(ry) * 0.19, 1.65, z + Math.cos(ry) * 0.19);
+      fm.rotation.y = ry;
+      root.add(fm);
     }
     // фасад на дальней стороне: аркада + розетка (ширина — по самой дальней части: апсида, рукав трансепта)
     // на Вратах фасада нет: вместо него стоят ворота-гигант (план §8.5, game/arenaEvents)
@@ -772,6 +798,9 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
 }
 
 const _qs = new THREE.Quaternion(), _up = new THREE.Vector3(0, 1, 0);
+
+/** На каких аренах фрески уже показывают звезду с багровой пастью (вторая половина зоны и святилище). */
+const FRESCO_MAW = new Set(['candles', 'bridge', 'belfry', 'hierophant']);
 
 /** Цвет витражей во вспышке ульты. */
 const GLASS_VOID = new THREE.Vector3(...hexToLinear('#B794FF')).multiplyScalar(1.4);
