@@ -256,17 +256,20 @@ export function choir(ctx: Ctx, out: AudioNode, t: number, notes: number[], dur:
     f.connect(fg).connect(bus);
     return f;
   });
-  for (const m of notes) {
+  notes.forEach((m, ni) => {
     for (let v = 0; v < 2; v++) {
       const o = ctx.createOscillator(); o.type = 'sawtooth';
       o.frequency.value = mtof(m) * (1 + (v ? 0.004 : -0.004));
       const vib = ctx.createOscillator(), vg = ctx.createGain();
       vib.frequency.value = 5 + Math.random(); vg.gain.value = mtof(m) * 0.007;
       vib.connect(vg).connect(o.frequency);
-      for (const f of filters) o.connect(f);
+      // голоса хора разведены по панораме −0.5…+0.5
+      const pn = ctx.createStereoPanner(); pn.pan.value = (v ? 1 : -1) * (0.2 + 0.3 * ((ni % 3) / 2));
+      o.connect(pn);
+      for (const f of filters) pn.connect(f);
       o.start(t); o.stop(t + dur + 1); vib.start(t); vib.stop(t + dur + 1);
     }
-  }
+  });
   bus.connect(out);
 }
 
@@ -282,11 +285,19 @@ export function pad(ctx: Ctx, out: AudioNode, t: number, notes: number[], dur: n
   g.gain.setValueAtTime(gain, t + dur * 0.75);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 1.2);
   f.connect(g).connect(out);
-  for (const m of notes) for (const det of [-9, 0, 8]) {
+  // 6 голосов со стерео-расстройкой (план §8.7, п. 6): крайние — шире по панораме
+  for (const m of notes) PAD_VOICES.forEach(([det, p]) => {
     const o = ctx.createOscillator(); o.type = 'sawtooth';
     o.frequency.value = mtof(m); o.detune.value = det;
-    o.connect(f); o.start(t); o.stop(t + dur + 1.3);
-  }
+    o.connect(panned(ctx, f, p)); o.start(t); o.stop(t + dur + 1.3);
+  });
+}
+
+const PAD_VOICES: [number, number][] = [[-12, -0.6], [-7, -0.36], [-3, -0.12], [3, 0.12], [8, 0.36], [12, 0.6]];
+
+/** Панорамированный вход в узел (стерео ширина; работает и при запекании). */
+function panned(ctx: Ctx, to: AudioNode, p: number): AudioNode {
+  const s = ctx.createStereoPanner(); s.pan.value = p; s.connect(to); return s;
 }
 
 /** Бас: пила + квадрат, ФНЧ с огибающей, дисторшн. */
@@ -314,7 +325,24 @@ export function arp(ctx: Ctx, out: AudioNode, t: number, m: number, dur: number,
   o.connect(f).connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
 }
 
-/** Струнное остинато (спиккато): две расстроенные пилы, полосовой «смычок», короткая огибающая. */
+/**
+ * Арфа/челеста (план §8.7, п. 7): треугольник с октавой и квинтой-синусами, быстро закрывающийся ФНЧ,
+ * мягкая атака — замена квадратному арпеджиатору в боевых темах.
+ */
+export function harp(ctx: Ctx, out: AudioNode, t: number, m: number, dur = 0.6, gain = 0.05, detune = 0): void {
+  const fq = mtof(m);
+  const fl = ctx.createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = 0.8;
+  fl.frequency.setValueAtTime(fq * 8, t); fl.frequency.exponentialRampToValueAtTime(fq * 1.6, t + 0.14);
+  const g = ctx.createGain(); env(g.gain, t, gain, 0.004, dur);
+  fl.connect(g).connect(out);
+  for (const [type, k, a] of [['triangle', 1, 1], ['sine', 2, 0.35], ['sine', 3.01, 0.1]] as const) {
+    const o = ctx.createOscillator(); o.type = type; o.frequency.value = fq * k; o.detune.value = detune;
+    const og = ctx.createGain(); og.gain.value = a;
+    o.connect(og).connect(fl); o.start(t); o.stop(t + dur + 0.05);
+  }
+}
+
+/** Струнное остинато (спиккато): три расстроенные пилы по панораме, полосовой «смычок», короткая огибающая. */
 export function strings(ctx: Ctx, out: AudioNode, t: number, m: number, dur: number, gain = 0.05, detune = 0): void {
   const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 1.2;
   f.frequency.setValueAtTime(mtof(m) * 6, t);
@@ -322,11 +350,13 @@ export function strings(ctx: Ctx, out: AudioNode, t: number, m: number, dur: num
   const body = ctx.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 900; body.gain.value = 5; body.Q.value = 0.8;
   const g = ctx.createGain();
   env(g.gain, t, gain, 0.008, dur);
-  f.connect(body).connect(g).connect(out);
-  for (const d of [-7, 6]) {
+  // три голоса по панораме и ФВЧ 120 Гц — струнные не мутят бас (план §8.7, п. 6)
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 120;
+  f.connect(body).connect(hp).connect(g).connect(out);
+  for (const [d, p] of [[-7, -0.45], [0, 0], [6, 0.45]] as const) {
     const o = ctx.createOscillator(); o.type = 'sawtooth';
     o.frequency.value = mtof(m); o.detune.value = d + detune;
-    o.connect(f); o.start(t); o.stop(t + dur + 0.05);
+    o.connect(panned(ctx, f, p)); o.start(t); o.stop(t + dur + 0.05);
   }
 }
 
@@ -344,10 +374,10 @@ export function brass(ctx: Ctx, out: AudioNode, t: number, notes: number[], dur:
   g.gain.setValueAtTime(gain, t + Math.max(a, dur * 0.7));
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.35);
   f.connect(sat).connect(g).connect(out);
-  for (const m of notes) for (const d of [-8, 0, 7]) {
+  for (const m of notes) for (const [d, p] of [[-8, -0.5], [0, 0], [7, 0.5]] as const) {
     const o = ctx.createOscillator(); o.type = 'sawtooth';
     o.frequency.value = mtof(m); o.detune.value = d;
-    o.connect(f); o.start(t); o.stop(t + dur + 0.4);
+    o.connect(panned(ctx, f, p)); o.start(t); o.stop(t + dur + 0.4);
   }
   const sub = ctx.createOscillator(); sub.type = 'triangle'; sub.frequency.value = mtof(notes[0] - 12);
   const sg = ctx.createGain(); sg.gain.value = 0.6; sub.connect(sg).connect(f); sub.start(t); sub.stop(t + dur + 0.4);

@@ -1,5 +1,5 @@
 import type { AudioEngine } from './engine';
-import { bass, bell, boom, brass, choir, hat, industrial, kick, mtof, organ, pad, snare, strings, taiko, tom, arp, type Ctx } from './synth';
+import { bass, bell, boom, brass, choir, harp, hat, industrial, kick, mtof, organ, pad, snare, strings, taiko, tom, type Ctx } from './synth';
 import { Rng } from '../core/rng';
 
 /**
@@ -300,23 +300,51 @@ interface EpicCfg {
  * A — пэд/орган/колокол, B — бас, бочка, струнные, C — ударные и тайко, D — хор, медь, мелодия.
  * phase ≥ 1 (ярость стража, вторая фаза босса) — плотнее и жёстче.
  */
+/**
+ * Запечённые фразы такта (план §8.7, п. 8): бас восьмыми (3 рисунка), струнное остинато (своё и «бег» ярости),
+ * арфа по тонам аккорда — на каждый аккорд; в теме — один буфер на такт вместо десятков живых узлов.
+ */
+function phraseBakes(cfg: EpicCfg, chords: Record<string, number[]>, barSec: number): Record<string, BakeSpec> {
+  const st = barSec / 16, out: Record<string, BakeSpec> = {};
+  const bassGain = cfg.harsh ? 0.24 : 0.2;
+  for (const [ch, tones] of Object.entries(chords)) {
+    BASS_PAT.forEach((pat, pi) => {
+      out[`bass_${ch}_${pi}`] = { len: barSec + 0.4, render: (c, o, t) => { for (let k = 0; k < 8; k++) bass(c, o, t + k * 2 * st, tones[0] - 12 + pat[k], 0.15, bassGain); } };
+    });
+    for (const [name, pat] of [['ost', cfg.ost], ['ostR', OST.run]] as const) {
+      out[`${name}_${ch}`] = { len: barSec + 0.3, render: (c, o, t) => pat.forEach((oi, k) => {
+        if (oi < 0) return;
+        strings(c, o, t + k * st, (oi >= 3 ? tones[oi - 3] + 12 : tones[oi]) + 12, st * 0.9, 0.045);
+      }) };
+    }
+    // арфа вместо квадратного арпеджио: восьмые на слабые доли, тона аккорда вверх-вниз
+    if (!cfg.harsh) {
+      const lead = [...tones, tones[0] + 12];
+      out[`harp_${ch}`] = { len: barSec + 1.2, render: (c, o, t) => { for (let k = 0; k < 8; k++) harp(c, o, t + (2 * k + 1) * st, lead[(3 * k) % 4] + 24, 0.55, 0.05); } };
+    }
+  }
+  // раз в восемь тактов вместо арпеджио арфа поёт лейтмотив Пилота
+  if (!cfg.harsh) out.harpMotif = { len: barSec + 1.6, render: (c, o, t) => MOTIF.forEach((n, i) => harp(c, o, t + i * 2 * st, n + 12, i === 5 ? 1.4 : 0.6, 0.06)) };
+  return out;
+}
+
 function epicSong(cfg: EpicCfg): Song {
   const barSec = (60 / cfg.bpm) * 4;
   const used = new Set(cfg.progs.flat());
   const chords: Record<string, number[]> = {};
   for (const d of used) chords[d] = DEG[d].map((n) => cfg.root + n);
-  let prog = cfg.progs[0], bassPat = BASS_PAT[0];
+  let prog = cfg.progs[0], bassIdx = 0;
   const hatsOn16 = cfg.groove === 'drive' || cfg.groove === 'double' || cfg.groove === 'gallop';
   return {
     id: cfg.id, bpm: cfg.bpm,
     bake: {
-      ...drumBakes(), ...chordBakes(barSec, chords, true),
+      ...drumBakes(), ...chordBakes(barSec, chords, true), ...phraseBakes(cfg, chords, barSec),
       // мотив Голода (Стражи, босс): медь сползает вниз по полутонам восьмыми
       ...(cfg.harsh ? { hunger: { len: barSec * 0.5 + 0.8, render: (c: Ctx, o: AudioNode, t: number) => HUNGER_SLIDE.forEach((d, i) => brass(c, o, t + i * barSec / 8, [cfg.root + 12 + d], barSec / 8 * 0.95, 0.06)) } } : {}),
     },
     schedule(s, step, t) {
       const inBar = step % 16, bar = (step / 16) | 0, inCycle = bar % 8;
-      if (step % 128 === 0) { prog = s.rng.pick(cfg.progs); bassPat = s.rng.pick(BASS_PAT); }
+      if (step % 128 === 0) { prog = s.rng.pick(cfg.progs); bassIdx = s.rng.int(0, BASS_PAT.length - 1); }
       const ch = prog[(inCycle / 2) | 0];
       const tones = chords[ch];
       const root = tones[0];
@@ -331,15 +359,13 @@ function epicSong(cfg: EpicCfg): Song {
       if (inBar === 0 && inCycle % 4 === 0 && (cfg.bells || cfg.tocsin)) s.buf(cfg.tocsin ? 'bellLow' : 'bellD', t, 'A', 0.5);
       // тритон Иерофанта: ответ колокола на ♭5 через полтакта
       if (cfg.tritone && inBar === 8 && inCycle % 4 === 0) s.buf('bellAb', t, 'A', 0.45);
-      // B — бас восьмыми, бочка грува, струнное остинато
-      if (inBar % 2 === 0) s.live('B', (c, o, tt) => bass(c, o, tt, root - 12 + bassPat[(inBar / 2) | 0], 0.15, cfg.harsh ? 0.24 : 0.2, det), t);
+      // B — бас восьмыми и струнное остинато (запечённые фразы такта), бочка грува
+      if (inBar === 0) {
+        s.buf(`bass_${ch}_${bassIdx}`, t, 'B', 1);
+        s.buf(`${rage ? 'ostR' : 'ost'}_${ch}`, t, 'B', 1);
+      }
       const kv = rage && cfg.harsh ? (inBar % 2 === 0 ? 1 : 0.75) : KICK[cfg.groove][inBar];
       if (kv > 0) s.buf('kick', t, 'B', kv * (rage ? 0.7 : 0.9));
-      const oi = (rage ? OST.run : cfg.ost)[inBar];
-      if (oi >= 0) {
-        const n = (oi >= 3 ? tones[oi - 3] + 12 : tones[oi]) + 12;
-        s.live('B', (c, o, tt) => strings(c, o, tt, n, 60 / cfg.bpm / 4 * 0.9, 0.045, det), t);
-      }
       // C — ударные: малый, хэты, тайко, брейки томов
       const half = cfg.groove === 'halftime' || cfg.groove === 'taiko';
       if (half ? inBar === 8 : inBar === 4 || inBar === 12) s.buf('snare', t, 'C', 0.9);
@@ -364,11 +390,7 @@ function epicSong(cfg: EpicCfg): Song {
       if (cfg.harsh && (rage ? inBar % 4 === 0 : inBar === 0 || inBar === 8)) s.buf('chant_' + ch, t, 'D', 0.8);
       // Голод в темах Стражей и босса: сползание в конце каждой четвёртой строки
       if (cfg.harsh && inCycle % 4 === 3 && inBar === 8) s.buf('hunger', t, 'D', 0.75);
-      if (inBar % 2 === 1 && !cfg.harsh) {
-        const lead = [...tones, tones[0] + 12];
-        const n = lead[((step >> 1) * 3) % lead.length] + 24;
-        s.live('D', (c, o, tt) => arp(c, o, tt, n, 0.12, 0.03, det), t);
-      }
+      if (inBar === 0 && !cfg.harsh) s.buf(inCycle === 4 ? 'harpMotif' : `harp_${ch}`, t, 'D', 1);
       // набат: колокол каждую долю, к концу цикла — восьмыми
       if (cfg.tocsin && rage) {
         const dense = inCycle >= 6 ? 2 : 4;
@@ -422,7 +444,7 @@ export function hubSong(): Song {
       if (inBar === 0 && bar % 8 === 4) s.buf('motifChoir', t, 'A', 0.9);
       if (inBar % 4 === 2 && s.rng.chance(0.35)) {
         const tones = CHORDS[chord];
-        s.live('A', (c, o, tt) => arp(c, o, tt, s.rng.pick(tones) + 24, 0.4, 0.02), t);
+        s.live('A', (c, o, tt) => harp(c, o, tt, s.rng.pick(tones) + 24, 0.9, 0.03), t);
       }
     },
   };

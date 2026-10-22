@@ -70,3 +70,29 @@ describe('уровни музыки и последняя волна (план �
     expect(RISER_LEN).toBeGreaterThan(1);
   });
 });
+
+import { guardianSong, hierophantSong, hubSong } from '../src/audio/music';
+
+describe('запечённые фразы и арфа (план §8.7, пп. 6–8)', () => {
+  const songs = [...['1-1', '1-2', '1-3', '1-4', '1-5', '1-6'].map((id) => stageSong(id)), guardianSong('gateGuardian'), guardianSong('bellRinger'), hierophantSong(), hubSong()];
+  it('всё, что тема ставит в слои, запечено; живых узлов — единицы на такт (орган, арфа Святилища)', () => {
+    for (const song of songs) {
+      for (const [phase, final] of [[0, false], [1, false], [1, true]] as const) {
+        const f = fakeSeq(final);
+        (f.s as unknown as { phase: number }).phase = phase;
+        for (let step = 0; step < 16 * 32; step++) song.schedule(f.s, step, step * 0.1);
+        for (const b of f.bufs) expect(song.bake[b], `${song.id}: ${b}`).toBeTruthy();
+        expect(f.lives.length / 32, song.id).toBeLessThanOrEqual(2);
+      }
+    }
+  });
+
+  it('в боевых темах нет квадратного арпеджиатора: мелодия — арфа, раз в 8 тактов — лейтмотив', () => {
+    const f = fakeSeq(false);
+    const song = stageSong('1-1');
+    for (let step = 0; step < 16 * 16; step++) song.schedule(f.s, step, step * 0.1);
+    expect(f.bufs.some((b) => b.startsWith('harp_'))).toBe(true);
+    expect(f.bufs.filter((b) => b === 'harpMotif').length).toBe(2);
+    expect(f.bufs.some((b) => b.startsWith('bass_') && b.split('_').length === 3)).toBe(true);
+  });
+});
