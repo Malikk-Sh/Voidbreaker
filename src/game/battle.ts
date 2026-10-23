@@ -116,8 +116,6 @@ export class Battle {
   private readonly coronaNow = new THREE.Vector3();
   /** Тишина перед фирменной атакой (план §8.7, п. 5): до приглушения и до удара (мировые с). */
   private readonly sigs: { duck: number; hit: number }[] = [];
-  /** Окно слабого места у босса/Стража в прошлом кадре — луч-указатель на его открытии. */
-  private windowWas = false;
   private flames: Flames;
   private pools: LightPools;
   private rune: RuneCircle;
@@ -185,7 +183,7 @@ export class Battle {
     this.ash = new AshFall(this.vfx.quality);
     this.group.add(this.ash.mesh);
     if (this.beamDust) this.group.add(this.beamDust.mesh);
-    this.group.add(this.kaelis.group, this.kaelis.beamMesh);
+    this.group.add(this.kaelis.group);
     this.world.hero.avatar.kaelisHidden = true;
     ctx.audio.onSpeak = (sp, syl) => { if (sp === 'kaelis') this.kaelis.speak(syl); };
     const amb = AMBIENCE[stage.id];
@@ -294,11 +292,6 @@ export class Battle {
     });
     b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian, this.events.overhead()); });
     b.on('signature', (e) => { this.sigs.push({ duck: e.impactIn - SIG.lead, hit: e.impactIn }); });
-    // Каэлис указывает лучом на оглушённого босса/Стража (план §8.6)
-    b.on('stun', (e) => {
-      const t = e.target as Enemy;
-      if (e.boss || t.isGuardian) this.kaelis.point(e.x, t.height * 0.6, e.z);
-    });
     b.on('kill', (e) => {
       const en = e.target as Enemy;
       // последний враг волны (план §8.8): замедление 0.3 на 0.4 с и наезд 6 % — «волна закрыта»
@@ -553,14 +546,10 @@ export class Battle {
     }
   }
 
-  /** Каэлис: следует за суставом у плеча; луч — на открытие окна слабого места босса/Стража. */
+  /** Каэлис: следует за суставом у плеча. */
   private updateKaelis(realDt: number): void {
     const h = this.world.hero;
-    const focus = this.runner.boss ?? this.runner.guardian;
-    const open = !!focus && !focus.dead && focus.inWindow;
-    if (open && !this.windowWas && focus) this.kaelis.point(focus.x, focus.height * 0.6, focus.z);
-    this.windowWas = open;
-    this.kaelis.update(realDt, h.avatar.kaelisPos(_kp), h.hp / h.maxHp, h.eclipse, _kh.set(h.x, 0, h.z), this.ctx.renderer.camera);
+    this.kaelis.update(realDt, h.avatar.kaelisPos(_kp), h.hp / h.maxHp, h.eclipse, _kh.set(h.x, 0, h.z));
   }
 
   /** Настроение арены (план §8.5): свечи гаснут на 0.4 с, фиолетовая вспышка победы, витражи на ульте. */

@@ -86,8 +86,6 @@ export class ArenaEvents {
       this.bell = add(buildGiantBell(), obsidianMaterial({ rim: '#c9a253', rimStrength: 0.35, rimPower: 2.6, emissive: '#FFB866', emissive2: '#FF8A3D', emissiveStrength: 1.2 }), cx, BELL.y, bz);
       this.bell.scale.setScalar(BELL.scale);
     }
-    // TODO(design): в святилище Иерофанта колонн-укрытий нет; «колонна, разбитая в фазе I, лежит обломками в фазе II»
-    // (план §8.5) заработает и там, если они появятся: отдельные меши колонн + shove на арене босса
     if (id === '1-2') view.coverMeshes.forEach((m, i) => { const c = w.arena.covers[i]; if (c) this.standing.push({ m, cover: c }); });
 
     // молящиеся по краю арены (план §8.6): между колоннами, на ободе за краем пола, лицом к центру

@@ -27,7 +27,7 @@ export class Game {
   /** Экраны DOM подписываются сюда (рисуют фон сцены в меню). */
   onFrame: ((dt: number) => void) | null = null;
   onBattleEnd: ((o: BattleOutcome) => void) | null = null;
-  private autoQ = { t: 0, frames: 0, slow: 0, fast: 0 };
+  private autoQ = newAutoQ();
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -48,7 +48,9 @@ export class Game {
       setFlag: (id) => { this.ctx.save.flags[id] = true; writeSave(this.ctx.save); },
     };
     this.applySettings();
-    input.screenToFloor = null;
+    const floorPt = { x: 0, z: 0 };
+    input.screenToFloor = (sx, sy) => renderer.screenToFloor(sx, sy, floorPt);
+    input.heroWorld = () => this.battle?.world.hero ?? null;
     input.heroScreen = () => {
       const h = this.battle?.world.hero;
       const out = { x: innerWidth / 2, y: innerHeight / 2, visible: true };
@@ -144,22 +146,19 @@ export class Game {
   };
 
   /**
-   * Авто-подстройка (Tech §25.2): p90 кадра > 20 мс → динамическое разрешение −0.1 (мин 0.5), затем качество вниз;
-   * стабильно < 12 мс 10 с → вверх.
+   * Авто-подстройка (Tech §25.2): см. autoQualityStep — устойчивая перегрузка → разрешение −0.1 (мин 0.5),
+   * затем качество вниз; долго ровно → разрешение вверх.
    */
   private autoQuality(dt: number): void {
     if (this.ctx.settings.quality !== 'auto' || !this.battle) return;
-    const a = this.autoQ;
-    a.t += dt; a.frames++;
-    if (dt > 0.02) a.slow++;
-    if (dt < 0.012) a.fast++; else a.fast = 0;
-    if (a.t < 2) return;
+    const step = autoQualityStep(this.autoQ, dt);
+    if (!step) return;
     const r = this.ctx.renderer;
-    if (a.slow / a.frames > 0.1 && a.t > 5) {
-      if (r.dynScale > 0.55) { r.dynScale -= 0.1; this.resize(); }
-      else if (r.quality !== 'low') { r.setQuality(r.quality === 'high' ? 'medium' : 'low'); r.dynScale = 1; this.resize(); }
-    } else if (a.fast > 600 && r.dynScale < 1) { r.dynScale = Math.min(1, r.dynScale + 0.1); this.resize(); a.fast = 0; }
-    a.t = 0; a.frames = 0; a.slow = 0;
+    if (step === 'down') {
+      if (r.dynScale > 0.55) r.dynScale -= 0.1;
+      else if (r.quality !== 'low') { r.setQuality(r.quality === 'high' ? 'medium' : 'low'); r.dynScale = 1; }
+      this.resize();
+    } else if (r.dynScale < 1) { r.dynScale = Math.min(1, r.dynScale + 0.1); this.resize(); }
   }
 
   loadout(): Loadout {
@@ -192,4 +191,28 @@ export class Game {
     this.ctx.hud.visible = false;
     this.ctx.hud.draw(0, null as never);
   }
+}
+
+/** Окно замера автокачества (с), сколько окон подряд с перегрузкой — вниз, сколько ровных — вверх. */
+export const AUTO_Q = { window: 2, slowFrac: 0.1, downAfter: 3, upAfter: 10, slowDt: 0.021 };
+
+export interface AutoQState { t: number; frames: number; slow: number; badRuns: number; goodRuns: number }
+export const newAutoQ = (): AutoQState => ({ t: 0, frames: 0, slow: 0, badRuns: 0, goodRuns: 0 });
+
+/**
+ * Шаг автокачества: кадры копятся в окна по AUTO_Q.window с; окно «плохое», если медленных кадров (> 21 мс)
+ * больше 10 %. downAfter плохих окон подряд → 'down'; upAfter ровных (< 1 % медленных) подряд → 'up'.
+ * (Раньше окно сбрасывалось через 2 с, а снижение ждало 5 с — и никогда не срабатывало.)
+ */
+export function autoQualityStep(a: AutoQState, dt: number): 'down' | 'up' | null {
+  a.t += dt; a.frames++;
+  if (dt > AUTO_Q.slowDt) a.slow++;
+  if (a.t < AUTO_Q.window) return null;
+  const frac = a.slow / Math.max(1, a.frames);
+  a.t = 0; a.frames = 0; a.slow = 0;
+  if (frac > AUTO_Q.slowFrac) { a.goodRuns = 0; if (++a.badRuns >= AUTO_Q.downAfter) { a.badRuns = 0; return 'down'; } return null; }
+  a.badRuns = 0;
+  if (frac < 0.01 && ++a.goodRuns >= AUTO_Q.upAfter) { a.goodRuns = 0; return 'up'; }
+  if (frac >= 0.01) a.goodRuns = 0;
+  return null;
 }

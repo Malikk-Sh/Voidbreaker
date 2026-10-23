@@ -38,7 +38,7 @@ export interface PostState {
 export class Post {
   readonly state: PostState = {
     bloom: 0.55, exposure: 1.0, chroma: 0, desat: 0, vignette: 0.55, lowHp: 0, flash: 0, flashColor: new THREE.Color(1, 1, 1),
-    grain: 0.018, saturation: 1.05, lift: new THREE.Vector3(0.002, 0.0035, 0.006), gamma: new THREE.Vector3(1, 1, 1),
+    grain: 0.012, saturation: 1.05, lift: new THREE.Vector3(0.002, 0.0035, 0.006), gamma: new THREE.Vector3(1, 1, 1),
     gain: new THREE.Vector3(1.04, 1.0, 0.95), waves: Array.from({ length: MAX_WAVES }, () => new THREE.Vector4(0, 0, 0, 0)),
     letterbox: 0, frost: 0, pinch: new THREE.Vector4(0.5, 0.5, 0.4, 0),
   };
@@ -189,12 +189,14 @@ export class Post {
             c = mix(c, vec3(0.75, 0.8, 0.95), edge * 0.8);
           }
           c += uFlashColor * uFlash;
-          float gr = texture2D(uNoise, vUv * vec2(uAspect, 1.0) * 3.0 + fract(uTime * 7.31)).b - 0.5;
-          c += gr * uGrain;
           // летербокс (казни, появление босса)
           float lb = uLetterbox * 0.11;
           if (vUv.y < lb || vUv.y > 1.0 - lb) c = vec3(0.0);
-          gl_FragColor = vec4(toSRGB(clamp(c, 0.0, 1.0)), 1.0);
+          // зерно — после sRGB и по яркости: тени остаются чистыми, лёгкая фактура только на светлом
+          vec3 o = toSRGB(clamp(c, 0.0, 1.0));
+          float gr = texture2D(uNoise, vUv * vec2(uAspect, 1.0) * 3.0 + fract(uTime * 7.31)).b - 0.5;
+          o += gr * uGrain * smoothstep(0.08, 0.55, dot(o, vec3(0.299, 0.587, 0.114)));
+          gl_FragColor = vec4(o, 1.0);
         }
       `,
       depthTest: false, depthWrite: false,

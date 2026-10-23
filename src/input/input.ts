@@ -54,6 +54,8 @@ export class Input {
   layout: TouchLayout = { scale: 1, offsetX: 0, offsetY: 0 };
   screenToFloor: ((sx: number, sy: number) => { x: number; z: number } | null) | null = null;
   heroScreen: (() => { x: number; y: number }) | null = null;
+  /** Положение героя в мире (для прицела мышью через проекцию на пол). */
+  heroWorld: (() => { x: number; z: number } | null) | null = null;
 
   constructor(readonly el: HTMLElement) {
     // сенсорный экран — тач-раскладка с первого кадра
@@ -197,8 +199,16 @@ export class Input {
     this.swipes.delete(e.pointerId);
   };
 
+  /** Направление от героя к курсору на полу (мир, x/z); без проекции — по экрану от героя. */
   private mouseDir(): [number, number] {
-    if (!this.screenToFloor || !this.heroScreen) return [0, 0];
+    if (this.screenToFloor && this.heroWorld) {
+      const p = this.screenToFloor(this.mouseX, this.mouseY), h = this.heroWorld();
+      if (p && h) {
+        const dx = p.x - h.x, dz = p.z - h.z, d = Math.hypot(dx, dz);
+        return d > 0.3 ? [dx / d, dz / d] : [0, 0];
+      }
+    }
+    if (!this.heroScreen) return [0, 0];
     const h = this.heroScreen();
     const dx = this.mouseX - h.x, dy = this.mouseY - h.y, d = Math.hypot(dx, dy);
     return d > 4 ? [dx / d, dy / d] : [0, 0];

@@ -84,6 +84,16 @@ export class Renderer {
     out.visible = v.z < 1 && v.z > -1;
   }
 
+  /** Точка пола (y = 0) под экранной точкой (CSS-пиксели); null — луч не пересекает пол. */
+  screenToFloor(sx: number, sy: number, out: { x: number; z: number }): { x: number; z: number } | null {
+    const cam = this.camera;
+    _v.set((sx / this.cssW) * 2 - 1, -(sy / this.cssH) * 2 + 1, 0.5).unproject(cam).sub(cam.position);
+    if (_v.y > -1e-4) return null;
+    const k = -cam.position.y / _v.y;
+    out.x = cam.position.x + _v.x * k; out.z = cam.position.z + _v.z * k;
+    return out;
+  }
+
   get width(): number { return this.cssW; }
   get height(): number { return this.cssH; }
 }
