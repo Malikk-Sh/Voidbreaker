@@ -6,6 +6,15 @@ import type { ClipDef, Key } from '../clip';
  * Клинок зажат в кулаке и продолжает руку (−Y кисти, с лёгким наклоном вперёд); blade x>0 — отводит клинок назад.
  * Предвкушение 40–80 мс → действие 1–2 кадра → читаемое восстановление (GDD §15.1).
  */
+/** Звездопад от верхней точки: переворот, пике, касание пола в 0.34 (удар), присед, восстановление. */
+const SKYFALL_TAIL: Key[] = [
+  { t: 0.23, ease: 'outCubic', rootOffset: [0, 1.7, 0.2], spin: -Math.PI, pose: { chest: [-0.3, 0, 0], spine: [-0.2, 0, 0], shR: [-3.0, 0, -0.1], elbR: [-0.2, 0, 0], blade: [0.2, 0, 0], shL: [-3.0, 0, 0.1], elbL: [-0.3, 0, 0], hipL: [-1.2, 0, 0], kneeL: [1.6, 0, 0], hipR: [-0.2, 0, 0], kneeR: [1.5, 0, 0] } },
+  { t: 0.34, ease: 'inExpo', rootOffset: [0, 0, 0.3], spin: -Math.PI * 2, stretch: 1.25, pose: { chest: [0.75, 0, 0], spine: [0.3, 0, 0], shR: [-1.15, 0, -0.05], elbR: [0, 0, 0], blade: [-0.35, 0, 0], shL: [-1.0, 0, 0.05], elbL: [-0.2, 0, 0], hipL: [-1.3, 0, 0], kneeL: [1.8, 0, 0], hipR: [0.5, 0, 0], kneeR: [1.6, 0, 0] } },
+  { t: 0.41, ease: 'outQuad', rootOffset: [0, -0.2, 0.3], spin: -Math.PI * 2, stretch: 0.88, pose: {} },
+  { t: 0.62, ease: 'outQuart', rootOffset: [0, 0, 0], spin: -Math.PI * 2, stretch: 1, pose: { chest: [0.25, 0, 0], spine: [0.05, 0, 0], shR: [-0.4, 0, -0.4], elbR: [-0.4, 0, 0], blade: [0.6, 0, 0], shL: [-0.2, 0, 0.4], hipL: [-0.3, 0, 0], kneeL: [0.5, 0, 0], hipR: [0.2, 0, 0], kneeR: [0.4, 0, 0] } },
+];
+const SKYFALL_EVENTS = [{ t: 0.2, name: 'trailOn' }, { t: 0.22, name: 'whoosh' }, { t: 0.34, name: 'hitOn' }, { t: 0.34, name: 'impact' }, { t: 0.4, name: 'hitOff' }, { t: 0.44, name: 'trailOff' }];
+
 export const HERO_CLIPS: ClipDef[] = [
   {
     // Удар 1: горизонтальный разрез справа налево. Этап 4.5, B1: всем телом — вес с задней (правой) ноги
@@ -197,30 +206,43 @@ export const HERO_CLIPS: ClipDef[] = [
     events: [{ t: 0.28, name: 'release' }],
   },
   {
-    // «Небесный разрез»: прыжок к подброшенному врагу, разрез справа налево и обратный — в воздухе (план §6.5)
+    // «Небесный разрез»: прыжок к подброшенному врагу, разрез справа налево и обратный — в воздухе (план §6.5).
+    // Этап 4.5, B3: прыжок ниже (корень 1.1–1.2 м, было 1.3–1.45) — клинок идёт на высоте 2.7–2.8 м, через корпус
+    // подброшенной цели (Шелуха на 1.6 м — тело 1.6–3.0 м), а не над её головой; вперёд 0.35 м (было 0.5) —
+    // Пилот у цели, а не в ней
     id: 'skycut', dur: 0.46, mask: 'full',
     keys: [
       { t: 0, rootOffset: [0, -0.15, 0], pose: { chest: [0.3, -0.4, 0], shR: [-1.0, 0.3, -0.7], elbR: [-0.5, 0, 0], blade: [0.4, 0, 0], shL: [-0.4, 0, 0.5], hipL: [-0.8, 0, 0.1], kneeL: [1.2, 0, 0], hipR: [-0.6, 0, -0.1], kneeR: [1.1, 0, 0] } },
-      { t: 0.1, ease: 'outCubic', rootOffset: [0, 1.3, 0.4], stretch: 1.1, pose: { chest: [-0.1, -0.85, 0.05], shR: [-1.35, 0.4, -1.05], elbR: [-0.55, 0, 0], blade: [0.5, 0, 0], hipL: [-1.3, 0, 0.1], kneeL: [1.7, 0, 0], hipR: [-0.4, 0, -0.1], kneeR: [1.5, 0, 0] } },
-      { t: 0.16, ease: 'outExpo', rootOffset: [0, 1.45, 0.5], stretch: 1.08, pose: { chest: [0.1, 0.85, -0.05], shR: [-1.5, -0.1, 0.55], elbR: [-0.05, 0, 0], blade: [-0.1, 0, 0], shL: [0.3, 0, 0.6] } },
-      { t: 0.24, ease: 'inBack', rootOffset: [0, 1.4, 0.5], stretch: 1, pose: { chest: [0.1, 0.95, 0.05], shR: [-1.3, -0.2, 0.75], elbR: [-0.9, 0, 0], blade: [0.3, 0, 0] } },
-      { t: 0.3, ease: 'outExpo', rootOffset: [0, 1.25, 0.5], spin: Math.PI * 0.25, stretch: 1.08, pose: { chest: [0.15, -0.9, -0.05], shR: [-1.45, 0.5, -1.15], elbR: [-0.05, 0, 0], blade: [-0.15, 0, 0], shL: [-0.5, 0, 0.3] } },
-      { t: 0.46, ease: 'inQuad', rootOffset: [0, 0, 0.5], spin: 0, stretch: 1, pose: { chest: [0.2, -0.3, 0], shR: [-1.0, 0.3, -0.6], elbR: [-0.3, 0, 0], blade: [0.2, 0, 0], shL: [-0.2, 0, 0.4], hipL: [-0.5, 0, 0.1], kneeL: [0.8, 0, 0], hipR: [0.2, 0, -0.1], kneeR: [0.6, 0, 0] } },
+      { t: 0.1, ease: 'outCubic', rootOffset: [0, 1.1, 0.3], stretch: 1.1, pose: { chest: [-0.1, -0.85, 0.05], shR: [-1.1, 0.4, -1.05], elbR: [-0.55, 0, 0], blade: [0.5, 0, 0], hipL: [-1.3, 0, 0.1], kneeL: [1.7, 0, 0], hipR: [-0.4, 0, -0.1], kneeR: [1.5, 0, 0] } },
+      { t: 0.16, ease: 'outExpo', rootOffset: [0, 1.2, 0.35], stretch: 1.08, pose: { chest: [0.1, 0.85, -0.05], shR: [-1.2, -0.1, 0.55], elbR: [-0.05, 0, 0], blade: [-0.25, 0, 0], shL: [0.3, 0, 0.6] } },
+      { t: 0.24, ease: 'inBack', rootOffset: [0, 1.15, 0.35], stretch: 1, pose: { chest: [0.1, 0.95, 0.05], shR: [-1.05, -0.2, 0.75], elbR: [-0.9, 0, 0], blade: [0.3, 0, 0] } },
+      { t: 0.3, ease: 'outExpo', rootOffset: [0, 1.05, 0.35], spin: Math.PI * 0.25, stretch: 1.08, pose: { chest: [0.15, -0.9, -0.05], shR: [-1.15, 0.5, -1.15], elbR: [-0.05, 0, 0], blade: [-0.3, 0, 0], shL: [-0.5, 0, 0.3] } },
+      { t: 0.46, ease: 'inQuad', rootOffset: [0, 0, 0.35], spin: 0, stretch: 1, pose: { chest: [0.2, -0.3, 0], shR: [-1.0, 0.3, -0.6], elbR: [-0.3, 0, 0], blade: [0.2, 0, 0], shL: [-0.2, 0, 0.4], hipL: [-0.5, 0, 0.1], kneeL: [0.8, 0, 0], hipR: [0.2, 0, -0.1], kneeR: [0.6, 0, 0] } },
     ],
     events: [{ t: 0.08, name: 'trailOn' }, { t: 0.12, name: 'hitOn' }, { t: 0.18, name: 'hitOff' }, { t: 0.26, name: 'hitOn' }, { t: 0.32, name: 'hitOff' }, { t: 0.36, name: 'trailOff' }],
   },
   {
-    // «Звездопад»: взлёт с переворотом и пронзающий удар сверху вниз (финишер ветки рывка)
+    // «Звездопад»: взлёт с переворотом и пронзающий удар сверху вниз (финишер ветки рывка). Этап 4.5, B3:
+    // удар и след — в кадр касания пола (корень 0; было 0.15, а hitOn на 0.33 приходился на высоту 0.86 м);
+    // взмах в верхней точке только звучит (whoosh), без второго следа в воздухе
     id: 'skyfall', dur: 0.62, mask: 'full',
     keys: [
       { t: 0, rootOffset: [0, 0, 0], pose: { chest: [0.2, 0, 0], shR: [-0.6, 0, -0.4], blade: [0.4, 0, 0], hipL: [-0.3, 0, 0], kneeL: [0.5, 0, 0], hipR: [0.2, 0, 0], kneeR: [0.4, 0, 0] } },
       { t: 0.08, ease: 'outQuad', rootOffset: [0, -0.25, 0], pose: { chest: [0.5, 0, 0], hipL: [-0.9, 0, 0.1], kneeL: [1.5, 0, 0], hipR: [-0.8, 0, -0.1], kneeR: [1.4, 0, 0], shR: [0.6, 0, -0.5], shL: [0.6, 0, 0.5] } },
-      { t: 0.23, ease: 'outCubic', rootOffset: [0, 1.7, 0.2], spin: -Math.PI, pose: { chest: [-0.3, 0, 0], spine: [-0.2, 0, 0], shR: [-3.0, 0, -0.1], elbR: [-0.2, 0, 0], blade: [0.2, 0, 0], shL: [-3.0, 0, 0.1], elbL: [-0.3, 0, 0], hipL: [-1.2, 0, 0], kneeL: [1.6, 0, 0], hipR: [-0.2, 0, 0], kneeR: [1.5, 0, 0] } },
-      { t: 0.34, ease: 'inExpo', rootOffset: [0, 0.15, 0.3], spin: -Math.PI * 2, stretch: 1.25, pose: { chest: [0.9, 0, 0], spine: [0.3, 0, 0], shR: [-0.4, 0, -0.05], elbR: [0, 0, 0], blade: [-0.6, 0, 0], shL: [-0.4, 0, 0.05], hipL: [-1.3, 0, 0], kneeL: [1.8, 0, 0], hipR: [0.5, 0, 0], kneeR: [1.6, 0, 0] } },
-      { t: 0.41, ease: 'outQuad', rootOffset: [0, -0.2, 0.3], spin: -Math.PI * 2, stretch: 0.88, pose: {} },
-      { t: 0.62, ease: 'outQuart', rootOffset: [0, 0, 0], spin: -Math.PI * 2, stretch: 1, pose: { chest: [0.25, 0, 0], spine: [0.05, 0, 0], shR: [-0.4, 0, -0.4], elbR: [-0.4, 0, 0], blade: [0.6, 0, 0], shL: [-0.2, 0, 0.4], hipL: [-0.3, 0, 0], kneeL: [0.5, 0, 0], hipR: [0.2, 0, 0], kneeR: [0.4, 0, 0] } },
+      ...SKYFALL_TAIL,
     ],
-    events: [{ t: 0.2, name: 'trailOn' }, { t: 0.22, name: 'swing2' }, { t: 0.33, name: 'hitOn' }, { t: 0.34, name: 'impact' }, { t: 0.4, name: 'hitOff' }, { t: 0.44, name: 'trailOff' }],
+    events: SKYFALL_EVENTS,
+  },
+  {
+    // «Звездопад» из воздуха (этап 4.5, B3): после Небесного разреза Пилот не приземляется и не приседает
+    // заново — подтягивает ноги с высоты разреза (1.05 м) к верхней точке и пикирует; удар — те же 0.34
+    id: 'skyfallAir', dur: 0.62, mask: 'full',
+    keys: [
+      { t: 0, rootOffset: [0, 1.05, 0], pose: { chest: [0.15, -0.9, -0.05], spine: [0, 0, 0], shR: [-1.15, 0.5, -1.15], elbR: [-0.05, 0, 0], blade: [-0.3, 0, 0], shL: [-0.5, 0, 0.3], hipL: [-1.3, 0, 0.1], kneeL: [1.7, 0, 0], hipR: [-0.4, 0, -0.1], kneeR: [1.5, 0, 0] } },
+      { t: 0.1, ease: 'outQuad', rootOffset: [0, 1.45, 0.1], spin: -Math.PI * 0.4, pose: { chest: [0.2, 0, 0], spine: [0, 0, 0], shR: [-2.2, 0, -0.3], elbR: [-0.4, 0, 0], blade: [0.3, 0, 0], shL: [-2.0, 0, 0.3], elbL: [-0.5, 0, 0], hipL: [-1.4, 0, 0.05], kneeL: [1.8, 0, 0], hipR: [-0.9, 0, -0.05], kneeR: [1.7, 0, 0] } },
+      ...SKYFALL_TAIL,
+    ],
+    events: SKYFALL_EVENTS,
   },
   {
     // Пробежка по древку алебарды Стража Врат (план §7.5): бег вверх, прыжок, удар в шлем сверху, сальто назад
@@ -324,5 +346,5 @@ export const RANK_S_CLIPS: Record<string, string> = { rift: 'riftS', cross: 'cro
  */
 export const WHIP: Record<string, number> = { pelvis: -0.012, spine: -0.007, chest: 0, head: 0.006, shR: 0.005, elbR: 0.01, handR: 0.013, blade: 0.016, shL: 0.006, elbL: 0.01 };
 /** Удары с хлыстом: все взмахи и рубящие (и их варианты ранга S); быстрые уколы шквала — без (укол — 0.1 с). */
-export const WHIP_CLIPS = new Set(['atk1', 'atk2', 'spin', 'rift', 'riftS', 'cleave', 'rising', 'cross', 'crossS', 'counter', 'charged', 'lunge', 'skycut', 'skyfall']);
+export const WHIP_CLIPS = new Set(['atk1', 'atk2', 'spin', 'rift', 'riftS', 'cleave', 'rising', 'cross', 'crossS', 'counter', 'charged', 'lunge', 'skycut', 'skyfall', 'skyfallAir']);
 for (const c of HERO_CLIPS) if (WHIP_CLIPS.has(c.id)) c.lag = WHIP;

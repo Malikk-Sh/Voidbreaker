@@ -563,6 +563,10 @@ export abstract class Enemy implements Actor {
   /** Звездопад вбивает подброшенного в пол: полёт обрывается ударом. */
   slamDown(w: World): void {
     if (this.airDur <= 0) return;
+    // скелет — на пол сразу (этап 4.5, B3): в стопкадре удара тело иначе висело в воздухе над приземлившимся
+    // Пилотом и падало только после него
+    const s = this.puppet.skel;
+    s.y -= this.y; s.update();
     this.airDur = 0; this.airHold = 0; this.y = 0;
     w.bus.emit('impact', { x: this.x, z: this.z, r: this.radius + 1.6, kind: 'slam' });
     w.bus.emit('shockwave', { x: this.x, z: this.z, r: 5, color: 'void', strength: 1 });

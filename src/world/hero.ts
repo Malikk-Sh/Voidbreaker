@@ -17,6 +17,15 @@ export type HeroState = 'move' | 'attack' | 'charge' | 'charged' | 'dash' | 'cas
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
 /** Сколько силуэтов Пилота остаётся на пути проскока Контрудара (этап 4.5, B2). */
 const COUNTER_TRAIL = 3;
+/**
+ * Воздушная связка (этап 4.5, B3). airY — выше этой видимой высоты (м) Звездопад начинается из воздуха
+ * (skyfallAir), а не с приседа на полу; fade — переход клипов связки (с): корень плавно меняет высоту вместо
+ * скачка до 1.25 м за 30 мс; slamReach — где Пилот начинает пике относительно центра цели: корень Звездопада
+ * уходит вперёд на 0.3 м, клинок входит в пол в 1.1 м перед корнем — сквозь цель, на 0.3 м за её центром;
+ * backMax — на сколько он может оттолкнуться назад, если начал вплотную.
+ */
+export const AIR_CHAIN = { airY: 0.6, fade: 0.08, slamReach: 1.1, backMax: 0.6 };
+const AIR_MOVES = new Set(['rising', 'skycut', 'skyfall']);
 
 /**
  * Пилот: стейт-машина атаки (Tech §15.2), комбо из клипов-поз, рывок с зарядами, заряженный удар,
@@ -232,7 +241,12 @@ export class Hero implements Actor {
     a.glow = this.resonance / 100 * 1.2 + (this.eclipse ? 1.5 : 0) + (this.chargeLevel ? 0.6 * this.chargeLevel : 0) + this.glowBoost;
     a.lift = this.y;
     a.update(dt, this.x, this.z, this.facing, dist, speed, clamp(accel, -40, 40), this.state !== 'attack');
+    // следы — после расчёта позы этого кадра: события клипа приходят раньше, и высота бралась из прошлого кадра
+    // (в пике Звездопада — 0.58 м вместо пола, этап 4.5, B3)
+    for (const second of this.slashQueue) this.sendSlash(second);
+    this.slashQueue.length = 0;
   }
+  private readonly slashQueue: boolean[] = [];
 
   // ------------------------------------------------------------------ ввод
   private handleInput(input: Input, mvx: number, mvz: number, hasStick: boolean): void {
@@ -336,6 +350,9 @@ export class Hero implements Actor {
   // ------------------------------------------------------------------ атаки
   private startAttack(input: Input, mvx: number, mvz: number, hasStick: boolean, fade?: number): void {
     const W = this.weapon;
+    // сдвиг корня прежнего удара — в позицию до расчёта выпада (этап 4.5, B3): иначе выпад к цели считался от
+    // точки, где Пилота уже не видно, и Небесный разрез влетал в цель на 0.2 м
+    this.avatar.puppet.anim.handoffRoot();
     let next: MoveDef;
     const since = this.clock - this.lastMoveStart;
     const prev = this.lastMove;
@@ -386,6 +403,7 @@ export class Hero implements Actor {
 
     // магнетизм: подтягивание к цели на 0.6 м, если она в 2.5 м
     let lunge = next.lunge * 0.4;
+    // Звездопад по цели — выпад считается в beginMove, после передачи корня прежнего клипа (AIR_CHAIN.slamReach)
     if (next.id === 'lunge' || next.id === 'skyfall') lunge = next.lunge;
     // Небесный разрез: прыжок к подброшенной цели
     else if (next.id === 'skycut' && t) lunge = clamp(Math.hypot(t.x - this.x, t.z - this.z) - t.radius - this.radius - 0.3, 0, next.lunge);
@@ -411,9 +429,20 @@ export class Hero implements Actor {
     this.lungeDirX = Math.sin(this.facing); this.lungeDirZ = Math.cos(this.facing);
     this.vx *= 0.2; this.vz *= 0.2;
     // ранг S: альтернативные финишеры (разворот, прыжок)
-    const clip = this.world.rank.rankIdx >= 4 ? RANK_S_CLIPS[m.clip] ?? m.clip : m.clip;
+    let clip = this.world.rank.rankIdx >= 4 ? RANK_S_CLIPS[m.clip] ?? m.clip : m.clip;
+    if (m.id === 'skyfall' && this.avatar.visual.y > AIR_CHAIN.airY) clip = 'skyfallAir';
     this.moveClip = clip;
-    this.avatar.puppet.play(clip, this.atkSpeed, fade ?? (m.id === 'slash1' ? 0.04 : 0.03));
+    const air = AIR_MOVES.has(m.id) && this.avatar.visual.y > 0.05;
+    this.avatar.puppet.play(clip, this.atkSpeed, fade ?? (air ? AIR_CHAIN.fade : m.id === 'slash1' ? 0.04 : 0.03));
+    // Звездопад пикирует на цель: клинок входит в пол сквозь неё (раньше полный выпад 1.4 м переносил Пилота за
+    // центр цели). Слишком близко (после Небесного разреза) — в переворот отталкивается назад
+    const tg = this.target;
+    if (m.id === 'skyfall' && tg && !tg.dead) {
+      const d = Math.hypot(tg.x - this.x, tg.z - this.z) - AIR_CHAIN.slamReach, s = d < 0 ? -1 : 1;
+      this.facing = angleOf(tg.x - this.x, tg.z - this.z);
+      this.lungeLeft = Math.min(Math.abs(d), d < 0 ? AIR_CHAIN.backMax : m.lunge);
+      this.lungeDirX = Math.sin(this.facing) * s; this.lungeDirZ = Math.cos(this.facing) * s;
+    }
     this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(clip) / this.atkSpeed });
     // удар клинка отправляет украденные осколки в цель автоприцела
     this.world.fireStolen(this.target);
@@ -475,6 +504,8 @@ export class Hero implements Actor {
       case 'release': this.castRelease?.(); this.castRelease = null; this.castReleased = true; break;
       case 'stab': this.stabN++; this.world.bus.emit('swing', { kind: 'stab' }); this.emitSlash(this.stabN % 2 === 0); break;
       case 'swing2': this.world.bus.emit('swing', { kind: 'heavy' }); this.emitSlash(true); break;
+      // замах без следа (Звездопад в верхней точке): след — только в кадр удара
+      case 'whoosh': this.world.bus.emit('swing', { kind: 'heavy' }); break;
     }
   }
 
@@ -494,7 +525,9 @@ export class Hero implements Actor {
   }
 
   /** След удара — от того места, где Пилот в кадре удара (после выпада), с досягаемостью хитбокса. */
-  private emitSlash(second: boolean): void {
+  private emitSlash(second: boolean): void { this.slashQueue.push(second); }
+
+  private sendSlash(second: boolean): void {
     const m = this.move;
     if (!m) return;
     const reach = !this.eclipse ? 1 : m.hitbox.shape === 'circle' ? 1.35 : 1.6;

@@ -167,7 +167,8 @@ export class Animator {
   }
 
   /** Остаток корня прежнего клипа: x/z — владельцу, остальное — в плавное угасание. */
-  private handoffRoot(): void {
+  /** Передать накопленный сдвиг корня в позицию (onRootHandoff) — повторный вызов без нового клипа ничего не делает. */
+  handoffRoot(): void {
     const r = this.root;
     if ((r.x || r.z) && this.onRootHandoff) this.onRootHandoff(r.x, r.z);
     this.rootFrom.y = r.y; this.rootFrom.stretch = r.stretch;
@@ -220,9 +221,10 @@ export class Animator {
     const k = this.fadeDur > 0 ? Math.min(1, this.fade / this.fadeDur) : 1;
     if (k >= 1) { this.out.set(this.target); return; }
     const w = 1 - (1 - k) * (1 - k);
-    // остаток корня прежнего клипа гаснет вместе с позой
+    // корень переходит от прежнего клипа к новому вместе с позой (смесь, а не сумма: клипы воздушной связки
+    // оба держат Пилота на 1.3 м — сумма поднимала его до 2.6 м, этап 4.5, B3)
     const F = this.rootFrom, u = 1 - w;
-    r.y += F.y * u; r.spin += F.spin * u; r.stretch += (F.stretch - 1) * u;
+    r.y = r.y * w + F.y * u; r.spin = r.spin * w + F.spin * u; r.stretch = r.stretch * w + F.stretch * u;
     for (let i = 0; i < this.layout.n; i++) {
       _qa.fromArray(this.from, i * 4); _qb.fromArray(this.target, i * 4);
       _qa.slerp(_qb, w);
