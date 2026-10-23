@@ -464,6 +464,7 @@ export class Battle {
     if (this.replay) this.updateReplay(realDt);
     for (const p of this.douseOut) this.vfx.smokePuff(p[0], p[1], p[2]);
     this.vfx.sync(this.world, realDt, dtW);
+    this.vfx.slashes.update(this.ctx.time.world);
     this.view.syncTiles();
     // пол ушёл в бездну — следы с ним
     if (this.arena.version !== this.scarArenaV) {

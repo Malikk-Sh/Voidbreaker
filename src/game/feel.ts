@@ -18,6 +18,7 @@ const STEP_PITCH: Record<string, number> = {
   slash1: 1.0, slash2: 1.06, spin: 0.94, rift: 0.8, flurry: 1.08, lunge: 1.0, rising: 0.96, skycut: 1.04, skyfall: 0.78, cross: 0.85, counter: 0.9, charged: 0.82,
 };
 import type { AudioEngine } from '../audio/engine';
+import { slashFor } from '../vfx/slashFx';
 import { MOTIF, type Sequencer } from '../audio/music';
 import { KAELIS_LINES } from '../data/lines';
 
@@ -197,6 +198,12 @@ export class FeelSystem {
         this.audio.play(id, { gain: 0.8 });
         // смазанный кадр в кадре удара (уколы — без веера)
         if (e.kind !== 'stab') this.vfx.trail.armSmear(e.hitAt ?? 0.06);
+        // след своей формы — по зоне поражения приёма, в кадр удара
+        if (e.move) {
+          const h = this.w.hero, specs = slashFor(e.move, e.hit, e.second);
+          if (!e.second) for (const sp of specs) sp.delay = (sp.delay ?? 0) + (e.hitAt ?? 0.05);
+          this.vfx.slashes.spawn(specs, h.x, h.z, h.facing, this.time.world);
+        }
       }),
       // украденный импульс: снаряд стал осколком Пилота; удар клинка их отправляет
       b.on('steal', (e) => {

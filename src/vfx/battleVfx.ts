@@ -24,6 +24,7 @@ import { FloorRiftsView } from './floorRifts';
 import { FloorSpikes } from './floorSpikes';
 import { ChainsView } from './chains';
 import { BellSatsView } from './bellSats';
+import { SlashFx } from './slashFx';
 
 const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLinear(h); return [c[0] * k, c[1] * k, c[2] * k]; };
 export const C = {
@@ -48,6 +49,8 @@ export class BattleVfx {
   readonly norm: Particles;
   readonly trail = new RibbonTrail('#8B5CF6', '#F1E8FF');
   readonly rings = new Rings(28);
+  /** Следы ударов: своя форма у каждого приёма (разбор). */
+  readonly slashes = new SlashFx();
   readonly tele = new TelegraphView(48);
   readonly sprites = new Sprites(700, true);
   readonly debris = new Debris(240);
@@ -87,7 +90,7 @@ export class BattleVfx {
     this.add = new Particles(maxParticles, true);
     this.norm = new Particles(Math.round(maxParticles * 0.35), false);
     this.pools = pools;
-    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh, this.chains.mesh, this.bellSats.mesh);
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh, this.chains.mesh, this.bellSats.mesh, this.slashes.group);
     for (const m of this.debris.meshes) this.group.add(m);
     // серпы: выдавленный полумесяц с эмиссивной кромкой
     const b = new GeomBuilder();
@@ -755,7 +758,7 @@ export class BattleVfx {
   clear(): void {
     for (const m of this.robes.values()) { this.group.remove(m.mesh); m.dispose(); }
     this.robes.clear();
-    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear(); this.chains.clear(); this.bellSats.clear();
+    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear(); this.chains.clear(); this.bellSats.clear(); this.slashes.clear();
   }
 }
 

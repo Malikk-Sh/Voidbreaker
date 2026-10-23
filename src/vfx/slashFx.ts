@@ -1,0 +1,291 @@
+import * as THREE from 'three';
+import type { HitShape } from '../data/weapons';
+import { G } from '../render/materials';
+
+/**
+ * Форма следа удара (разбор: «у каждого действия своя форма эффекта»). Каждая повторяет зону поражения
+ * своего удара — игрок видит и приём, и его досягаемость:
+ * arc — плоский полумесяц по взмаху; ring — кольцо вращения; vert — дуга в вертикальной плоскости
+ * (рубящий сверху, апперкот); streak — прямой штрих укола/выпада; cross — два косых штриха крест-накрест.
+ */
+export type SlashShape = 'arc' | 'ring' | 'vert' | 'streak' | 'cross';
+
+export interface SlashSpec {
+  shape: SlashShape;
+  /** Радиус дуги/кольца или длина штриха (м). */
+  reach: number;
+  /** Раствор дуги (рад). */
+  angle?: number;
+  /** Направление взмаха: 1 — слева направо, −1 — справа налево; для vert: 1 — снизу вверх, −1 — сверху вниз. */
+  dir?: number;
+  /** Высота над полом (м). */
+  y?: number;
+  /** Наклон плоскости дуги (рад), крен креста. */
+  tilt?: number;
+  /** Ширина штриха (м). */
+  width?: number;
+  /** Задержка появления (с) — к кадру удара. */
+  delay?: number;
+  /** Финишер: ярче и дольше. */
+  heavy?: boolean;
+  /** Смещение вбок от линии взгляда (м) — уколы шквала. */
+  side?: number;
+}
+
+/** Время взмаха и жизни следа (с), яркость (× цвета Пустоты). */
+export const SLASH = { sweep: 0.09, life: 0.26, heavyLife: 0.38, bright: 2.2, heavyBright: 3.0 };
+
+const WHITE_VIOLET = new THREE.Color(0.85, 0.62, 1.6);
+
+/**
+ * Какой след у приёма: по id удара и его хитбоксу. Неизвестный удар — по форме хитбокса.
+ * second — второй взмах того же удара (событие клипа: укол шквала, второй разрез креста).
+ */
+export function slashFor(move: string, hit: HitShape | undefined, second = false): SlashSpec[] {
+  const r = hit && hit.shape !== 'line' ? hit.radius : 2.2;
+  const arcA = hit && hit.shape === 'arc' ? (hit.angle * Math.PI) / 180 : (2 * Math.PI) / 3;
+  const len = hit && hit.shape === 'line' ? hit.length : 2.6;
+  switch (move) {
+    case 'slash1': return [{ shape: 'arc', reach: r, angle: arcA, dir: -1, y: 1.15, tilt: 0.12 }];
+    case 'slash2': return [{ shape: 'arc', reach: r, angle: arcA, dir: 1, y: 1.0, tilt: -0.12 }];
+    case 'spin': return [{ shape: 'ring', reach: r, y: 0.95 }];
+    case 'counter': return [{ shape: 'ring', reach: r, y: 1.0, heavy: true }, { shape: 'ring', reach: r * 0.6, y: 0.08, heavy: true, delay: 0.04 }];
+    case 'rift': case 'skyfall': return [{ shape: 'vert', reach: 1.8, angle: 2.4, dir: -1, y: 0.25, heavy: true }];
+    case 'charged': return [{ shape: 'vert', reach: 1.9, angle: 2.4, dir: -1, y: 0.2, heavy: true }, { shape: 'streak', reach: len, width: 0.55, y: 0.06, heavy: true, delay: 0.05 }];
+    case 'rising': return [{ shape: 'vert', reach: 1.8, angle: 2.2, dir: 1, y: 0.3 }];
+    case 'skycut': return [{ shape: 'arc', reach: r, angle: arcA, dir: 1, y: 1.2, tilt: 0.5 }];
+    case 'cross': return [{ shape: 'cross', reach: 2.4, tilt: second ? -0.75 : 0.75, y: 1.15, heavy: second }];
+    case 'flurry': return [{ shape: 'streak', reach: len, width: 0.14, y: 1.15, side: second ? 0.25 : -0.25 }];
+    case 'lunge': return [{ shape: 'streak', reach: len, width: 0.3, y: 1.1, heavy: true }];
+    default:
+      if (!hit) return [];
+      if (hit.shape === 'circle') return [{ shape: 'ring', reach: r, y: 1.0 }];
+      if (hit.shape === 'line') return [{ shape: 'streak', reach: len, width: Math.min(0.5, hit.width * 0.3), y: 1.1 }];
+      return [{ shape: 'arc', reach: r, angle: arcA, dir: 1, y: 1.1 }];
+  }
+}
+
+/** Поворот плоскости вертикальных дуг вокруг линии взгляда (рад): видна из боевой камеры. */
+export const VERT_ROLL = 0.85;
+
+const _F = new THREE.Vector3(), _U = new THREE.Vector3(), _R = new THREE.Vector3(), _X = new THREE.Vector3(), _Y = new THREE.Vector3(), _Z = new THREE.Vector3();
+const _M = new THREE.Matrix4();
+
+/** Сектор (ось дуги — локальная +Z, плоскость — XZ) → плоскость «вперёд + вверх», повёрнутая на roll вокруг взгляда. */
+function basisArc(m: THREE.Mesh, facing: number, roll: number): void {
+  _F.set(Math.sin(facing), 0, Math.cos(facing));
+  _R.set(Math.cos(facing), 0, -Math.sin(facing));
+  _U.set(0, 1, 0).multiplyScalar(Math.cos(roll)).addScaledVector(_R, Math.sin(roll));
+  _Z.copy(_F).addScaledVector(_U, 0.35).normalize();
+  _X.copy(_U).addScaledVector(_Z, -_U.dot(_Z)).normalize();
+  _Y.crossVectors(_Z, _X);
+  m.quaternion.setFromRotationMatrix(_M.makeBasis(_X, _Y, _Z));
+}
+
+/** Полоса (длина — локальная +Z) → диагональ в вертикальной плоскости перед героем, на dist м впереди. */
+function basisCross(m: THREE.Mesh, facing: number, tilt: number, len: number, dist: number): void {
+  _F.set(Math.sin(facing), 0, Math.cos(facing));
+  _R.set(Math.cos(facing), 0, -Math.sin(facing));
+  _Z.copy(_R).multiplyScalar(Math.cos(tilt)).addScaledVector(_U.set(0, 1, 0), Math.sin(tilt));
+  _Y.copy(_F);
+  _X.crossVectors(_Y, _Z);
+  m.quaternion.setFromRotationMatrix(_M.makeBasis(_X, _Y, _Z));
+  m.position.x += _F.x * dist - _Z.x * len * 0.5;
+  m.position.y -= _Z.y * len * 0.5;
+  m.position.z += _F.z * dist - _Z.z * len * 0.5;
+}
+
+interface Live { mesh: THREE.Mesh; u: { uBorn: { value: number }; uLife: { value: number }; uDir: { value: number }; uBright: { value: number } }; busy: boolean }
+
+/** Сектор кольца в плоскости XZ (вперёд — +Z), uv.x — доля угла, uv.y — от внутреннего края к внешнему. */
+function sector(angle: number, r0: number, r1: number, seg: number): THREE.BufferGeometry {
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  for (let i = 0; i <= seg; i++) {
+    const u = i / seg, a = -angle / 2 + angle * u;
+    for (const [r, v] of [[r0, 0], [r1, 1]] as const) { pos.push(Math.sin(a) * r, 0, Math.cos(a) * r); uv.push(u, v); }
+    if (i < seg) { const k = i * 2; idx.push(k, k + 1, k + 3, k, k + 3, k + 2); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+/** Штрих: полоса от 0 до 1 по +Z, ширина 1 по X. */
+function strip(): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0.5, 0, 1, -0.5, 0, 1], 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1, 1, 0], 2));
+  g.setIndex([0, 2, 1, 0, 3, 2]);
+  return g;
+}
+
+const VERT = /* glsl */ `
+  varying vec2 vUv;
+  void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+`;
+// раскрытие по взмаху (u < прогресса), яркая голова у фронта, тонкая кромка снаружи, затухание
+const FRAG = /* glsl */ `
+  uniform float uTime, uBorn, uLife, uDir, uBright, uSweep; uniform vec3 uColor;
+  varying vec2 vUv;
+  void main() {
+    float age = uTime - uBorn;
+    if (age < 0.0 || age > uLife) discard;
+    float u = uDir > 0.0 ? vUv.x : 1.0 - vUv.x;
+    float p = clamp(age / uSweep, 0.0, 1.0) * 1.12;
+    if (u > p) discard;
+    float head = smoothstep(p - 0.25, p, u);
+    float edge = pow(vUv.y, 1.8);
+    float fade = 1.0 - smoothstep(uSweep, uLife, age);
+    float tip = smoothstep(0.0, 0.12, u) * smoothstep(1.0, 0.86, u);
+    float a = edge * tip * fade * (0.45 + 0.9 * head);
+    gl_FragColor = vec4(uColor * uBright * a, 1.0);
+  }
+`;
+// штрих: светлая ось, к краям гаснет; раскрывается от начала к концу
+const FRAG_STRIP = /* glsl */ `
+  uniform float uTime, uBorn, uLife, uDir, uBright, uSweep; uniform vec3 uColor;
+  varying vec2 vUv;
+  void main() {
+    float age = uTime - uBorn;
+    if (age < 0.0 || age > uLife) discard;
+    float p = clamp(age / uSweep, 0.0, 1.0) * 1.1;
+    if (vUv.x > p) discard;
+    float across = 1.0 - abs(vUv.y - 0.5) * 2.0;
+    float core = pow(across, 3.0);
+    float fade = 1.0 - smoothstep(uSweep, uLife, age);
+    float ends = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.7, vUv.x);
+    gl_FragColor = vec4(uColor * uBright * core * ends * fade * (0.6 + 0.8 * smoothstep(p - 0.3, p, vUv.x)), 1.0);
+  }
+`;
+
+/**
+ * Следы ударов: пул сеток по формам, аддитивно, по времени мира (замедление и стоп-кадр их тоже держат).
+ * Геометрия дуг кешируется по раствору.
+ */
+export class SlashFx {
+  readonly group = new THREE.Group();
+  private readonly pool: { arc: Live[]; strip: Live[] } = { arc: [], strip: [] };
+  private readonly arcs = new Map<string, THREE.BufferGeometry>();
+  private readonly stripGeo = strip();
+  private readonly pending: { spec: SlashSpec; x: number; z: number; facing: number; at: number }[] = [];
+
+  constructor() {
+    for (let i = 0; i < 10; i++) this.pool.arc.push(this.make(false));
+    for (let i = 0; i < 10; i++) this.pool.strip.push(this.make(true));
+  }
+
+  private make(isStrip: boolean): Live {
+    const u = { uTime: G.uTime, uBorn: { value: -99 }, uLife: { value: SLASH.life }, uDir: { value: 1 }, uBright: { value: SLASH.bright }, uSweep: { value: SLASH.sweep }, uColor: { value: WHITE_VIOLET } };
+    const m = new THREE.ShaderMaterial({
+      uniforms: u, vertexShader: VERT, fragmentShader: isStrip ? FRAG_STRIP : FRAG,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(isStrip ? this.stripGeo : this.arcGeo(Math.PI * 2 / 3), m);
+    mesh.visible = false; mesh.frustumCulled = false; mesh.renderOrder = 22;
+    this.group.add(mesh);
+    return { mesh, u, busy: false };
+  }
+
+  private arcGeo(angle: number): THREE.BufferGeometry {
+    const key = angle.toFixed(2);
+    let g = this.arcs.get(key);
+    if (!g) { g = sector(angle, 0.55, 1, Math.max(12, Math.round(angle * 9))); this.arcs.set(key, g); }
+    return g;
+  }
+
+  /** Следы приёма от героя в (x, z), смотрящего по facing; now — время мира. */
+  spawn(specs: SlashSpec[], x: number, z: number, facing: number, now: number): void {
+    for (const spec of specs) this.pending.push({ spec, x, z, facing, at: now + (spec.delay ?? 0) });
+  }
+
+  private take(isStrip: boolean, now: number): Live {
+    const list = isStrip ? this.pool.strip : this.pool.arc;
+    // свободная, иначе самая старая
+    let best = list[0];
+    for (const l of list) {
+      if (now - l.u.uBorn.value > l.u.uLife.value) return l;
+      if (l.u.uBorn.value < best.u.uBorn.value) best = l;
+    }
+    return best;
+  }
+
+  private place(spec: SlashSpec, x: number, z: number, facing: number, now: number): void {
+    const heavy = !!spec.heavy;
+    const life = heavy ? SLASH.heavyLife : SLASH.life;
+    const put = (isStrip: boolean, setup: (m: THREE.Mesh) => void, dir = 1) => {
+      const l = this.take(isStrip, now);
+      l.u.uBorn.value = now; l.u.uLife.value = life; l.u.uDir.value = dir;
+      l.u.uBright.value = heavy ? SLASH.heavyBright : SLASH.bright;
+      l.mesh.visible = true;
+      l.mesh.position.set(x, spec.y ?? 1, z);
+      l.mesh.rotation.set(0, 0, 0); l.mesh.scale.set(1, 1, 1);
+      setup(l.mesh);
+    };
+    const r = spec.reach;
+    switch (spec.shape) {
+      case 'arc': case 'ring': {
+        const angle = spec.shape === 'ring' ? Math.PI * 2 : spec.angle ?? 2;
+        put(false, (m) => {
+          m.geometry = this.arcGeo(angle);
+          m.rotation.set(spec.tilt ?? 0, facing, 0, 'YXZ');
+          m.scale.setScalar(r);
+        }, spec.dir ?? 1);
+        break;
+      }
+      case 'vert': {
+        // рубящий сверху / апперкот: дуга в плоскости «вперёд–вверх», плоскость повёрнута вокруг взгляда на
+        // VERT_ROLL — у камеры за спиной Пилота вертикальная дуга иначе видна ребром, одной линией
+        put(false, (m) => {
+          m.geometry = this.arcGeo(spec.angle ?? 2.4);
+          basisArc(m, facing, spec.tilt ?? VERT_ROLL);
+          m.scale.setScalar(r);
+          m.position.y = (spec.y ?? 0.2) + r * 0.45;
+        }, spec.dir ?? -1);
+        break;
+      }
+      case 'streak': {
+        const side = spec.side ?? 0, sx = Math.cos(facing) * side, sz = -Math.sin(facing) * side;
+        put(true, (m) => {
+          m.position.x += sx; m.position.z += sz;
+          m.rotation.set(0, facing, 0, 'YXZ');
+          m.scale.set(spec.width ?? 0.2, 1, r);
+        });
+        break;
+      }
+      case 'cross': {
+        // косой штрих в плоскости перед Пилотом (лицом к нему): два взмаха креста складываются в X
+        put(true, (m) => {
+          basisCross(m, facing, spec.tilt ?? 0.7, r, 1.3);
+          m.scale.set(spec.width ?? 0.18, 1, r);
+        });
+        break;
+      }
+    }
+  }
+
+  /** Кадр: отложенные следы — в момент удара; погасшие — скрыть. */
+  update(now: number): void {
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const p = this.pending[i];
+      if (now < p.at) continue;
+      this.place(p.spec, p.x, p.z, p.facing, now);
+      this.pending.splice(i, 1);
+    }
+    for (const l of [...this.pool.arc, ...this.pool.strip]) {
+      if (l.mesh.visible && now - l.u.uBorn.value > l.u.uLife.value) l.mesh.visible = false;
+    }
+  }
+
+  /** Сколько следов на экране (тесты). */
+  get active(): number { let n = 0; for (const l of [...this.pool.arc, ...this.pool.strip]) if (l.mesh.visible) n++; return n; }
+
+  clear(): void { this.pending.length = 0; for (const l of [...this.pool.arc, ...this.pool.strip]) l.mesh.visible = false; }
+
+  dispose(): void {
+    for (const g of this.arcs.values()) g.dispose();
+    this.stripGeo.dispose();
+    for (const l of [...this.pool.arc, ...this.pool.strip]) (l.mesh.material as THREE.Material).dispose();
+  }
+}

@@ -92,6 +92,8 @@ export class Hero implements Actor {
   /** Внешний запрет управления (появление босса, кат-сцены). */
   locked = false;
   trailOn = false;
+  /** Уколы шквала по очереди: следы чередуются по сторонам. */
+  private stabN = 0;
   /** Рывок-скольжение по трещине (план §6.2). */
   sliding = false;
   /** Отмены (план §6.4): удар попал и прошёл hitOff — можно в Q/E; каст отпустил способность — можно в удар. */
@@ -399,7 +401,7 @@ export class Hero implements Actor {
     // ранг S: альтернативные финишеры (разворот, прыжок)
     const clip = this.world.rank.rankIdx >= 4 ? RANK_S_CLIPS[m.clip] ?? m.clip : m.clip;
     this.avatar.puppet.play(clip, this.atkSpeed, fade ?? (m.id === 'slash1' ? 0.04 : 0.03));
-    this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(clip) / this.atkSpeed });
+    this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(clip) / this.atkSpeed, move: m.id, hit: m.hitbox });
     // удар клинка отправляет украденные осколки в цель автоприцела
     this.world.fireStolen(this.target);
     this.world.bus.emit('moveStart', { id: m.id });
@@ -457,8 +459,8 @@ export class Hero implements Actor {
         break;
       }
       case 'release': this.castRelease?.(); this.castRelease = null; this.castReleased = true; break;
-      case 'stab': this.world.bus.emit('swing', { kind: 'stab' }); break;
-      case 'swing2': this.world.bus.emit('swing', { kind: 'heavy' }); break;
+      case 'stab': this.stabN++; this.world.bus.emit('swing', { kind: 'stab', move: this.move?.id, hit: this.move?.hitbox, second: this.stabN % 2 === 0 }); break;
+      case 'swing2': this.world.bus.emit('swing', { kind: 'heavy', move: this.move?.id, hit: this.move?.hitbox, second: true }); break;
     }
   }
 
@@ -530,7 +532,7 @@ export class Hero implements Actor {
     this.beginMove(m, 1.6);
     this.state = 'charged';
     this.lastMove = null;
-    this.world.bus.emit('swing', { kind: 'charged', hitAt: this.hitFrame('cleave') });
+    this.world.bus.emit('swing', { kind: 'charged', hitAt: this.hitFrame('cleave'), move: 'charged', hit: m.hitbox });
   }
 
   // ------------------------------------------------------------------ рывок

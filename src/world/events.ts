@@ -1,4 +1,5 @@
 import type { FeelId } from '../data/feel';
+import type { HitShape } from '../data/weapons';
 import type { Actor } from './actor';
 
 /** Типизированные события боя (Tech §9). Звук, частицы, тряска, вибрация — подписчики. */
@@ -33,7 +34,8 @@ export interface GameEvents {
   heroDeath: { x: number; z: number };
   secondWind: { x: number; z: number };
   /** Начат взмах; hitAt — через сколько (время героя) кадр удара: туда ставится смазанный кадр. */
-  swing: { kind: 'light' | 'spin' | 'heavy' | 'stab' | 'charged'; hitAt?: number };
+  /** move/hit — какой удар и его зона (форма следа, vfx/slashFx); second — второй взмах того же удара. */
+  swing: { kind: 'light' | 'spin' | 'heavy' | 'stab' | 'charged'; hitAt?: number; move?: string; hit?: HitShape; second?: boolean };
   /** Начат приём (для подсказок о ветках комбо). */
   moveStart: { id: string };
   dash: { x: number; z: number; dirX: number; dirZ: number };

@@ -294,3 +294,12 @@ HERO_CLIPS.push(
 
 /** На ранге S финишеры берут альтернативный клип. */
 export const RANK_S_CLIPS: Record<string, string> = { rift: 'riftS', cross: 'crossS' };
+
+/**
+ * Хлыст удара (разбор: «таз раньше плеч», захлёст): таз и поясница ведут на кадр, плечо, локоть, кисть и клинок
+ * догоняют по цепочке — до 16 мс (кадр), чтобы стоп-кадр удара оставался на полном вытяжении клинка.
+ */
+export const WHIP: Record<string, number> = { pelvis: -0.012, spine: -0.007, chest: 0, head: 0.006, shR: 0.005, elbR: 0.01, handR: 0.013, blade: 0.016, shL: 0.006, elbL: 0.01 };
+/** Удары с хлыстом: все взмахи и рубящие (и их варианты ранга S); быстрые уколы шквала — без (укол — 0.1 с). */
+export const WHIP_CLIPS = new Set(['atk1', 'atk2', 'spin', 'rift', 'riftS', 'cleave', 'rising', 'cross', 'crossS', 'counter', 'charged', 'lunge', 'skycut', 'skyfall']);
+for (const c of HERO_CLIPS) if (WHIP_CLIPS.has(c.id)) c.lag = WHIP;

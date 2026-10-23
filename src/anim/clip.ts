@@ -20,6 +20,11 @@ export interface ClipDef {
   loop?: boolean;
   keys: Key[];
   events?: ClipEvent[];
+  /**
+   * Сдвиг времени суставов (с): >0 — отстаёт, <0 — ведёт. Удар «хлыстом» (разбор): таз ведёт, плечо, локоть
+   * и клинок догоняют — вес и захлёст без новых ключей.
+   */
+  lag?: Record<string, number>;
 }
 
 /** Скомпилированный клип: полные кватернионы суставов клипа на каждом ключе. */
@@ -36,6 +41,9 @@ export class Clip {
   readonly stretch: number[];
   readonly spin: number[];
   readonly events: ClipEvent[];
+  /** Сдвиг времени по суставам клипа (null — без сдвигов). */
+  readonly lags: Float32Array | null;
+  private si = 0; private su = 0;
 
   constructor(def: ClipDef, layout: RigLayout) {
     this.id = def.id;
@@ -46,6 +54,8 @@ export class Clip {
     const names = new Set<string>();
     for (const k of def.keys) for (const n of Object.keys(k.pose)) if (layout.has(n)) names.add(n);
     this.joints = [...names].map((n) => layout.idx(n));
+    const lag = def.lag;
+    this.lags = lag ? Float32Array.from([...names].map((n) => lag[n] ?? 0)) : null;
     this.times = def.keys.map((k) => k.t);
     this.eases = def.keys.map((k) => Ease[k.ease ?? 'inOutQuad']);
     const last: Record<string, V3> = {};
@@ -77,17 +87,18 @@ export class Clip {
     }
   }
 
-  /** Сегмент и локальный прогресс (с эйзингом) в момент t. */
-  private seg(t: number): [number, number] {
+  /** Сегмент и локальный прогресс (с эйзингом) в момент t → this.si, this.su (без выделений памяти). */
+  private seg(t: number): void {
     const T = this.times;
-    if (t <= T[0]) return [0, 0];
+    if (t <= T[0]) { this.si = 0; this.su = 0; return; }
     for (let i = 0; i < T.length - 1; i++) {
       if (t < T[i + 1]) {
         const u = (t - T[i]) / Math.max(1e-5, T[i + 1] - T[i]);
-        return [i, this.eases[i + 1](u)];
+        this.si = i; this.su = this.eases[i + 1](u);
+        return;
       }
     }
-    return [T.length - 2, 1];
+    this.si = T.length - 2; this.su = 1;
   }
 
   /** Записать позу клипа в массив кватернионов (rig layout); возвращает корневые параметры. */
@@ -99,14 +110,18 @@ export class Clip {
       root.x = r[0]; root.y = r[1]; root.z = r[2]; root.stretch = this.stretch[0]; root.spin = this.spin[0];
       return;
     }
-    const [i, u] = this.seg(t);
-    const a = this.quats[i], b = this.quats[i + 1];
+    const lags = this.lags;
     for (let j = 0; j < this.joints.length; j++) {
+      // свой момент у сустава (хлыст), иначе общий
+      if (lags || j === 0) this.seg(lags ? Math.min(this.dur, Math.max(0, t - lags[j])) : t);
+      const a = this.quats[this.si], b = this.quats[this.si + 1];
       _qa.fromArray(a, j * 4); _qb.fromArray(b, j * 4);
-      _qa.slerp(_qb, u);
+      _qa.slerp(_qb, this.su);
       const o = this.joints[j] * 4;
       out[o] = _qa.x; out[o + 1] = _qa.y; out[o + 2] = _qa.z; out[o + 3] = _qa.w;
     }
+    this.seg(t);
+    const i = this.si, u = this.su;
     const ra = this.roots[i], rb = this.roots[i + 1];
     root.x = ra[0] + (rb[0] - ra[0]) * u;
     root.y = ra[1] + (rb[1] - ra[1]) * u;
