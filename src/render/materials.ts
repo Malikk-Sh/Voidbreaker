@@ -218,7 +218,8 @@ void main() {
 
   if (dissolve > 0.001) col += uEmissiveColor * smoothstep(dissolve + 0.07, dissolve, nz) * 5.0;
 
-  col = mix(col, vec3(1.6), clamp(flash, 0.0, 1.0));
+  // вспышка попадания — к белому чуть выше 1 (было 1.6: после блума тело расплывалось белым облаком)
+  col = mix(col, vec3(1.15), clamp(flash, 0.0, 1.0));
   // глубина провала (ревью): ниже пола всё темнеет — бока плит, падающие обломки, стены бездны
   col *= mix(1.0, ${DEPTH_DARK.min.toFixed(2)}, smoothstep(${DEPTH_DARK.from.toFixed(2)}, ${DEPTH_DARK.to.toFixed(2)}, -vWP.y));
   col = mix(col, uFogColor, fogAmount());

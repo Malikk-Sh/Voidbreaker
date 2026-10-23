@@ -23,7 +23,8 @@ export class Rings {
             float r = length(vUv);
             float d = abs(r - uR);
             float a = smoothstep(uW, 0.0, d) * uA;
-            float inner = smoothstep(uR, uR * 0.2, r) * step(r, uR) * uA * 0.12;
+            // заливка внутри — лёгкая: при 0.12 и HDR-цвете кольцо в начале разлёта читалось светящимся диском
+            float inner = smoothstep(uR, uR * 0.2, r) * step(r, uR) * uA * 0.06;
             gl_FragColor = vec4(uColor * (a + inner), 1.0);
           }
         `,

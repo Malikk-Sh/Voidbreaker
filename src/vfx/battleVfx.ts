@@ -32,6 +32,16 @@ export const C = {
   ember: lin('#FF8A3D', 2), gold: lin('#B8954E', 1.5), dust: lin('#3a3150'), dark: lin('#0b0910'), ether: lin('#F4F1FF', 3),
   star: lin('#4aa3c8'), starHot: lin('#9fe4f7', 2.2),
 };
+/**
+ * Иерархия эффектов удара (ревью): главный акцент — след приёма; вспышка в точке попадания (м, +за тяжесть,
+ * рост за жизнь, непрозрачность) и кольцо тяжёлого — мельче. Было 0.9 / 0.5 / до 2.6 м / 0.9 и кольцо 2.6 м.
+ */
+export const HIT_FX = { flare: 0.5, flareHeavy: 0.3, grow: 1.8, alpha: 0.75, ring: 1.6 };
+/** Вспышка оглушения (и Раскола — чуть сильнее): непрозрачность белого кольца, размер и непрозрачность белой сердцевины, свет. Было 1.2 / 1.4 / 0.85 / 6 (Раскол 1.2 / 1.2 / 0.9 / 7). */
+export const STUN_FX = { ring: 0.7, flare: 0.8, alpha: 0.55, light: 4 };
+
+/** Удар о землю (impact): яркость и непрозрачность кольца, внутреннее кольцо (непрозрачность, ширина), сила и радиус (×r) света. Было 2.5 / 1 / 0.6 / 0.6 / 3 / 2.5. */
+export const IMPACT = { ring: 1.4, outer: 0.55, inner: 0.35, innerW: 0.3, light: 1.8, lightR: 2.0 };
 /** Пыль, поднятая волной с пола: светлее дыма удара — её видно на обсидиане и в лучах. */
 const WAVE_DUST = lin('#5d586a');
 
@@ -151,8 +161,10 @@ export class BattleVfx {
     this.burst((5 + heavy * 6) * dense, { x, y, z, life: 0.3, size: 0.09, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.5 }, { v: 11, vy: 2.5, dir: [tx, tz], cone: 0.35 });
     this.burst(2 + heavy * 2, { x, y, z, life: 0.25, size: 0.08, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.2 }, { v: 7, vy: 4, dir: [dx, dz], cone: 0.9 });
     this.burst(4 + heavy * 4, { x, y, z, life: 0.35, size: 0.08, size1: 0.01, color: C.hungerHot, gravity: -10, drag: 3, frame: 'spark', stretch: 1 }, { v: 7, vy: 5, dir: [dx, dz], cone: 1.6 });
-    this.add.emit({ x, y, z, life: 0.12, size: 0.9 + heavy * 0.5, size1: 1.6 + heavy, color: crit ? C.core : C.voidHot, alpha: 0.9, frame: 'flare', rot: fxRng.next() * 3 });
-    if (heavy > 0.5 || crit) this.add.emit({ x, y, z, life: 0.2, size: 0.4, size1: 2.6, color: C.void, alpha: 0.6, frame: 'ring' });
+    // вспышка в точке попадания — акцент, но мельче следа удара (была до 2.6 м: в стоп-кадре — белый шар)
+    const F = HIT_FX;
+    this.add.emit({ x, y, z, life: 0.12, size: F.flare + heavy * F.flareHeavy, size1: (F.flare + heavy * F.flareHeavy) * F.grow, color: crit ? C.core : C.voidHot, alpha: F.alpha, frame: 'flare', rot: fxRng.next() * 3 });
+    if (heavy > 0.5 || crit) this.add.emit({ x, y, z, life: 0.2, size: 0.3, size1: F.ring, color: C.void, alpha: 0.45, frame: 'ring' });
     this.debris.burst(x, y, z, dx, dz, Math.round((2 + heavy * 4) * this.quality), 4 + heavy * 2, 0.16);
   }
 
@@ -161,14 +173,17 @@ export class BattleVfx {
     this.debris.burst(x, y, z, dx, dz, Math.round((8 + big * 10) * this.quality), 5 + big * 2, 0.2 + big * 0.12);
     this.burst(14 + big * 16, { x, y, z, life: 0.6, size: 0.12, size1: 0.02, color: C.hungerHot, gravity: -6, drag: 2.5, frame: 'spark', stretch: 0.8 }, { v: 7 + big * 3, vy: 6 });
     this.burst(6 + big * 6, { x, y: 0.4, z, life: 1.1, size: 0.6 + big * 0.5, size1: 1.4 + big, color: C.dust, alpha: 0.5, drag: 3, frame: 'smoke' }, { v: 2.5, vy: 0.8 }, false);
-    this.add.emit({ x, y, z, life: 0.25, size: 1.2 + big, size1: 2.5 + big * 2, color: C.hungerHot, alpha: 0.7, frame: 'dot' });
-    this.lights.flash(x, 1.2, z, C.hunger, 4 + big * 3, 6 + big * 4, 0.35);
+    this.add.emit({ x, y, z, life: 0.25, size: 0.9 + big * 0.8, size1: 1.8 + big * 1.5, color: C.hungerHot, alpha: 0.6, frame: 'dot' });
+    this.lights.flash(x, 1.2, z, C.hunger, 3 + big * 2.5, 6 + big * 4, 0.35);
   }
 
   /** Удар о землю: ударная волна + пылевое кольцо + осколки. */
   impact(x: number, z: number, r: number, color: [number, number, number], strength = 1): void {
-    this.rings.spawn(x, z, 0.3, r * 1.15, 0.35, [color[0] * 2.5, color[1] * 2.5, color[2] * 2.5], 0.3 * strength, 1);
-    this.rings.spawn(x, z, 0.2, r * 0.8, 0.5, [color[0], color[1], color[2]], 0.6, 0.6);
+    // кольцо — вторично к следу удара: ×1.4 (было ×2.5 — с HDR-цветом героя ×5.5, белый шар после блума)
+    const k = IMPACT.ring;
+    this.rings.spawn(x, z, 0.3, r * 1.15, 0.35, [color[0] * k, color[1] * k, color[2] * k], 0.3 * strength, IMPACT.outer);
+    // внутреннее кольцо было полосой 0.6 с непрозрачностью 0.6 в HDR — сверху читалось светящимся диском
+    this.rings.spawn(x, z, 0.2, r * 0.8, 0.5, [color[0], color[1], color[2]], IMPACT.innerW, IMPACT.inner);
     const n = Math.round(18 * strength);
     for (let i = 0; i < n * this.quality; i++) {
       const a = (i / n) * Math.PI * 2 + fxRng.spread(0.2);
@@ -177,7 +192,7 @@ export class BattleVfx {
     this.burst(10 * strength, { x, y: 0.2, z, life: 0.5, size: 0.08, size1: 0.02, color, gravity: -12, drag: 1.5, frame: 'spark', stretch: 1 }, { v: r * 2.5, vy: 6 });
     if (r >= 2.5) this.waveDust(x, z, r);
     this.debris.burst(x, 0.2, z, 0, 0, Math.round(6 * strength * this.quality), 4, 0.18);
-    this.lights.flash(x, 1, z, color, 3 * strength, r * 2.5, 0.3);
+    this.lights.flash(x, 1, z, color, IMPACT.light * strength, r * IMPACT.lightR, 0.3);
   }
 
   /**
@@ -363,23 +378,26 @@ export class BattleVfx {
   /** Раскол: взрыв обсидиановых осколков и светящихся трещин. */
   shatterBurst(x: number, y: number, z: number, big: boolean): void {
     const k = big ? 1.5 : 1;
-    this.rings.spawn(x, z, 0.4, 4.2 * k, 0.45, C.core, 0.22, 1.2);
+    // кульминация оглушения, но разрез и трещины Раскола должны читаться сквозь вспышку (ревью)
+    this.rings.spawn(x, z, 0.4, 4.2 * k, 0.45, C.core, 0.22, STUN_FX.ring);
     this.rings.spawn(x, z, 0.3, 3.2 * k, 0.35, C.gold, 0.3, 0.9);
-    this.add.emit({ x, y, z, life: 0.25, size: 1.2 * k, size1: 3.2 * k, color: C.core, alpha: 0.9, frame: 'flare' });
+    this.add.emit({ x, y, z, life: 0.25, size: STUN_FX.flare * 1.1 * k, size1: STUN_FX.flare * 2.6 * k, color: C.core, alpha: STUN_FX.alpha + 0.1, frame: 'flare' });
     this.burst(Math.round(22 * k), { x, y, z, life: 0.55, size: 0.12, size1: 0.03, color: C.core, gravity: -10, drag: 1.5, frame: 'spark', stretch: 1.6 }, { v: 13, vy: 6 });
     this.burst(Math.round(14 * k), { x, y, z, life: 0.9, size: 0.16, size1: 0.05, color: C.gold, gravity: -14, drag: 1, frame: 'star' }, { v: 7, vy: 7 });
-    this.lights.flash(x, y, z, [1, 0.92, 0.8], 7, 8, 0.35);
+    this.lights.flash(x, y, z, [1, 0.92, 0.8], STUN_FX.light + 1, 8, 0.35);
   }
 
   /** Оглушение: золотисто-белая вспышка, кольцо и звёздные искры (свет вырывается из твари). */
   stunBurst(x: number, y: number, z: number, big: boolean): void {
     const k = big ? 1.4 : 1;
-    this.rings.spawn(x, z, 0.5, 4.5 * k, 0.5, C.core, 0.2, 1.2);
+    // язык оглушения — золотые кольцо и звёзды; белая сердцевина мелкая: вспышка до 3.6 м с белым кольцом
+    // закрывала и цель, и след удара (ревью)
+    this.rings.spawn(x, z, 0.5, 4.5 * k, 0.5, C.core, 0.2, STUN_FX.ring);
     this.rings.spawn(x, z, 0.3, 3 * k, 0.4, C.gold, 0.25, 0.9);
-    this.add.emit({ x, y, z, life: 0.3, size: 1.4 * k, size1: 3.6 * k, color: C.core, alpha: 0.85, frame: 'flare' });
+    this.add.emit({ x, y, z, life: 0.3, size: STUN_FX.flare * k, size1: STUN_FX.flare * 2.4 * k, color: C.core, alpha: STUN_FX.alpha, frame: 'flare' });
     this.burst(Math.round(18 * k), { x, y, z, life: 0.7, size: 0.13, size1: 0.03, color: C.gold, gravity: -4, drag: 2, frame: 'star' }, { v: 7, vy: 5 });
     this.burst(Math.round(16 * k), { x, y, z, life: 0.45, size: 0.09, size1: 0.02, color: C.core, gravity: -8, drag: 2, frame: 'spark', stretch: 1.4 }, { v: 11, vy: 4 });
-    this.lights.flash(x, y, z, [1, 0.88, 0.62], 6, 7, 0.4);
+    this.lights.flash(x, y, z, [1, 0.88, 0.62], STUN_FX.light, 7, 0.4);
   }
 
   /** Раскол 2.0: разрез — длинный бело-фиолетовый смазанный след по линии (висит, пока мир стоит). */
@@ -694,14 +712,15 @@ export class BattleVfx {
     });
     for (const wv of ab.waves) {
       if (wv.kind === 'blade') {
-        // полумесяц: дуга искр поперёк направления, концы отстают — серп летит вперёд
+        // полумесяц: дуга искр поперёк направления, концы отстают — серп летит вперёд. Сердцевина фиолетовая, не
+        // белая: белые искры каждый кадр копились в шар поверх цели (ревью — главный акцент удара терялся)
         const n = Math.round(10 * this.quality) + 4;
         for (let k = 0; k < n; k++) {
           const f = (k / (n - 1)) * 2 - 1;
           const back = f * f * 0.9;
-          this.add.emit({ x: wv.x - wv.dz * f * wv.r * 1.3 - wv.dx * back, y: 0.5 + (1 - Math.abs(f)) * 0.7, z: wv.z + wv.dx * f * wv.r * 1.3 - wv.dz * back, vx: wv.dx * 6, vz: wv.dz * 6, life: 0.16, size: 0.45 - Math.abs(f) * 0.25, size1: 0.04, color: Math.abs(f) < 0.35 ? C.core : C.voidHot, frame: 'spark', stretch: 1.2 });
+          this.add.emit({ x: wv.x - wv.dz * f * wv.r * 1.3 - wv.dx * back, y: 0.5 + (1 - Math.abs(f)) * 0.7, z: wv.z + wv.dx * f * wv.r * 1.3 - wv.dz * back, vx: wv.dx * 6, vz: wv.dz * 6, life: 0.16, size: 0.32 - Math.abs(f) * 0.16, size1: 0.04, color: C.voidHot, alpha: Math.abs(f) < 0.35 ? 0.9 : 0.7, frame: 'spark', stretch: 1.4 });
         }
-        this.lights.add(wv.x, 0.9, wv.z, C.void, 3.5, 5);
+        this.lights.add(wv.x, 0.9, wv.z, C.void, 2.2, 5);
         continue;
       }
       for (let n = 0; n < 3; n++) {

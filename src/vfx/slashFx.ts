@@ -32,8 +32,11 @@ export interface SlashSpec {
   side?: number;
 }
 
-/** Время взмаха и жизни следа (с), яркость (× цвета Пустоты). */
-export const SLASH = { sweep: 0.09, life: 0.26, heavyLife: 0.38, bright: 2.2, heavyBright: 3.0 };
+/**
+ * Время взмаха и жизни следа (с), яркость (× цвета Пустоты); внутренний радиус дуги (доля) — у вертикальных
+ * тоньше и тусклее: сверху они видны раскрытым веером, и тяжёлый веер после блума читался белым шаром (ревью).
+ */
+export const SLASH = { sweep: 0.09, life: 0.26, heavyLife: 0.38, bright: 2.2, heavyBright: 3.0, inner: 0.55, vertInner: 0.8, vertBright: 0.75 };
 
 const WHITE_VIOLET = new THREE.Color(0.85, 0.62, 1.6);
 
@@ -177,6 +180,7 @@ export class SlashFx {
   private readonly stripGeo = strip();
   private readonly pending: { spec: SlashSpec; src: SlashSource; end: number; at: number }[] = [];
   private readonly follows: Follow[] = [];
+  private lastLive!: Live;
 
   constructor() {
     for (let i = 0; i < 10; i++) this.pool.arc.push(this.make(false));
@@ -195,10 +199,10 @@ export class SlashFx {
     return { mesh, u, busy: false };
   }
 
-  private arcGeo(angle: number): THREE.BufferGeometry {
-    const key = angle.toFixed(2);
+  private arcGeo(angle: number, inner = SLASH.inner): THREE.BufferGeometry {
+    const key = `${angle.toFixed(2)}:${inner.toFixed(2)}`;
     let g = this.arcs.get(key);
-    if (!g) { g = sector(angle, 0.55, 1, Math.max(12, Math.round(angle * 9))); this.arcs.set(key, g); }
+    if (!g) { g = sector(angle, inner, 1, Math.max(12, Math.round(angle * 9))); this.arcs.set(key, g); }
     return g;
   }
 
@@ -228,6 +232,7 @@ export class SlashFx {
     const { x, y, z, facing } = src;
     const put = (isStrip: boolean, setup: (m: THREE.Mesh) => void, dir = 1) => {
       const l = this.take(isStrip, now);
+      this.lastLive = l;
       for (let i = this.follows.length - 1; i >= 0; i--) if (this.follows[i].l === l) this.follows.splice(i, 1);
       l.u.uBorn.value = now; l.u.uLife.value = life; l.u.uDir.value = dir;
       l.u.uBright.value = heavy ? SLASH.heavyBright : SLASH.bright;
@@ -252,11 +257,12 @@ export class SlashFx {
         // рубящий сверху / апперкот: дуга в плоскости «вперёд–вверх», плоскость повёрнута вокруг взгляда на
         // VERT_ROLL — у камеры за спиной Пилота вертикальная дуга иначе видна ребром, одной линией
         put(false, (m) => {
-          m.geometry = this.arcGeo(spec.angle ?? 2.4);
+          m.geometry = this.arcGeo(spec.angle ?? 2.4, SLASH.vertInner);
           basisArc(m, facing, spec.tilt ?? VERT_ROLL);
           m.scale.setScalar(r);
           m.position.y = y + (spec.y ?? 0.2) + r * 0.45;
         }, spec.dir ?? -1);
+        this.lastLive.u.uBright.value *= SLASH.vertBright;
         break;
       }
       case 'streak': {

@@ -58,6 +58,18 @@ const STUN_IN: Record<StunKind, number> = { light: 1, finisher: 1, charged: 1, c
 /** Идеальное уклонение от атаки Стража или босса. */
 export const STUN_PERFECT_DODGE = 10;
 
+/**
+ * Вспышка врага от попадания (ревью: «главный акцент удара должен оставаться различимым»): было 1 на любой удар —
+ * всё тело в белое HDR, у крупных после блума белое облако поверх следа клинка. Теперь по весу удара; крупные
+ * (выше BIG_H м) — слабее: их силуэт и так занимает пол-экрана.
+ */
+export const HIT_FLASH = { light: 0.4, medium: 0.55, heavy: 0.7, break: 0.85, bigH: 2.6, bigK: 0.55 };
+
+export function hitFlash(feel: FeelId, height: number): number {
+  const v = feel === 'light' ? HIT_FLASH.light : feel === 'medium' ? HIT_FLASH.medium : feel === 'heavy' ? HIT_FLASH.heavy : HIT_FLASH.break;
+  return height >= HIT_FLASH.bigH ? v * HIT_FLASH.bigK : v;
+}
+
 /** Итог попадания для сборки события strike. */
 export interface HitResult { crit: boolean; feel: FeelId }
 
@@ -345,7 +357,7 @@ export class World {
       if (stunned) feel = 'break';
     }
     // реакция на попадание: вспышка, пружина, отбрасывание, хитстан рядовых
-    e.puppet.flash = 1;
+    e.puppet.flash = Math.max(e.puppet.flash, hitFlash(feel, e.height));
     if (!e.isBoss) {
       const kb = p.knockback / Math.max(0.5, e.mass) * (e.isGuardian ? 0.1 : 1);
       e.kbX += p.dirX * kb * 2.2; e.kbZ += p.dirZ * kb * 2.2;

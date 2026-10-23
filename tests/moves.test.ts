@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { SlashFx, slashFor } from '../src/vfx/slashFx';
+import { SLASH, SlashFx, slashFor } from '../src/vfx/slashFx';
+import { HIT_FX, IMPACT, STUN_FX } from '../src/vfx/battleVfx';
+import { HIT_FLASH, hitFlash } from '../src/world/world';
+import { SHOCK_RING } from '../src/game/feel';
 import { World } from '../src/world/world';
 import { Arena } from '../src/world/arena';
 import { ARENAS } from '../src/data/arenas';
@@ -105,5 +108,20 @@ describe('приёмы: своя форма следа и вес (разбор)'
     const input = idle();
     for (let i = 0; i < 40; i++) w.step(1 / 60, 1 / 60, input);
     expect(n).toBe(1);
+  });
+
+  it('ревью: иерархия эффектов — след приёма главный, вспышки и кольца мельче и тусклее', () => {
+    const minReach = Math.min(...['slash1', 'spin', 'flurry', 'cross', 'rift', 'lunge'].map((m) => slashFor(m, undefined)[0].reach));
+    // вспышка попадания на пике меньше самого короткого следа
+    expect((HIT_FX.flare + HIT_FX.flareHeavy) * HIT_FX.grow).toBeLessThan(minReach);
+    expect(STUN_FX.flare * 2.4 * 1.4).toBeLessThan(3);
+    // вспышка тела врага — по весу удара, у крупных слабее; не белая заливка
+    expect(hitFlash('light', 1.8)).toBeLessThan(hitFlash('heavy', 1.8));
+    expect(hitFlash('heavy', 3)).toBeLessThan(hitFlash('heavy', 1.8));
+    expect(HIT_FLASH.break).toBeLessThan(1);
+    // кольца на полу тусклее следа
+    expect(IMPACT.outer * IMPACT.ring).toBeLessThan(SLASH.bright);
+    expect(SHOCK_RING).toBeLessThanOrEqual(0.5);
+    expect(STUN_FX.ring).toBeLessThan(1);
   });
 });

@@ -34,6 +34,9 @@ import type { Enemy } from '../world/enemy';
 import type { Hud } from '../ui/hud';
 import type { Settings } from '../meta/settings';
 
+/** Кольцо ударной волны на полу: доля силы волны (было 1). */
+export const SHOCK_RING = 0.5;
+
 const _v = new THREE.Vector3();
 const _hp = { x: 0, y: 0, z: 0 };
 const UI_GOLD = '#f0d9a0';
@@ -459,7 +462,8 @@ export class FeelSystem {
         this.voice('Затмение. Покажи им.', 0);
       }),
       b.on('shockwave', (e) => {
-        this.vfx.rings.spawn(e.x, e.z, 0.5, e.r, 0.5, e.color === 'void' ? C.voidHot : e.color === 'gold' ? C.gold : C.hungerHot, 0.25, e.strength);
+        // кольцо волны — половина силы: при alpha = strength (до 1.6, ×2 в шейдере) и HDR-цвете — белая заливка кадра
+        this.vfx.rings.spawn(e.x, e.z, 0.5, e.r, 0.5, e.color === 'void' ? C.voidHot : e.color === 'gold' ? C.gold : C.hungerHot, 0.25, e.strength * SHOCK_RING);
         this.shockwave(e.x, e.z, e.strength, 0.5);
         if (e.color === 'void') this.audio.play('well_boom', { gain: 0.6 * e.strength });
       }),
