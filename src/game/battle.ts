@@ -7,6 +7,7 @@ import { QUALITY } from '../render/renderer';
 import { Flames, LightPools, RuneCircle } from '../vfx/ambient';
 import { BattleVfx } from '../vfx/battleVfx';
 import { ContactShadows } from '../render/contactShadows';
+import { segmentBlocked, XRAY } from '../world/occlusion';
 import { BOSS_SCAR_LIFE, FloorScars, SCAR_LIFE } from '../vfx/scars';
 import { ArenaEvents } from './arenaEvents';
 import { Abilities, type Loadout } from '../world/abilities';
@@ -476,6 +477,7 @@ export class Battle {
     this.rune.u.uAlpha.value += (runeTarget - this.rune.u.uAlpha.value) * Math.min(1, realDt * 2);
     // рендер врагов и героя
     this.enemies.render(this.world.enemies, this.world.shadows);
+    this.updateXray(realDt);
     h.avatar.render(true, h.blinking);
     this.updateContact();
     // камера
@@ -1006,6 +1008,26 @@ export class Battle {
     if (!this.director.active && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; }
   }
 
+  /**
+   * Контур Пилота сквозь препятствия (разбор): камера → грудь Пилота пересекает колонну-укрытие или крупного
+   * врага (Страж, босс, Голем) — Пилот виден фиолетовым силуэтом. Заодно — точка для приглушения дыма у героя.
+   */
+  private updateXray(realDt: number): void {
+    const h = this.world.hero, cam = this.ctx.renderer.camera.position;
+    const cy = h.y + 1.25;
+    G.uHero.value.set(h.x, cy, h.z);
+    let hidden = false;
+    for (const c of this.arena.covers) {
+      if (segmentBlocked(cam.x, cam.y, cam.z, h.x, cy, h.z, { x: c.x, z: c.z, r: c.r * 0.85, h: XRAY.coverH })) { hidden = true; break; }
+    }
+    if (!hidden) for (const e of this.world.enemies) {
+      if (e.dead || e.height < 2.6) continue;
+      if (segmentBlocked(cam.x, cam.y, cam.z, h.x, cy, h.z, { x: e.x, z: e.z, r: e.radius, h: e.y + e.height })) { hidden = true; break; }
+    }
+    const a = h.avatar, target = hidden && !h.dead ? XRAY.strength : 0;
+    a.xray += (target - a.xray) * Math.min(1, realDt * (target > a.xray ? XRAY.rise : XRAY.fall));
+  }
+
   /** Контактные тени: герой и живые враги (растворяющиеся бледнеют), над провалом — нет. */
   private updateContact(): void {
     const c = this.contact, w = this.world, h = w.hero, a = this.arena;
@@ -1083,6 +1105,7 @@ export class Battle {
     this.flames.dispose();
     this.scars.dispose();
     this.contact.dispose();
+    G.uHero.value.set(0, -1000, 0);
     this.ash.dispose();
     this.beamDust?.dispose();
     this.enemies.dispose();

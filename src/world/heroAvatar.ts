@@ -49,6 +49,9 @@ export class HeroAvatar {
   private cloakReady = false;
   /** Свечение шрама/визора: растёт с Резонансом. */
   glow = 0;
+  /** Сила контура сквозь препятствия 0..1 (бой ставит, когда Пилота закрыло). */
+  xray = 0;
+  private readonly xrayBatch: RigBatch;
   /** Тон кукловода: >0 — аура ульты. */
   aura = 0;
   /** Скорость кончика клинка в мире (м/с): искры по касательной, ширина шлейфа. */
@@ -75,10 +78,14 @@ export class HeroAvatar {
     // контур уже и тоньше (сила 0.85, степень 3.3 вместо 1.05 и 2.8): обводит силуэт, а не каждую пластину
     this.batch = new RigBatch(geo, layout.n, 1, { rim: '#b49cff', rimStrength: 0.85, rimPower: 3.3, emissive: '#a07cff', emissiveStrength: 2.1, emissive2: '#ffd29a' });
     this.ghostBatch = RigBatch.sibling(this.batch, GHOSTS + 1, { ghost: true, rim: '#9b6cff', emissive: '#b794ff' });
+    // контур сквозь препятствия (разбор): та же кукла «призраком», только там, где её закрыла колонна или Страж
+    this.xrayBatch = RigBatch.sibling(this.batch, 1, { ghost: true, rim: '#a77cff', emissive: '#b794ff', fill: 0.07 });
+    this.xrayBatch.material.depthFunc = THREE.GreaterDepth;
+    this.xrayBatch.mesh.renderOrder = 30;
     this.cloakMesh = new ClothMesh(this.cloak, '#141a26', { rim: '#9b7cff', rimStrength: 1.0, emissive: '#8B5CF6', emissiveStrength: 1.6 }, 1, 1.2);
     // шарф — глубокий фиолетовый с золотой кромкой: красный на Пилоте спорил с цветом врагов
     this.scarfMesh = new ClothMesh(this.scarf, '#34184f', { rim: '#c9b2ff', rimStrength: 0.4, emissive: '#c9a253', emissiveStrength: 1.2 }, 1, 0.5);
-    this.group.add(this.batch.mesh, this.ghostBatch.mesh, this.cloakMesh.mesh, this.scarfMesh.mesh);
+    this.group.add(this.batch.mesh, this.ghostBatch.mesh, this.xrayBatch.mesh, this.cloakMesh.mesh, this.scarfMesh.mesh);
     this.iChest = layout.idx('chest'); this.iNeck = layout.idx('neck'); this.iPelvis = layout.idx('pelvis');
     this.iKaelis = layout.idx('kaelis'); this.iBlade = layout.idx('blade'); this.iHandR = layout.idx('handR');
     for (let i = 0; i < GHOSTS; i++) this.ghosts.push({ world: new Float32Array(layout.n * 16), age: 99 });
@@ -289,7 +296,7 @@ export class HeroAvatar {
 
   dispose(): void {
     this.group.removeFromParent();
-    this.batch.dispose(); this.ghostBatch.dispose();
+    this.batch.dispose(); this.ghostBatch.dispose(); this.xrayBatch.dispose();
     this.cloakMesh.dispose(); this.scarfMesh.dispose();
   }
 
@@ -306,6 +313,9 @@ export class HeroAvatar {
     const sil = this.silhouette;
     if (sil && !sil.broken && sil.age < 0.5) this.ghostBatch.push(sil.world, 0.7 * (1 - sil.age / 0.5), 0, 0.6, 0);
     this.ghostBatch.end();
+    this.xrayBatch.begin();
+    if (visible && !blink && this.xray > 0.01 && !p.skel.broken) this.xrayBatch.push(p.skel.world, this.xray, 0, 0, 0);
+    this.xrayBatch.end();
     const show = visible && !p.skel.broken;
     this.cloakMesh.mesh.visible = show && !blink;
     this.scarfMesh.mesh.visible = show && !blink;

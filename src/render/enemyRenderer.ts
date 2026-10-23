@@ -25,6 +25,9 @@ const BIG = new Set(['brute', 'gateGuardian', 'bellRinger', 'hierophant']);
 
 export function registerRigBuilder(id: string, build: () => RigBuild, max: number): void { BUILDERS[id] = { build, max }; }
 
+/** Доля белой сердцевины в свечении врагов в покое (разбор: у всех горели одинаковые белые глаза). */
+export const ENEMY_WHITE = 0.3;
+
 /**
  * Рендер врагов: батч на тип рига — один draw call на всех Шипников, всех Жнецов и т.д. (Tech §7.1).
  */
@@ -40,7 +43,7 @@ export class EnemyRenderer {
       const r = def.build();
       b = new RigBatch(r.geometry, r.rig.joints.length, def.max, {
         rim: id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: BIG.has(id) ? 0.34 : 0.62, rimPower: BIG.has(id) ? 3.2 : 2.8,
-        emissive: '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 2.8,
+        emissive: '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 2.8, white: ENEMY_WHITE,
       });
       this.batches.set(id, b);
       this.group.add(b.mesh);

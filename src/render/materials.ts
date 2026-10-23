@@ -20,6 +20,8 @@ export const G = {
   uPLCol: { value: Array.from({ length: MAX_POINT_LIGHTS }, () => new THREE.Vector4(0, 0, 0, 0)) },
   uMatcap: { value: null as THREE.Texture | null },
   uNoise: { value: null as THREE.Texture | null },
+  /** Грудь Пилота в мире (бой): дым и пепел на линии камера → Пилот приглушаются. Вне боя — далеко внизу. */
+  uHero: { value: new THREE.Vector3(0, -1000, 0) },
 };
 
 /** Отдельный matcap для пола: тёмное зеркало без жёсткого блика — пол отражает свет, а не «светится». */
@@ -104,6 +106,8 @@ uniform float uRimStrength;
 uniform vec3 uEmissiveColor;
 uniform vec3 uEmissiveColor2;
 uniform float uEmissiveStrength;
+uniform float uWhite;
+uniform float uFill;
 uniform float uSpec;
 uniform vec3 uFogColor;
 uniform vec2 uFogRange;
@@ -124,11 +128,11 @@ varying float vSeed;
 varying vec3 vLocal;
 varying float vSurf;
 
-vec3 emissiveTerm(float e) {
+vec3 emissiveTerm(float e, float white) {
   float a = abs(e);
   vec3 base = e < 0.0 ? uEmissiveColor2 : uEmissiveColor;
-  // 0..1 — цветное свечение; 1..2 — сердцевина уходит в белое («раскалённая кромка»)
-  vec3 c = mix(base, vec3(1.0) * length(base) * 1.4, smoothstep(1.0, 2.0, a));
+  // 0..1 — цветное свечение; 1..2 — сердцевина уходит в белое («раскалённая кромка»), насколько разрешает white
+  vec3 c = mix(base, vec3(1.0) * length(base) * 1.4, smoothstep(1.0, 2.0, a) * white);
   float pulse = 0.78 + 0.22 * sin(uTime * 3.0 + vSeed * 6.28 + vWP.y * 1.7);
   return c * min(a, 2.0) * pulse;
 }
@@ -193,7 +197,8 @@ void main() {
   // контур — у лат; у металла слабее (свой блеск), у ткани почти нет: силуэт цельный, без «сетки» кромок
   col += uRimColor * rim * uRimStrength * (1.0 - sMetal * 0.45 - sCloth * 0.7);
 
-  col += emissiveTerm(vEmissive) * uEmissiveStrength * (1.0 + boost);
+  // у врагов белое — только на замахе (boost), в покое глаза и жилы багровые: белый значит «сейчас ударит»
+  col += emissiveTerm(vEmissive, clamp(uWhite + boost * 0.6, 0.0, 1.0)) * uEmissiveStrength * (1.0 + boost);
 
   // трещины оглушения — светящиеся швы по ячейкам (украденный свет рвётся наружу);
   // отрицательные — трещины Раскола героя: бело-фиолетовые, шире
@@ -222,7 +227,8 @@ void main() {
   vec3 vn = normalize(mat3(viewMatrix) * n);
   vec3 viewDir = normalize(-vVP);
   float rim = pow(1.0 - max(dot(vn, viewDir), 0.0), 1.6);
-  vec3 col = uRimColor * (0.25 + rim * 1.6) + emissiveTerm(vEmissive) * 0.5;
+  // uFill — заливка тела: у остаточных изображений 0.25, у контура сквозь стены почти нет (видна кромка)
+  vec3 col = uRimColor * (uFill + rim * 1.6) + emissiveTerm(vEmissive, uWhite) * 0.5 * uFill * 4.0;
   col *= 1.0 - fogAmount();
   gl_FragColor = vec4(col * alpha, 1.0);
 }
@@ -237,6 +243,10 @@ export interface ObsidianOpts {
   emissive?: string;
   emissive2?: string;
   emissiveStrength?: number;
+  /** Доля белой сердцевины в яркой эмиссии (1 — как раньше; врагам меньше — белое только на замахе). */
+  white?: number;
+  /** Заливка «призрака» (только ghost): 0.25 — остаточные изображения; меньше — один контур. */
+  fill?: number;
   spec?: number;
   side?: THREE.Side;
   floor?: boolean;
@@ -268,6 +278,8 @@ export function obsidianMaterial(o: ObsidianOpts = {}): ObsidianMaterial {
       uEmissiveColor: { value: v3(o.emissive ?? '#8B5CF6') },
       uEmissiveColor2: { value: v3(o.emissive2 ?? '#FFB866') },
       uEmissiveStrength: { value: o.emissiveStrength ?? 2.2 },
+      uWhite: { value: o.white ?? 1 },
+      uFill: { value: o.fill ?? 0.25 },
       uSpec: { value: o.spec ?? 1.0 },
       uFx: { value: new THREE.Vector4(0, 0, 0, 0) },
       uBones: { value: null },

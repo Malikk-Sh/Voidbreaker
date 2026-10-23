@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { G } from '../render/materials';
+import { HERO_DIM_GLSL } from './particles';
 
 /** Пылинок на один луч света и слоёв пепла (план §8.5) — при качестве 1. */
 export const DUST_PER_RAY = 36;
@@ -46,11 +47,12 @@ export class BeamDust {
     const c = new THREE.Color(color);
     // пылинка ярче самого луча (луч — едва заметная дымка)
     const m = new THREE.ShaderMaterial({
-      uniforms: { uTime: G.uTime, uColor: { value: new THREE.Color(Math.min(1, c.r * 7 + 0.12), Math.min(1, c.g * 7 + 0.1), Math.min(1, c.b * 7 + 0.08)) } },
+      uniforms: { uTime: G.uTime, uHero: G.uHero, uColor: { value: new THREE.Color(Math.min(1, c.r * 7 + 0.12), Math.min(1, c.g * 7 + 0.1), Math.min(1, c.b * 7 + 0.08)) } },
       vertexShader: /* glsl */ `
         attribute vec4 aTop; attribute vec4 aBot; attribute vec4 aSeed;
-        uniform float uTime;
+        uniform float uTime; uniform vec3 uHero;
         varying vec2 vC; varying float vK;
+        ${HERO_DIM_GLSL}
         void main() {
           // оседает вдоль луча (медленно, у каждой своя скорость) и покачивается поперёк
           float s = fract(aSeed.x + uTime * (0.006 + 0.01 * aSeed.w));
@@ -65,7 +67,7 @@ export class BeamDust {
           // свет только в конусе: ярче у оси, гаснет к краям и к концам луча, мерцает
           float across = 1.0 - smoothstep(0.18, 0.5, abs(l));
           float along = smoothstep(0.08, 0.3, s) * (1.0 - smoothstep(0.7, 0.95, s));
-          vK = across * along * (0.55 + 0.45 * sin(uTime * (1.2 + aSeed.w) + aSeed.w * 23.0));
+          vK = across * along * (0.55 + 0.45 * sin(uTime * (1.2 + aSeed.w) + aSeed.w * 23.0)) * heroDim(p);
           vC = position.xy;
           vec4 mv = viewMatrix * vec4(p, 1.0);
           mv.xy += position.xy * (0.022 + 0.018 * aSeed.w);
@@ -120,11 +122,12 @@ export class AshFall {
     g.instanceCount = n;
     this.focus = new THREE.Vector3();
     const m = new THREE.ShaderMaterial({
-      uniforms: { uTime: G.uTime, uFocus: { value: this.focus }, uColor: { value: new THREE.Color(0.36, 0.34, 0.33) } },
+      uniforms: { uTime: G.uTime, uHero: G.uHero, uFocus: { value: this.focus }, uColor: { value: new THREE.Color(0.36, 0.34, 0.33) } },
       vertexShader: /* glsl */ `
         attribute vec4 aP; attribute vec4 aS; attribute vec4 aL;
-        uniform float uTime; uniform vec3 uFocus;
+        uniform float uTime; uniform vec3 uFocus; uniform vec3 uHero;
         varying vec2 vC; varying float vA;
+        ${HERO_DIM_GLSL}
         void main() {
           float t = uTime;
           // ветер сносит вбок, хлопья кружат и падают; y — по кругу внутри слоя
@@ -136,7 +139,7 @@ export class AshFall {
           // у границ коробки и слоя — гаснут (без хлопков при заворачивании)
           vec2 e = abs(xz - c) / (box * 0.5);
           float fy = (y - aL.x) / (aL.y - aL.x);
-          vA = aS.w * (1.0 - smoothstep(0.8, 1.0, max(e.x, e.y))) * smoothstep(0.0, 0.12, fy) * (1.0 - smoothstep(0.88, 1.0, fy));
+          vA = aS.w * (1.0 - smoothstep(0.8, 1.0, max(e.x, e.y))) * smoothstep(0.0, 0.12, fy) * (1.0 - smoothstep(0.88, 1.0, fy)) * heroDim(vec3(xz.x, y, xz.y));
           // хлопья кувыркаются: вращение и сплющивание
           float ang = t * (0.6 + aS.z) + aS.z * 50.0;
           vec2 q = position.xy * vec2(0.45 + 0.55 * abs(sin(t * 1.3 + aS.z * 11.0)), 1.0);

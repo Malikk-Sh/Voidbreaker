@@ -3,6 +3,20 @@ import { G } from '../render/materials';
 import { makeParticleAtlas, ATLAS_FRAMES, type AtlasFrame } from '../gen/tex/textures';
 
 let atlas: THREE.Texture | null = null;
+
+/**
+ * Приглушение вторичных эффектов у Пилота (разбор): дым, пыль, пепел между камерой и героем не закрывают его.
+ * Расстояние от точки до отрезка «грудь Пилота → камера»: ближе 0.7 м — ×HERO_DIM.min, дальше 2.4 м — как есть.
+ */
+export const HERO_DIM = { min: 0.3, near: 0.7, far: 2.4 };
+export const HERO_DIM_GLSL = /* glsl */ `
+  float heroDim(vec3 p) {
+    vec3 h = uHero, c = cameraPosition - uHero;
+    float t = clamp(dot(p - h, c) / max(dot(c, c), 1e-4), 0.0, 1.0);
+    float d = length(p - (h + c * t));
+    return mix(${HERO_DIM.min.toFixed(2)}, 1.0, smoothstep(${HERO_DIM.near.toFixed(2)}, ${HERO_DIM.far.toFixed(2)}, d));
+  }
+`;
 const getAtlas = () => (atlas ??= makeParticleAtlas());
 
 export interface ParticleSpec {
@@ -49,11 +63,13 @@ export class Particles {
     this.geo.setAttribute('aC', this.a.c); this.geo.setAttribute('aM', this.a.m);
     this.geo.instanceCount = max;
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: G.uTime, uAtlas: { value: getAtlas() } },
+      uniforms: { uTime: G.uTime, uAtlas: { value: getAtlas() }, uHero: G.uHero },
+      defines: additive ? {} : { DIM_NEAR_HERO: '' },
       vertexShader: /* glsl */ `
         attribute vec4 aP; attribute vec4 aV; attribute vec4 aS; attribute vec4 aC; attribute vec4 aM;
-        uniform float uTime;
+        uniform float uTime; uniform vec3 uHero;
         varying vec2 vUv; varying vec4 vCol;
+        ${HERO_DIM_GLSL}
         void main() {
           float t = uTime - aP.w;
           float life = aV.w;
@@ -85,6 +101,9 @@ export class Particles {
           vUv = vec2((uv.x + frame) / 8.0, uv.y);
           float fadeIn = smoothstep(0.0, 0.06, f);
           vCol = vec4(aC.rgb, aC.a * fadeIn * pow(1.0 - f, 1.4));
+        #ifdef DIM_NEAR_HERO
+          vCol.a *= heroDim(p);
+        #endif
         }
       `,
       fragmentShader: additive ? /* glsl */ `
