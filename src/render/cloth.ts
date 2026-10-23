@@ -40,6 +40,8 @@ export class ClothMesh {
     this.geo.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
     this.geo.setAttribute('aEmissive', new THREE.BufferAttribute(emi, 1));
     this.geo.setAttribute('aJoint', new THREE.BufferAttribute(new Float32Array(vcount), 1));
+    // профиль «ткань»: матовая, без отражения и почти без контура (см. SURF)
+    this.geo.setAttribute('aSurf', new THREE.BufferAttribute(new Float32Array(vcount).fill(2), 1));
     this.mesh = new THREE.Mesh(this.geo, obsidianMaterial({ ...opts, side: THREE.DoubleSide }));
     this.mesh.frustumCulled = false;
   }

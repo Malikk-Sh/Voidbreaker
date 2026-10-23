@@ -6,6 +6,7 @@ import { EnemyRenderer } from '../render/enemyRenderer';
 import { QUALITY } from '../render/renderer';
 import { Flames, LightPools, RuneCircle } from '../vfx/ambient';
 import { BattleVfx } from '../vfx/battleVfx';
+import { ContactShadows } from '../render/contactShadows';
 import { BOSS_SCAR_LIFE, FloorScars, SCAR_LIFE } from '../vfx/scars';
 import { ArenaEvents } from './arenaEvents';
 import { Abilities, type Loadout } from '../world/abilities';
@@ -116,6 +117,8 @@ export class Battle {
   readonly group = new THREE.Group();
   /** Следы боя на полу (план §8.5). */
   readonly scars: FloorScars;
+  /** Контактные тени под героем и врагами (разбор). */
+  private readonly contact = new ContactShadows();
   /** Своё событие арены (план §8.5). */
   readonly events: ArenaEvents;
   private readonly ambience: Ambience | null;
@@ -196,7 +199,7 @@ export class Battle {
     this.vfx.quality = r.quality === 'low' ? 0.5 : r.quality === 'medium' ? 0.75 : 1;
     this.vfx.tele.hatch = ctx.settings.hatch;
     this.vfx.camera = ctx.renderer.camera;
-    this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group, this.scars.mesh);
+    this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group, this.scars.mesh, this.contact.mesh);
     // батчи всех врагов этапа (с Стражами и боссом) заранее: их шейдеры прогреются вместе со сценой
     const rigs = new Set<string>(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'psalmist', 'brute']);
     for (const wv of stage.waves) for (const sp of wv.spawns) {
@@ -474,6 +477,7 @@ export class Battle {
     // рендер врагов и героя
     this.enemies.render(this.world.enemies, this.world.shadows);
     h.avatar.render(true, h.blinking);
+    this.updateContact();
     // камера
     this.updateCamera(realDt);
     this.feel.update(realDt);
@@ -1002,6 +1006,19 @@ export class Battle {
     if (!this.director.active && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; }
   }
 
+  /** Контактные тени: герой и живые враги (растворяющиеся бледнеют), над провалом — нет. */
+  private updateContact(): void {
+    const c = this.contact, w = this.world, h = w.hero, a = this.arena;
+    c.begin();
+    if (!h.dead && a.walkable(h.x, h.z)) c.add(h.x, h.z, 0.62, h.y);
+    for (const e of w.enemies) {
+      const dis = e.puppet.dissolve;
+      if (dis >= 0.98 || !a.walkable(e.x, e.z)) continue;
+      c.add(e.x, e.z, e.radius * 1.25, e.y, 1 - dis);
+    }
+    c.end();
+  }
+
   /** Слои музыки по интенсивности боя (GDD §18.3). */
   private updateMusic(realDt: number): void {
     this.intensityT -= realDt;
@@ -1065,6 +1082,7 @@ export class Battle {
     this.view.dispose();
     this.flames.dispose();
     this.scars.dispose();
+    this.contact.dispose();
     this.ash.dispose();
     this.beamDust?.dispose();
     this.enemies.dispose();

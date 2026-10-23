@@ -35,6 +35,7 @@ const VERT = /* glsl */ `
 attribute vec3 aColor;
 attribute float aEmissive;
 attribute float aJoint;
+attribute float aSurf;
 #ifdef RIGGED
   uniform highp sampler2D uBones;
   attribute vec4 iFx;
@@ -49,6 +50,7 @@ varying vec3 vVP;
 varying vec4 vFx;
 varying float vSeed;
 varying vec3 vLocal;
+varying float vSurf;
 
 #ifdef RIGGED
 mat4 boneMat(int j) {
@@ -86,6 +88,7 @@ void main() {
   vColor *= instanceColor;
 #endif
   vEmissive = aEmissive;
+  vSurf = aSurf;
   vLocal = position;
   gl_Position = projectionMatrix * mv;
 }
@@ -119,6 +122,7 @@ varying vec3 vVP;
 varying vec4 vFx;
 varying float vSeed;
 varying vec3 vLocal;
+varying float vSurf;
 
 vec3 emissiveTerm(float e) {
   float a = abs(e);
@@ -162,9 +166,14 @@ void main() {
   vec3 col = albedo * mix(uHemiBot, uHemiTop, n.y * 0.5 + 0.5);
   col += albedo * uMoonColor * max(dot(n, uMoonDir), 0.0) * 2.2;
   float amax = max(albedo.r, max(albedo.g, albedo.b));
-  float metal = smoothstep(0.05, 0.14, amax);
+  // профили поверхностей: 1 — бронза/золото, 2 — ткань (см. SURF)
+  float sMetal = step(0.5, vSurf) * step(vSurf, 1.5);
+  float sCloth = step(1.5, vSurf);
+  float metal = max(smoothstep(0.05, 0.14, amax), sMetal);
   vec3 specTint = mix(vec3(1.0), albedo / max(amax, 1e-3), metal);
-  col += refl * uSpec * specTint * (0.35 + metal * 0.35);
+  col += refl * uSpec * specTint * (0.35 + metal * 0.35) * (1.0 + sMetal * 0.9) * (1.0 - sCloth * 0.9);
+  // ткань: мягкий «обёрнутый» свет вместо блеска
+  col += albedo * uHemiTop * 0.35 * sCloth;
 
   vec3 camW = cameraPosition - vWP;
   vec3 vdw = normalize(camW);
@@ -177,11 +186,12 @@ void main() {
     L /= d;
     float diff = max(dot(n, L), 0.0);
     float spec = pow(max(dot(reflect(-L, n), vdw), 0.0), 14.0);
-    col += uPLCol[i].rgb * att * (diff * (albedo * 3.0 + 0.03) + spec * 0.35);
+    col += uPLCol[i].rgb * att * (diff * (albedo * 3.0 + 0.03) + spec * (0.35 + sMetal * 0.9) * (1.0 - sCloth));
   }
 
   float rim = pow(1.0 - max(dot(vn, viewDir), 0.0), uRimPower);
-  col += uRimColor * rim * uRimStrength;
+  // контур — у лат; у металла слабее (свой блеск), у ткани почти нет: силуэт цельный, без «сетки» кромок
+  col += uRimColor * rim * uRimStrength * (1.0 - sMetal * 0.45 - sCloth * 0.7);
 
   col += emissiveTerm(vEmissive) * uEmissiveStrength * (1.0 + boost);
 
@@ -266,6 +276,8 @@ export function obsidianMaterial(o: ObsidianOpts = {}): ObsidianMaterial {
     fragmentShader: o.ghost ? FRAG_GHOST : FRAG,
     side: o.side ?? THREE.FrontSide,
   }) as ObsidianMaterial;
+  // геометрия без профиля (весь декор) — латы
+  (m as unknown as { defaultAttributeValues: Record<string, number[]> }).defaultAttributeValues.aSurf = [0];
   if (o.floor) m.uniforms.uMatcap = FLOOR_MATCAP;
   if (o.ghost) {
     m.transparent = true;

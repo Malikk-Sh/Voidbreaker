@@ -4,6 +4,13 @@ import { Rng } from '../../core/rng';
 
 export type RGB = [number, number, number];
 
+/**
+ * Профиль поверхности (разбор: «материалы читаются»): 0 — обсидиан/латы (как раньше), 1 — бронза и золото
+ * (тёплый тонированный отблеск, слабый контур), 2 — ткань и кожа (матовая, без отражения и почти без контура).
+ */
+export const SURF = { armor: 0, metal: 1, cloth: 2 } as const;
+export type Surface = (typeof SURF)[keyof typeof SURF];
+
 export interface AddOpts {
   /** Цвет граней (линейный RGB или hex). */
   color?: RGB | string;
@@ -13,6 +20,8 @@ export interface AddOpts {
   /** Эмиссия по грани: центр грани (локально) → 0..1. Прожилки, руны. */
   emissiveFn?: (cx: number, cy: number, cz: number, nx: number, ny: number, nz: number) => number;
   joint?: number;
+  /** Профиль поверхности (SURF). */
+  surface?: Surface;
   matrix?: THREE.Matrix4;
   rng?: Rng;
 }
@@ -29,6 +38,8 @@ export class GeomBuilder {
   private col: number[] = [];
   private emi: number[] = [];
   private jnt: number[] = [];
+  private srf: number[] = [];
+  private anySurf = false;
   private readonly va = new THREE.Vector3();
   private readonly vb = new THREE.Vector3();
   private readonly vc = new THREE.Vector3();
@@ -39,6 +50,8 @@ export class GeomBuilder {
   color: RGB = [0.02, 0.018, 0.03];
   emissive = 0;
   joint = 0;
+  /** Профиль поверхности для следующих граней (SURF). */
+  surface: Surface = SURF.armor;
   shade = 0.18;
   rng = new Rng(1);
   matrix = new THREE.Matrix4();
@@ -63,7 +76,9 @@ export class GeomBuilder {
       this.col.push(col[0], col[1], col[2]);
       this.emi.push(em);
       this.jnt.push(this.joint);
+      this.srf.push(this.surface);
     }
+    if (this.surface) this.anySurf = true;
   }
 
   quad(a: number[], b: number[], c: number[], d: number[], color?: RGB, emissive?: number): void {
@@ -91,10 +106,11 @@ export class GeomBuilder {
   add(geo: THREE.BufferGeometry, o: AddOpts = {}): this {
     const g = geo.index ? geo.toNonIndexed() : geo;
     const p = g.attributes.position as THREE.BufferAttribute;
-    const prevM = this.matrix.clone(), prevJ = this.joint, prevE = this.emissive, prevS = this.shade, prevC = this.color;
+    const prevM = this.matrix.clone(), prevJ = this.joint, prevE = this.emissive, prevS = this.shade, prevC = this.color, prevF = this.surface;
     const prevR = this.rng;
     if (o.matrix) this.matrix = prevM.clone().multiply(o.matrix);
     if (o.joint !== undefined) this.joint = o.joint;
+    if (o.surface !== undefined) this.surface = o.surface;
     if (o.emissive !== undefined) this.emissive = o.emissive;
     if (o.shade !== undefined) this.shade = o.shade;
     if (o.color !== undefined) this.color = toLin(o.color);
@@ -111,7 +127,7 @@ export class GeomBuilder {
       }
       this.tri(ax, ay, az, bx, by, bz, cx, cy, cz, undefined, em);
     }
-    this.matrix = prevM; this.joint = prevJ; this.emissive = prevE; this.shade = prevS; this.color = prevC; this.rng = prevR;
+    this.matrix = prevM; this.joint = prevJ; this.emissive = prevE; this.shade = prevS; this.color = prevC; this.rng = prevR; this.surface = prevF;
     if (g !== geo) g.dispose();
     geo.dispose();
     return this;
@@ -132,7 +148,9 @@ export class GeomBuilder {
     for (let i = 0; i < other.emi.length; i++) {
       this.emi.push(other.emi[i]);
       this.jnt.push(joint ?? other.jnt[i]);
+      this.srf.push(other.srf[i]);
     }
+    if (other.anySurf) this.anySurf = true;
     return this;
   }
 
@@ -143,6 +161,8 @@ export class GeomBuilder {
     g.setAttribute('aColor', new THREE.Float32BufferAttribute(this.col, 3));
     g.setAttribute('aEmissive', new THREE.Float32BufferAttribute(this.emi, 1));
     g.setAttribute('aJoint', new THREE.Float32BufferAttribute(this.jnt, 1));
+    // профиль — только если он где-то не латы (иначе шейдер берёт 0 по умолчанию, память не тратится)
+    if (this.anySurf) g.setAttribute('aSurf', new THREE.Float32BufferAttribute(this.srf, 1));
     g.computeBoundingSphere();
     g.computeBoundingBox();
     return g;
