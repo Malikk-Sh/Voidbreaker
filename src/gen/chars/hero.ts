@@ -41,6 +41,13 @@ export const HERO_RIG: RigDef = {
 
 export const BLADE_LEN = 1.3;
 
+/**
+ * Поддоспешник и шарниры (ревью: «внутренняя тёмная основа и перекрытие деталей в суставах»): ширина и глубина
+ * тёмной основы корпуса (уже таза 0.32 и низа кирасы 0.36), радиус тёмных шаров в плечах, локтях, бёдрах и коленях,
+ * насколько конечность заходит за следующий сустав (м).
+ */
+export const BODY = { coreW: 0.27, coreD: 0.17, ball: { sh: 0.085, elb: 0.078, hip: 0.1, knee: 0.085 }, over: 0.03 };
+
 export interface HeroLook {
   armor: string;
   trim: string;
@@ -110,11 +117,17 @@ export function buildHeroGeometry(look: HeroLook = HERO_DEFAULT, seed = 7): THRE
   }
   plate(b, [[-0.11, 0], [0.11, 0], [0.09, -0.28], [0, -0.32], [-0.09, -0.28]], 0.024, mat(0, 0.0, -0.125, -0.15, Math.PI, 0), 0, dark);
 
-  // ---------------- живот: три сегмента-кольца
+  // ---------------- живот: тёмный поддоспешник и три сегмента-кольца
+  // ревью: в крупных планах сквозь талию был виден фон (между поясом и кольцами — 8 см пустоты). Детали жёстко
+  // сидят на суставах, поэтому основа уходит глубоко в таз и в кирасу: уже их брони — в покое её не видно,
+  // в наклоне и развороте она закрывает щель. Кольца раздвинуты на весь пояс талии.
   b.joint = J('spine');
+  b.color = dark;
+  hull8(b, BODY.coreW, BODY.coreD, -0.2, BODY.coreW + 0.02, BODY.coreD + 0.02, 0.27);
+  b.color = armor;
   for (let k = 0; k < 3; k++) {
-    const y = -0.02 + k * 0.075;
-    hull8(b, 0.29 + k * 0.025, 0.19 + k * 0.01, y, 0.31 + k * 0.025, 0.2 + k * 0.01, y + 0.07, 0.005);
+    const y = -0.1 + k * 0.1;
+    hull8(b, 0.29 + k * 0.025, 0.19 + k * 0.01, y, 0.31 + k * 0.025, 0.2 + k * 0.01, y + 0.088, 0.005);
   }
 
   // ---------------- грудь: кираса, нагрудные пластины, шрам, горжет, спина
@@ -145,7 +158,7 @@ export function buildHeroGeometry(look: HeroLook = HERO_DEFAULT, seed = 7): THRE
 
   // ---------------- шлем: купол, забрало, нащёчники, гребень назад; визор — узкая щель
   b.joint = J('neck');
-  b.add(prism(6, 0.07, 0.065, 0.1), { matrix: mat(0, -0.02, 0), color: dark });
+  b.add(prism(6, 0.07, 0.065, 0.13), { matrix: mat(0, -0.03, 0), color: dark });
   b.joint = J('head');
   const dome = lathe([[0.0, 0.0], [0.125, 0.02], [0.15, 0.11], [0.14, 0.2], [0.1, 0.28], [0.0, 0.31]], 8, Math.PI / 8);
   b.add(dome, { matrix: mat(0, 0.0, -0.01, 0, 0, 0, 1, 1, 1.15), color: armor });
@@ -163,15 +176,19 @@ export function buildHeroGeometry(look: HeroLook = HERO_DEFAULT, seed = 7): THRE
   for (const side of ['L', 'R'] as const) {
     const sx = side === 'L' ? 1 : -1;
     b.joint = J('sh' + side);
-    limb(b, 0.3, 0.085, 0.072, 6);
+    b.add(octa(BODY.ball.sh, BODY.ball.sh, BODY.ball.sh), { color: dark });
+    limb(b, 0.3 + BODY.over, 0.085, 0.072, 6);
     b.add(prism(6, 0.092, 0.096, 0.15), { matrix: mat(0, -0.2, 0), color: armor });
     b.joint = J('elb' + side);
-    b.add(octa(0.08, 0.06, 0.08), { matrix: mat(0, 0.0, -0.02), color: dark });
-    limb(b, 0.26, 0.07, 0.06, 6);
+    // локоть — круглый шарнир: сплюснутый сверху раскрывал щель на сгибе
+    b.add(octa(BODY.ball.elb, BODY.ball.elb, BODY.ball.elb), { matrix: mat(0, 0.0, -0.01), color: dark });
+    limb(b, 0.27 + BODY.over, 0.07, 0.06, 6);
     b.add(prism(6, 0.085, 0.076, 0.18), { matrix: mat(0, -0.235, 0), color: armor });
     b.add(prism(6, 0.088, 0.088, 0.018, true), { matrix: mat(0, -0.25, 0), color: trim, surface: M });
     b.add(box(0.014, 0.13, 0.016), { matrix: mat(sx * 0.0, -0.17, 0.072), emissive: 0.5, color: dark });
     b.joint = J('hand' + side);
+    // манжета латной перчатки — заходит в наруч: запястье не просвечивает
+    b.add(prism(6, 0.058, 0.066, 0.075), { matrix: mat(0, -0.045, 0), color: dark });
     // кулак: ладонь за рукоятью, пальцы обхватывают её спереди, большой палец сверху
     b.add(box(0.08, 0.075, 0.055), { matrix: mat(0, -0.06, -0.008), color: dark });
     b.add(box(0.085, 0.055, 0.035), { matrix: mat(0, -0.078, 0.066), color: armor });
@@ -182,9 +199,11 @@ export function buildHeroGeometry(look: HeroLook = HERO_DEFAULT, seed = 7): THRE
   // ---------------- ноги: набедренник, наколенник, поножи, латный сапог
   for (const side of ['L', 'R'] as const) {
     b.joint = J('hip' + side);
-    limb(b, 0.45, 0.11, 0.084, 6);
+    b.add(octa(BODY.ball.hip, BODY.ball.hip, BODY.ball.hip), { matrix: mat(0, 0.01, 0), color: dark });
+    limb(b, 0.45 + BODY.over, 0.11, 0.084, 6);
     plate(b, [[-0.09, 0], [0.09, 0], [0.08, -0.3], [0, -0.34], [-0.08, -0.3]], 0.028, mat(0, -0.04, 0.095, 0.05, 0, 0), 0, armor);
     b.joint = J('knee' + side);
+    b.add(octa(BODY.ball.knee, BODY.ball.knee, BODY.ball.knee), { color: dark });
     b.add(octa(0.08, 0.085, 0.08), { matrix: mat(0, 0, 0.04), color: dark });
     b.add(bipyramid(4, 0.05, 0.08, 0.04), { matrix: mat(0, -0.02, 0.08, -1.25, Math.PI / 4), color: armor });
     limb(b, 0.43, 0.085, 0.062, 6);
