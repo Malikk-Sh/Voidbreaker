@@ -70,12 +70,24 @@ try {
   await page.goto(`${base}?q=low&stage=training`);
   await page.waitForFunction(() => !!window.__vb?.battle, null, { timeout: 15000 });
   await page.waitForFunction(() => window.__vb.world.enemies.some((e) => e.kind === 'reaper' && !e.dead), null, { timeout: 15000 });
-  const drill = await page.evaluate(() => {
+  // взмах в пустоту — не зачёт; Разлом по манекену — зачёт
+  const air = await page.evaluate(() => {
     const bt = window.__vb.battle, h = bt.world.hero;
+    h.x += 0; h.z += 6; h.facing = 0;
     h.beginMove(h.weapon.combo[3], 0, 0.02);
-    return bt.drills.done.has('rift') && bt.drills.lines[0].done === true;
+    return bt.drills.tracker.state.get('rift');
   });
-  check(drill, 'тренировка: спарринг-Жнец на месте, упражнение засчитано');
+  await page.waitForTimeout(900);
+  const hit = await page.evaluate(() => {
+    const bt = window.__vb.battle, h = bt.world.hero, e = bt.world.enemies.find((x) => x.kind === 'husk' && !x.dead);
+    if (!e) return 'нет манекена';
+    h.x = e.x; h.z = e.z + 1.2; h.facing = Math.PI;
+    h.beginMove(h.weapon.combo[3], 0, 0.02);
+    return 'ok';
+  });
+  await page.waitForTimeout(900);
+  const rift = await page.evaluate(() => window.__vb.battle.drills.tracker.state.get('rift'));
+  check(air !== 'done' && hit === 'ok' && rift === 'done', `тренировка: Жнец на месте, взмах мимо не засчитан, Разлом по манекену — засчитан (${air} → ${rift})`);
   check(errors.length === 0, `без ошибок в консоли${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 } catch (e) {
   check(false, String(e));

@@ -40,8 +40,9 @@ import { G, obsidianMaterial } from '../render/materials';
 import { buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
 import type { EnemyKind } from '../data/enemies';
-import { DRILL_MOVES, TRAINING_DRILLS, TRAINING_DUMMIES, TRAINING_SPAR, TRAINING_TIPS, type DrillId } from '../data/stages';
-import type { TrainingLine } from '../ui/hud';
+import { TRAINING_DRILLS, TRAINING_DUMMIES, TRAINING_SPAR } from '../data/stages';
+import type { TrainingCard } from '../ui/hud';
+import { DrillTracker, type DrillState } from './drills';
 import { IGNITE, LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
 
 
@@ -171,7 +172,7 @@ export class Battle {
   /** Тренировочный зал: места манекенов, кто стоит и сколько ждать нового. */
   private training: { x: number; z: number; kind: EnemyKind; e: Enemy | null; t: number; spar?: boolean }[] | null = null;
   /** Упражнения зала: выполненные и строки панели (один массив на всё время — без мусора на кадр). */
-  private drills: { done: Set<DrillId>; lines: TrainingLine[] } | null = null;
+  private drills: { tracker: DrillTracker; card: TrainingCard } | null = null;
   /** Сцена пересмотра закончилась — App возвращает в Святилище. */
   onReplayEnd: (() => void) | null = null;
   private landing: { t: number; visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean; call: number } | null = null;
@@ -971,31 +972,54 @@ export class Battle {
     });
     this.arena.nearestWalkable(h.x + fx * P.dist + sx * P.side, h.z + fz * P.dist + sz * P.side, o);
     this.training.push({ x: o.x, z: o.z, kind: P.kind, e: null, t: 1.2, spar: true });
-    // упражнения: засчитываются событиями боя
-    const lines: TrainingLine[] = [...TRAINING_DRILLS.map((d) => ({ text: d.text, done: false })), { text: TRAINING_TIPS[TRAINING_TIPS.length - 1], dim: true }];
-    this.drills = { done: new Set(), lines };
-    w.bus.on('moveStart', (e) => this.drill(DRILL_MOVES[e.id]));
-    w.bus.on('impact', (e) => { if (e.kind === 'rift' && h.chargedFull) this.drill('charged'); });
-    w.bus.on('shatterStart', () => this.drill('shatter'));
+    // упражнения (этап 4.5, A3): шаги — по началу приёмов и событиям боя, зачёт — по попаданию нужным приёмом
+    const tracker = new DrillTracker();
+    const card: TrainingCard = { index: 1, total: TRAINING_DRILLS.length, done: 0, name: '', step: '', stepIdx: 0, steps: 0, stepDone: [], performed: false, allDone: false, rules: 'Полный список — в паузе. Жнец бьёт без урона' };
+    this.drills = { tracker, card };
+    const now = () => this.ctx.time.world;
+    w.bus.on('moveStart', (e) => tracker.move(e.id, now()));
+    w.bus.on('perfectDodge', () => tracker.event('perfect', now()));
+    w.bus.on('chargeReady', (e) => tracker.event(e.level >= 2 ? 'charge2' : 'charge1', now()));
+    w.bus.on('stun', () => tracker.event('stun', now()));
+    w.bus.on('strike', (e) => { if (e.source === 'blade') tracker.strike(e.moveId, e.n, h.chargedFull, now()); });
+    w.bus.on('shatterStart', () => tracker.shatter());
+    const hud = this.ctx.hud;
+    tracker.onDone = (d, all) => {
+      this.ctx.audio.play('ability_ready', { gain: 0.6 });
+      if (all) hud.bigBanner('ЗАЛ ПРОЙДЕН', 'Все связки засчитаны', 'gold', 2.8, 42);
+      else hud.bigBanner('ЗАСЧИТАНО', d.name, 'gold', 1.6, 30);
+    };
+    tracker.onPerformed = () => this.ctx.audio.play('ui_click', { gain: 0.5 });
   }
 
-  /** Упражнение засчитано: золотой ромб в панели, баннер и звук; все — «зал пройден». */
-  private drill(id: DrillId | undefined): void {
+  /** Упражнения зала для списка в паузе: текст и состояние. */
+  get trainingDrills(): { text: string; state: DrillState }[] | null {
     const D = this.drills;
-    if (!D || !id || D.done.has(id)) return;
-    D.done.add(id);
-    const i = TRAINING_DRILLS.findIndex((d) => d.id === id);
-    D.lines[i].done = true;
-    const hud = this.ctx.hud;
-    this.ctx.audio.play('ability_ready', { gain: 0.6 });
-    if (D.done.size === TRAINING_DRILLS.length) hud.bigBanner('ЗАЛ ПРОЙДЕН', 'Все связки отработаны', 'gold', 2.8, 42);
-    else hud.bigBanner('ВЫПОЛНЕНО', TRAINING_DRILLS[i].text, 'gold', 1.6, 30);
+    return D ? TRAINING_DRILLS.map((d) => ({ text: d.text, state: D.tracker.state.get(d.id) ?? 'todo' })) : null;
+  }
+
+  /** Карточка HUD — один объект на всё время зала, меняются поля. */
+  private syncTrainingCard(): void {
+    const D = this.drills!, T = D.tracker, c = D.card, d = T.active;
+    T.tick(this.ctx.time.world);
+    c.done = T.doneCount;
+    c.allDone = !d;
+    if (!d) return;
+    c.index = TRAINING_DRILLS.indexOf(d) + 1;
+    c.name = d.name;
+    c.steps = d.steps.length;
+    c.stepIdx = Math.min(T.step, d.steps.length - 1);
+    c.step = d.steps[c.stepIdx].text;
+    c.stepDone.length = d.steps.length;
+    for (let i = 0; i < d.steps.length; i++) c.stepDone[i] = i < T.step;
+    c.performed = T.state.get(d.id) === 'performed';
   }
 
   /** Разбитый манекен встаёт через respawn с; манекены стоят, Жнец бьёт без урона и не уходит от своего места. */
   private updateTraining(realDt: number): void {
     const w = this.world, h = w.hero, P = TRAINING_SPAR;
     h.hp = h.maxHp;
+    this.syncTrainingCard();
     for (const slot of this.training!) {
       if (slot.e && !slot.e.dead) continue;
       if (slot.e) { slot.e = null; slot.t = slot.spar ? P.respawn : TRAINING_DUMMIES.respawn; }
@@ -1165,7 +1189,7 @@ export class Battle {
       fps: this.fps,
       showFps: this.ctx.settings.showFps,
       debugNav: DEBUG_NAV,
-      training: this.drills?.lines,
+      training: this.drills?.card,
     };
   }
 

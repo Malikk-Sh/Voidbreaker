@@ -17,8 +17,14 @@ interface Banner { text: string; sub?: string; t: number; dur: number; color: No
 /** Короткая надпись в мире у цели («РАСКОЛ», «В БЕЗДНУ»), над героем — не дольше 0.5 с. */
 interface WorldText { text: string; color: string; x: number; y: number; z: number; t: number; dur: number }
 
-/** Строка панели тренировки. */
-export interface TrainingLine { text: string; done?: boolean; dim?: boolean }
+/**
+ * Карточка тренировки (этап 4.5, A3): на небольшом экране — только активное упражнение и его текущий шаг;
+ * полный список — в паузе. performed — серия выполнена, но не попала.
+ */
+export interface TrainingCard {
+  index: number; total: number; done: number; name: string; step: string; stepIdx: number; steps: number;
+  stepDone: boolean[]; performed: boolean; allDone: boolean; rules: string;
+}
 
 export interface HudFrame {
   world: World;
@@ -41,8 +47,8 @@ export interface HudFrame {
   /** Отладка навигации (?nav): стрелки поля потоков и непроходимые клетки вокруг героя. */
   debugNav?: boolean;
   /** Тренировочный зал: памятка приёмов слева. */
-  /** Тренировочный зал: упражнения (done — выполнено) и строка правил (dim). */
-  training?: readonly TrainingLine[];
+  /** Тренировочный зал: активное упражнение и шаг. */
+  training?: TrainingCard;
 }
 
 /** Кто целится издалека — им шевроны у края экрана. */
@@ -801,31 +807,41 @@ export class Hud {
     this.worldTexts = this.worldTexts.filter((wt) => wt.t < wt.dur);
   }
 
-  /** Памятка тренировочного зала: тёмная плашка слева посередине, строки приёмов. */
-  private drawTraining(lines: readonly TrainingLine[], L: number, s: number): void {
-    const g = this.g, lh = 17 * s, pad = 10 * s, mark = 12 * s;
+  /**
+   * Карточка тренировки: слева посередине, компактно (на 844×390 — около четверти ширины). Крупно — упражнение
+   * и текущий шаг, ромбы шагов, мелко — правила и где полный список.
+   */
+  private drawTraining(c: TrainingCard, L: number, s: number): void {
+    const g = this.g, pad = 10 * s;
+    const title = c.allDone ? 'ЗАЛ ПРОЙДЕН' : `УПРАЖНЕНИЕ ${c.index} ИЗ ${c.total} · ЗАСЧИТАНО ${c.done}`;
+    const stepLine = c.allDone ? 'Все связки засчитаны' : `Шаг ${c.stepIdx + 1}/${c.steps}: ${c.step}`;
     g.save();
-    g.font = `600 ${Math.round(12 * s)}px ${FONT_BODY}`;
-    let tw = 0;
-    for (const l of lines) tw = Math.max(tw, g.measureText(l.text).width);
-    const w = Math.min(tw + pad * 2 + mark + 10 * s, this.w * 0.42), h = lines.length * lh + pad * 2 + 16 * s;
-    const x0 = L, y0 = Math.max(this.topEdge + 8 * s, this.h * 0.5 - h / 2);
-    g.globalAlpha = 0.82;
-    g.fillStyle = 'rgba(10,8,18,0.8)';
+    g.font = `700 ${Math.round(16 * s)}px ${FONT_BODY}`;
+    let tw = g.measureText(c.name).width;
+    g.font = `600 ${Math.round(13 * s)}px ${FONT_BODY}`;
+    tw = Math.max(tw, g.measureText(stepLine).width);
+    g.font = `600 ${Math.round(10 * s)}px ${FONT_BODY}`;
+    tw = Math.max(tw, g.measureText(c.rules).width, g.measureText(title).width * 1.08);
+    const w = Math.min(Math.max(tw, 170 * s) + pad * 2, this.w * 0.46);
+    const h = (c.performed ? 104 : 90) * s;
+    const x0 = L, y0 = Math.max(this.topEdge + 8 * s, this.h * 0.42 - h / 2);
+    g.globalAlpha = 0.85;
+    g.fillStyle = 'rgba(10,8,18,0.82)';
     g.fillRect(x0, y0, w, h);
     g.strokeStyle = UI.gold; g.lineWidth = 1; g.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
     g.globalAlpha = 1;
-    const done = lines.filter((l) => l.done).length, total = lines.filter((l) => !l.dim).length;
-    this.text(`ТРЕНИРОВКА · ${done}/${total}`, x0 + pad, y0 + pad + 9 * s, 10 * s, UI.goldHi, 'bodyBold', 'left');
-    lines.forEach((l, i) => {
-      const y = y0 + pad + 16 * s + (i + 0.8) * lh;
-      // ромб упражнения: пустой — не сделано, золотой — засчитано
-      if (!l.dim) {
-        if (l.done) this.diamond(x0 + pad + 4 * s, y - 4 * s, 3.6 * s, UI.gold);
-        else this.diamond(x0 + pad + 4 * s, y - 4 * s, 3.6 * s, undefined, UI.dim, 1);
-      }
-      this.text(l.text, x0 + pad + (l.dim ? 0 : mark), y, 12 * s, l.dim ? UI.dim : l.done ? UI.goldHi : UI.ivory, 'body', 'left');
-    });
+    this.text(title, x0 + pad, y0 + pad + 8 * s, 10 * s, UI.goldHi, 'bodyBold', 'left');
+    if (!c.allDone) this.text(c.name, x0 + pad, y0 + pad + 27 * s, 16 * s, UI.ivory, 'bodyBold', 'left');
+    this.text(stepLine, x0 + pad, y0 + pad + 46 * s, 13 * s, UI.goldHi, 'body', 'left');
+    // ромбы шагов: пройден — золото, текущий — светлый контур, впереди — тусклый
+    if (!c.allDone) for (let i = 0; i < c.steps; i++) {
+      const cx = x0 + pad + 5 * s + i * 14 * s, cy = y0 + pad + 58 * s;
+      if (c.stepDone[i]) this.diamond(cx, cy, 4 * s, UI.gold);
+      else this.diamond(cx, cy, 4 * s, undefined, i === c.stepIdx ? UI.goldHi : UI.dim, i === c.stepIdx ? 1.6 : 1);
+    }
+    let y = y0 + pad + 72 * s;
+    if (c.performed) { this.text('Серия есть — теперь попади по цели', x0 + pad, y, 12 * s, UI.star, 'body', 'left'); y += 14 * s; }
+    this.text(c.rules, x0 + pad, y, 10 * s, UI.dim, 'body', 'left');
     g.restore();
   }
 

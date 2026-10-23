@@ -5,6 +5,7 @@ import { ARENAS } from '../src/data/arenas';
 import { Abilities } from '../src/world/abilities';
 import { Reaper } from '../src/world/enemies/reaper';
 import { InputBuffer, type Input } from '../src/input/input';
+import { DRILL_T, DrillTracker } from '../src/game/drills';
 
 const DT = 1 / 60;
 const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
@@ -88,5 +89,79 @@ describe('тренировочный Жнец на поводке (этап 4.5,
     }
     run(3);
     expect(Math.hypot(e.x - POST.x, e.z - POST.z)).toBeLessThan(1);
+  });
+});
+
+
+describe('упражнения зала засчитываются по своему условию (этап 4.5, A3)', () => {
+  const series = (t: DrillTracker, moves: string[], t0 = 0): number => { let k = t0; for (const m of moves) { t.move(m, k); k += 0.3; } return k; };
+
+  it('серия до Разлома без попадания — «выполнено», не зачёт; попадание Разломом — зачёт', () => {
+    const t = new DrillTracker();
+    let performed = 0, done = 0;
+    t.onPerformed = () => performed++;
+    t.onDone = () => done++;
+    const k = series(t, ['slash1', 'slash2', 'spin']);
+    expect(t.step).toBe(3);
+    t.move('rift', k);
+    t.tick(k + DRILL_T.hitWait + 0.05);
+    expect(t.state.get('rift')).toBe('performed');
+    expect(performed).toBe(1);
+    expect(done).toBe(0);
+    t.strike('rift', 1, false, k + 1);
+    expect(t.state.get('rift')).toBe('done');
+    expect(done).toBe(1);
+  });
+
+  it('воздушная серия в пустоту не засчитывается; Звездопад по цели — да; Небесный разрез можно пропустить', () => {
+    const t = new DrillTracker();
+    t.strike('rift', 1, false, 0);
+    t.strike('cross', 1, false, 0);
+    expect(t.active?.id).toBe('skyfall');
+    series(t, ['lunge', 'rising']);
+    expect(t.step).toBe(2);
+    t.move('skyfall', 1);
+    expect(t.step).toBe(3);
+    t.strike('skyfall', 0, false, 1.05);
+    t.tick(1 + DRILL_T.hitWait + 0.1);
+    expect(t.state.get('skyfall')).toBe('performed');
+    t.strike('skyfall', 2, false, 3);
+    expect(t.state.get('skyfall')).toBe('done');
+  });
+
+  it('Контрудар — только попаданием; заряд — только полным; Раскол — своим началом', () => {
+    const t = new DrillTracker();
+    t.event('perfect', 0);
+    t.move('counter', 0.2);
+    t.tick(1.5);
+    expect(t.state.get('counter')).toBe('performed');
+    t.strike('counter', 1, false, 2);
+    expect(t.state.get('counter')).toBe('done');
+    t.strike('charged', 1, false, 3);
+    expect(t.state.get('charged')).toBe('todo');
+    t.strike('charged', 1, true, 3.1);
+    expect(t.state.get('charged')).toBe('done');
+    t.shatter();
+    expect(t.state.get('shatter')).toBe('done');
+  });
+
+  it('шаги активного упражнения: пауза сбрасывает серию, чужой приём — тоже; зачёт другого упражнения не мешает', () => {
+    const t = new DrillTracker();
+    series(t, ['slash1', 'slash2']);
+    expect(t.step).toBe(2);
+    t.tick(0.3 + DRILL_T.gap + 0.1);
+    expect(t.step).toBe(0);
+    series(t, ['slash1', 'lunge'], 5);
+    expect(t.step).toBe(0);
+    t.strike('cross', 1, false, 6);
+    expect(t.state.get('cross')).toBe('done');
+    expect(t.active?.id).toBe('rift');
+    for (const id of ['rift', 'skyfall', 'counter']) t.strike(id, 1, false, 7);
+    t.strike('charged', 1, true, 7);
+    let all = false;
+    t.onDone = (_d, a) => { all = a; };
+    t.shatter();
+    expect(all).toBe(true);
+    expect(t.active).toBeNull();
   });
 });

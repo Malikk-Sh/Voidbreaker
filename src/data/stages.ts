@@ -198,18 +198,36 @@ export const TRAINING_SPAR = { kind: 'reaper' as const, dist: 9.5, side: -5.5, l
 
 export type DrillId = 'rift' | 'cross' | 'skyfall' | 'counter' | 'charged' | 'shatter';
 
-/** Упражнения зала (ревью: «короткие упражнения с подтверждением успешной связки»): каждое засчитывается событием боя. */
-export const TRAINING_DRILLS: readonly { id: DrillId; text: string }[] = [
-  { id: 'rift', text: 'Атака ×4 — финишер «Нисходящий разлом»' },
-  { id: 'cross', text: 'Пауза после 2-го удара — Шквал, затем Крест' },
-  { id: 'skyfall', text: 'Рывок и атака — Рассечение → Восходящий месяц → Звездопад' },
-  { id: 'counter', text: 'Уклонись от Жнеца в последний миг — и атака: Контрудар' },
-  { id: 'charged', text: 'Удерживать атаку до полного заряда — волна Пустоты' },
-  { id: 'shatter', text: 'Оглушить голема и добить финишером — Раскол' },
+/**
+ * Шаг упражнения: что сделать (текст) и чем он отмечается — началом приёма (move) или событием боя (ev):
+ * идеальное уклонение, уровень заряда, оглушение цели. optional — шаг можно пропустить (Небесный разрез,
+ * когда цель не в воздухе).
+ */
+export interface DrillStep { text: string; move?: string; ev?: 'perfect' | 'charge1' | 'charge2' | 'stun'; optional?: boolean }
+
+/**
+ * Упражнения зала (этап 4.5, A3): засчитываются по своему условию — попаданием нужного приёма (hit),
+ * у Раскола — его началом. Серия в воздух без попадания — только «приём выполнен», не зачёт.
+ * name — коротко для карточки на небольшом экране, text — полностью для списка в паузе.
+ */
+export const TRAINING_DRILLS: readonly { id: DrillId; name: string; text: string; steps: readonly DrillStep[]; hit: string }[] = [
+  { id: 'rift', name: 'Нисходящий разлом', text: 'Атака ×4 — финишер «Нисходящий разлом»', hit: 'rift', steps: [
+    { text: 'Атака', move: 'slash1' }, { text: 'Атака', move: 'slash2' }, { text: 'Атака — вращение', move: 'spin' }, { text: 'Атака — Разлом по цели', move: 'rift' }] },
+  { id: 'cross', name: 'Шквал и Крест', text: 'Пауза после 2-го удара — Шквал, затем Крест', hit: 'cross', steps: [
+    { text: 'Атака', move: 'slash1' }, { text: 'Атака', move: 'slash2' }, { text: 'Пауза, затем атака — Шквал', move: 'flurry' }, { text: 'Атака — Крест по цели', move: 'cross' }] },
+  { id: 'skyfall', name: 'Воздушная связка', text: 'Рывок и атака — Рассечение → Восходящий месяц → Звездопад', hit: 'skyfall', steps: [
+    { text: 'Рывок и сразу атака — Рассечение', move: 'lunge' }, { text: 'Атака — Восходящий месяц', move: 'rising' },
+    { text: 'Атака — Небесный разрез', move: 'skycut', optional: true }, { text: 'Атака — Звездопад по цели', move: 'skyfall' }] },
+  { id: 'counter', name: 'Контрудар', text: 'Уклонись от Жнеца в последний миг — и атака: Контрудар', hit: 'counter', steps: [
+    { text: 'Рывок в последний миг перед ударом Жнеца', ev: 'perfect' }, { text: 'Сразу атака — Контрудар по цели', move: 'counter' }] },
+  { id: 'charged', name: 'Полный заряд', text: 'Удерживать атаку до полного заряда — волна Пустоты', hit: 'charged', steps: [
+    { text: 'Удерживай атаку', ev: 'charge1' }, { text: 'Держи до полного заряда', ev: 'charge2' }, { text: 'Отпусти — удар по цели', move: 'charged' }] },
+  { id: 'shatter', name: 'Раскол', text: 'Оглушить голема и добить финишером — Раскол', hit: 'shatter', steps: [
+    { text: 'Оглуши голема: серии и заряд', ev: 'stun' }, { text: 'Финишер или заряд по оглушённому — Раскол' }] },
 ];
 
-/** Какой приём (moveStart) засчитывает упражнение; заряд и Раскол — по своим событиям. */
-export const DRILL_MOVES: Readonly<Record<string, DrillId>> = { rift: 'rift', cross: 'cross', skyfall: 'skyfall', counter: 'counter' };
+/** Попадание каким приёмом клинка засчитывает упражнение (заряд — с полным зарядом, Раскол — своим событием). */
+export const DRILL_MOVES: Readonly<Record<string, DrillId>> = Object.fromEntries(TRAINING_DRILLS.filter((d) => d.hit !== 'shatter' && d.hit !== 'charged').map((d) => [d.hit, d.id]));
 
 /** Памятка зала: упражнения и правила зала. */
 export const TRAINING_TIPS = [...TRAINING_DRILLS.map((d) => d.text), 'Манекены стоят, Жнец бьёт без урона. Выход — пауза'];
