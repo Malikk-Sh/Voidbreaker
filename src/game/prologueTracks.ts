@@ -133,6 +133,13 @@ export function prologueTrack(b: SpaceBasis): CineTrack {
 export interface LandingSpots { x: number; z: number; shardX: number; shardZ: number; huskX: number; huskZ: number }
 
 /** Время шагов приземления (с от начала дорожки). */
+/**
+ * Свет вспышки клинка (ревью: «свечение снова очень сильное»): белая вспышка кадра, прибавка свечения Пилота на
+ * вспышке и как быстро она гаснет (в секунду), свечение визора до вспышки, сила света у руки. Было 0.35 / 1.6 / 1.6 / 1.2 / 4:
+ * свечение 2.8 и белая вспышка заливали кадр бликом.
+ */
+export const IGNITE = { flash: 0.12, glow: 0.6, fall: 0.6, visor: 1.0, light: 2.5 };
+
 export const LANDING_T = { impact: 0.9, visor: 2.5, say: 3.0, walk: 4.0, pull: 5.0, grip: 5.95, ignite: 6.12, husk: 7.7, turn: 7.95, title: 9.3, music: 9.9, end: 10.7 };
 /** Высота, с которой Пилот падает в кратер (м). */
 export const LANDING_FROM = 15;
@@ -191,8 +198,9 @@ export function landingTrack(p: LandingSpots): CineTrack {
     // клинок вспыхивает: снизу спереди, над Пилотом — своды и витражи
     { t: L.ignite, do: 'call', fn: 'ignite' },
     { t: L.ignite, do: 'sfx', id: 'blade_ignite', gain: 1 },
-    { t: L.ignite, do: 'flash', v: 0.35 },
-    { t: L.ignite, do: 'cam', path: [at(sx, sz, 2.7, 1.1, 0.55), at(sx, sz, 2.5, -0.2, 0.68), at(sx, sz, 2.3, -1.0, 0.8)], look: [[sx, 1.85, sz], [sx, 1.75, sz], [sx, 1.6, sz]], dur: L.turn - L.ignite, ease: 'outQuad', fov: 44 },
+    { t: L.ignite, do: 'flash', v: IGNITE.flash },
+    // ревью: клинок не выходит из кадра — камера дальше и сбоку, взмах вниз идёт поперёк кадра, а не в объектив
+    { t: L.ignite, do: 'cam', path: [at(sx, sz, 3.0, -3.6, 0.5), at(sx, sz, 3.3, -3.4, 0.62), at(sx, sz, 3.5, -3.0, 0.85)], look: [[sx, 2.2, sz], [sx, 2.45, sz], [sx, 1.2, sz]], dur: L.turn - L.ignite, ease: 'outQuad', fov: 50 },
     { t: L.ignite + 0.15, do: 'music', cue: 'leitmotif' },
     // план 8: шорох за спиной — Пилот оборачивается; через плечо — Шелуха выползает из темноты
     { t: L.husk, do: 'call', fn: 'husk' },

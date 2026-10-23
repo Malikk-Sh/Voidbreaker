@@ -55,7 +55,8 @@ export class StunStars {
     this.pos.length = 0;
     const spin = time * Math.PI * 2 * SPIN;
     for (const e of w.enemies) {
-      if (e.dead) continue;
+      // в сцене казни и kill-cam звёзды загромождают крупный план
+      if (e.dead || e.inScene || e.killcam) continue;
       const st = e.stun;
       let count = 0, slots = 0, size = 1, appear = 1;
       if (st && st.stunned > 0) {

@@ -4,7 +4,14 @@ import type { CineStep, CineTrack, V3 } from '../../game/director';
 export interface HierophantSpots { hx: number; hz: number; bx: number; bz: number }
 
 /** Время шагов интро (с от начала дорожки). */
-export const INTRO_T = { runes: 1.0, tolls: [2.2, 3.2, 4.2], descend: 4.6, ignite: 5.4, slam: 6.3, begin: 7.8 };
+export const INTRO_T = { runes: 1.0, tolls: [2.2, 3.2, 4.2], descend: 4.6, ignite: 5.4, mask: 6.0, slam: 7.3, begin: 8.8 };
+/**
+ * Высота маски парящего Иерофанта (м): тело 2.3 + грудь 1.75 + голова 0.7 + маска 0.32. Ревью: с боевой камеры
+ * маска и руки теряются — в интро есть план, где их видно (благословение), в казни — склонённая и треснувшая маска.
+ */
+export const MASK_Y = 5.05;
+/** Высота камеры крупного плана склонённой маски (м): снизу. */
+const MASK_LOW = 1.0;
 /** Высота, с которой Иерофант спускается по цепям (м). */
 export const DESCEND_FROM = 16;
 
@@ -13,7 +20,7 @@ export const DESCEND_FROM = 16;
  * на дальнем конце загораются красные руны; колокол бьёт трижды, с каждым ударом гаснет ряд свечей к герою;
  * Иерофант спускается по цепям, в колоколе разгорается огонь; один тяжёлый удар о пол, пыль с потолка;
  * имя «впечатывается» с первым ударом музыки; управление возвращается — и сразу Звон.
- * Логика (шаги 'call'): quiet, runes, douse ×3, descend, ignite, slam, music, begin.
+ * Логика (шаги 'call'): quiet, runes, douse ×3, descend, ignite, bless, slam, music, begin.
  */
 export function hierophantIntroTrack(p: HierophantSpots): CineTrack {
   const T = INTRO_T;
@@ -43,14 +50,17 @@ export function hierophantIntroTrack(p: HierophantSpots): CineTrack {
     { t: T.descend, do: 'call', fn: 'descend' },
     { t: T.descend, do: 'actor', who: 'boss', moveTo: [bx, 0, bz], dur: 1.6, ease: 'outCubic' },
     { t: T.descend, do: 'sfx', id: 'chain_drop', gain: 0.9 },
-    { t: T.descend, do: 'cam', path: [[bx - fx * 9 + sx * 3, 0.8, bz - fz * 9 + sz * 3], [bx - fx * 8 + sx * 2, 1.2, bz - fz * 8 + sz * 2]], look: [[bx, 7.5, bz], [bx, 4.2, bz]], dur: T.slam - T.descend + 0.2, ease: 'outCubic' },
-    { t: T.descend + 0.7, do: 'say', line: 'Звоню… по спасению… твоему.', speaker: 'boss' },
+    { t: T.descend, do: 'cam', path: [[bx - fx * 9 + sx * 3, 0.8, bz - fz * 9 + sz * 3], [bx - fx * 8 + sx * 2, 1.2, bz - fz * 8 + sz * 2]], look: [[bx, 7.5, bz], [bx, 4.2, bz]], dur: T.mask - T.descend, ease: 'outCubic' },
     { t: T.ignite, do: 'call', fn: 'ignite' },
+    // крупно: золотая маска с зашитыми глазами, руки поднимаются в благословении — и голос
+    { t: T.mask, do: 'call', fn: 'bless' },
+    { t: T.mask, do: 'cam', path: [[bx - fx * 4.4 + sx * 1.2, MASK_Y - 1.15, bz - fz * 4.4 + sz * 1.2], [bx - fx * 3.6 + sx * 0.8, MASK_Y - 0.85, bz - fz * 3.6 + sz * 0.8]], look: [[bx, MASK_Y - 0.3, bz], [bx, MASK_Y - 0.15, bz]], dur: T.slam - T.mask, ease: 'linear', fov: 42 },
+    { t: T.mask + 0.15, do: 'say', line: 'Звоню… по спасению… твоему.', speaker: 'boss' },
     // один тяжёлый удар: имя — с первым ударом музыки
     { t: T.slam, do: 'call', fn: 'slam' },
     { t: T.slam, do: 'call', fn: 'music' },
     { t: T.slam, do: 'banner', text: 'ИЕРОФАНТ СКОРБИ', sub: 'Слепой понтифик', color: 'hunger', dur: 3.2, size: 50 },
-    { t: T.slam, do: 'cam', path: [[bx - fx * 8 + sx * 2, 1.2, bz - fz * 8 + sz * 2], [walk[0] - fx * 11 + sx * 2, 9, walk[2] - fz * 11 + sz * 2]], look: [[bx, 4.2, bz], [mx, 1.2, mz]], dur: T.begin - T.slam, ease: 'inOutSine' },
+    { t: T.slam, do: 'cam', path: [[bx - fx * 7 + sx * 2, 1.4, bz - fz * 7 + sz * 2], [walk[0] - fx * 11 + sx * 2, 9, walk[2] - fz * 11 + sz * 2]], look: [[bx, 4.2, bz], [mx, 1.2, mz]], dur: T.begin - T.slam, ease: 'inOutSine' },
     { t: T.begin, do: 'call', fn: 'begin' },
   ];
   // увиденное дважды: только спуск, удар и имя
@@ -144,11 +154,16 @@ export function crackTrack(p: HierophantSpots, star: V3 = [0.42, -0.5, -0.76]): 
   return { id: 'hierophantCrack', steps, short, dur: T.phase + 0.2, blendOut: 0.6 };
 }
 
-/** Точки казни: босс (оглушён на мосту), герой, основание цепи, верх колокола, приземление, звезда неба. */
-export interface ExecSpots { bx: number; bz: number; hx: number; hz: number; cx: number; cz: number; bellY: number; lx: number; lz: number; star: V3 }
+/**
+ * Точки казни: босс (оглушён на мосту), герой, основание цепи, высота маски, приземление, звезда неба.
+ * mask — где маска на самом деле (оглушённый склоняется: ~2.8 м и на 0.8 м к герою); без неё — над центром на bellY.
+ */
+export interface ExecSpots { bx: number; bz: number; hx: number; hz: number; cx: number; cz: number; bellY: number; lx: number; lz: number; star: V3; mask?: V3 }
 
-/** Время планов казни (с от начала дорожки, план §8.3.2). */
-export const EXEC_T = { dash: 0.5, run: 2.0, jump: 3.5, tap: 3.6, strike: 4.5, toll: 5.0, crack: 6.5, land: 7.5, cut: 8.3, beam: 9.8, calm: 11.8, say: 12.0, end: 14.0 };
+/** Время планов казни (с от начала дорожки, план §8.3.2); 0…dash — крупно склонённая маска, время стоит. */
+export const EXEC_T = { dash: 1.1, run: 2.6, jump: 4.1, tap: 4.2, strike: 5.1, toll: 5.6, crack: 7.1, land: 8.1, cut: 8.9, beam: 10.4, calm: 12.2, say: 12.4, end: 14.4 };
+/** Белая вспышка удара клинком в маску: была 1 (кадр целиком белый — ревью). */
+export const EXEC_FLASH = 0.5;
 
 /**
  * Добивание Иерофанта (план §8.3.2), ≈14 с: время замирает → рывок с остаточными образами к цепи, свисающей
@@ -160,21 +175,25 @@ export const EXEC_T = { dash: 0.5, run: 2.0, jump: 3.5, tap: 3.6, strike: 4.5, t
  */
 export function executionTrack(p: ExecSpots): CineTrack {
   const T = EXEC_T;
-  const { bx, bz, hx, hz, cx, cz, bellY, lx, lz, star } = p;
+  const { bx, bz, hx, hz, cx, cz, lx, lz, star } = p;
   const dx = bx - hx, dz = bz - hz, dl = Math.hypot(dx, dz) || 1;
   const fx = dx / dl, fz = dz / dl, sx = -fz, sz = fx;
-  // верх цепи у колокола и вершина прыжка
-  const top: V3 = [bx - fx * 0.8, bellY + 0.4, bz - fz * 0.8];
-  const apex: V3 = [bx + fx * 0.3, bellY + 2.6, bz + fz * 0.3];
+  // маска: клинок входит в неё, крупные планы — на неё
+  const [kx, bellY, kz] = p.mask ?? [bx, p.bellY, bz];
+  // верх цепи у маски и вершина прыжка над ней
+  const top: V3 = [kx - fx * 0.5, bellY + 0.4, kz - fz * 0.5];
+  const apex: V3 = [kx + fx * 0.3, bellY + 2.6, kz + fz * 0.3];
   const mx = (cx + top[0]) / 2, my = bellY / 2, mz = (cz + top[2]) / 2;
   const steps: CineStep[] = [
     // 1. время замирает; музыка обрывается в одну хоровую ноту
     { t: 0, do: 'call', fn: 'freeze' },
-    { t: 0, do: 'cam', path: [[hx - fx * 4 + sx, 2.2, hz - fz * 4 + sz]], look: [[bx, bellY - 0.5, bz]], dur: T.dash },
+    // крупно: склонённая золотая маска с зашитыми глазами. Оглушённый согнут на 63°: сверху лицо закрывает митра,
+    // снизу лицо видно почти в упор (≈25° от нормали) — камера у пола, чуть сбоку от цепи; наезд, пока время стоит
+    { t: 0, do: 'cam', path: [[kx - fx * 2.6 + sx * 0.95, MASK_LOW, kz - fz * 2.6 + sz * 0.95], [kx - fx * 2.2 + sx * 0.8, MASK_LOW + 0.1, kz - fz * 2.2 + sz * 0.8]], look: [[kx, bellY + 0.05, kz], [kx, bellY + 0.12, kz]], dur: T.dash, ease: 'linear', fov: 40 },
     // 2. рывок с остаточными образами к цепи
     { t: T.dash, do: 'call', fn: 'dash' },
     { t: T.dash, do: 'actor', who: 'hero', clip: 'dash', moveTo: [cx, 0, cz], dur: 0.45, ease: 'outExpo', lookAt: [bx, 0, bz] },
-    { t: T.dash, do: 'cam', path: [[hx - fx * 3 + sx * 0.6, 0.7, hz - fz * 3 + sz * 0.6], [cx - fx * 3.4 + sx * 0.8, 0.9, cz - fz * 3.4 + sz * 0.8]], look: [[cx, 1.2, cz], [bx, bellY - 0.6, bz]], dur: T.run - T.dash, ease: 'outCubic' },
+    { t: T.dash, do: 'cam', path: [[hx - fx * 3 + sx * 0.6, 0.7, hz - fz * 3 + sz * 0.6], [cx - fx * 3.4 + sx * 0.8, 0.9, cz - fz * 3.4 + sz * 0.8]], look: [[cx, 1.2, cz], [kx, bellY - 0.6, kz]], dur: T.run - T.dash, ease: 'outCubic' },
     { t: T.dash + 0.45, do: 'sfx', id: 'chain_drop', gain: 0.6 },
     { t: T.dash + 0.7, do: 'call', fn: 'ghostsOff' },
     // 3. бег вверх по цепи, камера сбоку
@@ -190,14 +209,17 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.jump, do: 'cam', path: [[apex[0] - star[0] * 9, apex[1] - star[1] * 9, apex[2] - star[2] * 9]], look: [[apex[0] + star[0] * 30, apex[1] + star[1] * 30, apex[2] + star[2] * 30]], dur: T.strike - T.jump },
     { t: T.tap, do: 'tap', dur: 0.6, onHit: 'perfect' },
     // 5. клинок входит в трещину колокола; белая вспышка
-    { t: T.strike, do: 'actor', who: 'hero', clip: 'skyfall', moveTo: [bx, bellY + 0.3, bz], dur: 0.15, ease: 'inExpo' },
+    { t: T.strike, do: 'actor', who: 'hero', clip: 'skyfall', moveTo: [kx, bellY + 0.3, kz], dur: 0.15, ease: 'inExpo' },
     { t: T.strike + 0.12, do: 'call', fn: 'strike' },
-    { t: T.strike + 0.12, do: 'flash', v: 1 },
-    { t: T.strike, do: 'cam', path: [[bx - fx * 5 + sx * 2, bellY + 1, bz - fz * 5 + sz * 2]], look: [[bx, bellY, bz]], dur: T.toll - T.strike },
+    { t: T.strike + 0.12, do: 'flash', v: EXEC_FLASH },
+    // клинок в маске — ближе и чуть снизу: и Пилот, и маска в кадре
+    { t: T.strike, do: 'cam', path: [[kx - fx * 3.6 + sx * 1.6, bellY + 0.5, kz - fz * 3.6 + sz * 1.6]], look: [[kx, bellY + 0.35, kz]], dur: T.toll - T.strike, fov: 42 },
     // 6. последний звон обрывается в тишину; 7. трещины бегут по колоколу и рясе
     { t: T.toll, do: 'call', fn: 'toll' },
-    { t: T.toll, do: 'cam', path: [[bx - fx * 11 + sx * 3, 1.2, bz - fz * 11 + sz * 3], [bx - fx * 10 + sx * 2.5, 1.4, bz - fz * 10 + sz * 2.5]], look: [[bx, 4, bz]], dur: T.land - T.toll },
+    { t: T.toll, do: 'cam', path: [[bx - fx * 11 + sx * 3, 1.2, bz - fz * 11 + sz * 3], [bx - fx * 10 + sx * 2.5, 1.4, bz - fz * 10 + sz * 2.5]], look: [[bx, 3.2, bz]], dur: T.crack - T.toll },
+    // трещины бегут по маске: крупно, снизу спереди
     { t: T.crack, do: 'crack', who: 'boss', to: 1, dur: 1.0 },
+    { t: T.crack, do: 'cam', path: [[kx - fx * 2.3 + sx * 0.9, MASK_LOW + 0.05, kz - fz * 2.3 + sz * 0.9], [kx - fx * 2.0 + sx * 0.75, MASK_LOW + 0.15, kz - fz * 2.0 + sz * 0.75]], look: [[kx, bellY + 0.1, kz]], dur: T.land - T.crack, ease: 'linear', fov: 40 },
     // 8. приземляется за спиной босса, спиной к нему; стряхивает клинок
     { t: T.land, do: 'actor', who: 'hero', clip: 'land', moveTo: [lx, 0, lz], dur: 0.45, ease: 'inQuad', lookAt: [lx + fx * 4, 0, lz + fz * 4] },
     { t: T.land, do: 'cam', path: [[lx + fx * 4.5 + sx * 2, 1.4, lz + fz * 4.5 + sz * 2]], look: [[lx, 1.2, lz], [bx, 3, bz]], dur: T.cut - T.land + 1.4 },
@@ -218,10 +240,10 @@ export function executionTrack(p: ExecSpots): CineTrack {
   // увиденная дважды: удар, звон, разрез, звезда
   const short: CineStep[] = [
     { t: 0, do: 'call', fn: 'freeze' },
-    { t: 0, do: 'actor', who: 'hero', moveTo: [bx, bellY + 0.3, bz], dur: 0.3, ease: 'inExpo' },
-    { t: 0, do: 'cam', path: [[bx - fx * 6 + sx * 2, bellY + 1, bz - fz * 6 + sz * 2]], look: [[bx, bellY, bz]], dur: 1.2 },
+    { t: 0, do: 'actor', who: 'hero', moveTo: [kx, bellY + 0.3, kz], dur: 0.3, ease: 'inExpo' },
+    { t: 0, do: 'cam', path: [[kx - fx * 4.2 + sx * 1.8, bellY + 0.6, kz - fz * 4.2 + sz * 1.8]], look: [[kx, bellY + 0.3, kz]], dur: 1.2, fov: 42 },
     { t: 0.3, do: 'call', fn: 'strike' },
-    { t: 0.3, do: 'flash', v: 1 },
+    { t: 0.3, do: 'flash', v: EXEC_FLASH },
     { t: 0.6, do: 'call', fn: 'toll' },
     { t: 0.6, do: 'crack', who: 'boss', to: 1, dur: 0.6 },
     { t: 1.2, do: 'actor', who: 'hero', clip: 'land', moveTo: [lx, 0, lz], dur: 0.35, lookAt: [lx + fx * 4, 0, lz + fz * 4] },

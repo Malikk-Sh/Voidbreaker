@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Director, type DirectorActor, type DirectorHost } from '../src/game/director';
-import { LANDING_FROM, LANDING_T, landingTrack } from '../src/game/prologueTracks';
+import { IGNITE, LANDING_FROM, LANDING_T, landingTrack } from '../src/game/prologueTracks';
 import { GUARD_FOV } from '../src/game/cinematics';
 import { KILL_FOV, killBellTrack, killGateTrack } from '../src/world/boss/guardianScenes';
 import { CAM_FOV } from '../src/render/renderer';
@@ -8,6 +8,12 @@ import { REPLAY } from '../src/game/battle';
 import { CINEMA } from '../src/data/cinema';
 import { stageById } from '../src/data/stages';
 import { CameraRig } from '../src/world/camera';
+import * as THREE from 'three';
+import { Clip } from '../src/anim/clip';
+import { HERO_CLIPS } from '../src/anim/clips/hero';
+import { layoutOf } from '../src/anim/puppet';
+import { Skeleton } from '../src/anim/skeleton';
+import { BLADE_LEN, HERO_RIG } from '../src/gen/chars/hero';
 import { replayContext, type GameContext } from '../src/game/context';
 import { FLAWLESS_TITLE, awardExecution } from '../src/meta/progression';
 import { newSave, type SaveData } from '../src/meta/save';
@@ -109,5 +115,53 @@ describe('кат-сцены: приземление, ракурсы, Киноз�
     awardExecution(real, 0, true);
     expect(real.stars.z1).toBe(2);
     expect(real.titles).toContain(FLAWLESS_TITLE);
+  });
+
+  it('вспышка клинка: весь клинок и шлем в кадре, над Пилотом — своды (низкий ракурс)', () => {
+    const land = landingTrack(SPOTS);
+    const a: DirectorActor = { x: SPOTS.x, z: SPOTS.z, y: 0, facing: 0 };
+    const d = new Director(hostWith(a)), cam = new CameraRig();
+    const layout = layoutOf(HERO_RIG), skel = new Skeleton(layout);
+    const pull = new Clip(HERO_CLIPS.find((c) => c.id === 'pullBlade')!, layout);
+    const root = { x: 0, y: 0, z: 0, stretch: 1, spin: 0 };
+    const blade = layout.idx('blade'), head = layout.idx('head');
+    const view = new THREE.PerspectiveCamera(40, 16 / 9, 0.05, 200);
+    const tip = new THREE.Vector3(), pommel = new THREE.Vector3(), helm = new THREE.Vector3();
+    // летербокс съедает 11 % высоты сверху и снизу
+    const yMax = 1 - 0.22 - 0.02, xMax = 0.97;
+    d.play(land);
+    let n = 0, lowest = 1;
+    const out: string[] = [];
+    for (let t = 0; t < LANDING_T.turn - 0.05; t += DT) {
+      d.update(DT, cam);
+      if (t < LANDING_T.ignite + 0.1) continue;
+      skel.resetPose();
+      pull.sample(t - LANDING_T.pull, skel.rot, root);
+      skel.x = a.x; skel.z = a.z; skel.y = root.y; skel.facing = a.facing;
+      skel.update();
+      skel.jointPoint(blade, 0, -BLADE_LEN - 0.06, 0, tip);
+      skel.jointPoint(blade, 0, 0.14, 0, pommel);
+      skel.jointPoint(head, 0, 0.36, 0, helm);
+      const c = cam.cine!;
+      view.fov = c.fov ?? 40; view.position.copy(c.pos); view.lookAt(c.look); view.updateProjectionMatrix(); view.updateMatrixWorld();
+      for (const [name, p] of [['остриё', tip], ['навершие', pommel], ['шлем', helm]] as const) {
+        const q = p.clone().project(view);
+        if (Math.abs(q.x) >= xMax || Math.abs(q.y) >= yMax) out.push(`${name} ${t.toFixed(2)}: ${q.x.toFixed(2)},${q.y.toFixed(2)}`);
+      }
+      lowest = Math.min(lowest, c.pos.y);
+      n++;
+    }
+    expect(out).toEqual([]);
+    expect(n).toBeGreaterThan(30);
+    // низкий ракурс: камера ниже пояса Пилота
+    expect(lowest).toBeLessThan(0.9);
+  });
+
+  it('вспышка клинка сдержана: белая вспышка и свечение Пилота не заливают кадр', () => {
+    const land = landingTrack(SPOTS);
+    const flash = land.steps.find((s) => s.do === 'flash' && s.t === LANDING_T.ignite);
+    expect(flash && flash.do === 'flash' ? flash.v : 1).toBeLessThanOrEqual(IGNITE.flash);
+    expect(IGNITE.flash).toBeLessThanOrEqual(0.15);
+    expect(IGNITE.visor + IGNITE.glow).toBeLessThanOrEqual(1.6);
   });
 });

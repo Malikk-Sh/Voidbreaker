@@ -7,7 +7,7 @@ import { EXEC_HP, Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHA
 import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
 import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
 import { VOID_BLADE } from '../src/data/weapons';
-import { DESCEND_FROM, EXEC_T, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
+import { DESCEND_FROM, EXEC_FLASH, EXEC_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { InputBuffer, type Input } from '../src/input/input';
@@ -348,5 +348,37 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(tapStep.t).toBeLessThan(EXEC_T.strike);
     expect(tr.steps.some((s) => s.do === 'say' && s.line === 'Одна звезда. Осталось четыре.')).toBe(true);
     expect(tr.steps.some((s) => s.do === 'sky' && s.param === 'starLit' && s.to === 1)).toBe(true);
+  });
+
+  it('ревью: в интро маска и руки видны крупно — благословение под голос', () => {
+    const tr = hierophantIntroTrack({ hx: 0, hz: 8, bx: 0, bz: -6 });
+    const cam = tr.steps.find((s) => s.do === 'cam' && s.t === INTRO_T.mask);
+    expect(cam && cam.do === 'cam').toBeTruthy();
+    if (!cam || cam.do !== 'cam') return;
+    const end = cam.path[cam.path.length - 1], look = cam.look[cam.look.length - 1];
+    expect(Math.hypot(end[0] - 0, end[1] - MASK_Y, end[2] + 6)).toBeLessThan(4.5);
+    expect(Math.abs(look[1] - MASK_Y)).toBeLessThan(0.4);
+    expect(tr.steps.some((s) => s.do === 'call' && s.fn === 'bless' && s.t === INTRO_T.mask)).toBe(true);
+    const say = tr.steps.find((s) => s.do === 'say')!;
+    expect(say.t).toBeGreaterThanOrEqual(INTRO_T.mask);
+    expect(say.t).toBeLessThan(INTRO_T.slam);
+  });
+
+  it('ревью: казнь — клинок и крупные планы на настоящей маске склонённого, вспышка без белого кадра', () => {
+    const mask: [number, number, number] = [0.2, 2.8, 0.85];
+    const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 4, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76], mask });
+    const strike = tr.steps.find((s) => s.do === 'actor' && s.t === EXEC_T.strike);
+    expect(strike && strike.do === 'actor' ? strike.moveTo : null).toEqual([mask[0], mask[1] + 0.3, mask[2]]);
+    // крупно в начале и на трещинах: камера ближе 3.5 м к маске, взгляд — на маску
+    for (const t of [0, EXEC_T.crack]) {
+      const c = tr.steps.find((s) => s.do === 'cam' && s.t === t);
+      if (!c || c.do !== 'cam') throw new Error(`нет плана в ${t}`);
+      for (const p of c.path) expect(Math.hypot(p[0] - mask[0], p[1] - mask[1], p[2] - mask[2])).toBeLessThan(3.5);
+      for (const l of c.look) expect(Math.hypot(l[0] - mask[0], l[1] - mask[1], l[2] - mask[2])).toBeLessThan(0.3);
+    }
+    const flashes = tr.steps.filter((s) => s.do === 'flash');
+    expect(flashes.length).toBe(1);
+    for (const f of flashes) expect(f.do === 'flash' && f.v).toBeLessThanOrEqual(EXEC_FLASH);
+    expect(EXEC_FLASH).toBeLessThanOrEqual(0.5);
   });
 });

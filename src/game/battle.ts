@@ -41,7 +41,7 @@ import { buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
 import type { EnemyKind } from '../data/enemies';
 import { TRAINING_DUMMIES, TRAINING_TIPS } from '../data/stages';
-import { LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
+import { IGNITE, LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
 
 
 const _top = new THREE.Vector3();
@@ -568,6 +568,7 @@ export class Battle {
       // в пересмотре ctx.save — копия (replayContext): награда остаётся в ней
       saveStar: (flawless) => { awardExecution(ctx.save, this.stage.zone, flawless); ctx.persist(); },
       finishFight: () => { if (this.outcome === 'won') this.endT = 1.2; },
+      light: (x, y, z, rgb, i, r, life) => this.vfx.lights.flash(x, y, z, rgb === 'gold' ? C.gold : C.void, i, r, life),
       dust: (x, z) => {
         for (let i = 0; i < 46; i++) this.vfx.norm.emit({ x: x + fxRng.spread(9), y: fxRng.range(7, 11), z: z + fxRng.spread(8), vy: -fxRng.range(0.5, 1.5), gravity: -1.5, life: 2.6, size: fxRng.range(0.15, 0.35), size1: 0.6, color: C.dust, alpha: 0.4, drag: 0.6, frame: 'smoke' });
       },
@@ -911,7 +912,7 @@ export class Battle {
       this.vfx.rings.spawn(h.x, h.z, 0.5, 5.5, 0.8, C.void, 0.3, 0.6);
       this.vfx.burst(30, { x: _top.x, y: _top.y, z: _top.z, life: 0.7, size: 0.1, size1: 0.01, color: C.voidHot, drag: 2.5, frame: 'spark', stretch: 1.6 }, { v: 7, vy: 3 });
       this.vfx.burst(18, { x: _top.x, y: _top.y + 0.4, z: _top.z, life: 0.9, size: 0.14, size1: 0.01, color: C.core, drag: 1.5, frame: 'spark', stretch: 2.4 }, { v: 1.2, vy: 9 });
-      this.vfx.lights.flash(_top.x, _top.y, _top.z, C.voidHot, 4, 9, 0.9);
+      this.vfx.lights.flash(_top.x, _top.y, _top.z, C.voidHot, IGNITE.light, 9, 0.9);
       this.cam.addTrauma(0.3);
     });
     calls.set('husk', () => {
@@ -1060,8 +1061,8 @@ export class Battle {
       }
     }
     // визор загорается, на клинке — вспышка Пустоты, дальше — как обычно
-    if (L.visorT >= 0) { L.visorT += realDt; h.glowBoost = Math.min(1.2, L.visorT * 2.4) * (L.igniteT >= 0 ? Math.max(0, 1 - L.igniteT / 2.5) : 1); }
-    if (L.igniteT >= 0) { L.igniteT += realDt; h.glowBoost += Math.max(0, 1.6 - L.igniteT * 1.6); }
+    if (L.visorT >= 0) { L.visorT += realDt; h.glowBoost = Math.min(IGNITE.visor, L.visorT * 2.4) * (L.igniteT >= 0 ? Math.max(0, 1 - L.igniteT / 2.5) : 1); }
+    if (L.igniteT >= 0) { L.igniteT += realDt; h.glowBoost += Math.max(0, IGNITE.glow - L.igniteT * IGNITE.fall); }
     if (!this.director.active && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; }
   }
 

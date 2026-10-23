@@ -58,6 +58,8 @@ const POSES: PoseLib = {
   rise: { chest: [-0.3, 0, 0], shUL: [-2.8, 0, 0.3], shUR: [-2.8, 0, -0.3], shLL: [-2.4, 0, 0.6], shLR: [-2.4, 0, -0.6] },
   slam: { chest: [0.55, 0, 0], shUL: [-0.4, 0, 1.3], shUR: [-0.4, 0, -1.3], shLL: [-0.2, 0, 1.2], shLR: [-0.2, 0, -1.2] },
   phase: { chest: [-0.5, 0, 0], shUL: [-3.0, 0, 0.5], shUR: [-3.0, 0, -0.5], shLL: [-2.8, 0, 0.9], shLR: [-2.8, 0, -0.9], elbUL: [-0.2, 0, 0], elbUR: [-0.2, 0, 0] },
+  // интро (ревью): верхние руки раскрыты у лица в благословении, нижние сложены у груди
+  bless: { chest: [-0.12, 0, 0], shUL: [-2.25, 0, 0.75], shUR: [-2.25, 0, -0.75], elbUL: [-0.95, 0, 0], elbUR: [-0.95, 0, 0], shLL: [-1.25, 0, 0.45], shLR: [-1.25, 0, -0.45], elbLL: [-0.7, 0, 0], elbLR: [-0.7, 0, 0] },
   broken: { chest: [1.1, 0, 0.15], shUL: [0.3, 0, 1.2], shUR: [0.3, 0, -1.2], shLL: [0.6, 0, 1.0], shLR: [0.6, 0, -1.0], elbUL: [-0.2, 0, 0], elbUR: [-0.2, 0, 0] },
 };
 
@@ -543,7 +545,12 @@ export interface BossHost {
   saveStar(flawless: boolean): void;
   /** Казнь досмотрена — бой можно закрывать. */
   finishFight(): void;
+  /** Свет на лицо в крупном плане (ревью: маска в темноте и красном ободе читалась бурой): точка, цвет, сила, радиус, жизнь. */
+  light?(x: number, y: number, z: number, rgb: 'gold' | 'void', intensity: number, radius: number, life: number): void;
 }
+
+/** Свет на маску в крупных планах: на сколько метров перед лицом, сила, радиус (м). */
+export const FACE_LIGHT = { ahead: 1.3, intensity: 2.4, radius: 4.5 };
 
 /**
  * Контроллер боя с Иерофантом: появление (летербокс, пролёт камеры, имя «впечатывается»), переход фаз
@@ -592,6 +599,7 @@ export class HierophantController implements BossController {
       douse: (k) => host.quench(b.x, b.z, [0, 7, 12.5, 18][k ?? 1]),
       descend: () => { this.chainsOn = true; b.setPose('rise', 0.2); },
       ignite: () => { this.fireOn = true; b.setPose('idle', 0.5); b.coreGlow = 1.5; },
+      bless: () => { b.setPose('bless', 0.35); this.faceLight('gold', 1.6); },
       slam: () => {
         if (this.introDone) return;
         b.y = 0;
@@ -815,15 +823,18 @@ export class HierophantController implements BossController {
     const c = { x: 0, z: 0 }, l = { x: 0, z: 0 };
     w.arena.nearestWalkable(b.x - fx * 2.6, b.z - fz * 2.6, c);
     w.arena.nearestWalkable(b.x + fx * 3.2, b.z + fz * 3.2, l);
+    // маска оглушённого — где она на самом деле (склонился: ~2.8 м, ближе к герою); было max(4, …) — планы и удар
+    // клинка шли на 1.2–1.5 м выше маски
     b.bellPos(this.tmp);
-    const bellY = Math.max(4, this.tmp.y);
-    // цепь от колокола к полу — по ней Пилот взбегает
-    const chain = { x: c.x, z: c.z, y0: 0, len: 0, to: { x: b.x - fx * 0.8, y: bellY + 0.4, z: b.z - fz * 0.8 } };
+    const mask: [number, number, number] = [this.tmp.x, Math.max(2.2, this.tmp.y), this.tmp.z];
+    const bellY = mask[1];
+    // цепь от маски к полу — по ней Пилот взбегает
+    const chain = { x: c.x, z: c.z, y0: 0, len: 0, to: { x: mask[0] - fx * 0.5, y: bellY + 0.4, z: mask[2] - fz * 0.5 } };
     this.chainsOn = false;
-    H.chains([chain]);
-    H.scene(executionTrack({ bx: b.x, bz: b.z, hx: h.x, hz: h.z, cx: c.x, cz: c.z, bellY, lx: l.x, lz: l.z, star: H.starDir() }), {
-      freeze: () => { H.slow(0.05, 0.5); H.duck(0, 30); w.bus.emit('sfx', { id: 'choir_note', x: b.x, z: b.z }); },
-      dash: () => { h.sceneGhosts = true; w.bus.emit('sfx', { id: 'dash', x: h.x, z: h.z }); },
+    H.scene(executionTrack({ bx: b.x, bz: b.z, hx: h.x, hz: h.z, cx: c.x, cz: c.z, bellY, lx: l.x, lz: l.z, star: H.starDir(), mask }), {
+      freeze: () => { H.slow(0.05, 0.5); H.duck(0, 30); w.bus.emit('sfx', { id: 'choir_note', x: b.x, z: b.z }); b.inScene = true; this.faceLight('gold', 1.3); },
+      // цепь — с рывком: на крупном плане маски она шла поперёк лица
+      dash: () => { H.chains([chain]); h.sceneGhosts = true; w.bus.emit('sfx', { id: 'dash', x: h.x, z: h.z }); },
       ghostsOff: () => { h.sceneGhosts = false; },
       flare: () => { h.glowBoost = 2.2; },
       strike: () => {
@@ -831,9 +842,10 @@ export class HierophantController implements BossController {
         w.bus.emit('sfx', { id: 'shatter_cut', x: b.x, z: b.z });
         w.bus.emit('sfx', { id: 'hit_heavy', x: b.x, z: b.z });
         w.bus.emit('shockwave', { x: b.x, z: b.z, r: this.flawless ? 15 : 7, color: 'void', strength: this.flawless ? 1.6 : 1 });
-        H.flash(this.flawless ? 1 : 0.8);
       },
       toll: () => {
+        // огонь нимба на треснувшей маске — свет держится до крупного плана трещин (через 1.5 с)
+        this.faceLight('gold', 3.4, 1.5);
         H.chains([]);
         H.music('silence');
         w.bus.emit('sfx', { id: 'boss_bell', x: b.x, z: b.z });
@@ -846,6 +858,14 @@ export class HierophantController implements BossController {
       calm: () => { h.glowBoost = 0; h.sceneGhosts = false; h.avatar.puppet.anim.stop(0.8); },
       end: () => this.finish(),
     }, () => { this.cut(); this.finish(); });
+  }
+
+  /** Осветить маску спереди (к герою) на life секунд. */
+  private faceLight(rgb: 'gold' | 'void', life: number, k = 1): void {
+    const b = this.boss, h = this.host.world.hero;
+    b.bellPos(this.tmp);
+    const dx = h.x - b.x, dz = h.z - b.z, dl = Math.hypot(dx, dz) || 1;
+    this.host.light?.(this.tmp.x + dx / dl * FACE_LIGHT.ahead, this.tmp.y + 0.2, this.tmp.z + dz / dl * FACE_LIGHT.ahead, rgb, FACE_LIGHT.intensity * k, FACE_LIGHT.radius, life);
   }
 
   /** Отложенный разрез: босс раскалывается по линии удара и осыпается в бездну. */

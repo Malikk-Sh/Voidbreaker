@@ -606,6 +606,8 @@ export abstract class Enemy implements Actor {
   lastHitStunned = false;
   /** Идёт kill-cam: враг на колене, неуязвим, ждёт конца сцены; Done — сцена сыграна, можно умирать. */
   killcam = false;
+  /** Враг в постановочной сцене (казнь): звёзды оглушения не рисуются. */
+  inScene = false;
   killcamDone = false;
   /** До расчёта урона: true — попадание поглощено (перехват фазы босса). */
   preHit(_w: World, _p: StrikeParams): boolean { return false; }
