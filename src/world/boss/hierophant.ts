@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { clamp } from '../../core/math';
 import { setJoint } from '../../anim/locomotion';
 import { layoutOf } from '../../anim/puppet';
+import { nearestRay, starRay, type StarBridge } from '../../data/arenas';
 import { ENEMIES } from '../../data/enemies';
 import { ARMS, hierophantRig } from '../../gen/chars/hierophant';
 import { Obelisk } from '../enemies/obelisk';
@@ -30,6 +31,20 @@ export const EXEC_HP = 0.06;
 export const ORBIT = { r: 8.5, w: 0.3, speed: 4.5, y: 1.4 };
 /** Колокола-спутники: три на кольце r, вращаются навстречу боссу; звонят по очереди со сдвигом period/3. */
 export const SATS = { n: 3, r: 5.5, w: -0.22, period: 5.4, tele: 0.9, ring: { speed: 5.5, width: 0.8, maxR: 13, gaps: 2, gapW: 1.3, dmg: 0.12 } };
+/** Приговор на звёздном мосту: ширина луча-удара (м) и пауза между группами 3 + 4 луча (с). */
+export const JUDGMENT = { width: 2.4, gap: 1.0 };
+
+/**
+ * Группы лучей Приговора (план): первая — три луча через один, начиная с луча, где Пилот (dx, dz — от босса);
+ * соседние с ним лучи — во второй группе, туда и уходить. Вторая — остальные четыре.
+ */
+export function judgmentGroups(st: StarBridge, dx: number, dz: number): [number[], number[]] {
+  const h = nearestRay(st, dx, dz);
+  const a = [0, 2, 4].map((d) => (h + d) % st.rays);
+  const b = Array.from({ length: st.rays }, (_, k) => k).filter((k) => !a.includes(k));
+  return [a, b];
+}
+
 /** Щит Проповеди при двух обелисках (доля срезанного урона). */
 export const SERMON_SHIELD = 0.7;
 
@@ -226,18 +241,22 @@ export class Hierophant extends ScriptedEnemy {
     ];
   }
 
+  /**
+   * Приговор: лучи-удары от босса по мостам. На звёздном мосту (план) — двумя группами: сперва три луча через
+   * один, начиная с луча Пилота (соседние с ним — безопасны), затем остальные четыре; без звезды — косой и прямой
+   * кресты, как раньше.
+   */
   private judgmentSteps(): Step[] {
     const out: Step[] = [
       { t: 0, do: 'pose', id: 'phase', blend: 0.35 },
       { t: 0, do: 'telegraphSound', kind: 'bell' },
       { t: 0, do: 'call', fn: 'sway', arg: 1.7 },
     ];
-    const cross = (off: number, t0: number) => {
-      for (let k = 0; k < 4; k++) {
-        const a = off + (k * Math.PI) / 2;
+    const strike = (angles: number[], t0: number) => {
+      for (const a of angles) {
         const to = { x: this.x + Math.sin(a) * 20, z: this.z + Math.cos(a) * 20 };
-        out.push({ t: t0, do: 'telegraph', shape: { line: [18, 2.2] }, at: 'self', dir: to, dur: 1.0 });
-        out.push({ t: t0 + 1.0, do: 'hitbox', shape: { line: [18, 2.2] }, at: 'self', dir: to, dmg: 0.2, kb: 5 });
+        out.push({ t: t0, do: 'telegraph', shape: { line: [18, JUDGMENT.width] }, at: 'self', dir: to, dur: 1.0 });
+        out.push({ t: t0 + 1.0, do: 'hitbox', shape: { line: [18, JUDGMENT.width] }, at: 'self', dir: to, dmg: 0.2, kb: 5 });
       }
       out.push({ t: t0 + 1.0, do: 'pose', id: 'slam', blend: 0.05 });
       out.push({ t: t0 + 1.0, do: 'fx', id: 'shockwave', at: 'self', r: 9 });
@@ -245,20 +264,37 @@ export class Hierophant extends ScriptedEnemy {
       out.push({ t: t0 + 1.02, do: 'shake', trauma: 0.4 });
       out.push({ t: t0 + 1.12, do: 'pose', id: 'phase', blend: 0.15 });
     };
-    cross(Math.PI / 4, 0);
-    cross(0, 0.7);
+    const st = this.w_.arena.def.star;
+    if (st) {
+      const [a, b] = judgmentGroups(st, this.w_.hero.x - this.x, this.w_.hero.z - this.z);
+      strike(a.map((k) => starRay(st, k)), 0);
+      strike(b.map((k) => starRay(st, k)), JUDGMENT.gap);
+      out.push({ t: JUDGMENT.gap + 1.2, do: 'pose', id: 'idle', blend: 0.4 });
+      out.push({ t: JUDGMENT.gap + 1.3, do: 'vulnerable', dur: 1.3 });
+      return out;
+    }
+    const cross = (off: number) => [0, 1, 2, 3].map((k) => off + (k * Math.PI) / 2);
+    strike(cross(Math.PI / 4), 0);
+    strike(cross(0), 0.7);
     out.push({ t: 1.9, do: 'pose', id: 'idle', blend: 0.4 });
     out.push({ t: 2.0, do: 'vulnerable', dur: 1.3 });
     return out;
   }
+
+  /** Направления катящихся кадил: по лучам звезды (через один, с луча Пилота) или по кресту. */
+  private rollDirs: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
   private chainSteps(): Step[] {
     const out: Step[] = [
       { t: 0, do: 'pose', id: 'censers', blend: 0.3 },
       { t: 0, do: 'telegraphSound', kind: 'whistle' },
     ];
-    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    for (const [dx, dz] of dirs) {
+    const st = this.w_.arena.def.star;
+    if (st) {
+      const h = nearestRay(st, this.w_.hero.x - this.x, this.w_.hero.z - this.z);
+      this.rollDirs = [0, 2, 4].map((d) => { const a = starRay(st, (h + d) % st.rays); return [Math.sin(a), Math.cos(a)] as [number, number]; });
+    } else this.rollDirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dz] of this.rollDirs) {
       const at = { x: this.x + dx * 2, z: this.z + dz * 2 };
       const to = { x: this.x + dx * 16, z: this.z + dz * 16 };
       out.push({ t: 0, do: 'telegraph', shape: { line: [14, 1.9] }, at, dir: to, dur: 0.95 });
@@ -286,7 +322,7 @@ export class Hierophant extends ScriptedEnemy {
       return;
     }
     if (fn === 'roll') {
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [dx, dz] of this.rollDirs) {
         const p = w.spawnProjectile('censerBall', this.x + dx * 2.2, this.z + dz * 2.2, dx * 9, dz * 9, 0.2 * this.dmgUnit, this.id, 0.95, 2.2, 0.7);
         void p;
       }
@@ -706,19 +742,20 @@ export class HierophantController implements BossController {
     if (instant) { b.x = 0; b.z = 0; }
   }
 
-  /** Пилота — на ближайший мост, +10 % HP. */
+  /** Пилота — на ближайший мост (плитка, что остаётся после обрушения), +10 % HP. */
   private toBridge(): void {
-    const w = this.host.world, h = w.hero;
-    const cw = w.arena.def.cross?.w ?? 4;
-    if (Math.abs(h.x) <= cw / 2 - 0.4 || Math.abs(h.z) <= cw / 2 - 0.4) { h.hp = Math.min(h.maxHp, h.hp + h.maxHp * 0.1); return; }
-    const o = { x: 0, z: 0 };
-    const tx = Math.abs(h.x) < Math.abs(h.z) ? 0 : Math.sign(h.x) * Math.min(Math.abs(h.x), 11);
-    const tz = Math.abs(h.x) < Math.abs(h.z) ? Math.sign(h.z) * Math.min(Math.abs(h.z), 9) : 0;
-    w.arena.nearestWalkable(tx, tz, o);
-    h.x = o.x; h.z = o.z;
+    const w = this.host.world, h = w.hero, a = w.arena;
+    h.hp = Math.min(h.maxHp, h.hp + h.maxHp * 0.1);
+    if (a.tileAt(h.x, h.z)?.cross) return;
+    let best = Infinity, bx = 0, bz = 0;
+    for (const t of a.tiles) {
+      if (!t.cross) continue;
+      const d = (t.x - h.x) ** 2 + (t.z - h.z) ** 2;
+      if (d < best) { best = d; bx = t.x; bz = t.z; }
+    }
+    h.x = bx; h.z = bz;
     h.avatar.resetCloth();
     h.avatar.puppet.play('land', 1.4, 0.05);
-    h.hp = Math.min(h.maxHp, h.hp + h.maxHp * 0.1);
     h.invulnUntil = Math.max(h.invulnUntil, h.clock + 1.5);
   }
 

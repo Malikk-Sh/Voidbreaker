@@ -31,7 +31,7 @@ import { Director, type CineTrack, type DirectorActor, type SkyParam } from './d
 import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
 import '../world/boss/guardians';
-import { Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
+import { EXEC_HP, Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
 import { clamp, hexToLinear } from '../core/math';
@@ -53,15 +53,17 @@ const DEBUG_NAV = typeof location !== 'undefined' && new URLSearchParams(locatio
 export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef }
 /** prologue — бой 1-1 начинается приземлением Пилота (план §8.2, планы 6–8), а не пролётом над ареной. */
 /** Сцены Кинозала, которые пересматриваются в бою (план §8.1): kill-cam стражей и интро Иерофанта. */
-export type ReplayId = 'killGate' | 'killBell' | 'hierophantIntro';
+export type ReplayId = 'killGate' | 'killBell' | 'hierophantIntro' | 'hierophantEnd';
 /** Этап, на котором играет сцена, и для kill-cam — кто Страж. */
 export const REPLAY: Record<ReplayId, { stage: string; guardian?: EnemyKind }> = {
   killGate: { stage: '1-3', guardian: 'gateGuardian' },
   killBell: { stage: '1-6', guardian: 'bellRinger' },
   hierophantIntro: { stage: 'boss1' },
+  // казнь: интро пропускается, босс сразу в фазе III — на звёздном мосту, оглушён, на краю смерти
+  hierophantEnd: { stage: 'boss1' },
 };
 /** Пауза после сцены перед возвратом в Святилище (с): осыпание Стража доигрывает. */
-const REPLAY_TAIL = { kill: 1.6, intro: 0.5 };
+const REPLAY_TAIL = { kill: 1.6, intro: 0.5, execDelay: 0.4 };
 
 /** prologue — бой 1-1 начинается приземлением; replay — пересмотр сцены: без волн и наград, по концу — onReplayEnd. */
 export interface BattleOpts { prologue?: boolean; replay?: ReplayId }
@@ -165,7 +167,7 @@ export class Battle {
   /** Приземление пролога: свечи гаснут волной, визор, обломок-клинок. */
   private disposed = false;
   /** Пересмотр сцены из Кинозала. */
-  private readonly replay: { id: ReplayId; target: Enemy | null; seen: boolean; t: number; done: boolean } | null;
+  private readonly replay: { id: ReplayId; target: Enemy | null; seen: boolean; t: number; done: boolean; setup?: boolean } | null;
   /** Тренировочный зал: места манекенов, кто стоит и сколько ждать нового. */
   private training: { x: number; z: number; kind: EnemyKind; e: Enemy | null; t: number }[] | null = null;
   /** Сцена пересмотра закончилась — App возвращает в Святилище. */
@@ -497,7 +499,8 @@ export class Battle {
     if (this.endT > 0) {
       this.endT -= realDt;
       if (this.outcome === 'won' && this.endT < (this.stage.boss ? 1.0 : 2.3) && h.state !== 'victory' && !h.dead) h.victory();
-      if (this.endT <= 0) { this.endT = -1; this.onEnd?.({ cleared: this.outcome === 'won', world: this.world, stage: this.stage }); }
+      // пересмотр сцены — без итогов и наград: выход в Святилище делает сам пересмотр
+      if (this.endT <= 0) { this.endT = -1; if (!this.replay) this.onEnd?.({ cleared: this.outcome === 'won', world: this.world, stage: this.stage }); }
     }
   }
 
@@ -1018,6 +1021,29 @@ export class Battle {
       (e as unknown as { cur: unknown }).cur = null;
       w.stunEnemy(e);
       w.damageEnemy(e, { mult: 50, stun: 0, knockback: 2, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade' });
+    }
+    // «Последний звон»: как только босс на месте — пропустить интро, фаза III, оглушить и казнить
+    if (R.id === 'hierophantEnd' && !R.setup && this.boss instanceof HierophantController) {
+      R.setup = true;
+      this.director.skip();
+      const c = this.boss as unknown as { collapse(i: boolean): void; crack(): void; enterPhase(p: number): void; execute(): void; boss: Enemy };
+      c.collapse(true); c.crack(); c.enterPhase(2); c.enterPhase(3);
+      void c.execute;
+      this.skyCine.crack = 1;
+      const bb = c.boss, h = w.hero;
+      const o = { x: 0, z: 0 };
+      this.arena.nearestWalkable(bb.x, bb.z + 6, o);
+      h.x = o.x; h.z = o.z; h.facing = Math.atan2(bb.x - h.x, bb.z - h.z);
+      bb.hp = bb.maxHp * EXEC_HP * 0.5;
+      w.stunEnemy(bb);
+      // казнь — через пару кадров: скелет босса ещё стоит в начале спуска интро, точки цепи считались бы от 16 м
+      R.t = -REPLAY_TAIL.execDelay;
+      return;
+    }
+    if (R.id === 'hierophantEnd' && R.setup && !R.seen && R.t < 0) {
+      R.t += realDt;
+      if (R.t >= 0) (this.boss as unknown as { execute(): void }).execute();
+      return;
     }
     if (this.director.active) { R.seen = true; return; }
     if (!R.seen || R.done) return;

@@ -42,8 +42,8 @@ export function hierophantRig(): RigDef {
 }
 
 /** Цвета понтифика: ряса — чёрно-багровая (цвет врага), золото маски и посоха, витраж нимба — багрец и янтарь. */
-const ROBE = hexToLinear('#24080d');
-const ROBE2 = hexToLinear('#3a0d14');
+const ROBE = hexToLinear('#3a0e16');
+const ROBE2 = hexToLinear('#55141e');
 const MASK = hexToLinear('#a8803c');
 const GLASS = [hexToLinear('#7a1420'), hexToLinear('#a8461a'), hexToLinear('#5c0f1c'), hexToLinear('#9a6a22')];
 

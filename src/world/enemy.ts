@@ -145,6 +145,8 @@ export abstract class Enemy implements Actor {
   setState(s: EState): void {
     // удар с инерцией: корпус уходит вперёд за конечностью и возвращается (пружина)
     if (s === 'attack' && this.state === 'telegraph') this.puppet.kickSpring(Math.sin(this.facing), Math.cos(this.facing), 0.7);
+    // прерванное появление (сцена пропущена, босс сразу в бой) — тело проявлено целиком, а не застывает полупрозрачным
+    if (this.state === 'spawn' && s !== 'spawn' && s !== 'warp') this.puppet.dissolve = 0;
     this.state = s; this.stateT = 0;
   }
 

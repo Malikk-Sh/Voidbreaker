@@ -165,7 +165,11 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   const buckets: number[][] = [[], [], []];
   arena.tiles.forEach((t, idx) => {
     const k = rng.next();
-    const onCross = t.cross && def.cross && (Math.abs(Math.abs(t.x) - def.cross.w / 2) < arena.t * 0.6 || Math.abs(Math.abs(t.z) - def.cross.w / 2) < arena.t * 0.6);
+    // кромка моста — отдельный вариант плиты: после обрушения край звезды (креста) читается
+    const T = arena.t;
+    const onCross = t.cross && (def.star
+      ? [[T, 0], [-T, 0], [0, T], [0, -T]].some(([dx, dz]) => !arena.tileAt(t.x + dx, t.z + dz)?.cross)
+      : !!def.cross && (Math.abs(Math.abs(t.x) - def.cross.w / 2) < T * 0.6 || Math.abs(Math.abs(t.z) - def.cross.w / 2) < T * 0.6));
     buckets[onCross ? 2 : k < 0.06 ? 1 : k < 0.1 ? 2 : 0].push(idx);
   });
   const floor: THREE.InstancedMesh[] = [];

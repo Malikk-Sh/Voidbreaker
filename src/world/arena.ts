@@ -1,4 +1,4 @@
-import { arenaBounds, inArenaShape, inHole, type ArenaDef } from '../data/arenas';
+import { arenaBounds, inArenaShape, inHole, inStar, type ArenaDef } from '../data/arenas';
 
 export enum TileState { Gone = 0, Alive = 1, Falling = 2, Rising = 3, Warning = 4 }
 
@@ -43,7 +43,8 @@ export class Arena {
       for (let i = 0; i < this.nx; i++) {
         const x = this.x0 + (i + 0.5) * this.t, z = this.z0 + (j + 0.5) * this.t;
         if (!inArenaShape(def, x, z)) continue;
-        const cross = !!def.cross && (Math.abs(x) <= def.cross.w / 2 || Math.abs(z) <= def.cross.w / 2);
+        // плитки, которые остаются после обрушения: звёздный мост (или крест)
+        const cross = def.star ? inStar(def.star, x, z) : !!def.cross && (Math.abs(x) <= def.cross.w / 2 || Math.abs(z) <= def.cross.w / 2);
         const tile: Tile = { i, j, x, z, state: TileState.Alive, y: 0, vy: 0, rot: 0, timer: 0, cross, dirty: true };
         this.tiles.push(tile);
         this.grid[j * this.nx + i] = tile;
@@ -145,7 +146,7 @@ export class Arena {
     }
   }
 
-  /** Вторая фаза Иерофанта: всё вне креста уходит вниз волной от краёв. */
+  /** Вторая фаза Иерофанта: всё вне моста (звезды или креста) уходит вниз волной от краёв. */
   collapseOutsideCross(): void {
     for (const t of this.tiles) {
       if (t.cross) continue;

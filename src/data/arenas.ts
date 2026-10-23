@@ -14,8 +14,13 @@ export interface ArenaDef {
   edge: 'wall' | 'abyss';
   cover?: { x: number; z: number; r: number }[];
   decor: DecorStyle;
-  /** Крест-мост для второй фазы Иерофанта: плитки вне креста обрушиваются. */
+  /** Крест-мост: плитки вне креста обрушиваются (прежняя вторая фаза Иерофанта). */
   cross?: { w: number };
+  /**
+   * Звёздный мост второй фазы Иерофанта: остаются центр радиуса r и rays лучей-мостов длиной len и шириной w;
+   * луч k смотрит под углом rot + k·2π/rays (0 — к камере, +Z).
+   */
+  star?: StarBridge;
   /** Рунный круг на полу: по умолчанию в центре первой части; false — нет (в центре провал). */
   rune?: { x: number; z: number } | false;
   /** Ковровая дорожка вдоль оси нефа (декор). */
@@ -74,15 +79,41 @@ export const ARENAS: Record<string, ArenaDef> = {
     ],
   },
   hierophant: {
-    id: 'hierophant', tile: 1.5, edge: 'wall', decor: 'boss',
+    // плитка 1 м: на 1.5 м диагональные лучи звезды выходят лесенкой (2–3 плитки в ширину — проходимы)
+    id: 'hierophant', tile: 1.0, edge: 'wall', decor: 'boss',
     parts: [{ kind: 'oct', x: 0, z: 0, w: 27, h: 22 }],
-    cross: { w: 4.5 },
+    star: { r: 5, rays: 7, len: 4.5, w: 2.8, rot: 0 },
   },
   hub: {
     id: 'hub', tile: 1.25, edge: 'abyss', decor: 'hub',
     parts: [{ kind: 'circle', x: 0, z: 0, w: 12, h: 12 }],
   },
 };
+
+export interface StarBridge { r: number; rays: number; len: number; w: number; rot: number }
+
+/** Угол луча k звёздного моста (рад; направление — (sin, cos)). */
+export function starRay(st: StarBridge, k: number): number { return st.rot + (k * Math.PI * 2) / st.rays; }
+
+/** Точка на звёздном мосту: в центральном круге или на одном из лучей. */
+export function inStar(st: StarBridge, x: number, z: number, margin = 0): boolean {
+  const d = Math.hypot(x, z);
+  if (d <= st.r - margin) return true;
+  for (let k = 0; k < st.rays; k++) {
+    const a = starRay(st, k), sa = Math.sin(a), ca = Math.cos(a);
+    const along = x * sa + z * ca, perp = Math.abs(x * ca - z * sa);
+    if (along > 0 && along <= st.r + st.len - margin && perp <= st.w / 2 - margin) return true;
+  }
+  return false;
+}
+
+/** Ближайший луч к точке (индекс). */
+export function nearestRay(st: StarBridge, x: number, z: number): number {
+  const a = Math.atan2(x, z);
+  let best = 0, bd = Infinity;
+  for (let k = 0; k < st.rays; k++) { const d = Math.abs(Math.atan2(Math.sin(a - starRay(st, k)), Math.cos(a - starRay(st, k)))); if (d < bd) { bd = d; best = k; } }
+  return best;
+}
 
 export function inPart(p: ShapePart, x: number, z: number, margin = 0): boolean {
   const dx = Math.abs(x - p.x), dz = Math.abs(z - p.z);

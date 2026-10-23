@@ -42,7 +42,8 @@ export class EnemyRenderer {
       if (!def) throw new Error(`no rig builder ${id}`);
       const r = def.build();
       b = new RigBatch(r.geometry, r.rig.joints.length, def.max, {
-        rim: id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: BIG.has(id) ? 0.34 : 0.62, rimPower: BIG.has(id) ? 3.2 : 2.8,
+        // понтифик в тёмной рясе на фоне ночного неба над бездной — контур ярче, иначе силуэт пропадает
+        rim: id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: id === 'hierophant' ? 0.8 : BIG.has(id) ? 0.34 : 0.62, rimPower: id === 'hierophant' ? 2.4 : BIG.has(id) ? 3.2 : 2.8,
         emissive: '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 2.8, white: ENEMY_WHITE,
       });
       this.batches.set(id, b);
