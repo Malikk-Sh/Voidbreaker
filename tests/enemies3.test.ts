@@ -50,6 +50,37 @@ describe('общие приёмы и реакции (план §7.1)', () => {
     expect(stones).toBe(1);
   });
 
+  it('этап 4.5 B1: Голем принимает тяжёлый удар корпусом и коленями после стопкадра, ступни на полу', async () => {
+    const THREE = await import('three');
+    const { Golem } = await import('../src/world/enemies/golem');
+    const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
+    const w = arena();
+    const g = put(w, new Golem({ zone: 0, stage: 0, hpMul: 20 }));
+    const s = g.puppet.skel, L = g.puppet.layout, head = L.idx('head'), foot = L.idx('footL');
+    const v = new THREE.Vector3();
+    // положение сустава относительно корня: отделяет изгиб тела от отлёта
+    const rel = (i: number) => { s.jointPos(i, v); return { y: v.y, z: v.z - g.z }; };
+    w.step(DT, DT, idle());
+    g.facing = 0; w.step(DT, DT, idle()); // лицом в +z, удар толкает в −z
+    const head0 = rel(head), foot0 = rel(foot);
+    heavyHit(w, g);
+    // пружина стоит, пока длится стопкадр (раньше успевала затухнуть, и реакции не было видно)
+    const kick = Math.abs(g.puppet.springVZ);
+    expect(g.freeze).toBeGreaterThan(0);
+    while (g.freeze > 0) w.step(DT, DT, idle());
+    expect(Math.abs(g.puppet.springVZ)).toBeCloseTo(kick, 5);
+    let back = 0, footLift = 0;
+    for (let i = 0; i < 12; i++) {
+      w.step(DT, DT, idle());
+      const hd = rel(head), ft = rel(foot);
+      back = Math.max(back, head0.z - hd.z);
+      footLift = Math.max(footLift, ft.y - foot0.y);
+    }
+    // голова отходит назад относительно корня; ступни не отрываются (раньше наклонялось всё тело от корня)
+    expect(back).toBeGreaterThan(0.15);
+    expect(footLift).toBeLessThan(0.03);
+  });
+
   it('распад по сегментам: конечности отрываются позже корпуса', async () => {
     const { Reaper } = await import('../src/world/enemies/reaper');
     const w = arena();

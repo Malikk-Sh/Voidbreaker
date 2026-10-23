@@ -149,4 +149,26 @@ describe('приёмы: своя форма следа и вес (разбор)'
     const ground = slashY(VOID_BLADE.combo[0]);
     expect(ground.ev.y).toBeLessThan(0.05);
   });
+
+  it('этап 4.5 B1: после Разлома Пилот не отскакивает назад — сдвиг корня клипа переходит в позицию', () => {
+    const w = arena('rift-root');
+    const h = w.hero, s = h.avatar.puppet.skel;
+    (h as unknown as { beginMove(m: unknown, lunge: number): void }).beginMove(VOID_BLADE.combo[3], 0);
+    const input = idle();
+    // окно конца клипа: последние кадры удара и первые после (тут раньше был рывок на 0.5 м назад)
+    let maxJump = 0, px = s.x, pz = s.z;
+    const dur = VOID_BLADE.combo[3].dur;
+    for (let i = 0; i < 60; i++) {
+      w.step(1 / 60, 1 / 60, input);
+      const t = (i + 1) / 60, j = Math.hypot(s.x - px, s.z - pz);
+      if (t > dur - 0.05 && t < dur + 0.3) maxJump = Math.max(maxJump, j);
+      px = s.x; pz = s.z;
+    }
+    // клип кончился, видимое тело и физическая точка совпадают; на смене клипа нет рывка
+    expect(h.state).not.toBe('attack');
+    expect(Math.hypot(s.x - h.x, s.z - h.z)).toBeLessThan(0.02);
+    expect(maxJump).toBeLessThan(0.03);
+    // Пилот смотрел в +z (facing 0) — сдвинулся вперёд на ~0.5 м
+    expect(h.z).toBeGreaterThan(0.4);
+  });
 });

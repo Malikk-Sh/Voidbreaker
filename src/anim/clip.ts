@@ -151,6 +151,13 @@ export class Animator {
   onEvent: ((name: string) => void) | null = null;
   /** Вес «полной» маски: 1 — ноги тоже из клипа (локомоция подавлена). */
   fullWeight = 0;
+  /**
+   * Передача корня (этап 4.5, B1): при смене или остановке клипа горизонтальный сдвиг корня (локально: x — вбок,
+   * z — вперёд) уходит владельцу — герой переносит его в физическую позицию, а не «прыгает» назад на 0.5 м
+   * после Разлома. Высота, растяжение и разворот корня гаснут плавно за время смешивания.
+   */
+  onRootHandoff: ((x: number, z: number) => void) | null = null;
+  private readonly rootFrom = { y: 0, stretch: 1, spin: 0 };
 
   constructor(readonly layout: RigLayout) {
     this.from = new Float32Array(layout.n * 4);
@@ -159,7 +166,18 @@ export class Animator {
     this.out.set(layout.restRot);
   }
 
+  /** Остаток корня прежнего клипа: x/z — владельцу, остальное — в плавное угасание. */
+  private handoffRoot(): void {
+    const r = this.root;
+    if ((r.x || r.z) && this.onRootHandoff) this.onRootHandoff(r.x, r.z);
+    this.rootFrom.y = r.y; this.rootFrom.stretch = r.stretch;
+    // полный оборот вращения — это ноль: иначе после Вращения тело докрутилось бы назад на 360°
+    this.rootFrom.spin = Math.atan2(Math.sin(r.spin), Math.cos(r.spin));
+    r.x = 0; r.z = 0;
+  }
+
   play(clip: Clip, speed = 1, fade = 0.05, startT = 0): void {
+    this.handoffRoot();
     this.from.set(this.out);
     this.fade = 0; this.fadeDur = fade;
     this.clip = clip; this.t = startT; this.speed = speed; this.evIdx = 0;
@@ -168,6 +186,7 @@ export class Animator {
 
   stop(fade = 0.08): void {
     if (!this.clip) return;
+    this.handoffRoot();
     this.from.set(this.out);
     this.fade = 0; this.fadeDur = fade;
     this.clip = null;
@@ -201,6 +220,9 @@ export class Animator {
     const k = this.fadeDur > 0 ? Math.min(1, this.fade / this.fadeDur) : 1;
     if (k >= 1) { this.out.set(this.target); return; }
     const w = 1 - (1 - k) * (1 - k);
+    // остаток корня прежнего клипа гаснет вместе с позой
+    const F = this.rootFrom, u = 1 - w;
+    r.y += F.y * u; r.spin += F.spin * u; r.stretch += (F.stretch - 1) * u;
     for (let i = 0; i < this.layout.n; i++) {
       _qa.fromArray(this.from, i * 4); _qb.fromArray(this.target, i * 4);
       _qa.slerp(_qb, w);

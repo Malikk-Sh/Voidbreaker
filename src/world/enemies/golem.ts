@@ -1,11 +1,18 @@
 import { Ease } from '../../core/ease';
 import { clamp, lerp } from '../../core/math';
-import { BipedGait, bipedJoints, setJoint, type BipedJoints } from '../../anim/locomotion';
+import { addJoint, BipedGait, bipedJoints, setJoint, type BipedJoints } from '../../anim/locomotion';
 import { layoutOf } from '../../anim/puppet';
 import { ENEMIES } from '../../data/enemies';
 import { bruteRig } from '../../gen/chars/enemies';
 import { Enemy, type SpawnOpts } from '../enemy';
 import type { World } from '../world';
+
+/**
+ * Как Голем принимает удар (этап 4.5, B1). Пружина удара даёт смещение ~0.03 (лёгкий) … 0.09 (Разлом), поэтому
+ * множители велики: на Разломе спина+грудь отгибаются ≈ 0.4 рад, колени садятся на 0.1 м. Прежний наклон
+ * всего тела (×0.12) давал ~1° — реакции не было видно.
+ */
+const GOLEM_BRACE = { spine: 1.8, chest: 2.4, side: 1.5, gain: 7, drop: 0.12 };
 
 const layout = () => layoutOf(bruteRig());
 const TELE = 1.0;
@@ -150,9 +157,18 @@ export class Golem extends Enemy {
       setJoint(out, L, J.shL, 0.3 * kneel, 0, 0.5); setJoint(out, L, J.shR, 0.3 * kneel, 0, -0.5);
     }
     setJoint(out, L, J.head, 0, 0, 0);
+    // удар принимает корпус и опора (этап 4.5, B1): спина и грудь гнутся по удару, колени пружинят,
+    // ступни стоят на полу — раньше наклонялось всё тело от корня, и ноги отрывались от пола
+    const P = this.puppet, cf = Math.cos(this.facing), sf = Math.sin(this.facing);
+    const fwd = P.springX * sf + P.springZ * cf, side = P.springX * cf - P.springZ * sf;
+    const B = GOLEM_BRACE, brace = Math.min(1, Math.hypot(P.springX, P.springZ) * B.gain);
+    addJoint(out, J.spine, fwd * B.spine, 0, side * B.side);
+    addJoint(out, J.chest, fwd * B.chest, 0, side * B.side);
+    addJoint(out, J.hipL, -0.25 * brace, 0, 0); addJoint(out, J.kneeL, 0.45 * brace, 0, 0);
+    addJoint(out, J.hipR, -0.25 * brace, 0, 0); addJoint(out, J.kneeR, 0.45 * brace, 0, 0);
     s.x = this.x; s.z = this.z; s.facing = this.facing;
-    s.y = this.y + this.gait.bob * 1.2 - kneel * 0.55 - slam * 0.2;
-    s.tiltX = this.puppet.springZ * 0.12; s.tiltZ = -this.puppet.springX * 0.12;
+    s.y = this.y + this.gait.bob * 1.2 - kneel * 0.55 - slam * 0.2 - brace * B.drop;
+    s.tiltX = 0; s.tiltZ = 0;
     s.update();
     this.puppet.boost = this.coreGlow * 1.2;
   }

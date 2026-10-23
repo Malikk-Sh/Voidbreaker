@@ -107,6 +107,7 @@ export class Hero implements Actor {
 
   constructor(private world: World) {
     this.avatar.puppet.anim.onEvent = (n) => this.onClipEvent(n);
+    this.avatar.puppet.anim.onRootHandoff = (lx, lz) => this.consumeRoot(lx, lz);
   }
 
   applyStats(s: HeroStats): void {
@@ -470,6 +471,21 @@ export class Hero implements Actor {
       case 'stab': this.stabN++; this.world.bus.emit('swing', { kind: 'stab' }); this.emitSlash(this.stabN % 2 === 0); break;
       case 'swing2': this.world.bus.emit('swing', { kind: 'heavy' }); this.emitSlash(true); break;
     }
+  }
+
+  /**
+   * Клип закончился или сменился со сдвигом корня (Разлом приземляется на 0.5 м дальше): Пилот переходит туда,
+   * где его видно, — без рывка назад. Через арену: в провал и сквозь колонну не сдвигает. В сцене — нет (позой
+   * управляет режиссёр).
+   */
+  private consumeRoot(lx: number, lz: number): void {
+    if (this.scripted || this.dead) return;
+    // взгляд прошлого кадра: сдвиг корня шёл вдоль него (новый приём мог уже развернуть Пилота к цели)
+    const f = this.avatar.visual.facing, sf = Math.sin(f), cf = Math.cos(f);
+    const dx = lz * sf + lx * cf, dz = lz * cf - lx * sf;
+    const o = { x: this.x, z: this.z };
+    this.world.arena.move(this.x, this.z, dx, dz, this.radius, o);
+    this.x = o.x; this.z = o.z;
   }
 
   /** След удара — от того места, где Пилот в кадре удара (после выпада), с досягаемостью хитбокса. */

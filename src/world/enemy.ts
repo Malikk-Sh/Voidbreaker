@@ -166,7 +166,10 @@ export abstract class Enemy implements Actor {
     if (this.lagT > 0) { this.lagT -= dt; dt *= 0.5; }
     this.time += dt;
     this.stateT += dt;
-    this.puppet.stepSpring(dt);
+    // в стопкадре пружина удара стоит (гаснет только вспышка): иначе отдача корпуса затухала, пока тело
+    // не анимировано, и реакция на удар не была видна (этап 4.5, B1)
+    if (this.freeze > 0 && !this.isBoss && !this.isGuardian) this.puppet.flash = Math.max(0, this.puppet.flash - dt * 9);
+    else this.puppet.stepSpring(dt);
     this.coreGlow = Math.max(0, this.coreGlow - dt * 3);
     if (this.dead) {
       this.deathT += dt;
@@ -346,8 +349,9 @@ export abstract class Enemy implements Actor {
         else if (!this.steadfast) this.facing += (this.id % 2 ? 0.3 : -0.3);
         break;
       case 'heavy':
-        p.kickSpring(dirX, dirZ, spring * 0.35);
-        this.kbX += dirX * (heavy ? 1.6 : 0.4); this.kbZ += dirZ * (heavy ? 1.6 : 0.4);
+        // тяжёлый стоит на месте: лёгкий удар — только корпус и колени, тяжёлый — короткий шаг назад
+        p.kickSpring(dirX, dirZ, spring * (heavy ? 0.6 : 0.35));
+        if (heavy) { this.kbX += dirX * 1.6; this.kbZ += dirZ * 1.6; }
         if (heavy) w.bus.emit('hitReact', { x: this.x, y: this.height * 0.85, z: this.z, kind: 'stones' });
         break;
       case 'elite':
