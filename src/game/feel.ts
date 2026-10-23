@@ -206,7 +206,8 @@ export class FeelSystem {
       b.on('slash', (e) => {
         const specs = slashFor(e.move, e.hit, e.second);
         if (e.reach !== 1) for (const sp of specs) sp.reach *= e.reach;
-        this.vfx.slashes.spawn(specs, this.w.hero, this.time.world, e.active);
+        // от видимого Пилота: в воздушном клипе след на высоте прыжка, а не у пола
+        this.vfx.slashes.spawn(specs, this.w.hero.avatar.visual, this.time.world, e.active);
       }),
       // украденный импульс: снаряд стал осколком Пилота; удар клинка их отправляет
       b.on('steal', (e) => {

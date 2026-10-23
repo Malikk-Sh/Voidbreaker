@@ -118,6 +118,12 @@ export class HeroAvatar {
    * dt — время героя (с замедлением), moveDist/speed — для походки, facing — разворот.
    * running=false подавляет походку (атака на месте).
    */
+  /**
+   * Где Пилот виден: x/z — физические (хитбокс), y — с подъёмом корня клипа, взгляд — без вращения клипа.
+   * По нему ставятся след удара, контактная тень и проверка перекрытия; правила попаданий его не используют.
+   */
+  readonly visual = { x: 0, y: 0, z: 0, facing: 0 };
+
   update(dt: number, x: number, z: number, facing: number, moveDist: number, speed: number, accel: number, bladeBack: boolean): void {
     const p = this.puppet, s = p.skel;
     this.time += dt;
@@ -153,6 +159,10 @@ export class HeroAvatar {
     s.x = x + r.z * sf + r.x * cf;
     s.z = z + r.z * cf - r.x * sf;
     s.y = this.lift + this.gait.bob + r.y - this.lungeW * 0.11;
+    // видимый Пилот (этап 4.5, A2): высота с подъёмом клипа (прыжки Небесного разреза и Звездопада поднимают
+    // корень до 1.7 м, физический y при этом 0); по горизонтали — физическая точка: на ней хитбокс
+    this.visual.x = x; this.visual.z = z; this.visual.facing = facing;
+    this.visual.y = this.lift + Math.max(0, r.y);
     // скорость поворота корпуса: от неё плащ раскрывается во вращении
     if (adt > 0) {
       let dy = s.facing - this.prevYaw;

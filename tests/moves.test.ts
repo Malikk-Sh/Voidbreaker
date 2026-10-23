@@ -124,4 +124,29 @@ describe('приёмы: своя форма следа и вес (разбор)'
     expect(SHOCK_RING).toBeLessThanOrEqual(0.5);
     expect(STUN_FX.ring).toBeLessThan(1);
   });
+
+  it('этап 4.5 A2: след воздушного клипа — на высоте видимого Пилота; наземный — как был; хитбокс не двигается', () => {
+    const slashY = (move: typeof VOID_BLADE.skycut): { ev: GameEvents['slash']; meshY: number; hitZ: number; heroZ: number } => {
+      const w = arena(`air-${move.id}`);
+      const h = w.hero;
+      const fx = new SlashFx();
+      let ev: GameEvents['slash'] | null = null, t = 0;
+      w.bus.on('slash', (e) => { ev ??= e; fx.spawn(slashFor(e.move, e.hit, e.second), h.avatar.visual, t, e.active); });
+      (h as unknown as { beginMove(m: unknown, lunge: number): void }).beginMove(move, 0);
+      const input = idle();
+      let hitZ = NaN;
+      for (let i = 0; i < 40 && !ev; i++) { w.step(1 / 60, 1 / 60, input); t += 1 / 60; fx.update(t); if (ev) hitZ = h.moveShape(move).z; }
+      fx.update(t + 1 / 60);
+      const live = fx.group.children.find((m) => m.visible) as THREE.Mesh;
+      return { ev: ev!, meshY: live.position.y, hitZ, heroZ: h.z };
+    };
+    const air = slashY(VOID_BLADE.skycut);
+    // Небесный разрез поднимает корень клипа на ~1.3–1.45 м: след — там же, а не у пола
+    expect(air.ev.y).toBeGreaterThan(1.0);
+    expect(air.meshY).toBeGreaterThan(air.ev.y + 0.9);
+    // по горизонтали — физическая точка: хитбокс дуги у самого Пилота
+    expect(air.hitZ).toBeCloseTo(air.heroZ, 5);
+    const ground = slashY(VOID_BLADE.combo[0]);
+    expect(ground.ev.y).toBeLessThan(0.05);
+  });
 });

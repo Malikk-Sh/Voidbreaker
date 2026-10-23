@@ -1100,7 +1100,7 @@ export class Battle {
    */
   private updateXray(realDt: number): void {
     const h = this.world.hero, cam = this.ctx.renderer.camera.position;
-    const cy = h.y + 1.25;
+    const cy = h.avatar.visual.y + 1.25;
     G.uHero.value.set(h.x, cy, h.z);
     let hidden = false;
     for (const c of this.arena.covers) {
@@ -1118,7 +1118,8 @@ export class Battle {
   private updateContact(): void {
     const c = this.contact, w = this.world, h = w.hero, a = this.arena;
     c.begin();
-    if (!h.dead && a.walkable(h.x, h.z)) c.add(h.x, h.z, 0.62, h.y);
+    // по видимой высоте: в прыжке клипа тень уменьшается и бледнеет
+    if (!h.dead && a.walkable(h.x, h.z)) c.add(h.x, h.z, 0.62, h.avatar.visual.y);
     for (const e of w.enemies) {
       const dis = e.puppet.dissolve;
       if (dis >= 0.98 || !a.walkable(e.x, e.z)) continue;

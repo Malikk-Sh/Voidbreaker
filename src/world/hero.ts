@@ -477,7 +477,8 @@ export class Hero implements Actor {
     const m = this.move;
     if (!m) return;
     const reach = !this.eclipse ? 1 : m.hitbox.shape === 'circle' ? 1.35 : 1.6;
-    this.world.bus.emit('slash', { move: m.id, hit: m.hitbox, second, x: this.x, y: this.y, z: this.z, facing: this.facing, reach, active: second ? 0 : this.activeWindow() });
+    const v = this.avatar.visual;
+    this.world.bus.emit('slash', { move: m.id, hit: m.hitbox, second, x: this.x, y: Math.max(this.y, v.y), z: this.z, facing: this.facing, reach, active: second ? 0 : this.activeWindow() });
   }
 
   /** Сколько секунд открыт хитбокс текущего клипа: от первого hitOn до следующего hitOff. */
