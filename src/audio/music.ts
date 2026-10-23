@@ -34,6 +34,9 @@ const LOOKAHEAD = 0.12, TICK_MS = 25;
  * Секвенсор «двух часов» (Tech §21.4): JS-таймер планирует ноты чуть вперёд по точному времени AudioContext.
  * Слои A–D включаются кроссфейдом по интенсивности боя (GDD §18.3), E — стингеры.
  */
+/** Отдать управление браузеру (кадр, ввод) между тяжёлыми синхронными шагами. */
+const yieldTask = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
 export class Sequencer {
   song: Song | null = null;
   /** Слои текущей песни. У каждой песни свои шины: старая затухает и отключается, не смешиваясь с новой. */
@@ -58,6 +61,7 @@ export class Sequencer {
   onBeat: ((bar: number, beat: number) => void) | null = null;
   /** Поколение запуска: отложенные onBeat и загрузки старых песен игнорируются. */
   private gen = 0;
+  private readonly loading = new Map<string, Promise<void>>();
 
   constructor(private engine: AudioEngine) {}
 
@@ -74,17 +78,32 @@ export class Sequencer {
     return true;
   }
 
-  async load(song: Song): Promise<void> {
+  /**
+   * Запечь фразы песни. Граф нот одной фразы строится синхронно (5–30 мс), поэтому фразы — по одной, с отдачей
+   * кадра между ними: раньше вся песня строилась за один кадр — фриз 0.3–0.6 с на титуле пролога и в интро этапа.
+   * Повторный вызов для той же песни ждёт уже идущую загрузку, а не строит всё заново.
+   */
+  load(song: Song): Promise<void> {
     const ctx = this.engine.ctx;
-    if (!ctx) return;
+    if (!ctx) return Promise.resolve();
+    const going = this.loading.get(song.id);
+    if (going) return going;
     const sr = Math.min(44100, ctx.sampleRate);
-    const jobs = Object.entries(song.bake).filter(([k]) => !this.bufs.has(`${song.id}:${k}`)).map(async ([k, b]) => {
-      const off = new OfflineAudioContext(2, Math.ceil(sr * b.len), sr);
-      const g = off.createGain(); g.connect(off.destination);
-      b.render(off, g, 0.005);
-      this.bufs.set(`${song.id}:${k}`, await off.startRendering());
-    });
-    await Promise.all(jobs);
+    const job = (async () => {
+      const renders: Promise<void>[] = [];
+      for (const [k, b] of Object.entries(song.bake)) {
+        const key = `${song.id}:${k}`;
+        if (this.bufs.has(key)) continue;
+        const off = new OfflineAudioContext(2, Math.ceil(sr * b.len), sr);
+        const g = off.createGain(); g.connect(off.destination);
+        b.render(off, g, 0.005);
+        renders.push(off.startRendering().then((buf) => { this.bufs.set(key, buf); }));
+        await yieldTask();
+      }
+      await Promise.all(renders);
+    })();
+    this.loading.set(song.id, job);
+    return job.finally(() => this.loading.delete(song.id));
   }
 
   /** Запечь заранее (тема стража/босса) — переключение потом без паузы. */

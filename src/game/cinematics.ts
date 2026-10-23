@@ -23,6 +23,8 @@ export interface CineHost {
   skipRequested(): boolean;
   /** Реплика один раз за сохранение. */
   once(flag: string): boolean;
+  /** Скрыть HUD на время плана, который забирает управление (титры и реплики остаются). */
+  hud?(visible: boolean): void;
 }
 
 interface Shot {
@@ -51,6 +53,12 @@ const STAGE_INTRO: Record<string, { sub: string; line: string }> = {
   '1-5': { sub: 'Под ногами — только звёзды', line: 'Мосты узкие. Один удар — и враг летит в бездну. Ты — тоже.' },
   '1-6': { sub: 'Колокол звонит по спасению', line: 'Слышишь звон? Звонарь знает, что мы идём.' },
 };
+
+/**
+ * Угол обзора планов Стража (°): игровой (30°) для 4–5-метрового Стража с 9–11 м — телевик, шлем уходит за
+ * летербокс. Шире — Страж в кадре целиком.
+ */
+export const GUARD_FOV = { intro: 46, rage: 42, down: 42, victory: 40 };
 
 export const GUARDIAN: Record<string, { title: string; intro: string; rage: string; down: string }> = {
   gateGuardian: {
@@ -156,10 +164,12 @@ export class Cinematics {
         const a = (u - 0.5) * 0.5;
         const ca = Math.cos(a), sa = Math.sin(a);
         const ox = nx * ca - nz * sa, oz = nz * ca + nx * sa;
-        const r = 11.5 - u * 1.5;
-        pos.set(e.x + ox * r, 2.6 + u * 0.8, e.z + oz * r);
-        look.set(e.x, e.height * 0.62, e.z);
+        // снизу вверх и шире игрового угла: Страж в кадре целиком, со шлемом
+        const r = 11 - u * 1.5;
+        pos.set(e.x + ox * r, 1.3 + u * 0.6, e.z + oz * r);
+        look.set(e.x, e.height * 0.55, e.z);
       },
+      fov: () => GUARD_FOV.intro,
       cues: [
         { at: 0.5, fn: () => this.host.banner(e.def.name.toUpperCase(), g?.title, 'hunger', 2.4, 54) },
         { at: 0.55, fn: () => this.host.world.bus.emit('shake', { trauma: 0.45 }) },
@@ -181,12 +191,13 @@ export class Cinematics {
       cam: (u, pos, look) => {
         // взгляд вверх: камера отходит и чуть поднимается — колокол в профиль, а не раструбом в объектив
         const up = overhead ? Ease.inOutSine(clamp((u - 0.3) / 0.45, 0, 1)) : 0;
-        const r = 8 - Ease.outCubic(u) * 2.5 + up * 9;
+        // наезд до 6.5 м: шлем и грудь в кадре, а не одна грудь во весь экран
+        const r = 9 - Ease.outCubic(u) * 2.5 + up * 9;
         pos.set(e.x + (dx / d) * r - (dz / d) * 1.5, 3.2 + up * 2, e.z + (dz / d) * r + (dx / d) * 1.5);
-        look.set(e.x, e.height * 0.7, e.z);
+        look.set(e.x, e.height * 0.78, e.z);
         if (overhead) look.lerp(overhead, up);
       },
-      fov: overhead ? (u) => CAM_FOV + 16 * Ease.inOutSine(clamp((u - 0.3) / 0.45, 0, 1)) : undefined,
+      fov: (u) => GUARD_FOV.rage + (overhead ? 16 * Ease.inOutSine(clamp((u - 0.3) / 0.45, 0, 1)) : 0),
       cues: [
         { at: 0.38, fn: () => this.host.banner('ЯРОСТЬ', e.def.name, 'hunger', 1.6, 46) },
         { at: 0.6, fn: () => { if (g) this.host.say(g.rage, 'kaelis'); } },
@@ -207,6 +218,7 @@ export class Cinematics {
         pos.set(x + Math.sin(a) * 9.5, 3.4 + u * 1.5, z + Math.cos(a) * 9.5);
         look.set(x, hgt * 0.35, z);
       },
+      fov: () => GUARD_FOV.down,
       cues: [
         { at: 0.45, fn: () => this.host.banner('СТРАЖ ПОВЕРЖЕН', e.def.name, 'gold', 2.0, 50) },
         { at: 1.1, fn: () => { if (g) this.host.say(g.down, 'kaelis'); } },
@@ -228,6 +240,7 @@ export class Cinematics {
         pos.set(h.x + Math.sin(a) * r, 2.4 + u * 0.6, h.z + Math.cos(a) * r);
         look.set(h.x, 1.75, h.z);
       },
+      fov: () => GUARD_FOV.victory,
       cues: [
         { at: 0.6, fn: () => this.host.banner('ЭТАП ПРОЙДЕН', undefined, 'gold', 2.0, 52) },
         { at: 0.9, fn: () => this.host.say(line, 'kaelis') },
@@ -248,14 +261,14 @@ export class Cinematics {
     this.end(false);
     this.shot = { ...s, t: 0 };
     if (s.letterbox) this.host.letterbox(1);
-    if (s.lock) this.host.world.hero.locked = true;
+    if (s.lock) { this.host.world.hero.locked = true; this.host.hud?.(false); }
   }
 
   private end(callEnd = true): void {
     const s = this.shot;
     if (!s) return;
     if (s.letterbox) this.host.letterbox(0);
-    if (s.lock) this.host.world.hero.locked = false;
+    if (s.lock) { this.host.world.hero.locked = false; this.host.hud?.(true); }
     this.shot = null;
     if (callEnd) s.onEnd?.();
   }

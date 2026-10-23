@@ -88,6 +88,41 @@ export class Renderer {
     return p.catch(() => undefined);
   }
 
+  /**
+   * Пробный кадр 8×8 по всем объектам root — и скрытым, и пустым батчам (на миг видимы, по экземпляру): буферы
+   * геометрии и текстуры заливаются, драйвер собирает состояние отрисовки заранее. Без этого первое появление
+   * объекта (корабль пролога, лучи, шрамы на полу) — рывок даже с прогретыми шейдерами. Тот же целевой буфер,
+   * что и у кадра (иначе программы другие); следующий кадр его перезапишет.
+   */
+  prewarm(root: THREE.Object3D = this.scene): void {
+    const vis: [THREE.Object3D, boolean, boolean][] = [];
+    const inst: [{ count: number } | { instanceCount: number }, number][] = [];
+    root.traverse((o) => {
+      vis.push([o, o.visible, o.frustumCulled]);
+      o.visible = true; o.frustumCulled = false;
+      const im = o as THREE.InstancedMesh;
+      if (im.isInstancedMesh && im.count === 0) { inst.push([im, 0]); im.count = 1; }
+      const g = (o as THREE.Mesh).geometry as THREE.InstancedBufferGeometry | undefined;
+      if (g?.isInstancedBufferGeometry && g.instanceCount === 0) { inst.push([g, 0]); g.instanceCount = 1; }
+    });
+    const rt = this.post.sceneRT;
+    _vp.copy(rt.viewport); _sc.copy(rt.scissor);
+    const st = rt.scissorTest;
+    rt.viewport.set(0, 0, 8, 8); rt.scissor.set(0, 0, 8, 8); rt.scissorTest = true;
+    this.camera.updateMatrixWorld();
+    this.gl.setRenderTarget(rt);
+    try { this.gl.render(this.scene, this.camera); } catch { /* пробный кадр — не критично */ }
+    this.gl.setRenderTarget(null);
+    rt.viewport.copy(_vp); rt.scissor.copy(_sc); rt.scissorTest = st;
+    for (const [o, v, f] of vis) { o.visible = v; o.frustumCulled = f; }
+    for (const [x, n] of inst) { if ('count' in x) x.count = n; else x.instanceCount = n; }
+  }
+
+  /** Прогреть всё: шейдеры (параллельно, где можно), затем пробный кадр. alive — объект ещё нужен. */
+  warmAll(root: THREE.Object3D, alive: () => boolean = () => true): Promise<void> {
+    return this.warmShaders().then(() => { if (alive()) this.prewarm(root); });
+  }
+
   render(worldTime: number): void {
     G.uTime.value = worldTime;
     this.camera.updateMatrixWorld();
@@ -118,3 +153,4 @@ export class Renderer {
 }
 
 const _v = new THREE.Vector3();
+const _vp = new THREE.Vector4(), _sc = new THREE.Vector4();

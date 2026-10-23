@@ -14,7 +14,8 @@ export type MusicCue = 'silence' | 'stinger' | 'leitmotif' | 'major' | 'resolve'
  */
 export type CineStep =
   | { t: number; do: 'cam'; path: V3[]; look: V3[]; dur: number; ease?: EaseId; fov?: number; roll?: number }
-  | { t: number; do: 'actor'; who: string; clip?: string; moveTo?: V3; dur?: number; lookAt?: V3; ease?: EaseId }
+  /** turn — разворот к lookAt за столько секунд (без него — сразу). */
+  | { t: number; do: 'actor'; who: string; clip?: string; moveTo?: V3; dur?: number; lookAt?: V3; ease?: EaseId; turn?: number }
   | { t: number; do: 'crack' | 'dissolve'; who: string; to: number; dur?: number }
   | { t: number; do: 'shatter'; who: string; dir?: V3; power?: number }
   | { t: number; do: 'time'; scale: number; dur: number }
@@ -113,6 +114,8 @@ export class Director {
   readonly hits = new Set<string>();
   /** Сцена играет укороченной. */
   short = false;
+  /** Всегда полная версия (пересмотр в Кинозале). */
+  full = false;
 
   constructor(private host: DirectorHost) {}
 
@@ -122,7 +125,7 @@ export class Director {
 
   play(track: CineTrack, onEnd?: (skipped: boolean) => void): void {
     if (this.track) this.finish(false);
-    this.short = !!track.short && this.host.seen(track.id) >= 2;
+    this.short = !this.full && !!track.short && this.host.seen(track.id) >= 2;
     const steps = (this.short ? track.short! : track.steps).slice().sort((a, b) => a.t - b.t);
     this.track = track;
     this.live = steps.map((s) => ({ s, started: false, done: false }));
@@ -186,8 +189,15 @@ export class Director {
           a.z = l.fromZ! + (s.moveTo[2] - l.fromZ!) * e;
           if (a.y !== undefined) a.y = l.fromY! + (s.moveTo[1] - l.fromY!) * e;
         }
-        if (s.lookAt) a.facing = Math.atan2(s.lookAt[0] - a.x, s.lookAt[2] - a.z);
-        if (u >= 1) l.done = true;
+        let turned = 1;
+        if (s.lookAt) {
+          const to = Math.atan2(s.lookAt[0] - a.x, s.lookAt[2] - a.z);
+          turned = fast || !s.turn ? 1 : clamp((this.t - s.t) / s.turn, 0, 1);
+          // кратчайшим путём от разворота на старте шага
+          const d = Math.atan2(Math.sin(to - l.fromF!), Math.cos(to - l.fromF!));
+          a.facing = turned >= 1 ? to : l.fromF! + d * Ease.outCubic(turned);
+        }
+        if (u >= 1 && turned >= 1) l.done = true;
         return;
       }
       case 'crack': case 'dissolve': {

@@ -119,6 +119,48 @@ export function buildDomeRose(r: number, seed = 61): { rose: THREE.BufferGeometr
   return { rose: rose.build(), ring: b.build() };
 }
 
+/**
+ * Купол собора 1-1 под розой (пролог, план 5): рёбристая оболочка от кольца розы вниз, барабан с горящими
+ * окнами и шпили-пинакли. Сверху читается как купол собора с розой-окулюсом, а не окно в пустоте.
+ * Верх оболочки — в y = 0 на радиусе кольца розы; ставится вместе с розой.
+ */
+export const DOME = { r0: 9.2, rd: 26, sphere: 30, drumH: 12 };
+export function buildDomeShell(seed = 63): THREE.BufferGeometry {
+  const rng = new Rng(seed);
+  const b = new GeomBuilder(); b.rng = rng;
+  const c = Math.sqrt(DOME.sphere ** 2 - DOME.r0 ** 2);
+  const y = (r: number) => Math.sqrt(DOME.sphere ** 2 - r * r) - c;
+  const prof: [number, number][] = [];
+  for (let i = 0; i <= 6; i++) { const r = DOME.r0 + (DOME.rd - DOME.r0) * (i / 6); prof.push([r, y(r)]); }
+  const yd = y(DOME.rd);
+  // оболочка и барабан (профиль вращения: сверху вниз)
+  b.add(lathe([...prof, [DOME.rd + 0.6, yd], [DOME.rd + 0.6, yd - DOME.drumH]], 24, 0), { color: hexToLinear('#141a24') });
+  // рёбра: от окулюса к барабану, с золотой кромкой
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    for (let i = 0; i < prof.length - 1; i++) {
+      const [r1, y1] = prof[i], [r2, y2] = prof[i + 1];
+      const len = Math.hypot(r2 - r1, y2 - y1), pitch = Math.atan2(y1 - y2, r2 - r1);
+      const rm = (r1 + r2) / 2 + 0.25, ym = (y1 + y2) / 2 + 0.35;
+      b.add(box(0.9, 0.55, len + 0.1), { matrix: mat(Math.sin(a) * rm, ym, Math.cos(a) * rm, pitch, a, 0), color: hexToLinear('#2a3140') });
+      b.add(box(0.14, 0.1, len), { matrix: mat(Math.sin(a) * rm, ym + 0.3, Math.cos(a) * rm, pitch, a, 0), color: hexToLinear('#B8954E'), emissive: 0.9 });
+    }
+  }
+  // окна барабана — витражный свет изнутри
+  for (let k = 0; k < 16; k++) {
+    const a = ((k + 0.5) / 16) * Math.PI * 2, r = DOME.rd + 0.75;
+    b.add(box(2.0, DOME.drumH * 0.55, 0.25), { matrix: mat(Math.sin(a) * r, yd - DOME.drumH * 0.45, Math.cos(a) * r, 0, a, 0), color: hexToLinear(k % 3 ? '#5cc4e0' : '#FFB866'), emissive: 1.5 });
+  }
+  // пинакли по кругу
+  for (let k = 0; k < 8; k++) {
+    const a = ((k + 0.25) / 8) * Math.PI * 2, r = DOME.rd + 4;
+    const g = new GeomBuilder(); g.rng = new Rng(rng.int(0, 1e6));
+    spire(g, { h: 26, r: 1.8, tiers: 3, seed: rng.int(0, 1e6) });
+    b.append(g, mat(Math.sin(a) * r, yd - DOME.drumH, Math.cos(a) * r));
+  }
+  return b.build();
+}
+
 /** Кратер приземления Пилота в центре 1-1 (план §8.5): вздыбленные плиты по кругу и сколы, без свечения. */
 export function buildCrater(seed = 71): THREE.BufferGeometry {
   const rng = new Rng(seed);

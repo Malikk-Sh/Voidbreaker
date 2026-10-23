@@ -11,7 +11,7 @@ import { mapScreen } from '../ui/screens/map';
 import { resultsScreen } from '../ui/screens/results';
 import { pauseScreen } from '../ui/screens/pause';
 import { settingsScreen } from '../ui/screens/settings';
-import type { BattleOpts, BattleOutcome } from './battle';
+import { REPLAY, type BattleOpts, type BattleOutcome, type ReplayId } from './battle';
 import { Prologue } from './prologue';
 import { LORE } from '../data/lore';
 
@@ -54,6 +54,8 @@ export class App {
     root.appendChild(this.pauseBtn);
     this.game.onFrame = (dt) => { this.showcase?.update(dt); this.prologue?.update(dt); };
     this.cinemaPlayers.set('prologue', () => wipe(this.layer, () => this.playPrologue(true)));
+    // kill-cam стражей и интро Иерофанта — в бою без волн; по концу сцены — назад в Архив
+    for (const id of Object.keys(REPLAY) as ReplayId[]) this.cinemaPlayers.set(id, () => this.startStage(REPLAY[id].stage, { replay: id }));
     this.game.onBattleEnd = (o) => this.onBattleEnd(o);
     this.game.onPauseRequest = () => { if (this.current === 'battle' && !this.overlayEl) this.showPause(); };
     this.game.ctx.input.onPause = () => { if (this.current === 'battle') this.togglePause(); };
@@ -123,6 +125,7 @@ export class App {
       this.pauseBtn.style.display = 'block';
       const b = this.game.battle!;
       b.world.bus.on('playerHurt', (e) => { this.lastDeathSource = e.source; });
+      if (opts.replay) b.onReplayEnd = () => this.go('hub');
     };
     // после пролога — без разреза: белая вспышка купола переходит во вспышку приземления
     if (opts.prologue) run(); else wipe(this.layer, run);

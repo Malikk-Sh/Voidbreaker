@@ -152,7 +152,8 @@ export class Hud {
     const s = this.scale;
     const L = 20 * s + this.safe.l, R = this.w - 20 * s - this.safe.r, T = 14 * s + this.safe.t, B = this.h - 16 * s - this.safe.b;
     // сцена со скрытым HUD: остаются только титры и реплики
-    if (!this.visible) { this.drawBanners(dt); this.drawSubtitle(dt, s, L, T); return; }
+    // подсказки ждут конца сцены — не висят поверх kill-cam
+    if (!this.visible) { this.drawBanners(dt); this.drawSubtitle(dt, s, L, T, false); return; }
     g.globalAlpha = 0.95;
     this.drawWorldMarks(f);
     this.drawChevrons(f);
@@ -844,7 +845,7 @@ export class Hud {
    * Реплики — в левом верхнем углу под HP, с портретом-ромбом (Каэлис — фиолетовый, голос из тьмы — багровый);
    * подсказки обучения — в левом нижнем углу над стиком (план §5.7, п. 4–5).
    */
-  private drawSubtitle(dt: number, s: number, L: number, T: number): void {
+  private drawSubtitle(dt: number, s: number, L: number, T: number, hints = true): void {
     const g = this.g;
     const k = s * this.subtitleScale;
     if (this.sub) {
@@ -879,7 +880,7 @@ export class Hud {
         g.restore();
       }
     }
-    if (this.hint) {
+    if (this.hint && hints) {
       this.hint.t += dt;
       if (this.hint.t > 4.5) this.hint = null;
       else {

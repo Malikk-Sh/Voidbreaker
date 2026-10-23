@@ -32,10 +32,12 @@ import '../world/boss/guardians';
 import { Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
+import { clamp, hexToLinear } from '../core/math';
 import { G, obsidianMaterial } from '../render/materials';
 import { buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
-import { landingTrack, type LandingSpots } from './prologueTracks';
+import type { EnemyKind } from '../data/enemies';
+import { LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
 
 
 const _top = new THREE.Vector3();
@@ -47,12 +49,26 @@ const DEBUG_NAV = typeof location !== 'undefined' && new URLSearchParams(locatio
 
 export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef }
 /** prologue — бой 1-1 начинается приземлением Пилота (план §8.2, планы 6–8), а не пролётом над ареной. */
-export interface BattleOpts { prologue?: boolean }
+/** Сцены Кинозала, которые пересматриваются в бою (план §8.1): kill-cam стражей и интро Иерофанта. */
+export type ReplayId = 'killGate' | 'killBell' | 'hierophantIntro';
+/** Этап, на котором играет сцена, и для kill-cam — кто Страж. */
+export const REPLAY: Record<ReplayId, { stage: string; guardian?: EnemyKind }> = {
+  killGate: { stage: '1-3', guardian: 'gateGuardian' },
+  killBell: { stage: '1-6', guardian: 'bellRinger' },
+  hierophantIntro: { stage: 'boss1' },
+};
+/** Пауза после сцены перед возвратом в Святилище (с): осыпание Стража доигрывает. */
+const REPLAY_TAIL = { kill: 1.6, intro: 0.5 };
+
+/** prologue — бой 1-1 начинается приземлением; replay — пересмотр сцены: без волн и наград, по концу — onReplayEnd. */
+export interface BattleOpts { prologue?: boolean; replay?: ReplayId }
 
 /** Титул за безупречную казнь Иерофанта (план §8.3.2). */
 export const FLAWLESS_TITLE = 'Безупречная казнь';
 /** Кратер от падения Пилота в центре 1-1 (план §8.5). */
 const CRATER = { x: 0, z: 0.5 };
+/** Стекло разбитой розы купола: бирюза и золото витражей. */
+const LANDING_GLASS = ([['#5cc4e0', 2.2], ['#FFB866', 2.2], ['#e3c37e', 1.8]] as const).map(([c, k]) => hexToLinear(c).map((v) => v * k) as [number, number, number]);
 
 /**
  * Бой на этапе: мир + арена + директор волн + VFX + камера + «сочность». Цикл — фиксированный шаг 60 Гц
@@ -142,7 +158,12 @@ export class Battle {
   private readonly baseMoon = G.uMoonColor.value.clone();
 
   /** Приземление пролога: свечи гаснут волной, визор, обломок-клинок. */
-  private landing: { visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean } | null = null;
+  private disposed = false;
+  /** Пересмотр сцены из Кинозала. */
+  private readonly replay: { id: ReplayId; target: Enemy | null; seen: boolean; t: number; done: boolean } | null;
+  /** Сцена пересмотра закончилась — App возвращает в Святилище. */
+  onReplayEnd: (() => void) | null = null;
+  private landing: { t: number; visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean; call: number } | null = null;
 
   constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout, readonly opts: BattleOpts = {}) {
     this.scars = new FloorScars(stage.boss ? BOSS_SCAR_LIFE : SCAR_LIFE);
@@ -224,6 +245,7 @@ export class Battle {
       stinger: () => ctx.music.stinger('stinger'),
       skipRequested: () => ctx.input.buffer.peek('attack', ctx.input.now) || ctx.input.buffer.peek('dash', ctx.input.now),
       once: (f) => { if (ctx.flag(f)) return false; ctx.setFlag(f); return true; },
+      hud: (v) => { if (!this.director.active) ctx.hud.visible = v; },
     });
     this.director = new Director(this.directorHost());
     const su = ctx.renderer.sky.u;
@@ -233,11 +255,14 @@ export class Battle {
     const lit = ctx.save.stars[`z${stage.zone + 1}`] ?? 0;
     this.skyCine.starLit = lit > 0 ? 1 : 0;
     this.skyCine.star2 = lit >= 2 ? 1 : 0;
+    this.replay = opts.replay ? { id: opts.replay, target: null, seen: false, t: 0, done: false } : null;
+    if (this.replay) this.director.full = true;
     this.bindEvents();
     // шейдеры всей сцены — сейчас, на загрузке, а не фризом посреди боя (оптимизация)
-    void ctx.renderer.warmShaders();
+    void ctx.renderer.warmAll(this.group, () => !this.disposed);
     ctx.time.reset();
     if (opts.prologue) this.startLanding();
+    else if (this.replay) this.startReplay();
     else if (!stage.boss) {
       // пролёт над ареной; первая волна — когда камера опустится к Пилоту
       const ab = this.arena.bounds;
@@ -247,7 +272,7 @@ export class Battle {
     }
     // в прологе музыка 1-1 вступает после титула; тема босса — с его именем в интро (план §8.3)
     if (stage.boss) { this.runner.introTime = 0.05; ctx.music.preload(hierophantSong()); }
-    else if (!opts.prologue) ctx.music.play(stageSong(stage.id), 0.3);
+    else if (!opts.prologue && !this.replay) ctx.music.play(stageSong(stage.id), 0.3);
     // тема Стража запекается заранее — переключение на его появлении без паузы
     const guardianWave = stage.waves.find((wv) => wv.guardian);
     if (guardianWave) ctx.music.preload(guardianSong(guardianWave.spawns[0].enemy));
@@ -330,7 +355,7 @@ export class Battle {
     });
     b.on('spawned', (e) => {
       const en = e.actor as { kind?: string; isGuardian?: boolean; isBoss?: boolean };
-      if (en.isGuardian && !en.isBoss && en.kind) { S.music.play(guardianSong(en.kind), 0.9); this.cine.guardianIntro(e.actor as Enemy); }
+      if (en.isGuardian && !en.isBoss && en.kind) { S.music.play(guardianSong(en.kind), 0.9); if (!this.replay) this.cine.guardianIntro(e.actor as Enemy); }
       else if ((e.actor as Enemy).elite?.length && !en.isBoss) this.cine.elite(e.actor as Enemy);
       // новые враги Зоны 01 (план §7.2–7.3): одна подсказка при первой встрече
       if (en.kind === 'crucifier' && !S.flag('tut_crucifier')) {
@@ -432,6 +457,7 @@ export class Battle {
     this.updateBeam(realDt);
     this.updateMood(realDt);
     if (this.landing) this.updateLanding(realDt);
+    if (this.replay) this.updateReplay(realDt);
     for (const p of this.douseOut) this.vfx.smokePuff(p[0], p[1], p[2]);
     this.vfx.sync(this.world, realDt, dtW);
     this.view.syncTiles();
@@ -474,7 +500,7 @@ export class Battle {
     if (!this.boss && this.runner.boss instanceof Hierophant) {
       this.boss = new HierophantController(this.bossHost(), this.runner.boss);
       // цепи, колокола-спутники и прочие объекты босса — тоже до первого кадра с ними
-      void this.ctx.renderer.warmShaders();
+      void this.ctx.renderer.warmAll(this.group, () => !this.disposed);
     }
     this.boss?.step(dtW);
   }
@@ -803,6 +829,9 @@ export class Battle {
     }
   }
 
+  /** Идёт сцена режиссёра или пролёт камеры (автокачество ждёт). */
+  get inScene(): boolean { return this.director.active || !!this.cine.busy; }
+
   /** Логика сцен (шаг do: 'call'): регистрируют пролог, босс, kill-cam. */
   readonly sceneCalls = new Map<string, (arg?: number) => void>();
 
@@ -813,40 +842,69 @@ export class Battle {
   private startLanding(): void {
     const w = this.world, h = w.hero, ctx = this.ctx;
     this.runner.introTime = 1e9;
-    const spots: LandingSpots = { x: h.x, z: h.z, shardX: h.x + 1.0, shardZ: h.z - 1.5, huskX: -2, huskZ: -10 };
+    // обломок — к ближнему краю: Пилот идёт к нему лицом к камере, за ним — дальняя стена собора
+    const spots: LandingSpots = { x: h.x, z: h.z, shardX: h.x + 0.9, shardZ: h.z + 1.6, huskX: h.x - 1.2, huskZ: h.z - 6.5 };
     const hp = { x: 0, z: 0 };
     this.arena.nearestWalkable(spots.huskX, spots.huskZ, hp);
     spots.huskX = hp.x; spots.huskZ = hp.z;
-    const shard = new THREE.Mesh(buildHullShard(), obsidianMaterial({ rim: '#9fb4d0', rimStrength: 0.6, rimPower: 2.2, emissive: '#d6c4ff', emissive2: '#ffd29a', emissiveStrength: 1.4 }));
+    const shardMat = obsidianMaterial({ rim: '#9fb4d0', rimStrength: 0.6, rimPower: 2.2, emissive: '#9f7bff', emissive2: '#ffd29a', emissiveStrength: 1.2 });
+    const shard = new THREE.Mesh(buildHullShard(), shardMat);
     shard.position.set(spots.shardX, 0, spots.shardZ);
+    // наклонён к Пилоту — читается силуэтом на фоне пола
+    shard.rotation.y = Math.atan2(h.x - spots.shardX, h.z - spots.shardZ);
     this.group.add(shard);
-    this.landing = { visorT: -1, igniteT: -1, shard, music: false };
+    this.landing = { t: 0, visorT: -1, igniteT: -1, shard, music: false, call: -1 };
     const L = this.landing;
     const calls = this.sceneCalls;
     let thaw = () => {};
     calls.set('landStart', () => {
-      h.y = 9; h.bladeTarget = 0.001; h.avatar.bladeScale = 0.001; h.avatar.resetCloth();
+      h.y = LANDING_FROM; h.bladeTarget = 0.001; h.avatar.bladeScale = 0.001; h.avatar.resetCloth();
+      h.avatar.puppet.play('plunge', 1, 0);
+      // стекло разбитой розы падает вместе с Пилотом
+      for (let i = 0; i < 46; i++) {
+        const c = LANDING_GLASS[i % LANDING_GLASS.length];
+        this.vfx.add.emit({ x: h.x + fxRng.spread(3), y: LANDING_FROM + fxRng.range(-1, 5), z: h.z + fxRng.spread(3), vx: fxRng.spread(1), vy: -fxRng.range(12, 19), vz: fxRng.spread(1), gravity: -10, life: fxRng.range(1.0, 1.5), size: fxRng.range(0.1, 0.22), size1: 0.06, color: c, frame: 'shard', rot: fxRng.range(0, 6), spin: fxRng.spread(9) });
+      }
     });
     calls.set('impact', () => {
       h.y = 0;
-      w.bus.emit('shockwave', { x: h.x, z: h.z, r: 9, color: 'gold', strength: 1 });
-      this.cam.addTrauma(0.75);
-      this.vfx.debris.burst(h.x, 0.2, h.z, 0, 0, 14, 7, 0.2);
-      this.vfx.burst(26, { x: h.x, y: 0.25, z: h.z, life: 1.4, size: 0.6, size1: 1.9, color: C.dust, alpha: 0.5, drag: 2.4, frame: 'smoke' }, { v: 8, vy: 0.5 }, false);
+      w.bus.emit('shockwave', { x: h.x, z: h.z, r: 9, color: 'gold', strength: 1.2 });
+      this.cam.addTrauma(0.85);
+      // пыль кольцом по полу — на камеру
+      this.vfx.burst(40, { x: h.x, y: 0.2, z: h.z, life: 1.8, size: 0.7, size1: 2.2, color: C.dust, alpha: 0.55, drag: 2.2, frame: 'smoke' }, { v: 10, vy: 0.4 }, false);
+      this.vfx.rings.spawn(h.x, h.z, 0.4, 7, 0.9, C.gold, 0.35, 0.7);
+      // стекло бьётся о пол
+      for (let i = 0; i < 30; i++) {
+        const a = fxRng.range(0, Math.PI * 2), v = fxRng.range(3, 8);
+        this.vfx.add.emit({ x: h.x + Math.cos(a) * 0.6, y: 0.15, z: h.z + Math.sin(a) * 0.6, vx: Math.cos(a) * v, vy: fxRng.range(1.5, 4), vz: Math.sin(a) * v, gravity: -14, drag: 1.2, life: fxRng.range(0.5, 0.9), size: 0.12, size1: 0.04, color: LANDING_GLASS[i % LANDING_GLASS.length], frame: 'shard', spin: fxRng.spread(12) });
+      }
+      this.vfx.lights.flash(h.x, 0.6, h.z, C.voidHot, 5, 8, 0.8);
+      this.scars.add(h.x, h.z, 2.2, 1);
       this.quench(h.x, h.z, 26);
-      ctx.input.vibrate(60);
+      ctx.input.vibrate(80);
     });
     calls.set('visor', () => { if (L.visorT < 0) L.visorT = 0; });
     calls.set('idle', () => { h.avatar.puppet.anim.stop(0.3); });
+    calls.set('grip', () => {
+      // рывок из пола: искры и крошка у основания обломка
+      this.vfx.burst(22, { x: spots.shardX, y: 0.1, z: spots.shardZ, life: 0.5, size: 0.08, size1: 0.01, color: C.voidHot, drag: 2, frame: 'spark', stretch: 1.8, gravity: -9 }, { v: 5, vy: 3 });
+      this.vfx.lights.flash(spots.shardX, 0.5, spots.shardZ, C.voidHot, 2.5, 5, 0.4);
+      this.cam.addTrauma(0.2);
+    });
     calls.set('ignite', () => {
       if (L.igniteT >= 0) return;
       L.igniteT = 0;
       shard.visible = false;
       h.bladeTarget = 1;
       h.avatar.handPos(_top);
-      this.vfx.rings.spawn(_top.x, _top.z, 0.3, 4.5, 0.6, C.voidHot, 0.3, 0.9, _top.y);
+      // обломок вспыхивает Пустотой: кольцо у руки и по полу, искры вверх по клинку
+      // кольцо у руки — малое: большое на высоте руки проходит сквозь камеру сцены и заливает кадр
+      this.vfx.rings.spawn(_top.x, _top.z, 0.2, 1.4, 0.45, C.voidHot, 0.18, 0.9, _top.y);
+      this.vfx.rings.spawn(h.x, h.z, 0.5, 5.5, 0.8, C.void, 0.3, 0.6);
       this.vfx.burst(30, { x: _top.x, y: _top.y, z: _top.z, life: 0.7, size: 0.1, size1: 0.01, color: C.voidHot, drag: 2.5, frame: 'spark', stretch: 1.6 }, { v: 7, vy: 3 });
+      this.vfx.burst(18, { x: _top.x, y: _top.y + 0.4, z: _top.z, life: 0.9, size: 0.14, size1: 0.01, color: C.core, drag: 1.5, frame: 'spark', stretch: 2.4 }, { v: 1.2, vy: 9 });
       this.vfx.lights.flash(_top.x, _top.y, _top.z, C.voidHot, 4, 9, 0.9);
+      this.cam.addTrauma(0.3);
     });
     calls.set('husk', () => {
       if (w.enemies.length) return;
@@ -859,6 +917,9 @@ export class Battle {
       brain.think = () => {};
       thaw = () => { brain.think = think; };
       w.addEnemy(e);
+      // глаза в темноте: багровый отсвет и скрежет — видно и слышно, откуда идёт угроза
+      this.vfx.lights.flash(e.x, 0.6, e.z, C.hunger, 3, 7, 1.6);
+      ctx.audio.play('tele_grind', { gain: 0.5 });
     });
     calls.set('title', () => {
       this.quench(0, 0, 0);
@@ -882,8 +943,59 @@ export class Battle {
     }, { hud: false });
   }
 
+  /**
+   * Пересмотр (Кинозал): для kill-cam — Страж проявляется перед Пилотом и сразу получает добивающий удар;
+   * интро Иерофанта играет само (полной версией). Волн нет, Пилот неуязвим, HUD скрыт.
+   */
+  private startReplay(): void {
+    const R = this.replay!, w = this.world, h = w.hero;
+    this.runner.introTime = REPLAY[R.id].guardian ? 1e9 : this.runner.introTime;
+    h.invulnUntil = 1e9;
+    this.ctx.hud.visible = false;
+    const kind = REPLAY[R.id].guardian;
+    if (!kind) return;
+    const e = createEnemy(kind, { zone: w.zone, stage: w.stage, mode: w.mode });
+    const o = { x: 0, z: 0 };
+    this.arena.nearestWalkable(h.x, h.z - 5.5, o);
+    e.x = o.x; e.z = o.z;
+    e.facing = Math.atan2(h.x - e.x, h.z - e.z);
+    h.facing = Math.atan2(e.x - h.x, e.z - h.z);
+    w.addEnemy(e);
+    R.target = e;
+  }
+
+  private updateReplay(realDt: number): void {
+    const R = this.replay!, w = this.world;
+    this.ctx.hud.visible = false;
+    const e = R.target;
+    // Страж проявился — добивающий удар по оглушённому: дальше kill-cam как в бою
+    if (e && !R.seen && !this.director.active && e.state !== 'spawn' && !e.killcam) {
+      e.hp = Math.min(e.hp, 5);
+      (e as unknown as { cur: unknown }).cur = null;
+      w.stunEnemy(e);
+      w.damageEnemy(e, { mult: 50, stun: 0, knockback: 2, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade' });
+    }
+    if (this.director.active) { R.seen = true; return; }
+    if (!R.seen || R.done) return;
+    R.t += realDt;
+    if (R.t >= (e ? REPLAY_TAIL.kill : REPLAY_TAIL.intro)) { R.done = true; this.onReplayEnd?.(); }
+  }
+
   private updateLanding(realDt: number): void {
     const L = this.landing!, h = this.world.hero;
+    L.t += realDt;
+    // падение: фиолетовый след за Пилотом
+    if (h.y > 0.3) for (let i = 0; i < 2; i++) this.vfx.add.emit({ x: h.x + fxRng.spread(0.25), y: h.y + 0.9 + fxRng.spread(0.4), z: h.z + fxRng.spread(0.25), vy: 6, life: 0.3, size: 0.12, size1: 0.02, color: C.voidHot, drag: 1, frame: 'spark', stretch: 2.4 });
+    // обломок зовёт: пульс Пустоты, чаще и ярче, пока Пилот подходит
+    if (L.igniteT < 0 && L.visorT >= 0) {
+      const u = L.shard.material as THREE.ShaderMaterial;
+      const near = clamp(1 - Math.hypot(h.x - L.shard.position.x, h.z - L.shard.position.z) / 3, 0, 1);
+      u.uniforms.uEmissiveStrength.value = 1.2 + (0.6 + near * 1.4) * Math.pow(0.5 + 0.5 * Math.sin(L.t * (4 + near * 6)), 2);
+      if (Math.floor(L.t / 0.9) !== L.call) {
+        L.call = Math.floor(L.t / 0.9);
+        this.vfx.lights.flash(L.shard.position.x, 0.8, L.shard.position.z, C.void, 1.2 + near, 3.5, 0.6);
+      }
+    }
     // визор загорается, на клинке — вспышка Пустоты, дальше — как обычно
     if (L.visorT >= 0) { L.visorT += realDt; h.glowBoost = Math.min(1.2, L.visorT * 2.4) * (L.igniteT >= 0 ? Math.max(0, 1 - L.igniteT / 2.5) : 1); }
     if (L.igniteT >= 0) { L.igniteT += realDt; h.glowBoost += Math.max(0, 1.6 - L.igniteT * 1.6); }
@@ -940,6 +1052,7 @@ export class Battle {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.ambience?.stop();
     this.ctx.audio.onSpeak = null;
     this.kaelis.dispose();

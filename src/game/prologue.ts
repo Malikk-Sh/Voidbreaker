@@ -5,7 +5,7 @@ import { fxRng, Rng } from '../core/rng';
 import { GeomBuilder, mat } from '../gen/geom/build';
 import { spire } from '../gen/geom/kit';
 import { box, shard } from '../gen/geom/prims';
-import { buildCathedralRing, buildDomeRose, buildShip } from '../gen/zone/space';
+import { buildCathedralRing, buildDomeRose, buildDomeShell, buildShip } from '../gen/zone/space';
 import { G, obsidianMaterial } from '../render/materials';
 import { RigBatch } from '../render/rigbatch';
 import { h } from '../ui/dom';
@@ -18,6 +18,7 @@ import { Director, type DirectorHost } from './director';
 import { FALL, FallField } from './prologueFall';
 import { DOME_IMPACT, prologueTrack, SPACE, SpaceBasis } from './prologueTracks';
 import { KAELIS_LINES } from '../data/lines';
+import { stageSong } from '../audio/music';
 
 type Seg = 'dark' | 'space' | 'fall' | 'done';
 
@@ -75,6 +76,7 @@ export class Prologue {
   private readonly spireXZ: [number, number][] = [];
   private readonly rose: THREE.Mesh;
   private readonly domeRing: THREE.Mesh;
+  private readonly domeShell: THREE.Mesh;
   private readonly norm = new Particles(900, false);
   private readonly add = new Particles(900, true);
   private readonly lights = new LightManager();
@@ -149,16 +151,17 @@ export class Prologue {
     this.spires.frustumCulled = false;
     const srng = new Rng(9);
     for (let i = 0; i < 6; i++) {
-      const sx = (i % 2 ? 1 : -1) * srng.range(10, 16), sz = srng.range(-11, 9);
+      const sx = (i % 2 ? 1 : -1) * srng.range(7, 10), sz = srng.range(-6, 5);
       this.spireXZ.push([sx, sz]);
       this.spireY.push(-120 - i * 55);
     }
     const dome = buildDomeRose(6);
     this.rose = new THREE.Mesh(dome.rose, decorMat);
     this.domeRing = new THREE.Mesh(dome.ring, decorMat);
-    for (const m of [this.rose, this.domeRing]) { m.visible = false; m.frustumCulled = false; }
+    this.domeShell = new THREE.Mesh(buildDomeShell(), decorMat);
+    for (const m of [this.rose, this.domeRing, this.domeShell]) { m.visible = false; m.frustumCulled = false; }
 
-    this.group.add(this.ring, this.ship.mesh, ...this.beams, this.hero.group, this.rocks, this.plates, this.spires, this.rose, this.domeRing, this.norm.mesh, this.add.mesh);
+    this.group.add(this.ring, this.ship.mesh, ...this.beams, this.hero.group, this.rocks, this.plates, this.spires, this.rose, this.domeRing, this.domeShell, this.norm.mesh, this.add.mesh);
     r.scene.add(this.group);
     // звезда ещё мертва: пролог — до Иерофанта (и при пересмотре из Кинозала)
     r.sky.u.uStarLit.value = 0; r.sky.u.uStar2.value = 0; r.sky.u.uSkyCrack.value = 0;
@@ -184,6 +187,10 @@ export class Prologue {
     ctx.music.stop(0.6);
     this.director = new Director(this.host());
     this.director.play(prologueTrack(B), (skipped) => this.finish(skipped));
+    // пока на экране тьма с текстом: шейдеры и буферы кольца, корабля, лучей, обломков и купола — заранее (раньше
+    // всё это собиралось на первом плане космоса и в начале падения — фризы), и музыка 1-1 — запекается по фразам, к титулу она уже готова
+    void r.warmAll(this.group, () => !this.disposed);
+    ctx.music.preload(stageSong('1-1'));
   }
 
   get active(): boolean { return !this.disposed; }
@@ -224,8 +231,10 @@ export class Prologue {
         for (const b of this.beams) b.visible = false;
         this.hero.group.visible = true;
         this.hero.resetCloth();
+        // купол собора далеко внизу — цель падения видна с первой секунды, растёт из тумана
+        this.domeOn = true; this.rose.visible = true; this.domeRing.visible = true; this.domeShell.visible = true;
         // падение сквозь пепел: туман по дальности, без высотного
-        G.uFogRange.value.set(30, 170);
+        G.uFogRange.value.set(40, 330);
         G.uFogColor.value.set(0.02, 0.025, 0.04);
         break;
       case 'hint': {
@@ -233,7 +242,7 @@ export class Prologue {
         this.ctx.hud.showHint(touch ? 'Левый палец — уходи от обломков' : 'WASD — уходи от обломков');
         break;
       }
-      case 'dome': this.domeOn = true; this.rose.visible = true; this.domeRing.visible = true; break;
+      case 'dome': this.domeOn = true; this.rose.visible = !this.broken; this.domeRing.visible = true; this.domeShell.visible = true; break;
       case 'end': this.seg = 'done'; break;
     }
   }
@@ -408,14 +417,20 @@ export class Prologue {
       this.emitT = 0.02;
       for (let i = 0; i < 3; i++) this.norm.emit({ x: fxRng.spread(13), y: fxRng.range(-34, -6), z: fxRng.spread(9), vy: FALL.speed * 1.05, life: 1.3, size: fxRng.range(0.04, 0.09), color: [0.3, 0.29, 0.33], alpha: 0.7, frame: 'dot', stretch: 0.7 });
       if (fxRng.chance(0.3)) this.add.emit({ x: fxRng.spread(12), y: -30, z: fxRng.spread(8), vy: FALL.speed * 1.1, life: 1.2, size: 0.06, color: [EMBER[0] * 2, EMBER[1] * 1.4, EMBER[2]], frame: 'dot', stretch: 1 });
+      // длинные линии скорости по краям кадра: падение читается и без обломков рядом
+      if (fxRng.chance(0.5)) {
+        const a = fxRng.range(0, Math.PI * 2), d = fxRng.range(3.5, 7);
+        this.add.emit({ x: this.follow.x + Math.cos(a) * d * 1.6, y: -24, z: this.follow.z + Math.sin(a) * d, vy: FALL.speed * 1.5, life: 0.9, size: 0.05, color: [0.25, 0.45, 0.55], frame: 'spark', stretch: 3.5 });
+      }
     }
     // купол
     if (this.domeOn) {
       const y = (this.fallT - DOME_IMPACT) * FALL.speed;
       this.rose.position.set(0, y, 0);
       this.domeRing.position.set(0, y, 0);
+      this.domeShell.position.set(0, y, 0);
       if (!this.broken && this.fallT >= DOME_IMPACT) this.shatterRose();
-      if (y > 30) this.domeRing.visible = false;
+      if (y > 30) { this.domeRing.visible = false; this.domeShell.visible = false; }
     }
   }
 
@@ -448,8 +463,8 @@ export class Prologue {
     // в падении кадр сдвигается за героем (без поворота): стик не уводит Пилота к краю экрана
     if (this.seg === 'fall' || this.seg === 'done') {
       const k = 1 - Math.exp(-realDt / 0.35);
-      this.follow.x += (this.field.hx * 0.6 - this.follow.x) * k;
-      this.follow.z += (this.field.hz * 0.6 - this.follow.z) * k;
+      this.follow.x += (this.field.hx * 0.8 - this.follow.x) * k;
+      this.follow.z += (this.field.hz * 0.8 - this.follow.z) * k;
       cam.position.x += this.follow.x; cam.position.z += this.follow.z;
     }
     this.trauma = Math.max(0, this.trauma - realDt * 1.4);
@@ -472,7 +487,7 @@ export class Prologue {
     this.el.remove();
     this.hero.dispose();
     this.ship.dispose();
-    for (const m of [this.ring, this.rose, this.domeRing]) m.geometry.dispose();
+    for (const m of [this.ring, this.rose, this.domeRing, this.domeShell]) m.geometry.dispose();
     this.rocks.dispose(); this.plates.dispose(); this.spires.dispose();
     this.lights.clear();
     G.uFogRange.value.copy(this.fog.range);

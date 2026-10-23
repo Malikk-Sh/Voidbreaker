@@ -151,6 +151,9 @@ export class Game {
    */
   private autoQuality(dt: number): void {
     if (!this.battle) return;
+    // в сценах не меряем и не меняем разрешение: пересоздание буферов — заметный рывок посреди кадра,
+    // а загрузки под вспышками сцен не говорят о нагреве
+    if (this.battle.inScene) { const a = this.autoQ; a.t = a.frames = a.slow = 0; return; }
     const step = autoQualityStep(this.autoQ, dt);
     if (!step) return;
     const r = this.ctx.renderer;
