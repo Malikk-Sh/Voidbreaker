@@ -18,6 +18,9 @@ const _nav = { x: 0, z: 0 };
 const DUELISTS = new Set(['reaper', 'crucifier']);
 const _head = new THREE.Vector3();
 
+/** На каком расстоянии от поста (м) враг на поводке считается вернувшимся. */
+const LEASH_HOME = 0.5;
+
 export type EState = 'spawn' | 'idle' | 'chase' | 'orbit' | 'telegraph' | 'attack' | 'recover' | 'stagger' | 'stunned' | 'dead' | 'special' | 'warp';
 
 export interface SpawnOpts { zone: number; stage: number; elite?: Affix[]; mode?: number; hpMul?: number }
@@ -58,6 +61,14 @@ export abstract class Enemy implements Actor {
   deathT = 0;
   token: 'melee' | 'ranged' | 'swarm' | null = null;
   tele: Telegraph | null = null;
+  /**
+   * Поводок (тренировочный спарринг, этап 4.5 A1): когда Пилот дальше r от поста, враг не начинает новых атак,
+   * отменяет замах (телеграф убирается), доводит уже начатый удар без продолжения серией и идёт на пост. Мозг,
+   * навигация и таймеры работают как обычно — зависших состояний и телеграфов нет.
+   */
+  leash: { x: number; z: number; r: number } | null = null;
+  /** Пилот за поводком (кадр): новых атак и продолжений серии не начинать. */
+  holdFire = false;
   attackDone = false;
   vx = 0; vz = 0;
   scale = 1;
@@ -241,7 +252,9 @@ export abstract class Enemy implements Actor {
     } else {
       this.brainT -= dt;
       this.navWant = false;
-      this.think(w, dt, this.brainT <= 0);
+      const L = this.leash;
+      this.holdFire = !!L && Math.hypot(w.hero.x - L.x, w.hero.z - L.z) > L.r;
+      if (!this.holdFire || !this.leashStep(w, dt)) this.think(w, dt, this.brainT <= 0);
       if (this.brainT <= 0) this.brainT = 1 / 18;
       this.stepNav(w, dt);
     }
@@ -388,6 +401,25 @@ export abstract class Enemy implements Actor {
     this.warpX = p.x; this.warpZ = p.z;
     this.setState('warp');
     w.bus.emit('portal', { x: this.x, z: this.z });
+  }
+
+  /**
+   * Пилот за поводком: замах отменяется, начатый удар (attack/special) доводит мозг — тогда false;
+   * иначе — путь на пост и взгляд на Пилота (true: кадр обработан без мозга).
+   */
+  private leashStep(w: World, dt: number): boolean {
+    const L = this.leash!;
+    if (this.state === 'telegraph') { this.cancelTelegraph(); this.token = null; this.setState('recover'); }
+    if (this.state === 'attack' || this.state === 'special') return false;
+    if (Math.hypot(L.x - this.x, L.z - this.z) > LEASH_HOME) {
+      this.seek(w, L.x, L.z, this.speed * 0.8, dt, LEASH_HOME * 0.6);
+      if (this.state !== 'chase') this.setState('chase');
+    } else {
+      this.vx *= 0.8; this.vz *= 0.8;
+      if (this.state !== 'idle') this.setState('idle');
+    }
+    this.faceTo(w.hero.x, w.hero.z, 0.3, dt);
+    return true;
   }
 
   /**

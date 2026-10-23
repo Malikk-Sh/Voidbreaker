@@ -1004,12 +1004,9 @@ export class Battle {
       const e = createEnemy(slot.kind, { zone: w.zone, stage: w.stage, mode: w.mode });
       e.x = slot.x; e.z = slot.z;
       e.facing = Math.atan2(h.x - e.x, h.z - e.z);
-      const brain = e as unknown as { think: (...a: unknown[]) => void };
-      if (slot.spar) {
-        // на поводке: ведёт бой, только пока Пилот рядом с его местом
-        const think = brain.think.bind(e), post = { x: slot.x, z: slot.z };
-        brain.think = (...a: unknown[]) => { if (Math.hypot(h.x - post.x, h.z - post.z) < P.leash) think(...a); };
-      } else brain.think = () => {};
+      // Жнец на поводке: дерётся, пока Пилот рядом с его постом; манекены стоят
+      if (slot.spar) e.leash = { x: slot.x, z: slot.z, r: P.leash };
+      else (e as unknown as { think: () => void }).think = () => {};
       w.addEnemy(e);
       slot.e = e;
     }

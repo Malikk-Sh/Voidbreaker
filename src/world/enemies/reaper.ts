@@ -105,7 +105,7 @@ export class Reaper extends Enemy {
         }
         if (this.stateT >= DASH) {
           this.vx *= 0.2; this.vz *= 0.2;
-          if (this.chainLeft > 0 && !h.dead) {
+          if (this.chainLeft > 0 && !h.dead && !this.holdFire) {
             // второй выпад: короткий телеграф, разворот к Пилоту
             this.chainLeft--;
             this.cancelTelegraph();
