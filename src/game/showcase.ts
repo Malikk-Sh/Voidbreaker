@@ -6,11 +6,31 @@ import { Particles } from '../vfx/particles';
 import { LightManager } from '../vfx/lights';
 import { Arena } from '../world/arena';
 import { HeroAvatar } from '../world/heroAvatar';
-import type { Renderer } from '../render/renderer';
+import { CAM_FOV, type Renderer } from '../render/renderer';
 import { fxRng } from '../core/rng';
-import { hexToLinear } from '../core/math';
+import { clamp, hexToLinear } from '../core/math';
 
 export type ShowcaseView = 'title' | 'hub' | 'map' | 'results';
+
+/**
+ * Кадр Святилища (этап 4.5, A3): Пилот с клинком (высота h м, центр на cy м) занимает долю fill высоты свободной
+ * области экрана — той, что не закрыта панелями; поле зрения не уже/шире minFov…maxFov.
+ */
+export const HUB_FRAME = { h: 2.35, cy: 1.1, fill: 0.72, minFov: 22, maxFov: 62, dist: 7.2 };
+
+/** Свободная область экрана под героя: доли ширины и высоты (0 — левый/верхний край). */
+export interface ScreenFrame { x0: number; y0: number; x1: number; y1: number }
+
+/**
+ * Поле зрения и сдвиг проекции, при которых точка взгляда (центр героя) встаёт в центр области, а герой высотой h
+ * на расстоянии dist занимает долю fill её высоты. Сдвиг — доли экрана (для setViewOffset).
+ */
+export function hubFraming(f: ScreenFrame, dist: number): { fov: number; dx: number; dy: number } {
+  const want = HUB_FRAME.fill * Math.max(0.05, f.y1 - f.y0);
+  const tanHalf = (HUB_FRAME.h / 2 / dist) / want;
+  const fov = clamp((2 * Math.atan(tanHalf) * 180) / Math.PI, HUB_FRAME.minFov, HUB_FRAME.maxFov);
+  return { fov, dx: 0.5 - (f.x0 + f.x1) / 2, dy: 0.5 - (f.y0 + f.y1) / 2 };
+}
 
 const VOID = hexToLinear('#B794FF');
 const STAR = hexToLinear('#8fd8ef');
@@ -36,6 +56,9 @@ export class Showcase {
   private camPos = new THREE.Vector3(0, 30, 30);
   private camLook = new THREE.Vector3();
   private flourishT = 6;
+  /** Свободная область кадра под героя (Святилище): её сообщает экран по своим панелям. */
+  frame: ScreenFrame | null = null;
+  private fov = CAM_FOV;
   private emitT = 0;
 
   constructor(private renderer: Renderer) {
@@ -94,10 +117,10 @@ export class Showcase {
         break;
       }
       case 'hub': {
-        // герой — в левой трети кадра, справа место под панель
-        const a = 0.25 + Math.sin(t * 0.08) * 0.1;
-        pos.set(Math.sin(a) * 8 + 1.2, 3.6, Math.cos(a) * 8 + 1.6);
-        look.set(3.2, 1.4, 0.2);
+        // взгляд — на Пилота; где он на экране и какого размера — решает свободная область (hubFraming)
+        const a = 0.25 + Math.sin(t * 0.08) * 0.1, D = HUB_FRAME.dist;
+        pos.set(Math.sin(a) * D, 2.9, 1.6 + Math.cos(a) * D);
+        look.set(0, HUB_FRAME.cy, 1.6);
         break;
       }
       case 'map':
@@ -115,11 +138,25 @@ export class Showcase {
     this.camLook.lerp(look, k);
     cam.position.copy(this.camPos);
     cam.lookAt(this.camLook);
+    // Святилище: герой — в центре свободной части экрана и целиком; в остальных видах — обычная проекция
+    let fov = CAM_FOV;
+    if (this.mode === 'hub' && this.frame) {
+      const fr = hubFraming(this.frame, cam.position.distanceTo(this.camLook));
+      fov = fr.fov;
+      const W = 1000 * cam.aspect, H = 1000;
+      cam.setViewOffset(W, H, fr.dx * W, fr.dy * H, W, H);
+    } else if (cam.view) cam.clearViewOffset();
+    this.fov += (fov - this.fov) * k;
+    cam.fov = this.fov;
+    cam.updateProjectionMatrix();
   }
 
   snapCamera(): void { this.camPos.set(0, 40, 40); }
 
   dispose(): void {
+    // камера общая с боем: сдвиг проекции и поле зрения Святилища не должны уйти в бой
+    const cam = this.renderer.camera;
+    cam.clearViewOffset(); cam.fov = CAM_FOV; cam.updateProjectionMatrix();
     this.renderer.scene.remove(this.group);
     this.view.dispose();
     this.hero.dispose();

@@ -1,6 +1,6 @@
 import { h, injectStyles, wipe } from '../ui/dom';
 import { Game } from './game';
-import { Showcase, type ShowcaseView } from './showcase';
+import { Showcase, type ScreenFrame, type ShowcaseView } from './showcase';
 import { stageById, ZONE1 } from '../data/stages';
 import { applyReward, computeReward, computeStats, type Reward, type StageResult } from '../meta/progression';
 import { writeSave } from '../meta/save';
@@ -70,6 +70,8 @@ export class App {
   canWatch(id: string): boolean { return this.cinemaPlayers.has(id); }
   watchScene(id: string): void { this.cinemaPlayers.get(id)?.(); }
   save(): void { writeSave(this.ctx.save); }
+  /** Свободная от панелей область экрана Святилища — туда ставится Пилот. */
+  setHubFrame(f: ScreenFrame): void { if (this.showcase) this.showcase.frame = f; }
 
   // ------------------------------------------------------------------ экраны
   private ensureShowcase(view: ShowcaseView): void {

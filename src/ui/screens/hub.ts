@@ -67,8 +67,7 @@ export function hubScreen(app: App, initial: Tab = 'stats'): HTMLElement {
 
   const iconBtn = (icon: IconId, label: string, fn: () => void) => h('button', { class: 'vb-iconbtn', 'aria-label': label, onClick: () => { app.sfx('ui_click'); fn(); } }, iconCanvas(icon, 20, UI.goldHi, UI.glowGold));
   const panelW = 'min(600px, 58vw)';
-  const el = h('div', { class: 'vb-screen vb-fade' },
-    h('div', { class: 'vb-row', style: { position: 'absolute', top: 'max(10px, env(safe-area-inset-top))', left: 'max(18px, env(safe-area-inset-left))', right: 'max(18px, env(safe-area-inset-right))', justifyContent: 'space-between', alignItems: 'flex-start' } },
+  const topRow = h('div', { class: 'vb-row', style: { position: 'absolute', top: 'max(10px, env(safe-area-inset-top))', left: 'max(18px, env(safe-area-inset-left))', right: 'max(18px, env(safe-area-inset-right))', justifyContent: 'space-between', alignItems: 'flex-start' } },
       h('div', { class: 'vb-row', style: { gap: '6px', alignItems: 'center' } },
         // эмблема прогресса (план §8.8): луч за каждого побеждённого босса
         h('div', { title: `Лучей звезды: ${litRays(save)} из 7`, style: { lineHeight: '0' } }, emblemSvg(54, litRays(save))),
@@ -78,16 +77,32 @@ export function hubScreen(app: App, initial: Tab = 'stats'): HTMLElement {
       h('div', { class: 'vb-row', style: { gap: '14px' } }, curSlot,
         fullscreenSupported() ? iconBtn('fullscreen', 'Полный экран', () => { void (isFullscreen() ? exitFullscreen() : enterFullscreen()); }) : null,
         iconBtn('gear', 'Настройки', () => app.openSettings('hub'))),
-    ),
-    h('div', { class: 'vb-panel vb-col', style: { position: 'absolute', right: 'max(18px, env(safe-area-inset-right))', top: '64px', bottom: '84px', width: panelW, gap: '4px' } },
-      tabsRow, h('div', { class: 'vb-rule', style: { margin: '4px 0 8px' } }), content),
+    );
+  const panel = h('div', { class: 'vb-panel vb-col', style: { position: 'absolute', right: 'max(18px, env(safe-area-inset-right))', top: '64px', bottom: '84px', width: panelW, gap: '4px' } },
+    tabsRow, h('div', { class: 'vb-rule', style: { margin: '4px 0 8px' } }), content);
+  const plaqueBox = h('div', { style: { position: 'absolute', left: 'max(18px, env(safe-area-inset-left))', bottom: 'max(14px, env(safe-area-inset-bottom))' } }, plaque);
+  const el = h('div', { class: 'vb-screen vb-fade' },
+    topRow,
+    panel,
     h('div', { style: { position: 'absolute', right: 'max(18px, env(safe-area-inset-right))', bottom: 'max(14px, env(safe-area-inset-bottom))' } },
       h('div', { class: 'vb-row', style: { gap: '10px', alignItems: 'center' } },
         // тренировочный зал (разбор): манекены, памятка веток комбо, без наград
         h('button', { class: 'vb-btn', onClick: () => { app.sfx('ui_confirm'); app.startStage('training'); } }, 'Тренировка'),
         h('button', { class: 'vb-btn primary big', style: { minWidth: '240px' }, onClick: () => { app.sfx('ui_confirm'); app.go('map'); } }, 'В бой'))),
-    h('div', { style: { position: 'absolute', left: 'max(18px, env(safe-area-inset-left))', bottom: 'max(14px, env(safe-area-inset-bottom))' } }, plaque),
+    plaqueBox,
   );
+  // кадр Святилища (этап 4.5, A3): герой — в части экрана, свободной от панелей, при любых пропорциях
+  const measure = () => {
+    if (!el.isConnected) { removeEventListener('resize', onResize); return; }
+    const W = innerWidth, H = innerHeight, gap = 8;
+    const top = topRow.getBoundingClientRect().bottom + gap;
+    const right = panel.getBoundingClientRect().left - gap;
+    const bottom = plaqueBox.getBoundingClientRect().top - gap;
+    app.setHubFrame({ x0: gap / W, y0: top / H, x1: Math.max(gap * 2, right) / W, y1: Math.max(top + 40, bottom) / H });
+  };
+  const onResize = () => requestAnimationFrame(measure);
+  addEventListener('resize', onResize);
+  requestAnimationFrame(() => requestAnimationFrame(measure));
   return el;
 }
 
