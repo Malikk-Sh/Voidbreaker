@@ -128,7 +128,7 @@ export class Hierophant extends ScriptedEnemy {
       { t: 1.1, do: 'pose', id: 'idle', blend: 0.4 },
       { t: 1.2, do: 'vulnerable', dur: 1.3 },
     ] },
-    // Падение колокола: тень на земле 1.0 с → падает всем телом в точку игрока; окно 2.0 с
+    // Падение Понтифика: тень на земле 1.0 с → рушится всем телом в точку игрока; окно 2.0 с
     { id: 'drop', weight: 2, cooldown: 7, phases: [1, 2, 3], range: [3, 40], unstoppable: true, steps: [
       { t: 0, do: 'pose', id: 'rise', blend: 0.25 },
       { t: 0, do: 'telegraph', shape: { circle: 4 }, at: 'snapshot', dur: 1.05 },
@@ -891,7 +891,7 @@ export class HierophantController implements BossController {
     this.host.sky('starLit', 1);
     if (this.flawless) this.host.sky('star2', 1);
     this.host.saveStar(this.flawless);
-    this.host.banner('ИЕРОФАНТ ПОВЕРЖЕН', this.flawless ? 'Безупречная казнь' : 'Колокол умолк');
+    this.host.banner('ИЕРОФАНТ ПОВЕРЖЕН', this.flawless ? 'Безупречная казнь' : 'Звон умолк');
     this.host.finishFight();
   }
 
@@ -923,9 +923,9 @@ export class HierophantController implements BossController {
       w.bus.emit('shockwave', { x: b.x, z: b.z, r: 16, color: 'void', strength: 1.6 });
       w.bus.emit('sfx', { id: 'victory', x: b.x, z: b.z });
       w.bus.emit('shake', { trauma: 0.8 });
-      this.host.banner('ИЕРОФАНТ ПОВЕРЖЕН', 'Колокол умолк');
+      this.host.banner('ИЕРОФАНТ ПОВЕРЖЕН', 'Звон умолк');
     }
-    if (this.deathT > 2.4 && this.lines < 5) { this.lines = 5; this.host.say('Колокол умолк. Слышишь тишину, Пилот? Это — наша.', 'kaelis'); }
+    if (this.deathT > 2.4 && this.lines < 5) { this.lines = 5; this.host.say('Звон умолк. Слышишь тишину, Пилот? Это — наша.', 'kaelis'); }
     this.host.starFlare(clamp((this.deathT - 0.9) / 0.6, 0, 1) * clamp(1 - (this.deathT - 3) / 2, 0, 1));
   }
 

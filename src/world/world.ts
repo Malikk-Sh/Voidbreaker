@@ -605,7 +605,7 @@ export class World {
         p.alive = false;
         this.bus.emit('projectileHit', { x: p.x, z: p.z, kind: p.kind });
       } else if (p.reflected && p.kind === 'censer') {
-        // отбитое кадило летит в колокол хозяина: урон и +40 к оглушению
+        // отбитое кадило летит в маску хозяина: урон и +40 к оглушению
         const o = this.enemies.find((e) => e.id === p.owner && !e.dead);
         if (!o) p.alive = false;
         else {

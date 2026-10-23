@@ -382,7 +382,7 @@ export class Battle {
       }
     });
     b.on('enemyAttack', (e) => {
-      if (e.kind === 'censer' && !S.flag('tut_censer')) { S.setFlag('tut_censer'); hud.showHint('Кадило можно отбить: полный заряженный удар — прямо в колокол'); }
+      if (e.kind === 'censer' && !S.flag('tut_censer')) { S.setFlag('tut_censer'); hud.showHint('Кадило можно отбить: полный заряженный удар вернёт его в золотую маску Иерофанта'); }
     });
     b.on('psalm', (e) => {
       if (e.kind === 'link' && !S.flag('tut_psalmist')) { S.setFlag('tut_psalmist'); hud.showHint('Псаломщик связал врагов нитью. Убей его первым — связанные будут оглушены'); }
