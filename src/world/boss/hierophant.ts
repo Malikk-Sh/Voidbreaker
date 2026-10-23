@@ -455,8 +455,10 @@ export class Hierophant extends ScriptedEnemy {
     out.x = _bell.x; out.y = _bell.y; out.z = _bell.z;
   }
 
-  /** Позиция колокола (для огня и казни). */
-  bellPos(out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPoint(this.puppet.layout.idx('bell'), 0, 1.4, 0, out); }
+  /** Маска понтифика (огонь, казнь, отбитые кадила): точка на лице, сустав «bell» — голова. */
+  bellPos(out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPoint(this.puppet.layout.idx('bell'), 0, 0.32, 0.18, out); }
+  /** Точка на витражном нимбе за головой (угол a): угли, свет. */
+  haloPoint(a: number, out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPoint(this.puppet.layout.idx('clapper'), Math.sin(a) * 0.95, Math.cos(a) * 0.95, 0, out); }
   censerPos(i: number, out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPoint(this.puppet.layout.idx(`censer${ARMS[i]}`), 0, -0.38, 0, out); }
 }
 
@@ -583,13 +585,13 @@ export class HierophantController implements BossController {
     }
     if (this.hintT >= 0) {
       this.hintT += dt;
-      if (this.hintT > 1.6) { this.hintT = -1; this.host.say('Бей в окна после ударов — оглуши его. Колокол — его сердце.', 'kaelis'); }
+      if (this.hintT > 1.6) { this.hintT = -1; this.host.say('Бей в окна после ударов — оглуши его. Маска — его сердце.', 'kaelis'); }
     }
-    // огонь из колокола, дым кадил
+    // угли сыплются с витражного нимба, дым кадил
     this.fireT -= dt;
     if (this.fireOn && this.fireT <= 0 && !b.dead) {
       this.fireT = 0.05;
-      b.bellPos(this.tmp);
+      b.haloPoint(Math.random() * Math.PI * 2, this.tmp);
       this.host.emitFire(this.tmp.x, this.tmp.y, this.tmp.z, false);
       b.censerPos(Math.floor(Math.random() * 4), this.tmp);
       this.host.emitFire(this.tmp.x, this.tmp.y, this.tmp.z, true);

@@ -378,7 +378,7 @@ export class FeelSystem {
           this.audio.play('boss_bell', { gain: 0.5, pitch: 1.15 });
           this.vfx.lights.flash(e.x, 5, e.z, C.voidHot, 6, 8, 0.4);
           this.input.vibrate(70);
-          this.hud.flashText('В КОЛОКОЛ!', UI_GOLD, e.x, 6, e.z);
+          this.hud.flashText('В МАСКУ!', UI_GOLD, e.x, 6, e.z);
         }
       }),
       b.on('helmetHit', (e) => {
