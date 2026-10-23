@@ -203,6 +203,18 @@ export function applyReward(s: SaveData, def: StageDef, r: StageResult, rw: Rewa
 }
 
 /** Звёзды зоны и открытие врат босса (GDD §3.4: 12 из 18). */
+/** Титул за казнь босса без полученного урона (план §8.3.2). */
+export const FLAWLESS_TITLE = 'Безупречная казнь';
+
+/** Казнь босса зоны: звезда зоны в небе (2 — безупречная), титул и запись Архива за безупречную. */
+export function awardExecution(s: SaveData, zone: number, flawless: boolean): void {
+  const key = `z${zone + 1}`;
+  s.stars[key] = Math.max(s.stars[key] ?? 0, flawless ? 2 : 1);
+  if (!flawless) return;
+  if (!s.titles.includes(FLAWLESS_TITLE)) s.titles.push(FLAWLESS_TITLE);
+  if (!s.lore.includes('execution_z1')) s.lore.push('execution_z1');
+}
+
 export function zoneStars(s: SaveData): number {
   return ZONE1.filter((d) => !d.boss).reduce((a, d) => a + (s.stages[d.id]?.stars ?? 0), 0);
 }

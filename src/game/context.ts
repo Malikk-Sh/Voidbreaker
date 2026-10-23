@@ -21,3 +21,19 @@ export interface GameContext {
   flag: (id: string) => boolean;
   setFlag: (id: string) => void;
 }
+
+/**
+ * Кинозал (ревью): пересмотр сцены играет на копии сохранения. Казнь, флаги подсказок и прочие записи боя
+ * остаются в копии — звёзды, титулы и записи Архива не выдаются; в настоящее сохранение уходит только
+ * счётчик просмотров сцен (`cine`).
+ */
+export function replayContext(ctx: GameContext): GameContext {
+  const save = structuredClone(ctx.save);
+  return {
+    ...ctx,
+    save,
+    persist: () => { ctx.save.cine = { ...save.cine }; ctx.persist(); },
+    flag: (id) => !!save.flags[id],
+    setFlag: (id) => { save.flags[id] = true; },
+  };
+}

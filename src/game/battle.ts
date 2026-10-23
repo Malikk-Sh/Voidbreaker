@@ -19,6 +19,7 @@ import { World } from '../world/world';
 import { guardianSong, hierophantSong, stageSong } from '../audio/music';
 import type { MusicCue } from './director';
 import { effectiveFlashes, type Settings } from '../meta/settings';
+import { awardExecution } from '../meta/progression';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
 import { Cinematics, GUARDIAN, STAGE_VISTA_T } from './cinematics';
@@ -68,8 +69,6 @@ const REPLAY_TAIL = { kill: 1.6, intro: 0.5, execDelay: 0.4 };
 /** prologue — бой 1-1 начинается приземлением; replay — пересмотр сцены: без волн и наград, по концу — onReplayEnd. */
 export interface BattleOpts { prologue?: boolean; replay?: ReplayId }
 
-/** Титул за безупречную казнь Иерофанта (план §8.3.2). */
-export const FLAWLESS_TITLE = 'Безупречная казнь';
 /** Кратер от падения Пилота в центре 1-1 (план §8.5). */
 const CRATER = { x: 0, z: 0.5 };
 /** Стекло разбитой розы купола: бирюза и золото витражей. */
@@ -566,15 +565,8 @@ export class Battle {
         for (let i = 0; i < 70; i++) this.vfx.norm.emit({ x: x + fxRng.spread(1.5), y: y + fxRng.spread(2), z: z + fxRng.spread(1.5), vx: fxRng.spread(3), vz: fxRng.spread(3), vy: fxRng.range(-1, 3), gravity: -3.5, drag: 1.2, life: fxRng.range(2.5, 4), size: fxRng.range(0.1, 0.2), size1: 0.08, color: [0.86, 0.82, 0.72], frame: 'shard', spin: fxRng.spread(6) });
       },
       beam: (x, z) => { this.beamAt = { x, z, t: 0 }; this.feel.whiteFlash(0.45); },
-      saveStar: (flawless) => {
-        const s = ctx.save, key = `z${this.stage.zone + 1}`;
-        s.stars[key] = Math.max(s.stars[key] ?? 0, flawless ? 2 : 1);
-        if (flawless) {
-          if (!s.titles.includes(FLAWLESS_TITLE)) s.titles.push(FLAWLESS_TITLE);
-          if (!s.lore.includes('execution_z1')) s.lore.push('execution_z1');
-        }
-        ctx.persist();
-      },
+      // в пересмотре ctx.save — копия (replayContext): награда остаётся в ней
+      saveStar: (flawless) => { awardExecution(ctx.save, this.stage.zone, flawless); ctx.persist(); },
       finishFight: () => { if (this.outcome === 'won') this.endT = 1.2; },
       dust: (x, z) => {
         for (let i = 0; i < 46; i++) this.vfx.norm.emit({ x: x + fxRng.spread(9), y: fxRng.range(7, 11), z: z + fxRng.spread(8), vy: -fxRng.range(0.5, 1.5), gravity: -1.5, life: 2.6, size: fxRng.range(0.15, 0.35), size1: 0.6, color: C.dust, alpha: 0.4, drag: 0.6, frame: 'smoke' });

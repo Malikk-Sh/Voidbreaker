@@ -8,6 +8,9 @@ import { REPLAY } from '../src/game/battle';
 import { CINEMA } from '../src/data/cinema';
 import { stageById } from '../src/data/stages';
 import { CameraRig } from '../src/world/camera';
+import { replayContext, type GameContext } from '../src/game/context';
+import { FLAWLESS_TITLE, awardExecution } from '../src/meta/progression';
+import { newSave, type SaveData } from '../src/meta/save';
 
 const DT = 1 / 60;
 const SPOTS = { x: 0, z: 0.5, shardX: 0.9, shardZ: 2.1, huskX: -1.2, huskZ: -6 };
@@ -79,5 +82,32 @@ describe('кат-сцены: приземление, ракурсы, Киноз�
     d.full = true;
     d.play(tr);
     expect(d.short).toBe(false);
+  });
+
+  it('Кинозал: пересмотр казни не выдаёт звезду, титул и запись — меняется только счётчик сцен', () => {
+    const real = newSave();
+    real.stars.z1 = 1;
+    let writes = 0;
+    const ctx = { save: real, settings: real.settings, persist: () => { writes++; }, flag: (id: string) => !!real.flags[id], setFlag: (id: string) => { real.flags[id] = true; } } as unknown as GameContext;
+    const before = structuredClone(real);
+    const rc = replayContext(ctx);
+    // всё, что бой пишет в сохранение на казни: звезда, подсказки, отметка просмотра (как Director.markSeen)
+    awardExecution(rc.save, 0, true);
+    rc.persist();
+    rc.setFlag('tut_shatter');
+    expect(rc.flag('tut_shatter')).toBe(true);
+    rc.save.cine.hierophantEnd = (rc.save.cine.hierophantEnd ?? 0) + 1;
+    rc.persist();
+    const strip = (s: SaveData) => { const { cine, updatedAt, ...rest } = s; void cine; void updatedAt; return rest; };
+    expect(strip(real)).toEqual(strip(before));
+    expect(real.stars.z1).toBe(1);
+    expect(real.titles).not.toContain(FLAWLESS_TITLE);
+    expect(real.lore).not.toContain('execution_z1');
+    expect(real.cine.hierophantEnd).toBe(1);
+    expect(writes).toBeGreaterThan(0);
+    // в настоящем бою та же казнь награждает
+    awardExecution(real, 0, true);
+    expect(real.stars.z1).toBe(2);
+    expect(real.titles).toContain(FLAWLESS_TITLE);
   });
 });

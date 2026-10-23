@@ -9,7 +9,7 @@ import { computeStats } from '../meta/progression';
 import { stageById, type StageDef } from '../data/stages';
 import type { Loadout } from '../world/abilities';
 import { Battle, type BattleOpts, type BattleOutcome } from './battle';
-import type { GameContext } from './context';
+import { replayContext, type GameContext } from './context';
 
 export type Screen = 'title' | 'hub' | 'map' | 'battle' | 'results';
 
@@ -128,9 +128,11 @@ export class Game {
     this.last = now;
     if (this.running) {
       try {
-        if (this.battle) {
-          this.battle.frame(dt);
-          this.ctx.hud.draw(dt, this.battle.hudFrame());
+        const b = this.battle;
+        if (b) {
+          b.frame(dt);
+          // бой мог закрыться посреди своего кадра (выход из пересмотра) — HUD уже не его
+          if (this.battle === b) this.ctx.hud.draw(dt, b.hudFrame());
         } else {
           this.ctx.input.update(this.ctx.time.real);
           this.ctx.time.update(dt);
@@ -177,7 +179,8 @@ export class Game {
     const stats = computeStats(this.ctx.save, this.ctx.settings.autoAim);
     // HUD виден по умолчанию; сцена в конструкторе боя (пролог) может его скрыть
     this.ctx.hud.visible = true;
-    const b = new Battle(this.ctx, def, stats, this.loadout(), opts);
+    // пересмотр из Кинозала — на копии сохранения: без звёзд, титулов и записей
+    const b = new Battle(opts.replay ? replayContext(this.ctx) : this.ctx, def, stats, this.loadout(), opts);
     b.onEnd = (o) => this.onBattleEnd?.(o);
     this.battle = b;
     this.screen = 'battle';

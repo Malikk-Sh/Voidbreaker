@@ -1,6 +1,6 @@
 /**
  * Дымовой e2e-тест собранной игры (CI): титул без ошибок, затем бой 1-1 —
- * мир идёт, враги появляются, удары по ним проходят. Запуск: npm run build && npm run smoke.
+ * мир идёт, враги появляются, удары по ним проходят; пересмотр в Кинозале не трогает сохранение. Запуск: npm run build && npm run smoke.
  */
 import { preview } from 'vite';
 import { chromium } from 'playwright';
@@ -49,6 +49,22 @@ try {
   check(st.dmg > 0, `урон по врагам нанесён (${Math.round(st.dmg)})`);
   check(st.kills >= 1, `враги побеждены (${st.kills})`);
   if (process.env.SMOKE_SHOT) await page.screenshot({ path: process.env.SMOKE_SHOT });
+
+  // Кинозал: пересмотр казни Иерофанта не меняет сохранение (кроме счётчика просмотров сцен)
+  await page.goto(`${base}?q=low&screen=hub`);
+  await page.waitForFunction(() => window.__app?.current === 'hub', null, { timeout: 15000 });
+  const readSave = () => page.evaluate(() => {
+    const raw = localStorage.getItem('voidbreaker.save.v1');
+    const s = raw ? JSON.parse(JSON.parse(raw).data) : {};
+    delete s.cine; delete s.updatedAt;
+    return JSON.stringify(s);
+  });
+  const saveBefore = await readSave();
+  await page.evaluate(() => window.__app.watchScene('hierophantEnd'));
+  await page.waitForFunction(() => window.__app.current === 'battle', null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__app.current === 'hub', null, { timeout: 90000 });
+  await page.waitForTimeout(1500);
+  check(await readSave() === saveBefore, 'пересмотр казни в Кинозале не меняет сохранение');
   check(errors.length === 0, `без ошибок в консоли${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 } catch (e) {
   check(false, String(e));

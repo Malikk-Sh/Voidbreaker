@@ -125,7 +125,8 @@ export class App {
       this.pauseBtn.style.display = 'block';
       const b = this.game.battle!;
       b.world.bus.on('playerHurt', (e) => { this.lastDeathSource = e.source; });
-      if (opts.replay) b.onReplayEnd = () => this.go('hub');
+      // выход — после кадра боя: закрывать бой изнутри его же frame() нельзя
+      if (opts.replay) b.onReplayEnd = () => queueMicrotask(() => { if (this.game.battle === b) this.go('hub'); });
     };
     // после пролога — без разреза: белая вспышка купола переходит во вспышку приземления
     if (opts.prologue) run(); else wipe(this.layer, run);
