@@ -136,6 +136,8 @@ export class Hero implements Actor {
   get invulnerable(): boolean { return this.clock < this.invulnUntil || this.state === 'dead'; }
   get dashIframes(): boolean { return this.state === 'dash' && this.clock - this.dashStart <= PLAYER_BASE.dashIframes; }
   get eclipse(): boolean { return this.clock < this.eclipseUntil; }
+  /** Идёт заряженный удар с полным зарядом (волна Пустоты). */
+  get chargedFull(): boolean { return this.state === 'charged' && this.chargedWide > 1; }
   get alive(): boolean { return !this.dead; }
 
   addResonance(v: number): void {

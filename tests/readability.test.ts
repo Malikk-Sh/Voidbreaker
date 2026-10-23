@@ -25,7 +25,8 @@ describe('читаемость боя (разбор)', () => {
   });
 });
 
-import { stageById, TRAINING, TRAINING_DUMMIES, TRAINING_TIPS, ZONE1 } from '../src/data/stages';
+import { DRILL_MOVES, stageById, TRAINING, TRAINING_DRILLS, TRAINING_DUMMIES, TRAINING_SPAR, TRAINING_TIPS, ZONE1 } from '../src/data/stages';
+import { VOID_BLADE } from '../src/data/weapons';
 
 describe('тренировочный зал (разбор)', () => {
   it('отдельный этап вне Зоны: без волн, с манекенами и памяткой', () => {
@@ -35,5 +36,22 @@ describe('тренировочный зал (разбор)', () => {
     expect(TRAINING_DUMMIES.kinds.length).toBeGreaterThanOrEqual(3);
     expect(TRAINING_DUMMIES.kinds).toContain('golem');
     expect(TRAINING_TIPS.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('ревью: спарринг и упражнения — Жнец для уклонений, каждое упражнение засчитывается настоящим приёмом', () => {
+    expect(TRAINING_SPAR.kind).toBe('reaper');
+    expect(TRAINING_SPAR.leash).toBeLessThan(Math.hypot(TRAINING_SPAR.dist, TRAINING_SPAR.side));
+    const ids = new Set(TRAINING_DRILLS.map((d) => d.id));
+    expect(ids.size).toBe(TRAINING_DRILLS.length);
+    expect(ids.has('counter') && ids.has('charged') && ids.has('shatter')).toBe(true);
+    // приёмы, по которым засчитываются упражнения, есть у клинка
+    const moves = new Set<string>([...VOID_BLADE.combo.map((m) => m.id), ...Object.values(VOID_BLADE).filter((v): v is { id: string } => !!v && typeof v === 'object' && 'id' in v).map((v) => v.id)]);
+    for (const [move, drill] of Object.entries(DRILL_MOVES)) {
+      expect(moves.has(move), move).toBe(true);
+      expect(ids.has(drill)).toBe(true);
+    }
+    // в памятке — все упражнения и правила зала
+    for (const d of TRAINING_DRILLS) expect(TRAINING_TIPS).toContain(d.text);
+    expect(TRAINING_TIPS[TRAINING_TIPS.length - 1]).toMatch(/Жнец/);
   });
 });

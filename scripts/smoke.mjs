@@ -65,6 +65,17 @@ try {
   await page.waitForFunction(() => window.__app.current === 'hub', null, { timeout: 90000 });
   await page.waitForTimeout(1500);
   check(await readSave() === saveBefore, 'пересмотр казни в Кинозале не меняет сохранение');
+
+  // тренировочный зал: Жнец-спарринг встаёт, упражнение засчитывается настоящим приёмом
+  await page.goto(`${base}?q=low&stage=training`);
+  await page.waitForFunction(() => !!window.__vb?.battle, null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__vb.world.enemies.some((e) => e.kind === 'reaper' && !e.dead), null, { timeout: 15000 });
+  const drill = await page.evaluate(() => {
+    const bt = window.__vb.battle, h = bt.world.hero;
+    h.beginMove(h.weapon.combo[3], 0, 0.02);
+    return bt.drills.done.has('rift') && bt.drills.lines[0].done === true;
+  });
+  check(drill, 'тренировка: спарринг-Жнец на месте, упражнение засчитано');
   check(errors.length === 0, `без ошибок в консоли${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 } catch (e) {
   check(false, String(e));

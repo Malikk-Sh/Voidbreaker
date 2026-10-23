@@ -40,7 +40,8 @@ import { G, obsidianMaterial } from '../render/materials';
 import { buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
 import type { EnemyKind } from '../data/enemies';
-import { TRAINING_DUMMIES, TRAINING_TIPS } from '../data/stages';
+import { DRILL_MOVES, TRAINING_DRILLS, TRAINING_DUMMIES, TRAINING_SPAR, TRAINING_TIPS, type DrillId } from '../data/stages';
+import type { TrainingLine } from '../ui/hud';
 import { IGNITE, LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
 
 
@@ -168,7 +169,9 @@ export class Battle {
   /** Пересмотр сцены из Кинозала. */
   private readonly replay: { id: ReplayId; target: Enemy | null; seen: boolean; t: number; done: boolean; setup?: boolean } | null;
   /** Тренировочный зал: места манекенов, кто стоит и сколько ждать нового. */
-  private training: { x: number; z: number; kind: EnemyKind; e: Enemy | null; t: number }[] | null = null;
+  private training: { x: number; z: number; kind: EnemyKind; e: Enemy | null; t: number; spar?: boolean }[] | null = null;
+  /** Упражнения зала: выполненные и строки панели (один массив на всё время — без мусора на кадр). */
+  private drills: { done: Set<DrillId>; lines: TrainingLine[] } | null = null;
   /** Сцена пересмотра закончилась — App возвращает в Святилище. */
   onReplayEnd: (() => void) | null = null;
   private landing: { t: number; visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean; call: number } | null = null;
@@ -954,9 +957,11 @@ export class Battle {
 
   /** Тренировочный зал: волн нет, Пилот неуязвим; манекены дугой перед ним (TRAINING_DUMMIES). */
   private startTraining(): void {
-    const w = this.world, h = w.hero, D = TRAINING_DUMMIES;
+    const w = this.world, h = w.hero, D = TRAINING_DUMMIES, P = TRAINING_SPAR;
     this.runner.introTime = 1e9;
-    h.invulnUntil = 1e9;
+    // Пилот уязвим (иначе вне рывка удар Жнеца проходил бы молча), но урон — минимальный, здоровье тут же
+    // возвращается (updateTraining): промах виден толчком, вспышкой и рангом
+    w.damageTakenMul = 0;
     const fx = Math.sin(h.facing), fz = Math.cos(h.facing), sx = fz, sz = -fx;
     const o = { x: 0, z: 0 };
     this.training = D.kinds.map((kind, i) => {
@@ -964,21 +969,47 @@ export class Battle {
       this.arena.nearestWalkable(h.x + fx * D.dist + sx * k * D.spread, h.z + fz * D.dist + sz * k * D.spread, o);
       return { x: o.x, z: o.z, kind, e: null, t: 0.3 + i * 0.25 };
     });
+    this.arena.nearestWalkable(h.x + fx * P.dist + sx * P.side, h.z + fz * P.dist + sz * P.side, o);
+    this.training.push({ x: o.x, z: o.z, kind: P.kind, e: null, t: 1.2, spar: true });
+    // упражнения: засчитываются событиями боя
+    const lines: TrainingLine[] = [...TRAINING_DRILLS.map((d) => ({ text: d.text, done: false })), { text: TRAINING_TIPS[TRAINING_TIPS.length - 1], dim: true }];
+    this.drills = { done: new Set(), lines };
+    w.bus.on('moveStart', (e) => this.drill(DRILL_MOVES[e.id]));
+    w.bus.on('impact', (e) => { if (e.kind === 'rift' && h.chargedFull) this.drill('charged'); });
+    w.bus.on('shatterStart', () => this.drill('shatter'));
   }
 
-  /** Разбитый манекен встаёт через TRAINING_DUMMIES.respawn с; манекены стоят и не бьют. */
+  /** Упражнение засчитано: золотой ромб в панели, баннер и звук; все — «зал пройден». */
+  private drill(id: DrillId | undefined): void {
+    const D = this.drills;
+    if (!D || !id || D.done.has(id)) return;
+    D.done.add(id);
+    const i = TRAINING_DRILLS.findIndex((d) => d.id === id);
+    D.lines[i].done = true;
+    const hud = this.ctx.hud;
+    this.ctx.audio.play('ability_ready', { gain: 0.6 });
+    if (D.done.size === TRAINING_DRILLS.length) hud.bigBanner('ЗАЛ ПРОЙДЕН', 'Все связки отработаны', 'gold', 2.8, 42);
+    else hud.bigBanner('ВЫПОЛНЕНО', TRAINING_DRILLS[i].text, 'gold', 1.6, 30);
+  }
+
+  /** Разбитый манекен встаёт через respawn с; манекены стоят, Жнец бьёт без урона и не уходит от своего места. */
   private updateTraining(realDt: number): void {
-    const w = this.world, h = w.hero;
-    h.invulnUntil = Math.max(h.invulnUntil, h.clock + 99);
+    const w = this.world, h = w.hero, P = TRAINING_SPAR;
+    h.hp = h.maxHp;
     for (const slot of this.training!) {
       if (slot.e && !slot.e.dead) continue;
-      if (slot.e) { slot.e = null; slot.t = TRAINING_DUMMIES.respawn; }
+      if (slot.e) { slot.e = null; slot.t = slot.spar ? P.respawn : TRAINING_DUMMIES.respawn; }
       slot.t -= realDt;
       if (slot.t > 0) continue;
       const e = createEnemy(slot.kind, { zone: w.zone, stage: w.stage, mode: w.mode });
       e.x = slot.x; e.z = slot.z;
       e.facing = Math.atan2(h.x - e.x, h.z - e.z);
-      (e as unknown as { think: () => void }).think = () => {};
+      const brain = e as unknown as { think: (...a: unknown[]) => void };
+      if (slot.spar) {
+        // на поводке: ведёт бой, только пока Пилот рядом с его местом
+        const think = brain.think.bind(e), post = { x: slot.x, z: slot.z };
+        brain.think = (...a: unknown[]) => { if (Math.hypot(h.x - post.x, h.z - post.z) < P.leash) think(...a); };
+      } else brain.think = () => {};
       w.addEnemy(e);
       slot.e = e;
     }
@@ -1136,7 +1167,7 @@ export class Battle {
       fps: this.fps,
       showFps: this.ctx.settings.showFps,
       debugNav: DEBUG_NAV,
-      training: this.stage.training ? TRAINING_TIPS : undefined,
+      training: this.drills?.lines,
     };
   }
 

@@ -17,6 +17,9 @@ interface Banner { text: string; sub?: string; t: number; dur: number; color: No
 /** Короткая надпись в мире у цели («РАСКОЛ», «В БЕЗДНУ»), над героем — не дольше 0.5 с. */
 interface WorldText { text: string; color: string; x: number; y: number; z: number; t: number; dur: number }
 
+/** Строка панели тренировки. */
+export interface TrainingLine { text: string; done?: boolean; dim?: boolean }
+
 export interface HudFrame {
   world: World;
   abilities: Abilities;
@@ -38,7 +41,8 @@ export interface HudFrame {
   /** Отладка навигации (?nav): стрелки поля потоков и непроходимые клетки вокруг героя. */
   debugNav?: boolean;
   /** Тренировочный зал: памятка приёмов слева. */
-  training?: readonly string[];
+  /** Тренировочный зал: упражнения (done — выполнено) и строка правил (dim). */
+  training?: readonly TrainingLine[];
 }
 
 /** Кто целится издалека — им шевроны у края экрана. */
@@ -798,21 +802,30 @@ export class Hud {
   }
 
   /** Памятка тренировочного зала: тёмная плашка слева посередине, строки приёмов. */
-  private drawTraining(lines: readonly string[], L: number, s: number): void {
-    const g = this.g, lh = 17 * s, pad = 10 * s;
+  private drawTraining(lines: readonly TrainingLine[], L: number, s: number): void {
+    const g = this.g, lh = 17 * s, pad = 10 * s, mark = 12 * s;
     g.save();
     g.font = `600 ${Math.round(12 * s)}px ${FONT_BODY}`;
     let tw = 0;
-    for (const l of lines) tw = Math.max(tw, g.measureText(l).width);
-    const w = Math.min(tw + pad * 2 + 10 * s, this.w * 0.42), h = lines.length * lh + pad * 2 + 16 * s;
+    for (const l of lines) tw = Math.max(tw, g.measureText(l.text).width);
+    const w = Math.min(tw + pad * 2 + mark + 10 * s, this.w * 0.42), h = lines.length * lh + pad * 2 + 16 * s;
     const x0 = L, y0 = Math.max(this.topEdge + 8 * s, this.h * 0.5 - h / 2);
     g.globalAlpha = 0.82;
     g.fillStyle = 'rgba(10,8,18,0.8)';
     g.fillRect(x0, y0, w, h);
     g.strokeStyle = UI.gold; g.lineWidth = 1; g.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
     g.globalAlpha = 1;
-    this.text('ТРЕНИРОВКА', x0 + pad, y0 + pad + 9 * s, 10 * s, UI.goldHi, 'bodyBold', 'left');
-    lines.forEach((l, i) => this.text(l, x0 + pad, y0 + pad + 16 * s + (i + 0.8) * lh, 12 * s, i === lines.length - 1 ? UI.dim : UI.ivory, 'body', 'left'));
+    const done = lines.filter((l) => l.done).length, total = lines.filter((l) => !l.dim).length;
+    this.text(`ТРЕНИРОВКА · ${done}/${total}`, x0 + pad, y0 + pad + 9 * s, 10 * s, UI.goldHi, 'bodyBold', 'left');
+    lines.forEach((l, i) => {
+      const y = y0 + pad + 16 * s + (i + 0.8) * lh;
+      // ромб упражнения: пустой — не сделано, золотой — засчитано
+      if (!l.dim) {
+        if (l.done) this.diamond(x0 + pad + 4 * s, y - 4 * s, 3.6 * s, UI.gold);
+        else this.diamond(x0 + pad + 4 * s, y - 4 * s, 3.6 * s, undefined, UI.dim, 1);
+      }
+      this.text(l.text, x0 + pad + (l.dim ? 0 : mark), y, 12 * s, l.dim ? UI.dim : l.done ? UI.goldHi : UI.ivory, 'body', 'left');
+    });
     g.restore();
   }
 
