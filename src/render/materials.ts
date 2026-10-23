@@ -145,6 +145,12 @@ float fogAmount() {
 }
 `;
 
+/**
+ * Глубина провалов (ревью: «границы проходов теряются среди обломков»): на сколько метров ниже пола начинается
+ * затемнение, где оно полное и до какой доли яркости. Край моста — светлая плита над тёмной бездной.
+ */
+export const DEPTH_DARK = { from: 0.3, to: 6, min: 0.2 };
+
 const FRAG = /* glsl */ `
 ${FRAG_COMMON}
 void main() {
@@ -213,6 +219,8 @@ void main() {
   if (dissolve > 0.001) col += uEmissiveColor * smoothstep(dissolve + 0.07, dissolve, nz) * 5.0;
 
   col = mix(col, vec3(1.6), clamp(flash, 0.0, 1.0));
+  // глубина провала (ревью): ниже пола всё темнеет — бока плит, падающие обломки, стены бездны
+  col *= mix(1.0, ${DEPTH_DARK.min.toFixed(2)}, smoothstep(${DEPTH_DARK.from.toFixed(2)}, ${DEPTH_DARK.to.toFixed(2)}, -vWP.y));
   col = mix(col, uFogColor, fogAmount());
   gl_FragColor = vec4(col, 1.0);
 }

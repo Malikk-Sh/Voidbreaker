@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ARENAS, inStar, nearestRay, starRay } from '../src/data/arenas';
 import { Arena, TileState } from '../src/world/arena';
 import { judgmentGroups, JUDGMENT } from '../src/world/boss/hierophant';
+import { starEdges } from '../src/gen/zone/arenaView';
+import { DEPTH_DARK, obsidianMaterial } from '../src/render/materials';
 
 const ST = ARENAS.hierophant.star!;
 
@@ -57,5 +59,30 @@ describe('прерванное появление', () => {
     e.puppet.dissolve = 0.6;
     e.setState('attack');
     expect(e.puppet.dissolve).toBe(0);
+  });
+
+  it('ревью: край моста отмечен — у каждой плиты на краю есть кромка в сторону бездны, внутри — нет', () => {
+    const a = new Arena(ARENAS.hierophant);
+    const edges = starEdges(a);
+    expect(edges.length).toBeGreaterThan(40);
+    for (const e of edges) {
+      expect(a.tileAt(e.x, e.z)?.cross).toBe(true);
+      expect(a.tileAt(e.x + e.dx * a.t, e.z + e.dz * a.t)?.cross ?? false).toBe(false);
+    }
+    // плита в центре круга окружена мостом — кромок у неё нет
+    expect(edges.some((e) => Math.hypot(e.x, e.z) < ST.r - 1.5)).toBe(false);
+    // у острия каждого луча кромка есть
+    for (let k = 0; k < ST.rays; k++) {
+      const ang = starRay(ST, k), d = ST.r + ST.len - 0.5;
+      expect(edges.some((e) => Math.hypot(e.x - Math.sin(ang) * d, e.z - Math.cos(ang) * d) < 1.2)).toBe(true);
+    }
+  });
+
+  it('ревью: глубина провала — всё ниже пола темнеет (бока плит, обломки), пол — нет', () => {
+    const m = obsidianMaterial({});
+    expect(m.fragmentShader).toContain('-vWP.y');
+    expect(DEPTH_DARK.from).toBeGreaterThan(0.1);
+    expect(DEPTH_DARK.min).toBeLessThan(0.4);
+    m.dispose();
   });
 });

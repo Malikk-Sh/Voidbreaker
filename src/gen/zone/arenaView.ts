@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { buildDomeRose } from './space';
 import { Rng } from '../../core/rng';
 import { hexToLinear } from '../../core/math';
-import { inArenaShape, inOutline, inPart, type ArenaDef, type ShapePart } from '../../data/arenas';
+import { inArenaShape, inOutline, inPart, starRay, type ArenaDef, type ShapePart } from '../../data/arenas';
 import { GeomBuilder, mat, matAlong } from '../geom/build';
 import { box, prism, shard, rock, lathe, starPlate } from '../geom/prims';
 import {
@@ -68,6 +68,23 @@ function tileGeometry(t: number, variant: number, seed: number): THREE.BufferGeo
     b.add(prism(4, r * 0.28, r * 0.28, 0.016), { matrix: mat(0, -0.004, 0), color: OBS_DEEP });
   }
   return b.build();
+}
+
+/**
+ * Звёздный мост (ревью: «подчеркнуть безопасные края и направление лучей»): золотая кромка по сторонам плит моста,
+ * что смотрят в бездну, и инкрустация по оси каждого луча. Ширина и высота кромки, ширина оси (м); свечение до
+ * обрушения (мозаика в полу) и после (край над пропастью).
+ */
+export const STAR_EDGE = { w: 0.09, h: 0.012, axis: 0.06, dim: 0.25, lit: 1.5 };
+
+/** Стороны плит моста, что смотрят в бездну: центр плиты и направление наружу (±1 по одной оси). */
+export function starEdges(arena: Arena): { x: number; z: number; dx: number; dz: number }[] {
+  const T = arena.t, out: { x: number; z: number; dx: number; dz: number }[] = [];
+  for (const t of arena.tiles) {
+    if (!t.cross) continue;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!arena.tileAt(t.x + dx * T, t.z + dz * T)?.cross) out.push({ x: t.x, z: t.z, dx, dz });
+  }
+  return out;
 }
 
 /** Граница внешнего контура (провалы не в счёт): расстояние от центра до края по направлению. */
@@ -170,7 +187,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     const onCross = t.cross && (def.star
       ? [[T, 0], [-T, 0], [0, T], [0, -T]].some(([dx, dz]) => !arena.tileAt(t.x + dx, t.z + dz)?.cross)
       : !!def.cross && (Math.abs(Math.abs(t.x) - def.cross.w / 2) < T * 0.6 || Math.abs(Math.abs(t.z) - def.cross.w / 2) < T * 0.6));
-    buckets[onCross ? 2 : k < 0.06 ? 1 : k < 0.1 ? 2 : 0].push(idx);
+    // у звёздного моста край отмечает золотая кромка (STAR_EDGE) — ромбы на краю только шумели бы
+    buckets[onCross && !def.star ? 2 : k < 0.06 ? 1 : k < 0.1 ? 2 : 0].push(idx);
   });
   const floor: THREE.InstancedMesh[] = [];
   const tileRefs: { mesh: THREE.InstancedMesh; slot: number; tile: number; rx: number; rz: number }[] = [];
@@ -215,6 +233,35 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   arena.tilesDirty = true;
   syncTiles();
   for (const m of floor) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+
+  // ---------- звёздный мост: золотые кромки над бездной и оси лучей ----------
+  let starEdge: { mat: ObsidianMaterial; k: number } | null = null;
+  if (def.star) {
+    const st = def.star, T = arena.t, E = new GeomBuilder();
+    E.color = GOLD; E.shade = 0.04;
+    for (const { x, z, dx, dz } of starEdges(arena)) {
+      const wx = dx ? STAR_EDGE.w : T * 0.98, wz = dz ? STAR_EDGE.w : T * 0.98;
+      E.add(box(wx, STAR_EDGE.h, wz), { matrix: mat(x + dx * T * 0.45, 0.004, z + dz * T * 0.45), emissive: -1, color: GOLD });
+    }
+    // ось луча — от круга к острию: куда ведёт мост
+    for (let k = 0; k < st.rays; k++) {
+      const a = starRay(st, k), r0 = st.r * 0.62, r1 = st.r + st.len - 0.45, mid = (r0 + r1) / 2;
+      E.add(box(STAR_EDGE.axis, STAR_EDGE.h, r1 - r0), { matrix: mat(Math.sin(a) * mid, 0.004, Math.cos(a) * mid, 0, a, 0), emissive: -0.8, color: GOLD });
+      E.add(starPlate(7, 0.2, 0.09, STAR_EDGE.h), { matrix: mat(Math.sin(a) * (r1 + 0.18), 0.004, Math.cos(a) * (r1 + 0.18), Math.PI / 2, 0, a), emissive: -1, color: GOLD });
+    }
+    const em = obsidianMaterial({ rim: look.rim, rimStrength: 0.05, emissive: look.veins, emissive2: look.warm, emissiveStrength: STAR_EDGE.dim, spec: 1.0 });
+    const mesh = new THREE.Mesh(E.build(), em);
+    mesh.frustumCulled = false;
+    root.add(mesh);
+    starEdge = { mat: em, k: STAR_EDGE.dim };
+  }
+  /** Доля обрушенных плит вне моста (для кромок). */
+  const starGone = (): number => {
+    let n = 0, g = 0;
+    for (const t of arena.tiles) if (!t.cross) { n++; if (t.state === TileState.Gone) g++; }
+    return n ? g / n : 0;
+  };
+  let starCheck = 0;
 
   // ---------- декор ----------
   const D = new GeomBuilder();
@@ -778,6 +825,13 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     root, floor, flames, pools, runeRadius, syncTiles,
     lightConstellations() { cTime = 0; },
     update(realDt: number) {
+      // кромки моста разгораются, когда пол вокруг обрушился (раз в 0.25 с — без перебора плит каждый кадр)
+      if (starEdge && (starCheck -= realDt) <= 0) {
+        starCheck = 0.25;
+        const want = STAR_EDGE.dim + (STAR_EDGE.lit - STAR_EDGE.dim) * Math.min(1, starGone() * 2);
+        starEdge.k += (want - starEdge.k) * 0.35;
+        starEdge.mat.uniforms.uEmissiveStrength.value = starEdge.k;
+      }
       if (spires.length && (leanK > 0.001 || leanT > 0)) {
         leanK += (leanT - leanK) * Math.min(1, realDt / 6);
         spinA += realDt * 0.01 * leanK;
