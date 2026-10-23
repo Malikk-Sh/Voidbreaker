@@ -44,5 +44,10 @@ export const RANKS = [
 export type RankId = (typeof RANKS)[number]['id'];
 
 export const RANK_POINTS = { hit: 1, finisher: 4, perfectDodge: 10, shatter: 12, variety: 5 };
-/** Сброс счётчика через 3 с без ударов или при уроне. */
+/** Счётчик ударов ×N гаснет через 3 с без ударов (и при уроне). */
 export const RANK_TIMEOUT = 3;
+/**
+ * Ранг тает постепенно (разбор): через grace с без ударов очки утекают со скоростью max(min, очки × frac) в
+ * секунду — S → D примерно за 15 с, по ступени, а не обрывом. Урон — одна ступень вниз, а не сразу «D».
+ */
+export const RANK_DECAY = { grace: 2, frac: 0.15, min: 6 };

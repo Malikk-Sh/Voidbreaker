@@ -32,6 +32,8 @@ export interface StageDef {
   boss?: boolean;
   /** Подсказки онбординга (GDD §20) — показываются один раз. */
   tutorial?: 'basics' | 'charged' | 'shatter' | 'upgrade' | 'ult';
+  /** Тренировочный зал: манекены вместо волн, без наград и прогресса. */
+  training?: boolean;
 }
 
 /** Награда за этап (GDD §8.5): осколки_первое = 120 × (1 + 0.35 × g). */
@@ -134,4 +136,24 @@ export const ZONE1_INFO = {
   bossGate: 12,
 };
 
-export function stageById(id: string): StageDef | undefined { return ZONE1.find((s) => s.id === id); }
+/**
+ * Тренировочный зал (разбор): Нефы без волн — манекены стоят и не бьют, разбитые встают снова; памятка веток
+ * комбо на экране. Не входит в Зону и карту: ни наград, ни звёзд.
+ */
+export const TRAINING: StageDef = { id: 'training', zone: 0, index: 0, name: 'Тренировочный зал', arena: 'naves', waves: [], training: true };
+
+/** Манекены зала: два лёгких (серии, подброс) и тяжёлый (оглушение, Раскол); через сколько встаёт разбитый (с). */
+export const TRAINING_DUMMIES = { kinds: ['husk', 'golem', 'husk'] as const, dist: 5.5, spread: 3.2, respawn: 1.8 };
+
+/** Памятка зала: ветки комбо и приёмы (то, что в бою спрятано в таймингах). */
+export const TRAINING_TIPS = [
+  'Атака ×4 — финишер «Нисходящий разлом»',
+  'Пауза после 2-го удара — Шквал, затем Крест',
+  'Рывок и сразу атака — Рассечение → Восходящий месяц → Звездопад',
+  'Идеальное уклонение и атака — Контрудар',
+  'Удерживать атаку — заряд; полный — волна Пустоты',
+  'Оглушённого добей финишером или зарядом — Раскол',
+  'Манекены не бьют. Выход — пауза',
+];
+
+export function stageById(id: string): StageDef | undefined { return id === TRAINING.id ? TRAINING : ZONE1.find((s) => s.id === id); }

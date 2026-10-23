@@ -39,6 +39,7 @@ import { G, obsidianMaterial } from '../render/materials';
 import { buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
 import type { EnemyKind } from '../data/enemies';
+import { TRAINING_DUMMIES, TRAINING_TIPS } from '../data/stages';
 import { LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
 
 
@@ -165,6 +166,8 @@ export class Battle {
   private disposed = false;
   /** Пересмотр сцены из Кинозала. */
   private readonly replay: { id: ReplayId; target: Enemy | null; seen: boolean; t: number; done: boolean } | null;
+  /** Тренировочный зал: места манекенов, кто стоит и сколько ждать нового. */
+  private training: { x: number; z: number; kind: EnemyKind; e: Enemy | null; t: number }[] | null = null;
   /** Сцена пересмотра закончилась — App возвращает в Святилище. */
   onReplayEnd: (() => void) | null = null;
   private landing: { t: number; visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean; call: number } | null = null;
@@ -267,6 +270,7 @@ export class Battle {
     ctx.time.reset();
     if (opts.prologue) this.startLanding();
     else if (this.replay) this.startReplay();
+    else if (stage.training) this.startTraining();
     else if (!stage.boss) {
       // пролёт над ареной; первая волна — когда камера опустится к Пилоту
       const ab = this.arena.bounds;
@@ -462,6 +466,7 @@ export class Battle {
     this.updateMood(realDt);
     if (this.landing) this.updateLanding(realDt);
     if (this.replay) this.updateReplay(realDt);
+    if (this.training) this.updateTraining(realDt);
     for (const p of this.douseOut) this.vfx.smokePuff(p[0], p[1], p[2]);
     this.vfx.sync(this.world, realDt, dtW);
     this.vfx.slashes.update(this.ctx.time.world);
@@ -950,6 +955,38 @@ export class Battle {
     }, { hud: false });
   }
 
+  /** Тренировочный зал: волн нет, Пилот неуязвим; манекены дугой перед ним (TRAINING_DUMMIES). */
+  private startTraining(): void {
+    const w = this.world, h = w.hero, D = TRAINING_DUMMIES;
+    this.runner.introTime = 1e9;
+    h.invulnUntil = 1e9;
+    const fx = Math.sin(h.facing), fz = Math.cos(h.facing), sx = fz, sz = -fx;
+    const o = { x: 0, z: 0 };
+    this.training = D.kinds.map((kind, i) => {
+      const k = i - (D.kinds.length - 1) / 2;
+      this.arena.nearestWalkable(h.x + fx * D.dist + sx * k * D.spread, h.z + fz * D.dist + sz * k * D.spread, o);
+      return { x: o.x, z: o.z, kind, e: null, t: 0.3 + i * 0.25 };
+    });
+  }
+
+  /** Разбитый манекен встаёт через TRAINING_DUMMIES.respawn с; манекены стоят и не бьют. */
+  private updateTraining(realDt: number): void {
+    const w = this.world, h = w.hero;
+    h.invulnUntil = Math.max(h.invulnUntil, h.clock + 99);
+    for (const slot of this.training!) {
+      if (slot.e && !slot.e.dead) continue;
+      if (slot.e) { slot.e = null; slot.t = TRAINING_DUMMIES.respawn; }
+      slot.t -= realDt;
+      if (slot.t > 0) continue;
+      const e = createEnemy(slot.kind, { zone: w.zone, stage: w.stage, mode: w.mode });
+      e.x = slot.x; e.z = slot.z;
+      e.facing = Math.atan2(h.x - e.x, h.z - e.z);
+      (e as unknown as { think: () => void }).think = () => {};
+      w.addEnemy(e);
+      slot.e = e;
+    }
+  }
+
   /**
    * Пересмотр (Кинозал): для kill-cam — Страж проявляется перед Пилотом и сразу получает добивающий удар;
    * интро Иерофанта играет само (полной версией). Волн нет, Пилот неуязвим, HUD скрыт.
@@ -1069,16 +1106,17 @@ export class Battle {
     return {
       world: this.world, abilities: this.abilities, input: this.ctx.input,
       project: (x, y, z, out) => r.project(x, y, z, out),
-      wave: this.runner.phase === 'intro' || this.stage.boss ? null : { index: Math.max(0, this.runner.waveIdx), total: this.runner.waveTotal },
+      wave: this.runner.phase === 'intro' || this.stage.boss || this.stage.training ? null : { index: Math.max(0, this.runner.waveIdx), total: this.runner.waveTotal },
       boss: this.boss?.hudBoss() ?? null, bossName: this.boss?.name ?? '', bossPhases: this.boss?.phaseMarks ?? [], bossPhase: this.boss?.phase ?? 0,
       guardian: this.runner.guardian,
-      stageLabel: this.stage.boss ? 'БОСС' : `${this.stage.zone + 1}-${this.stage.index + 1}`,
+      stageLabel: this.stage.boss ? 'БОСС' : this.stage.training ? 'ЗАЛ' : `${this.stage.zone + 1}-${this.stage.index + 1}`,
       stageName: this.stage.name,
       showTouch: this.ctx.input.touchUi,
       execute: !!this.boss?.executable && !this.director.active,
       fps: this.fps,
       showFps: this.ctx.settings.showFps,
       debugNav: DEBUG_NAV,
+      training: this.stage.training ? TRAINING_TIPS : undefined,
     };
   }
 

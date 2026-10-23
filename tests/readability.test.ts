@@ -24,3 +24,16 @@ describe('читаемость боя (разбор)', () => {
     expect(Math.min(1, ENEMY_WHITE + 1.2 * 0.6)).toBe(1);
   });
 });
+
+import { stageById, TRAINING, TRAINING_DUMMIES, TRAINING_TIPS, ZONE1 } from '../src/data/stages';
+
+describe('тренировочный зал (разбор)', () => {
+  it('отдельный этап вне Зоны: без волн, с манекенами и памяткой', () => {
+    expect(stageById('training')).toBe(TRAINING);
+    expect(ZONE1.includes(TRAINING)).toBe(false);
+    expect(TRAINING.waves.length).toBe(0);
+    expect(TRAINING_DUMMIES.kinds.length).toBeGreaterThanOrEqual(3);
+    expect(TRAINING_DUMMIES.kinds).toContain('golem');
+    expect(TRAINING_TIPS.length).toBeGreaterThanOrEqual(5);
+  });
+});

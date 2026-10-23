@@ -37,6 +37,8 @@ export interface HudFrame {
   showFps: boolean;
   /** Отладка навигации (?nav): стрелки поля потоков и непроходимые клетки вокруг героя. */
   debugNav?: boolean;
+  /** Тренировочный зал: памятка приёмов слева. */
+  training?: readonly string[];
 }
 
 /** Кто целится издалека — им шевроны у края экрана. */
@@ -169,6 +171,7 @@ export class Hud {
     if (f.showTouch) this.drawTouch(f.input, s);
     if (f.execute) this.drawExecute(f, s);
     this.drawBranchHint(dt, f, s);
+    if (f.training) this.drawTraining(f.training, L, s);
     this.drawNums(dt, f);
     this.drawWorldTexts(dt, f);
     this.drawStarFly(dt, f);
@@ -792,6 +795,25 @@ export class Hud {
       g.restore();
     }
     this.worldTexts = this.worldTexts.filter((wt) => wt.t < wt.dur);
+  }
+
+  /** Памятка тренировочного зала: тёмная плашка слева посередине, строки приёмов. */
+  private drawTraining(lines: readonly string[], L: number, s: number): void {
+    const g = this.g, lh = 17 * s, pad = 10 * s;
+    g.save();
+    g.font = `600 ${Math.round(12 * s)}px ${FONT_BODY}`;
+    let tw = 0;
+    for (const l of lines) tw = Math.max(tw, g.measureText(l).width);
+    const w = Math.min(tw + pad * 2 + 10 * s, this.w * 0.42), h = lines.length * lh + pad * 2 + 16 * s;
+    const x0 = L, y0 = Math.max(this.topEdge + 8 * s, this.h * 0.5 - h / 2);
+    g.globalAlpha = 0.82;
+    g.fillStyle = 'rgba(10,8,18,0.8)';
+    g.fillRect(x0, y0, w, h);
+    g.strokeStyle = UI.gold; g.lineWidth = 1; g.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
+    g.globalAlpha = 1;
+    this.text('ТРЕНИРОВКА', x0 + pad, y0 + pad + 9 * s, 10 * s, UI.goldHi, 'bodyBold', 'left');
+    lines.forEach((l, i) => this.text(l, x0 + pad, y0 + pad + 16 * s + (i + 0.8) * lh, 12 * s, i === lines.length - 1 ? UI.dim : UI.ivory, 'body', 'left'));
+    g.restore();
   }
 
   private hintText = ''; private hintT = 0;

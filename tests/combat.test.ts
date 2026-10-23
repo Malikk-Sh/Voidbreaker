@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { armorReduction, computeDamage, overlaps, type Shape } from '../src/world/combat';
 import { RankTracker } from '../src/world/rank';
-import { RANK_TIMEOUT } from '../src/data/player';
+import { RANK_DECAY, RANK_TIMEOUT } from '../src/data/player';
 
 const ATK = { atk: 100, critChance: 0, critMul: 1.5, dmgBonus: 0 };
 const mid = () => 0.5; // разброс ×1.0, без крита
@@ -66,24 +66,33 @@ describe('overlaps: формы хитбоксов', () => {
 });
 
 describe('RankTracker (GDD §5.7)', () => {
-  it('растёт от ударов и сбрасывается при уроне', () => {
+  // разбор: ранг падает постепенно — урон снимает одну ступень, без ударов ранг тает (было: сразу «D»)
+  it('растёт от ударов, урон — ступень вниз и счётчик ×N с нуля', () => {
     const r = new RankTracker();
     for (let i = 0; i < 15; i++) r.hit(false);
     expect(r.rank).toBe('C');
     r.perfectDodge(); r.perfectDodge(); r.shatter();
     expect(r.rank).toBe('B');
     r.hurt();
-    expect(r.rank).toBe('D');
+    expect(r.rank).toBe('C');
     expect(r.hits).toBe(0);
+    r.hurt();
+    expect(r.rank).toBe('D');
   });
 
-  it('сбрасывается после паузы без ударов', () => {
+  it('без ударов ранг тает по ступеням, а не обрывом', () => {
     const r = new RankTracker();
-    for (let i = 0; i < 20; i++) r.hit(false);
-    r.step(RANK_TIMEOUT - 0.1);
-    expect(r.rank).toBe('C');
-    r.step(0.2);
-    expect(r.rank).toBe('D');
+    r.bonus(150);
+    expect(r.rank).toBe('S');
+    r.step(RANK_DECAY.grace - 0.1);
+    expect(r.rank).toBe('S');
+    const seen: string[] = [];
+    for (let t = 0; t < 30 && r.rank !== 'D'; t += 0.1) { r.step(0.1); if (seen[seen.length - 1] !== r.rank) seen.push(r.rank); }
+    // прошёл каждую ступень вниз
+    expect(seen).toEqual(['S', 'A', 'B', 'C', 'D']);
+    // счётчик ×N погас после RANK_TIMEOUT
+    expect(r.hits).toBe(0);
+    void RANK_TIMEOUT;
   });
 
   it('разнообразие приёмов даёт бонус', () => {

@@ -1,7 +1,8 @@
-import { RANK_POINTS, RANK_TIMEOUT, RANKS, type RankId } from '../data/player';
+import { RANK_DECAY, RANK_POINTS, RANK_TIMEOUT, RANKS, type RankId } from '../data/player';
 
 /**
- * Ранг комбо (GDD §5.7): счётчик без получения урона; сброс через 3 с без ударов или при уроне.
+ * Ранг комбо (GDD §5.7): очки за удары, уклонения, разнообразие. Без ударов ранг тает постепенно (RANK_DECAY),
+ * урон — ступень вниз; счётчик ×N гаснет через 3 с или при уроне.
  * Ранг этапа — средневзвешенный пиковый ранг по волнам.
  */
 export class RankTracker {
@@ -29,12 +30,21 @@ export class RankTracker {
     this.time += dt;
     if (this.points <= 0) return;
     this.timer += dt;
-    if (this.timer >= RANK_TIMEOUT) this.reset();
+    if (this.timer >= RANK_TIMEOUT) this.hits = 0;
+    if (this.timer > RANK_DECAY.grace) {
+      this.points = Math.max(0, this.points - Math.max(RANK_DECAY.min, this.points * RANK_DECAY.frac) * dt);
+      this.updateIdx();
+    }
   }
 
   private add(p: number): void {
     this.points += p;
     this.timer = 0;
+    this.updateIdx();
+    this.peakIdx = Math.max(this.peakIdx, this.rankIdx);
+  }
+
+  private updateIdx(): void {
     let idx = 0;
     for (let i = 0; i < RANKS.length; i++) if (this.points >= RANKS[i].min) idx = i;
     if (idx !== this.rankIdx) {
@@ -42,7 +52,6 @@ export class RankTracker {
       this.rankIdx = idx;
       this.onRank?.(RANKS[idx].id, up);
     }
-    this.peakIdx = Math.max(this.peakIdx, this.rankIdx);
   }
 
   hit(finisher: boolean): void {
@@ -61,7 +70,12 @@ export class RankTracker {
     this.lastKinds.push({ id: kind, t: this.time });
   }
 
-  hurt(): void { this.reset(); }
+  /** Урон: счётчик ×N — с нуля, ранг — ступень вниз (с начала нижней ступени). */
+  hurt(): void {
+    this.hits = 0; this.timer = 0;
+    this.points = this.rankIdx > 0 ? RANKS[this.rankIdx - 1].min : 0;
+    this.updateIdx();
+  }
 
   reset(): void {
     if (this.rankIdx !== 0) this.onRank?.('D', false);

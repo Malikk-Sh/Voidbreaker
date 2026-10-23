@@ -82,7 +82,10 @@ export function hubScreen(app: App, initial: Tab = 'stats'): HTMLElement {
     h('div', { class: 'vb-panel vb-col', style: { position: 'absolute', right: 'max(18px, env(safe-area-inset-right))', top: '64px', bottom: '84px', width: panelW, gap: '4px' } },
       tabsRow, h('div', { class: 'vb-rule', style: { margin: '4px 0 8px' } }), content),
     h('div', { style: { position: 'absolute', right: 'max(18px, env(safe-area-inset-right))', bottom: 'max(14px, env(safe-area-inset-bottom))' } },
-      h('button', { class: 'vb-btn primary big', style: { minWidth: '240px' }, onClick: () => { app.sfx('ui_confirm'); app.go('map'); } }, 'В бой')),
+      h('div', { class: 'vb-row', style: { gap: '10px', alignItems: 'center' } },
+        // тренировочный зал (разбор): манекены, памятка веток комбо, без наград
+        h('button', { class: 'vb-btn', onClick: () => { app.sfx('ui_confirm'); app.startStage('training'); } }, 'Тренировка'),
+        h('button', { class: 'vb-btn primary big', style: { minWidth: '240px' }, onClick: () => { app.sfx('ui_confirm'); app.go('map'); } }, 'В бой'))),
     h('div', { style: { position: 'absolute', left: 'max(18px, env(safe-area-inset-left))', bottom: 'max(14px, env(safe-area-inset-bottom))' } }, plaque),
   );
   return el;
