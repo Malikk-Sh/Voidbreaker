@@ -329,7 +329,12 @@ export abstract class ScriptedEnemy extends Enemy {
   }
 
   override interrupt(): void { /* стражи и боссы не прерываются лёгкими ударами */ }
-  override canStunNow(): boolean { return !this.cur?.unstoppable; }
+  /**
+   * Неудержимый паттерн оглушение не прерывает — до окна уязвимости (этап 4.5, C1): в нём атака уже кончилась
+   * (во всех паттернах окно — после последнего хитбокса), и полная шкала оглушает сразу. Раньше серия Стража
+   * Врат с застрявшей алебардой держала полную шкалу ещё 2.4 с, пока Пилот бил в окно наказания.
+   */
+  override canStunNow(): boolean { return !this.cur?.unstoppable || this.vulnerableT > 0; }
   override onStun(): void {
     super.onStun();
     this.cur = null;

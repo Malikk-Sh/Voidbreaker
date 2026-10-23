@@ -516,7 +516,11 @@ export class World {
   /** Удар врага по герою: учитывает неуязвимость рывка и идеальное уклонение. */
   enemyStrike(src: { x: number; z: number; id: number; kind: string; dead?: boolean; elite?: string[] }, shape: Shape, dmg: number, kb = 3): 'miss' | 'hit' | 'perfect' | 'dodge' | 'immune' {
     const h = this.hero;
-    if (h.dead || !overlaps(shape, h.x, h.z, h.radius)) return 'miss';
+    // идеальное уклонение — и рывком из зоны удара (этап 4.5, C1): Пилот стоял под ударом в начале рывка, удар
+    // пришёлся в окно — засчитано, удар раскалывает силуэт на старом месте. Раньше рывок вбок за 60 мс до
+    // выпада Стража выводил из линии, и вместо «Мгновения Пустоты» был промах
+    const fromStart = h.inPerfectWindow && overlaps(shape, h.dashFromX, h.dashFromZ, h.radius);
+    if (h.dead || (!overlaps(shape, h.x, h.z, h.radius) && !fromStart)) return 'miss';
     let dx = h.x - src.x, dz = h.z - src.z;
     const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
     // тяжёлая атака (элита, Страж, босс, телеграф ≥ 0.7 с) — уклонение от неё даёт «Мгновение Пустоты»

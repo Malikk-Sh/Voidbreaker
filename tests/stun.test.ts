@@ -107,23 +107,25 @@ describe('оглушение (план §5.5)', () => {
     expect(S.value).toBeCloseTo(10);
   });
 
-  it('неудержимый паттерн не прерывается оглушением — оглушение наступает после него', () => {
+  it('неудержимый паттерн не прерывается оглушением — оглушение наступает с окном наказания после атак', () => {
     const { w, e, stuns } = setup(() => new GateGuardian({ zone: 0, stage: 2 }), 'gate');
     const g = e as GateGuardian;
     g.phase = 2;
     const combo = g.patterns.find((p) => p.id === 'combo')!;
     expect(combo.unstoppable).toBe(true);
     g.startPattern(combo);
-    g.stun!.value = g.stun!.max - 1; g.vulnerableT = 1;
+    g.stun!.value = g.stun!.max - 1;
     strike(w, g, 3);
     expect(stuns()).toBe(0);
     expect(g.stunQueued).toBe(true);
     expect(g.cur?.id).toBe('combo');
+    // серия доигрывает все три удара; оглушение — когда алебарда застряла (окно уязвимости, 2.66 с), а не после
+    // конца паттерна (ещё +2.5 с: раньше полная шкала столько ждала, пока Пилот бил в окно, этап 4.5, C1)
     let t = 0;
-    while (g.cur && t < 10) { g.step(w, DT); t += DT; }
-    expect(g.cur).toBeNull();
-    g.step(w, DT);
-    expect(stuns()).toBe(1);
+    const hits = combo.steps.filter((s) => s.do === 'hitbox').map((s) => s.t);
+    while (!stuns() && t < 10) { g.step(w, DT); t += DT; }
+    expect(t).toBeGreaterThan(Math.max(...hits));
+    expect(t).toBeLessThan(3.2);
     expect(g.stunned).toBe(true);
   });
 
