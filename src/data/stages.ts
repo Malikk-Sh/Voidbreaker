@@ -121,8 +121,51 @@ export const ZONE1: StageDef[] = [
         ] },
     ],
   },
+  // новые этапы перед боссом (решение автора: расширить Зону 01 на новых аренах, враги — существующие)
   {
-    id: 'boss1', zone: 0, index: 6, name: 'Иерофант Скорби', arena: 'hierophant', boss: true,
+    id: '1-7', zone: 0, index: 6, name: 'Клуатр', arena: 'cloister',
+    waves: [
+      // сбросить толпу в провал сада; читать веер Распинателя
+      { spawns: [{ enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 }, { enemy: 'crucifier', count: 1, pattern: 'far', delay: 1.5 }] },
+      // приоритет: Псаломщик связывает Голема — сперва его
+      { spawns: [{ enemy: 'psalmist', count: 1, at: ['top'] }, { enemy: 'golem', count: 1, pattern: 'far', delay: 0.8 }, { enemy: 'husk', count: 5, pattern: 'edges', delay: 2.5, stagger: 0.15 }] },
+      // колонны укрывают от Ок; выпады Жнецов
+      { spawns: [{ enemy: 'eye', count: 2, at: ['left', 'right'] }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1.5 }, { enemy: 'husk', count: 6, pattern: 'ring', delay: 3, stagger: 0.12 }] },
+      // Раскол элиты: Отдача — заканчивай серию финишером
+      { spawns: [{ enemy: 'crucifier', count: 1, at: ['top'], elite: ['recoil'] }],
+        triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 } }] },
+    ],
+  },
+  {
+    id: '1-8', zone: 0, index: 7, name: 'Крипта', arena: 'crypt',
+    waves: [
+      // теснота коридоров: не дать зажать себя с двух сторон
+      { spawns: [{ enemy: 'spiker', count: 4, pattern: 'ring', stagger: 0.3 }, { enemy: 'husk', count: 6, pattern: 'edges', delay: 1.5, stagger: 0.15 }] },
+      // приоритет: Аколит со щитом за выпадами Жнецов
+      { spawns: [{ enemy: 'reaper', count: 2, at: ['left', 'right'] }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 1.2 }, { enemy: 'husk', count: 4, pattern: 'edges', delay: 3 }] },
+      // два Голема в коридорах (оглушение, Раскол) под огнём Ока
+      { spawns: [{ enemy: 'golem', count: 2, at: ['left', 'right'] }, { enemy: 'eye', count: 1, at: ['top'], delay: 1.5 }] },
+      // Тень повторяет выпад — меняй позицию; Псаломщик связывает
+      { spawns: [{ enemy: 'reaper', count: 1, at: ['top'], elite: ['shadow'] }, { enemy: 'psalmist', count: 1, at: ['left'], delay: 1 }],
+        triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 } }] },
+    ],
+  },
+  {
+    id: '1-9', zone: 0, index: 8, name: 'Хоры', arena: 'choir',
+    waves: [
+      // сбрасывать с мостика в провалы
+      { spawns: [{ enemy: 'husk', count: 10, pattern: 'ring', stagger: 0.08 }, { enemy: 'spiker', count: 3, pattern: 'edges', delay: 1.2 }] },
+      // два Распинателя и Аколит: направление ударов под щитом
+      { spawns: [{ enemy: 'crucifier', count: 2, at: ['left', 'right'] }, { enemy: 'acolyte', count: 1, at: ['top'], delay: 1 }, { enemy: 'husk', count: 4, pattern: 'ring', delay: 3 }] },
+      // Псаломщики связывают Голема на мостике
+      { spawns: [{ enemy: 'golem', count: 1, at: ['center'] }, { enemy: 'psalmist', count: 2, at: ['left', 'right'], delay: 1 }, { enemy: 'husk', count: 5, pattern: 'edges', delay: 3 }] },
+      // последняя проверка перед Иерофантом: взрывной элитный Голем и Жнецы
+      { spawns: [{ enemy: 'golem', count: 1, at: ['top'], elite: ['explosive'] }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 2 }],
+        triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 10, pattern: 'ring', stagger: 0.08 } }] },
+    ],
+  },
+  {
+    id: 'boss1', zone: 0, index: 9, name: 'Иерофант Скорби', arena: 'hierophant', boss: true,
     waves: [{ spawns: [{ enemy: 'hierophant', count: 1, at: ['top'] }] }],
   },
 ];
@@ -133,7 +176,8 @@ export const ZONE1_INFO = {
   name: 'Обсидиановый Собор',
   subtitle: 'Первый контакт',
   intro: 'Чёрный обсидиан помнит молитвы. Где-то под сводами звонит колокол — по спасению, которого не будет.',
-  bossGate: 12,
+  /** Звёзд на врата босса: 18 из 27 (было 12 из 18 — та же доля, ⅔, после трёх новых этапов). */
+  bossGate: 18,
 };
 
 /**

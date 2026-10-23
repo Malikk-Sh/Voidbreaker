@@ -78,6 +78,26 @@ export const ARENAS: Record<string, ArenaDef> = {
       { kind: 'oct', x: -6.8, z: 4.6, w: 3.6, h: 3 }, { kind: 'oct', x: 6.8, z: 4.6, w: 3.6, h: 3 },
     ],
   },
+  // 1-7: клуатр — квадратный двор вокруг провала на месте сада, четыре колонны по углам сада
+  cloister: {
+    id: 'cloister', tile: 1.5, edge: 'wall', decor: 'nave', rune: false,
+    parts: [{ kind: 'rect', x: 0, z: 0, w: 24, h: 19 }],
+    holes: [{ kind: 'rect', x: 0, z: -0.5, w: 6, h: 4.5 }],
+    cover: [{ x: -5.2, z: -4.3, r: 0.7 }, { x: 5.2, z: -4.3, r: 0.7 }, { x: -5.2, z: 3.3, r: 0.7 }, { x: 5.2, z: 3.3, r: 0.7 }],
+  },
+  // 1-8: крипта — крест узких коридоров, саркофаги вдоль стен
+  crypt: {
+    id: 'crypt', tile: 1.5, edge: 'wall', decor: 'candles', rune: false,
+    parts: [{ kind: 'rect', x: 0, z: 0, w: 27, h: 7.5 }, { kind: 'rect', x: 0, z: 0, w: 7.5, h: 22 }],
+    cover: [{ x: -8, z: 2.2, r: 0.65 }, { x: 8, z: -2.2, r: 0.65 }, { x: 2.2, z: -7.5, r: 0.65 }, { x: -2.2, z: 7.5, r: 0.65 }],
+  },
+  // 1-9: хоры — восьмиугольник над бездной: два провала по сторонам от мостика через середину
+  choir: {
+    id: 'choir', tile: 1.5, edge: 'wall', decor: 'belfry', rune: false,
+    parts: [{ kind: 'oct', x: 0, z: 0, w: 26, h: 21 }],
+    holes: [{ kind: 'rect', x: 0, z: -3.6, w: 11, h: 4.2 }, { kind: 'rect', x: 0, z: 3.6, w: 11, h: 4.2 }],
+    cover: [{ x: -8.5, z: 0, r: 0.7 }, { x: 8.5, z: 0, r: 0.7 }],
+  },
   hierophant: {
     // плитка 1 м: на 1.5 м диагональные лучи звезды выходят лесенкой (2–3 плитки в ширину — проходимы)
     id: 'hierophant', tile: 1.0, edge: 'wall', decor: 'boss',

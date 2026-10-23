@@ -1,5 +1,5 @@
 import { ABILITY_LEVEL, type AbilityId } from '../data/abilities';
-import { ZONE1, stageShards, type StageDef } from '../data/stages';
+import { ZONE1, ZONE1_INFO, stageShards, type StageDef } from '../data/stages';
 import type { RankId } from '../data/player';
 import { baseStats, type HeroStats } from '../world/heroStats';
 import type { SaveData } from './save';
@@ -209,9 +209,11 @@ export function zoneStars(s: SaveData): number {
 
 export function stageUnlocked(s: SaveData, def: StageDef): boolean {
   if (def.index === 0) return true;
-  if (def.boss) return zoneStars(s) >= 12 || !!s.flags.cheatGate;
   const prev = ZONE1[def.index - 1];
-  return (s.stages[prev.id]?.clears ?? 0) > 0;
+  const prevDone = !!prev && (s.stages[prev.id]?.clears ?? 0) > 0;
+  // босс: пройден последний этап и звёзд на врата; кто уже побеждал Иерофанта — врата открыты и после новых этапов
+  if (def.boss) return (s.stages[def.id]?.clears ?? 0) > 0 || (prevDone && zoneStars(s) >= ZONE1_INFO.bossGate) || !!s.flags.cheatGate;
+  return prevDone;
 }
 
 /** Всё, что можно улучшить, помечено фиолетовым ромбом в хабе (GDD §19.3). */

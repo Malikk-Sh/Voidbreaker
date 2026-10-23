@@ -181,7 +181,8 @@ export class Battle {
     this.arena = new Arena(ARENAS[stage.arena]);
     this.world = new World(this.arena, `stage:${stage.id}`);
     this.world.zone = stage.zone;
-    this.world.stage = stage.boss ? 0 : Math.min(5, stage.index);
+    // ступень сложности: 1-7…1-9 — 6…8 (здоровье +12 %, урон +8 % за ступень сверх 1-6)
+    this.world.stage = stage.boss ? 0 : Math.min(8, stage.index);
     this.world.damageTakenMul = ctx.settings.story ? 0.6 : 1;
     this.world.shortShatters = ctx.settings.shortExec;
     this.world.fullShatters = fullShattersLeft;

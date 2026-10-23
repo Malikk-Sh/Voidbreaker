@@ -86,8 +86,9 @@ describe('паттерны Стражей и Иерофанта (Tech §17)', ()
 });
 
 describe('данные Зоны 01', () => {
-  it('7 этапов: 6 обычных + босс, индексы и арены корректны', () => {
-    expect(ZONE1).toHaveLength(7);
+  // решение автора: Зона 01 расширена тремя этапами перед боссом (было 6 + босс)
+  it('10 этапов: 9 обычных + босс, индексы и арены корректны', () => {
+    expect(ZONE1).toHaveLength(10);
     expect(ZONE1.filter((d) => d.boss)).toHaveLength(1);
     ZONE1.forEach((d, i) => {
       expect(d.index).toBe(i);

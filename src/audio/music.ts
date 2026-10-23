@@ -430,6 +430,10 @@ const STAGE_SONGS: Record<string, EpicCfg> = {
   '1-4': { id: 'st-1-4', bpm: 140, root: 53, progs: [['i', 'bIII', 'bVII', 'iv'], ['i', 'bVI', 'bIII', 'bVII']], groove: 'drive', ost: OST.run, brassAt: [0, 10], organ: true },
   '1-5': { id: 'st-1-5', bpm: 156, root: 51, progs: [['i', 'bVII', 'bVI', 'bVII'], ['i', 'bII', 'bVI', 'V']], groove: 'double', ost: OST.run, brassAt: [0, 6, 8, 14] },
   '1-6': { id: 'st-1-6', bpm: 144, root: 50, progs: [['i', 'bII', 'bVII', 'i'], ['i', 'bVI', 'bII', 'bvii']], groove: 'halftime', ost: OST.pulse, brassAt: [0, 3, 10], bells: true },
+  // клуатр — сдержанный марш с органом; крипта — тяжёлые барабаны внизу; хоры — бег перед боссом, колокола
+  '1-7': { id: 'st-1-7', bpm: 136, root: 49, progs: [['i', 'bVI', 'bIII', 'bVII'], ['i', 'iv', 'bVII', 'i']], groove: 'march', ost: OST.sparse, brassAt: [0, 8], organ: true },
+  '1-8': { id: 'st-1-8', bpm: 128, root: 47, progs: [['i', 'bII', 'iv', 'i'], ['i', 'bVI', 'bII', 'V']], groove: 'taiko', ost: OST.pulse, brassAt: [0, 12], organ: true },
+  '1-9': { id: 'st-1-9', bpm: 152, root: 52, progs: [['i', 'bVII', 'bVI', 'V'], ['i', 'bIII', 'bVI', 'bVII']], groove: 'double', ost: OST.run, brassAt: [0, 4, 8, 12], bells: true },
 };
 
 /** Тема этапа (по умолчанию — первая). */

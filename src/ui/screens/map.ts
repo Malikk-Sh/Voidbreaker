@@ -10,8 +10,12 @@ import { emblemSvg, litRays, starPoints } from '../emblem';
 
 /** Позиции звёзд созвездия Зоны 01 (доли «рамки» 16:9). */
 const POS: Record<string, [number, number]> = {
-  '1-1': [0.08, 0.78], '1-2': [0.22, 0.42], '1-3': [0.38, 0.7], '1-4': [0.5, 0.3], '1-5': [0.64, 0.62], '1-6': [0.76, 0.24], boss1: [0.88, 0.6],
+  '1-1': [0.06, 0.78], '1-2': [0.15, 0.44], '1-3': [0.25, 0.72], '1-4': [0.34, 0.32], '1-5': [0.44, 0.64], '1-6': [0.53, 0.24],
+  '1-7': [0.63, 0.56], '1-8': [0.72, 0.2], '1-9': [0.81, 0.5], boss1: [0.92, 0.7],
 };
+
+/** Всего звёзд Зоны: по три за каждый этап, кроме босса. */
+const STAR_TOTAL = ZONE1.filter((d) => !d.boss).length * 3;
 
 /** Карта Созвездий (GDD §3.1, §19.2): этапы — звёзды с ★-рейтингом, врата босса с замком и счётчиком звёзд. */
 export function mapScreen(app: App): HTMLElement {
@@ -101,7 +105,7 @@ export function mapScreen(app: App): HTMLElement {
       d.unlocks?.length && first ? h('div', { class: 'vb-gold', style: { fontSize: '12px' } }, '◆ Откроет новую способность') : null,
       unlocked
         ? h('button', { class: 'vb-btn primary', style: { marginTop: '8px' }, onClick: () => { app.sfx('ui_confirm'); app.startStage(d.id); } }, d.boss ? 'Бросить вызов' : 'В бой')
-        : h('div', { class: 'vb-red', style: { fontSize: '12px' } }, d.boss ? `Врата босса закрыты: нужно ${ZONE1_INFO.bossGate} звёзд из 18 (у вас ${stars}). Перепройдите этапы с прокачкой.` : 'Пройдите предыдущий этап.'),
+        : h('div', { class: 'vb-red', style: { fontSize: '12px' } }, d.boss ? `Врата босса закрыты: нужно ${ZONE1_INFO.bossGate} звёзд из ${STAR_TOTAL} (у вас ${stars}) и пройденные «Хоры». Перепройдите этапы с прокачкой.` : 'Пройдите предыдущий этап.'),
     ].filter(Boolean) as Node[]));
   };
 
@@ -122,7 +126,7 @@ export function mapScreen(app: App): HTMLElement {
         h('button', { class: 'vb-iconbtn', 'aria-label': 'Назад', onClick: () => { app.sfx('ui_back'); app.go('hub'); } }, iconCanvas('back', 22, '#f0d9a0', 'rgba(240,200,120,.5)')),
         h('div', { class: 'vb-col', style: { gap: '0' } },
           h('div', { class: 'vb-row', style: { gap: '2px', alignItems: 'center' } }, h('div', { style: { lineHeight: '0', marginRight: '4px' } }, emblemSvg(40, litRays(s))), titleCanvas(ZONE1_INFO.num, 24, { color: 'steel', face: 'tech' }), titleCanvas(ZONE1_INFO.name, 22, { color: 'gold', glow: 0.5, spacing: 0.06 })),
-          h('div', { class: 'vb-caps', style: { marginTop: '-12px', marginLeft: '14px', color: '#8b95a3' } }, `«${ZONE1_INFO.subtitle}» · звёзды ${stars} / 18`),
+          h('div', { class: 'vb-caps', style: { marginTop: '-12px', marginLeft: '14px', color: '#8b95a3' } }, `«${ZONE1_INFO.subtitle}» · звёзды ${stars} / ${STAR_TOTAL}`),
           h('div', { style: { marginLeft: '14px', marginTop: '6px' } }, intro))),
       currencyBar(app)),
     info,

@@ -80,18 +80,26 @@ describe('награды этапа (GDD §3.3)', () => {
     expect(r.unlocks).toEqual([]);
   });
 
-  it('открытие этапов и врат босса (12 из 18 звёзд)', () => {
+  // после трёх новых этапов: 18 из 27 звёзд (та же доля ⅔, что 12 из 18) и пройдены «Хоры»
+  it('открытие этапов и врат босса (18 из 27 звёзд)', () => {
     const s = newSave();
     const boss = ZONE1.find((d) => d.boss)!;
     expect(stageUnlocked(s, ZONE1[0])).toBe(true);
     expect(stageUnlocked(s, ZONE1[1])).toBe(false);
-    for (const d of ZONE1.filter((x) => !x.boss)) {
+    const regular = ZONE1.filter((x) => !x.boss);
+    regular.forEach((d, i) => {
       const r = computeReward(s, d, result({ stageId: d.id, rank: 'B' }));
       applyReward(s, d, result({ stageId: d.id, rank: 'B' }), r);
-    }
-    expect(zoneStars(s)).toBe(12);
+      // до последнего этапа врата закрыты
+      if (i < regular.length - 1) expect(stageUnlocked(s, boss)).toBe(false);
+    });
+    expect(zoneStars(s)).toBe(18);
     expect(stageUnlocked(s, ZONE1[1])).toBe(true);
     expect(stageUnlocked(s, boss)).toBe(true);
+    // кто уже побеждал Иерофанта — врата открыты и без новых звёзд
+    const old = newSave();
+    old.stages[boss.id] = { ...(old.stages[boss.id] ?? {}), clears: 1 } as typeof old.stages[string];
+    expect(stageUnlocked(old, boss)).toBe(true);
   });
 
   it('победа над боссом: Эфир, реликвия, учёт попыток', () => {
