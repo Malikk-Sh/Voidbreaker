@@ -4,20 +4,26 @@ import type { Arena } from './arena';
 export const BIG_RADIUS = 0.9;
 const CELL = 0.5;
 const DIAG = Math.SQRT2;
-const N8: [number, number, number][] = [
-  [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, DIAG], [1, -1, DIAG], [-1, 1, DIAG], [-1, -1, DIAG],
-];
+/** 8 соседей плоскими массивами: индексный цикл без итераторов и деструктуризации (не мусорит в горячих циклах). */
+const N8I = [1, -1, 0, 0, 1, 1, -1, -1];
+const N8J = [0, 0, 1, -1, 1, -1, 1, -1];
+const N8C = [1, 1, 1, 1, DIAG, DIAG, DIAG, DIAG];
 
-/** Минимальная двоичная куча по приоритету (Дейкстра). */
+/** Минимальная двоичная куча по приоритету (Дейкстра) на типизированных массивах: растёт удвоением, не мусорит. */
 class Heap {
-  private ids: number[] = [];
-  private pr: number[] = [];
-  get size(): number { return this.ids.length; }
-  clear(): void { this.ids.length = 0; this.pr.length = 0; }
+  private ids = new Int32Array(1024);
+  private pr = new Float32Array(1024);
+  private n = 0;
+  get size(): number { return this.n; }
+  clear(): void { this.n = 0; }
   push(id: number, p: number): void {
+    if (this.n === this.ids.length) {
+      const ids = new Int32Array(this.n * 2), pr = new Float32Array(this.n * 2);
+      ids.set(this.ids); pr.set(this.pr);
+      this.ids = ids; this.pr = pr;
+    }
     const a = this.ids, q = this.pr;
-    let i = a.length;
-    a.push(id); q.push(p);
+    let i = this.n++;
     while (i > 0) {
       const up = (i - 1) >> 1;
       if (q[up] <= p) break;
@@ -30,10 +36,10 @@ class Heap {
   pop(out: [number, number]): void {
     const a = this.ids, q = this.pr;
     out[0] = a[0]; out[1] = q[0];
-    const lastId = a.pop()!, lastP = q.pop()!;
-    if (!a.length) return;
+    const n = --this.n;
+    if (n <= 0) return;
+    const lastId = a[n], lastP = q[n];
     let i = 0;
-    const n = a.length;
     for (;;) {
       const l = i * 2 + 1, r = l + 1;
       let m = i, mp = lastP;
@@ -151,7 +157,8 @@ export class NavGrid {
       const id = t[0], d = t[1];
       if (d > F[id]) continue;
       const i = id % nx, j = (id / nx) | 0;
-      for (const [di, dj, c] of N8) {
+      for (let k = 0; k < 8; k++) {
+        const di = N8I[k], dj = N8J[k], c = N8C[k];
         const ii = i + di, jj = j + dj;
         if (ii < 0 || jj < 0 || ii >= nx || jj >= nz) continue;
         const nid = jj * nx + ii;
@@ -249,8 +256,8 @@ export class NavGrid {
     for (let s = 0; s < 2; s++) {
       const i = cur % this.nx, j = (cur / this.nx) | 0;
       let best = cur, bv = F[cur];
-      for (const [di, dj] of N8) {
-        const ii = i + di, jj = j + dj;
+      for (let k = 0; k < 8; k++) {
+        const ii = i + N8I[k], jj = j + N8J[k];
         if (ii < 0 || jj < 0 || ii >= this.nx || jj >= this.nz) continue;
         const nid = jj * this.nx + ii;
         if (F[nid] < bv - 1e-4) { bv = F[nid]; best = nid; }

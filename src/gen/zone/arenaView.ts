@@ -188,7 +188,12 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
 
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1);
   const syncTiles = () => {
-    for (const r of tileRefs) {
+    // быстрый выход: ни одна плита не менялась (обычный кадр боя)
+    let any = arena.tilesDirty;
+    for (let i = 0; i < arena.tiles.length && !any; i++) any = arena.tiles[i].dirty;
+    if (!any) return;
+    for (let ri = 0; ri < tileRefs.length; ri++) {
+      const r = tileRefs[ri];
       const t = arena.tiles[r.tile];
       if (!t.dirty && !arena.tilesDirty) continue;
       if (t.state === TileState.Gone) {
@@ -200,7 +205,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       r.mesh.setMatrixAt(r.slot, _m);
       r.mesh.instanceMatrix.needsUpdate = true;
     }
-    for (const t of arena.tiles) t.dirty = false;
+    for (let i = 0; i < arena.tiles.length; i++) arena.tiles[i].dirty = false;
     arena.tilesDirty = false;
   };
   arena.tilesDirty = true;

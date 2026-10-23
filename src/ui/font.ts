@@ -66,8 +66,49 @@ export function measureTitle(text: string, size: number, spacing = DEFAULT_SPACI
   return w + Math.max(0, ch.length - 1) * spacing * size;
 }
 
-/** Нарисовать заголовок; y — верх прописных букв. Возвращает ширину. */
+const sprites = new Map<string, { cv: HTMLCanvasElement; w: number; pad: number; scale: number; size: number }>();
+
+/**
+ * Нарисовать заголовок; y — верх прописных букв. Возвращает ширину.
+ * HUD рисует их каждый кадр: заголовок один раз рендерится в спрайт (свечение shadowBlur по буквам дорого
+ * на телефоне) и дальше просто копируется; проявление — маской, дрожь — сдвигом всего спрайта.
+ */
 export function drawTitle(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, o: TitleOpts = {}): number {
+  const t = g.getTransform();
+  const scale = Math.hypot(t.a, t.b) || 1;
+  const spacing = o.spacing ?? DEFAULT_SPACING, face = o.face ?? 'display';
+  const isz = Math.max(4, Math.round(size));
+  const key = `${text}|${isz}|${o.color}|${o.weight}|${spacing}|${o.glow}|${face}|${scale.toFixed(2)}`;
+  let sp = sprites.get(key);
+  if (!sp) {
+    if (sprites.size > 128) sprites.clear();
+    const w = measureTitle(text, isz, spacing, face), pad = isz * 0.6;
+    const cv = document.createElement('canvas');
+    cv.width = Math.ceil((w + pad * 2) * scale); cv.height = Math.ceil((isz * 1.6 + pad * 2) * scale);
+    const c2 = cv.getContext('2d')!;
+    c2.scale(scale, scale);
+    drawTitleRaw(c2, text, pad, pad, isz, { ...o, align: 'left', progress: undefined, shake: 0, alpha: 1 });
+    sp = { cv, w, pad, scale, size: isz };
+    sprites.set(key, sp);
+  }
+  const k = size / sp.size, w = sp.w * k;
+  const align = o.align ?? 'left';
+  const x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+  g.save();
+  g.globalAlpha *= o.alpha ?? 1;
+  if (o.progress !== undefined && o.progress < 1) {
+    g.beginPath();
+    g.rect(x0 - size, y - size, (w + size * 2) * Math.max(0, o.progress), size * 3);
+    g.clip();
+  }
+  const jx = o.shake ? (Math.random() - 0.5) * o.shake * size * 0.3 : 0, jy = o.shake ? (Math.random() - 0.5) * o.shake * size * 0.3 : 0;
+  g.drawImage(sp.cv, x0 - sp.pad * k + jx, y - sp.pad * k + jy, (sp.cv.width / sp.scale) * k, (sp.cv.height / sp.scale) * k);
+  g.restore();
+  return w;
+}
+
+/** Заголовок напрямую (по буквам): для спрайтов и DOM-экранов. */
+function drawTitleRaw(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, o: TitleOpts = {}): number {
   const spacing = o.spacing ?? DEFAULT_SPACING;
   const face = o.face ?? 'display';
   const width = measureTitle(text, size, spacing, face);
@@ -135,7 +176,7 @@ export function titleCanvas(text: string, size: number, o: TitleOpts = {}): HTML
   cv.className = 'vb-title';
   const g = cv.getContext('2d')!;
   g.scale(dpr, dpr);
-  drawTitle(g, text, pad, pad + size * 0.12, size, { ...o, align: 'left' });
+  drawTitleRaw(g, text, pad, pad + size * 0.12, size, { ...o, align: 'left' });
   cache.set(key, cv);
   return copyCanvas(cv);
 }

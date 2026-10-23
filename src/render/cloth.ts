@@ -44,26 +44,31 @@ export class ClothMesh {
     this.mesh.frustumCulled = false;
   }
 
+  /** Плоский треугольник ткани с нормалью грани (без замыканий и временных массивов). */
+  private tri(v: number, a: number, b: number, c: number): number {
+    const P = this.cloth.p, pos = this.pos, nor = this.nor;
+    const ax = P[a], ay = P[a + 1], az = P[a + 2];
+    const ux = P[b] - ax, uy = P[b + 1] - ay, uz = P[b + 2] - az;
+    const vx = P[c] - ax, vy = P[c + 1] - ay, vz = P[c + 2] - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1; nx /= l; ny /= l; nz /= l;
+    for (let q = 0; q < 3; q++) {
+      const k = q === 0 ? a : q === 1 ? b : c;
+      pos[v * 3] = P[k]; pos[v * 3 + 1] = P[k + 1]; pos[v * 3 + 2] = P[k + 2];
+      nor[v * 3] = nx; nor[v * 3 + 1] = ny; nor[v * 3 + 2] = nz;
+      v++;
+    }
+    return v;
+  }
+
   sync(): void {
-    const P = this.cloth.p, w = this.cloth.w;
+    const w = this.cloth.w;
     let v = 0;
-    const idx = (i: number, j: number) => (j * w + i) * 3;
     for (let j = 0; j < this.cloth.h - 1; j++) {
       for (let i = 0; i < w - 1; i++) {
-        const tri = (a: number, b: number, c: number) => {
-          const ax = P[a], ay = P[a + 1], az = P[a + 2];
-          const ux = P[b] - ax, uy = P[b + 1] - ay, uz = P[b + 2] - az;
-          const vx = P[c] - ax, vy = P[c + 1] - ay, vz = P[c + 2] - az;
-          let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-          const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
-          for (const k of [a, b, c]) {
-            this.pos[v * 3] = P[k]; this.pos[v * 3 + 1] = P[k + 1]; this.pos[v * 3 + 2] = P[k + 2];
-            this.nor[v * 3] = nx; this.nor[v * 3 + 1] = ny; this.nor[v * 3 + 2] = nz;
-            v++;
-          }
-        };
-        tri(idx(i, j), idx(i, j + 1), idx(i + 1, j + 1));
-        tri(idx(i, j), idx(i + 1, j + 1), idx(i + 1, j));
+        const a = (j * w + i) * 3, b = ((j + 1) * w + i) * 3, c = ((j + 1) * w + i + 1) * 3, d = (j * w + i + 1) * 3;
+        v = this.tri(v, a, b, c);
+        v = this.tri(v, a, c, d);
       }
     }
     this.geo.attributes.position.needsUpdate = true;

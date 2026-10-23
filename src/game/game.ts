@@ -146,18 +146,20 @@ export class Game {
   };
 
   /**
-   * Авто-подстройка (Tech §25.2): см. autoQualityStep — устойчивая перегрузка → разрешение −0.1 (мин 0.5),
-   * затем качество вниз; долго ровно → разрешение вверх.
+   * Авто-подстройка (Tech §25.2): см. autoQualityStep — устойчивая перегрузка → разрешение −0.1 (мин 0.55,
+   * при ручном качестве 0.75), затем (только «Авто») качество вниз; долго ровно → разрешение вверх.
    */
   private autoQuality(dt: number): void {
-    if (this.ctx.settings.quality !== 'auto' || !this.battle) return;
+    if (!this.battle) return;
     const step = autoQualityStep(this.autoQ, dt);
     if (!step) return;
     const r = this.ctx.renderer;
+    // при выбранном вручную качестве — только разрешение (защита от троттлинга при нагреве), уровень не трогаем
+    const auto = this.ctx.settings.quality === 'auto';
+    const minScale = auto ? 0.55 : AUTO_Q.minManualScale;
     if (step === 'down') {
-      if (r.dynScale > 0.55) r.dynScale -= 0.1;
-      else if (r.quality !== 'low') { r.setQuality(r.quality === 'high' ? 'medium' : 'low'); r.dynScale = 1; }
-      this.resize();
+      if (r.dynScale > minScale + 0.01) { r.dynScale = Math.max(minScale, r.dynScale - 0.1); this.resize(); }
+      else if (auto && r.quality !== 'low') { r.setQuality(r.quality === 'high' ? 'medium' : 'low'); r.dynScale = 1; this.resize(); }
     } else if (r.dynScale < 1) { r.dynScale = Math.min(1, r.dynScale + 0.1); this.resize(); }
   }
 
@@ -194,7 +196,7 @@ export class Game {
 }
 
 /** Окно замера автокачества (с), сколько окон подряд с перегрузкой — вниз, сколько ровных — вверх. */
-export const AUTO_Q = { window: 2, slowFrac: 0.1, downAfter: 3, upAfter: 10, slowDt: 0.021 };
+export const AUTO_Q = { window: 2, slowFrac: 0.1, downAfter: 3, upAfter: 10, slowDt: 0.021, minManualScale: 0.75 };
 
 export interface AutoQState { t: number; frames: number; slow: number; badRuns: number; goodRuns: number }
 export const newAutoQ = (): AutoQState => ({ t: 0, frames: 0, slow: 0, badRuns: 0, goodRuns: 0 });

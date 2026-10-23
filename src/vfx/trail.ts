@@ -136,12 +136,9 @@ export class RibbonTrail {
     let v = 0;
     const B = this.base[0], T = this.tip, A = this.age;
     for (let i = 0; i < this.count - 1 && A[i + 1] < 0.09; i++) {
-      const tri = [[B, 0, 0], [T[i], A[i] / 0.09, 1], [T[i + 1], A[i + 1] / 0.09, 1]] as const;
-      for (const [p, a, across] of tri) {
-        this.smearPos[v * 3] = p.x; this.smearPos[v * 3 + 1] = p.y; this.smearPos[v * 3 + 2] = p.z;
-        this.smearUv[v * 2] = a; this.smearUv[v * 2 + 1] = across;
-        v++;
-      }
+      v = this.putSmear(v, B, 0, 0);
+      v = this.putSmear(v, T[i], A[i] / 0.09, 1);
+      v = this.putSmear(v, T[i + 1], A[i + 1] / 0.09, 1);
     }
     this.smearGeo.setDrawRange(0, v);
     this.smearGeo.attributes.position.needsUpdate = true;
@@ -149,19 +146,23 @@ export class RibbonTrail {
     return v >= 6;
   }
 
+  private put(v: number, p: THREE.Vector3, a: number, across: number, k: number): number {
+    this.pos[v * 3] = p.x; this.pos[v * 3 + 1] = p.y; this.pos[v * 3 + 2] = p.z;
+    this.uv[v * 2] = Math.min(1, a); this.uv[v * 2 + 1] = across;
+    this.kk[v] = k;
+    return v + 1;
+  }
+
+  private putSmear(v: number, p: THREE.Vector3, a: number, across: number): number {
+    this.smearPos[v * 3] = p.x; this.smearPos[v * 3 + 1] = p.y; this.smearPos[v * 3 + 2] = p.z;
+    this.smearUv[v * 2] = a; this.smearUv[v * 2 + 1] = across;
+    return v + 1;
+  }
+
   private rebuild(): void {
     const n = this.count;
     if (n < 2) { this.geo.setDrawRange(0, 0); return; }
     let v = 0;
-    const cr = (p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, t: number, out: THREE.Vector3) => {
-      const t2 = t * t, t3 = t2 * t;
-      out.set(
-        0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
-        0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
-        0.5 * (2 * p1.z + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3),
-      );
-      return out;
-    };
     const B = this.base, T = this.tip, A = this.age;
     let pb = _a.copy(B[0]), pt = _b.copy(T[0]), pa = A[0] / this.life;
     for (let i = 0; i < n - 1; i++) {
@@ -174,14 +175,9 @@ export class RibbonTrail {
         // ширина и кромка: вид удара и угловая скорость (быстрый кончик — острее)
         const spd = T[i].distanceTo(T[i + 1]) / Math.max(1e-3, A[i + 1] - A[i]);
         const k = Math.min(1, Math.max(0, this.heavy[i] * 0.75 + (1 - Math.min(1, spd / 20)) * 0.25));
-        // два треугольника: (pb, pt, nt), (pb, nt, nb)
-        const quad = [[pb, pa, 0], [pt, pa, 1], [nt, na, 1], [pb, pa, 0], [nt, na, 1], [nb, na, 0]] as const;
-        for (const [p, a, across] of quad) {
-          this.pos[v * 3] = p.x; this.pos[v * 3 + 1] = p.y; this.pos[v * 3 + 2] = p.z;
-          this.uv[v * 2] = Math.min(1, a); this.uv[v * 2 + 1] = across;
-          this.kk[v] = k;
-          v++;
-        }
+        // два треугольника: (pb, pt, nt), (pb, nt, nb) — запись по вершине, без временных массивов
+        v = this.put(v, pb, pa, 0, k); v = this.put(v, pt, pa, 1, k); v = this.put(v, nt, na, 1, k);
+        v = this.put(v, pb, pa, 0, k); v = this.put(v, nt, na, 1, k); v = this.put(v, nb, na, 0, k);
         pb = _e.copy(nb); pt = _f.copy(nt); pa = na;
         _a.copy(_e); _b.copy(_f); pb = _a; pt = _b;
       }
@@ -194,3 +190,13 @@ export class RibbonTrail {
 }
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3(), _f = new THREE.Vector3();
+
+/** Катмулл-Ром по четырём точкам (без замыканий в цикле кадра). */
+function cr(p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, t: number, out: THREE.Vector3): THREE.Vector3 {
+  const t2 = t * t, t3 = t2 * t;
+  return out.set(
+    0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+    0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+    0.5 * (2 * p1.z + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3),
+  );
+}

@@ -50,7 +50,9 @@ export class Sky {
     g.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
     const m = new THREE.ShaderMaterial({
       uniforms: { ...this.u, uTime: G.uTime, uNoise: G.uNoise },
-      depthTest: false,
+      // небо на дальней плоскости и ПОСЛЕ непрозрачной геометрии: тест глубины отсекает всё, что закрыто полом
+      // и стенами, — тяжёлая туманность считается только там, где небо действительно видно (оптимизация)
+      depthTest: true,
       depthWrite: false,
       vertexShader: /* glsl */ `
         varying vec2 vNdc;
@@ -164,7 +166,7 @@ export class Sky {
     });
     this.mesh = new THREE.Mesh(g, m);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = -1000;
+    this.mesh.renderOrder = 1000;
   }
 
   apply(p: SkyPreset): void {

@@ -176,7 +176,13 @@ export class Battle {
     this.vfx.tele.hatch = ctx.settings.hatch;
     this.vfx.camera = ctx.renderer.camera;
     this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group, this.scars.mesh);
-    this.enemies.warm(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'psalmist', 'brute']);
+    // батчи всех врагов этапа (с Стражами и боссом) заранее: их шейдеры прогреются вместе со сценой
+    const rigs = new Set<string>(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'psalmist', 'brute']);
+    for (const wv of stage.waves) for (const sp of wv.spawns) {
+      // батч — по ригу вида (у вида свой риг или общий); узнаём у пробного экземпляра
+      try { rigs.add(createEnemy(sp.enemy, { zone: stage.zone, stage: stage.index }).puppet.layout.def.id); } catch { /* вид без рига */ }
+    }
+    this.enemies.warm([...rigs]);
     r.scene.add(this.group);
     this.events = new ArenaEvents(this.world, this.view, this.group, this.vfx, stage);
     this.beamDust = this.view.rays.length ? new BeamDust(this.view.rays, this.view.rayColor, this.vfx.quality) : null;
@@ -228,6 +234,8 @@ export class Battle {
     this.skyCine.starLit = lit > 0 ? 1 : 0;
     this.skyCine.star2 = lit >= 2 ? 1 : 0;
     this.bindEvents();
+    // шейдеры всей сцены — сейчас, на загрузке, а не фризом посреди боя (оптимизация)
+    void ctx.renderer.warmShaders();
     ctx.time.reset();
     if (opts.prologue) this.startLanding();
     else if (!stage.boss) {
@@ -463,7 +471,11 @@ export class Battle {
       this.boss.execute?.();
     }
     this.world.step(dtW, dtH, this.ctx.input, dtR);
-    if (!this.boss && this.runner.boss instanceof Hierophant) this.boss = new HierophantController(this.bossHost(), this.runner.boss);
+    if (!this.boss && this.runner.boss instanceof Hierophant) {
+      this.boss = new HierophantController(this.bossHost(), this.runner.boss);
+      // цепи, колокола-спутники и прочие объекты босса — тоже до первого кадра с ними
+      void this.ctx.renderer.warmShaders();
+    }
     this.boss?.step(dtW);
   }
 

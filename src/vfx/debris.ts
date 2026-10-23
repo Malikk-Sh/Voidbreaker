@@ -63,7 +63,10 @@ export class Debris {
       this._m.compose(this._p.set(p.x, p.y, p.z), p.q, this._s.setScalar(p.s * k));
       mesh.setMatrixAt(idx, this._m);
     }
-    this.pieces = this.pieces.filter((p) => p.alive);
+    // сжать на месте (без нового массива каждый кадр)
+    let n = 0;
+    for (let i = 0; i < this.pieces.length; i++) if (this.pieces[i].alive) this.pieces[n++] = this.pieces[i];
+    this.pieces.length = n;
     this.meshes.forEach((m, i) => { m.count = Math.min(counts[i], m.instanceMatrix.count); m.instanceMatrix.needsUpdate = true; });
   }
 

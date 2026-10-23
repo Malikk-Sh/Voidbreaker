@@ -11,7 +11,8 @@ export const QUALITY: Record<QualityLevel, {
 }> = {
   low: { scale: 0.6, maxDpr: 1.0, bloomLevels: 0, msaa: 0, particles: 1500, decor: 0.4, verlet: 2, farLayers: 1 },
   medium: { scale: 0.8, maxDpr: 1.5, bloomLevels: 3, msaa: 0, particles: 2500, decor: 0.7, verlet: 3, farLayers: 2 },
-  high: { scale: 1.0, maxDpr: 2.0, bloomLevels: 4, msaa: 4, particles: 4000, decor: 1.0, verlet: 4, farLayers: 3 },
+  // высокое: DPR 1.75 и MSAA 2× — на 6–7" экране разница с 2.0/4× почти не видна, а пикселей и сэмплов на ~40 % меньше
+  high: { scale: 1.0, maxDpr: 1.75, bloomLevels: 4, msaa: 2, particles: 4000, decor: 1.0, verlet: 4, farLayers: 3 },
 };
 
 /** Игровой угол обзора камеры (вертикальный, °). */
@@ -67,6 +68,24 @@ export class Renderer {
     this.camera.aspect = this.cssW / this.cssH;
     this.camera.updateProjectionMatrix();
     this.post.setSize(this.pixelW, this.pixelH, Q.msaa);
+  }
+
+  /**
+   * Прогреть шейдеры всей сцены (включая скрытые пулы эффектов и батчи врагов) заранее — без фриза на первом
+   * появлении эффекта или Стража посреди боя. Компиляция — под тот же целевой буфер, что и кадр (иначе ключ
+   * программы другой), асинхронно там, где есть KHR_parallel_shader_compile.
+   */
+  warmShaders(): Promise<unknown> {
+    this.camera.updateMatrixWorld();
+    this.gl.setRenderTarget(this.post.sceneRT);
+    let p: Promise<unknown>;
+    try {
+      // без расширения compileAsync всё равно компилирует синхронно (и предупреждает) — тогда сразу compile
+      if (this.gl.extensions.has('KHR_parallel_shader_compile')) p = this.gl.compileAsync(this.scene, this.camera);
+      else { this.gl.compile(this.scene, this.camera); p = Promise.resolve(); }
+    } catch { p = Promise.resolve(); }
+    this.gl.setRenderTarget(null);
+    return p.catch(() => undefined);
   }
 
   render(worldTime: number): void {
