@@ -14,8 +14,8 @@ import type { CameraRig } from '../camera';
 import type { BossController } from './bossBase';
 import { ScriptedEnemy, type PoseLib } from './scripted';
 import type { Pattern, Step } from './timeline';
-import type { CineTrack, MusicCue } from '../../game/director';
-import { collapseTrack, crackTrack, DESCEND_FROM, executionTrack, hierophantIntroTrack } from './hierophantScenes';
+import type { CineTrack, MusicCue, V3 } from '../../game/director';
+import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, crackTrack, DESCEND_FROM, executionTrack, hierophantIntroTrack } from './hierophantScenes';
 import type { StrikeParams } from '../world';
 
 /** Фазы (план §8.3): I «Литургия» 100–60 %, II «Набат» 60–25 %, III «Последний звон» 25–0 %. */
@@ -23,6 +23,10 @@ export const PHASE2_AT = 0.6;
 export const PHASE3_AT = 0.25;
 /** Окно перехвата фазы (с, план §8.3.1): ядро светится бело-фиолетово. */
 export const INTERCEPT_WINDOW = 1.2;
+/** Жест на удар перехода: сила отшатывания (пружина) и яркость вспышки маски (× FACE_LIGHT). */
+export const GRIEF = { recoil: 1.4, light: 1.4 };
+/** После возврата камеры в бой — столько секунд чистого обзора до первого телеграфа новой фазы. */
+export const RETURN_CALM = 0.6;
 /** Огонь колокола открыт в фазе III: урон ×1.5. */
 export const PHASE3_DMG = 1.5;
 /** Добивание (план §8.3.2): фаза III, HP не выше этой доли и оглушён — кнопка атаки горит «ДОБИТЬ». */
@@ -60,6 +64,9 @@ const POSES: PoseLib = {
   phase: { chest: [-0.5, 0, 0], shUL: [-3.0, 0, 0.5], shUR: [-3.0, 0, -0.5], shLL: [-2.8, 0, 0.9], shLR: [-2.8, 0, -0.9], elbUL: [-0.2, 0, 0], elbUR: [-0.2, 0, 0] },
   // интро (ревью): верхние руки раскрыты у лица в благословении, нижние сложены у груди
   bless: { chest: [-0.12, 0, 0], shUL: [-2.25, 0, 0.75], shUR: [-2.25, 0, -0.75], elbUL: [-0.95, 0, 0], elbUR: [-0.95, 0, 0], shLL: [-1.25, 0, 0.45], shLR: [-1.25, 0, -0.45], elbLL: [-0.7, 0, 0], elbLR: [-0.7, 0, 0] },
+  // удар, переводящий бой в новую фазу (этап 4.5, C2): верхние руки хватаются за маску, нижние раскинуты вниз,
+  // корпус откинут — «скорбь»; держится всё окно перехвата и первый крупный план сцены
+  grief: { chest: [-0.45, 0, 0.1], shUL: [-2.45, 0, 0.42], shUR: [-2.45, 0, -0.42], elbUL: [-1.45, 0, 0], elbUR: [-1.45, 0, 0], shLL: [0.25, 0, 1.15], shLR: [0.25, 0, -1.15], elbLL: [-0.1, 0, 0], elbLR: [-0.1, 0, 0] },
   broken: { chest: [1.1, 0, 0.15], shUL: [0.3, 0, 1.2], shUR: [0.3, 0, -1.2], shLL: [0.6, 0, 1.0], shLR: [0.6, 0, -1.0], elbUL: [-0.2, 0, 0], elbUR: [-0.2, 0, 0] },
 };
 
@@ -679,7 +686,12 @@ export class HierophantController implements BossController {
     if (b.stun) { b.stun.stunned = 0; b.stun.value = 0; b.stun.immune = 0; resetStunHabit(b.stun); }
     b.stunQueued = false; b.awakenQueued = false; b.vulnerableT = 0;
     if (b.state === 'stunned') b.setState('chase');
-    b.setPose('phase', 0.3);
+    // реакция на удар (этап 4.5, C2): отшатывается от Пилота, хватается за маску, маска вспыхивает золотом —
+    // жест читается и с боевой камеры, крупно его покажет первый план сцены
+    const h = w.hero, hx = b.x - h.x, hz = b.z - h.z, hl = Math.hypot(hx, hz) || 1;
+    b.puppet.kickSpring(hx / hl, hz / hl, GRIEF.recoil);
+    b.setPose('grief', 0.1);
+    this.faceLight('gold', INTERCEPT_WINDOW + COLLAPSE_T.close, GRIEF.light);
     for (const e of b.summoned) if (!e.dead) w.killEnemy(e, 0, 1, 3);
     w.projectiles.length = 0;
     w.ringWaves.length = 0;
@@ -717,7 +729,8 @@ export class HierophantController implements BossController {
 
   private playTransition(to: 2 | 3): void {
     const b = this.boss, w = this.host.world, h = w.hero;
-    const spots = { hx: h.x, hz: h.z, bx: b.x, bz: b.z };
+    b.bellPos(this.tmp);
+    const spots = { hx: h.x, hz: h.z, bx: b.x, bz: b.z, mask: [this.tmp.x, this.tmp.y, this.tmp.z] as V3 };
     const H = this.host;
     if (to === 2) {
       H.scene(collapseTrack(spots), {
@@ -743,6 +756,8 @@ export class HierophantController implements BossController {
     const w = this.host.world, b = this.boss;
     if (w.arena.edge === 'abyss') return;
     w.arena.collapseOutsideCross();
+    // руки вверх — пол уходит по его жесту
+    b.setPose('phase', 0.25);
     w.bus.emit('sfx', { id: 'shatter_big', x: 0, z: 0 });
     w.bus.emit('shake', { trauma: 0.6 });
     this.host.say('Пол уходит! Держись мостов.', 'kaelis');
@@ -789,7 +804,9 @@ export class HierophantController implements BossController {
     this.phase = to;
     b.phase = to;
     b.transitioning = 0;
-    b.idleT = 0.6;
+    // первый опасный сигнал — после того, как камера вернулась в бой (этап 4.5, C2): дорожка держит ещё 0.2 с,
+    // возврат камеры 0.7 с, затем RETURN_CALM чистого обзора. Было 0.6 — «Приговор» начинался посреди возврата
+    b.idleT = 0.2 + COLLAPSE_BLEND + RETURN_CALM;
     b.setPose('idle', 0.4);
     this.zoomMul = to === 2 ? 1.25 : 1.35;
     if (to === 3) {

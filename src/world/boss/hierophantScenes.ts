@@ -1,7 +1,11 @@
 import type { CineStep, CineTrack, V3 } from '../../game/director';
 
 /** Где стоят актёры сцены Иерофанта: герой и босс. */
-export interface HierophantSpots { hx: number; hz: number; bx: number; bz: number }
+export interface HierophantSpots {
+  hx: number; hz: number; bx: number; bz: number;
+  /** Где маска на самом деле (bellPos): крупные планы смотрят на неё, а не на расчётную высоту парящего. */
+  mask?: V3;
+}
 
 /** Время шагов интро (с от начала дорожки). */
 export const INTRO_T = { runes: 1.0, tolls: [2.2, 3.2, 4.2], descend: 4.6, ignite: 5.4, mask: 6.0, slam: 7.3, begin: 8.8 };
@@ -78,24 +82,34 @@ export function hierophantIntroTrack(p: HierophantSpots): CineTrack {
   return { id: 'hierophantIntro', steps, short, dur: T.begin + 0.2, blendOut: 0.8 };
 }
 
-/** Время шагов перехода I→II (с от начала дорожки). */
-export const COLLAPSE_T = { collapse: 0.1, land: 1.1, braam: 1.7, tocsin: 2.6, banner: 2.7, phase: 3.7 };
+/**
+ * Время шагов перехода I→II (с от начала дорожки). Этап 4.5, C2: сначала крупный план (close) — Понтифик держится
+ * за маску верхними руками, нижние раскинуты (жест «скорбь» с удара, переведшего бой в фазу II); дальше всё,
+ * как было, на 0.9 с позже.
+ */
+export const COLLAPSE_T = { close: 0.9, collapse: 1.0, land: 2.0, braam: 2.6, tocsin: 3.5, banner: 3.6, phase: 4.6 };
+/** Крупный план жеста: расстояние камеры от маски (м) — наезд с from до to, ниже маски на low (смотрит снизу вверх). */
+export const COLLAPSE_CLOSE = { from: 4.6, to: 4.0, low: 0.55, side: 0.9, fov: 44 };
 
 /**
- * Переход I→II (план §8.3): Иерофант хватается за колокол; пол нефа проваливается в замедлении, камера
+ * Переход I→II (план §8.3): Иерофант хватается за маску; пол нефа проваливается в замедлении, камера
  * отъезжает — под ареной огромный собор и бездна; Пилот приземляется на мост. Музыка: такт тишины →
  * хоровой аккорд и «брам» → набат. Логика: collapse, land, braam, tocsin, phase.
  */
 export function collapseTrack(p: HierophantSpots): CineTrack {
-  const T = COLLAPSE_T;
-  const { hx, hz } = p;
+  const T = COLLAPSE_T, C = COLLAPSE_CLOSE;
+  const { hx, hz, bx, bz } = p;
+  const m: V3 = p.mask ?? [bx, MASK_Y, bz];
+  // крупный план — со стороны Пилота: он только что нанёс этот удар
+  const dx = hx - m[0], dz = hz - m[2], dl = Math.hypot(dx, dz) || 1, fx = dx / dl, fz = dz / dl, sx = fz, sz = -fx;
   const steps: CineStep[] = [
     { t: 0, do: 'call', fn: 'silence' },
+    { t: 0, do: 'cam', path: [[m[0] + fx * C.from + sx * C.side, m[1] - C.low, m[2] + fz * C.from + sz * C.side], [m[0] + fx * C.to + sx * C.side * 0.6, m[1] - C.low * 0.8, m[2] + fz * C.to + sz * C.side * 0.6]], look: [[m[0], m[1] - 0.1, m[2]], [m[0], m[1], m[2]]], dur: T.close, ease: 'linear', fov: C.fov },
     { t: T.collapse, do: 'call', fn: 'collapse' },
     { t: T.collapse, do: 'time', scale: 0.45, dur: 1.2 },
-    { t: 0, do: 'actor', who: 'boss', moveTo: [0, 0, 0], dur: 1.6, ease: 'inOutSine' },
+    { t: T.close, do: 'actor', who: 'boss', moveTo: [0, 0, 0], dur: 1.6, ease: 'inOutSine' },
     // отъезд: высоко над ареной, взгляд в бездну — там собор под собором
-    { t: 0, do: 'cam', path: [[hx + 3, 12, hz + 14], [hx + 9, 24, hz + 30], [6, 30, 34]], look: [[hx * 0.5, 0, hz * 0.5], [0, -14, 0], [0, -26, -4]], dur: T.tocsin, ease: 'inOutSine' },
+    { t: T.close, do: 'cam', path: [[hx + 3, 12, hz + 14], [hx + 9, 24, hz + 30], [6, 30, 34]], look: [[hx * 0.5, 0, hz * 0.5], [0, -14, 0], [0, -26, -4]], dur: T.tocsin - T.close, ease: 'inOutSine' },
     { t: T.land, do: 'call', fn: 'land' },
     { t: T.braam, do: 'call', fn: 'braam' },
     // назад к мосту: набат
@@ -114,8 +128,10 @@ export function collapseTrack(p: HierophantSpots): CineTrack {
     { t: 1.4, do: 'banner', text: 'НАБАТ', sub: 'Вторая фаза', color: 'hunger', dur: 1.8, size: 52 },
     { t: 2.0, do: 'call', fn: 'phase' },
   ];
-  return { id: 'hierophantCollapse', steps, short, dur: T.phase + 0.2, blendOut: 0.7 };
+  return { id: 'hierophantCollapse', steps, short, dur: T.phase + 0.2, blendOut: COLLAPSE_BLEND };
 }
+/** Камера возвращается в бой после перехода (с). */
+export const COLLAPSE_BLEND = 0.7;
 
 /** Время шагов перехода II→III. */
 export const CRACK_T = { crack: 0.2, sky: 0.5, raise: 1.0, banner: 1.4, phase: 3.2 };

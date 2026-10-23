@@ -3,11 +3,11 @@ import { World } from '../src/world/world';
 import { Arena } from '../src/world/arena';
 import { ARENAS } from '../src/data/arenas';
 import { Abilities } from '../src/world/abilities';
-import { EXEC_HP, Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHASE2_AT, PHASE3_AT, SATS, SERMON_SHIELD, type BossHost } from '../src/world/boss/hierophant';
+import { EXEC_HP, Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHASE2_AT, PHASE3_AT, RETURN_CALM, SATS, SERMON_SHIELD, type BossHost } from '../src/world/boss/hierophant';
 import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
 import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
 import { VOID_BLADE } from '../src/data/weapons';
-import { DESCEND_FROM, EXEC_FLASH, EXEC_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
+import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, DESCEND_FROM, EXEC_FLASH, EXEC_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { InputBuffer, type Input } from '../src/input/input';
@@ -28,7 +28,7 @@ function setup(hx = 0, hz = 8): { w: World; b: Hierophant } {
 }
 
 /** Бой-хост без рендера: сцену проигрывает настоящий режиссёр, вызовы — логика шагов 'call'. */
-function fakeHost(w: World, b: Hierophant, hold = () => false, tap = () => false) {
+function fakeHost(w: World, b: Hierophant, hold = () => false, tap = () => false, seen = () => 0) {
   const log: string[] = [];
   let calls: Record<string, (arg?: number) => void> = {};
   let onEnd: ((s: boolean) => void) | null = null;
@@ -36,11 +36,11 @@ function fakeHost(w: World, b: Hierophant, hold = () => false, tap = () => false
   const director = new Director({
     actor: (who) => (who === 'hero' ? hero : who === 'boss' ? b : null),
     call: (fn, arg) => { log.push(fn); calls[fn]?.(arg); },
-    holding: hold, tapped: tap, seen: () => 0, markSeen: () => {},
+    holding: hold, tapped: tap, seen, markSeen: () => {},
   });
   const host: BossHost = {
     world: w, say: () => {}, banner: () => {}, letterbox: () => {}, slow: () => {}, flash: () => {}, starFlare: () => {}, musicPhase: () => {},
-    emitFire: () => {}, skipRequested: () => false,
+    emitFire: () => {}, skipRequested: () => false, light: (_x, _y, _z, rgb) => log.push(`light:${rgb}`),
     scene: (track: CineTrack, c, end) => { calls = c; onEnd = end; director.play(track, (s) => onEnd?.(s)); },
     music: (cue) => log.push(`music:${cue}`), startSong: () => log.push('song'), quench: (_x, _z, r) => log.push(`quench:${r}`),
     runes: () => {}, chains: () => {}, dust: () => {}, sky: (pp, v) => log.push(`sky:${pp}:${v}`), transpose: (c) => log.push(`transpose:${c}`), duck: () => log.push('duck'), starDir: () => [0.42, -0.5, -0.76],
@@ -176,10 +176,10 @@ describe('Иерофант 2.0 (план §8.3)', () => {
   });
 
   /** Бой с контроллером после интро (пропущено). */
-  function fight(hx = 0, hz = 8) {
+  function fight(hx = 0, hz = 8, seen = 0) {
     const { w, b } = setup(hx, hz);
     let held = false, tapNow = false;
-    const fh = fakeHost(w, b, () => held, () => { const t = tapNow; tapNow = false; return t; });
+    const fh = fakeHost(w, b, () => held, () => { const t = tapNow; tapNow = false; return t; }, () => seen);
     const ctrl = new HierophantController(fh.host, b);
     const cam = new CameraRig(), input = idle();
     const tick = (sec: number, each?: () => void) => {
@@ -243,6 +243,64 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     tick(0.2);
     expect(b.shieldMul).toBe(1.5);
   });
+
+  it('этап 4.5 C2: удар, переводящий в фазу II, — отшатывается от Пилота, хватается за маску, маска вспыхивает', () => {
+    const { w, b, log } = fight();
+    b.hp = b.maxHp * PHASE2_AT + 1; light(w, b);
+    expect((b as unknown as { poseId: string }).poseId).toBe('grief');
+    // пружина толкает корпус от Пилота (Пилот на +z)
+    expect(b.puppet.springVZ).toBeLessThan(0);
+    expect(log).toContain('light:gold');
+  });
+
+  it('этап 4.5 C2: сцена перехода — крупно маска и руки, затем общий план обрушения', () => {
+    const mask: [number, number, number] = [0.3, 3.9, -5.8];
+    const tr = collapseTrack({ hx: 0, hz: 8, bx: 0, bz: -6, mask });
+    const cams = tr.steps.filter((s) => s.do === 'cam');
+    const close = cams[0];
+    if (close.do !== 'cam') return;
+    expect(close.t).toBe(0);
+    // крупный план: камера в 3–4.5 м от настоящей маски, взгляд — на неё
+    const end = close.path[close.path.length - 1], look = close.look[close.look.length - 1];
+    const d = Math.hypot(end[0] - mask[0], end[1] - mask[1], end[2] - mask[2]);
+    expect(d).toBeGreaterThan(3); expect(d).toBeLessThan(4.5);
+    expect(Math.hypot(look[0] - mask[0], look[1] - mask[1], look[2] - mask[2])).toBeLessThan(0.4);
+    // со стороны Пилота: его удар и вызвал жест
+    expect(end[2]).toBeGreaterThan(mask[2]);
+    // дальше — общий план сверху: видно, как меняется пространство
+    const wide = cams[1];
+    expect(wide.t).toBe(COLLAPSE_T.close);
+    if (wide.do === 'cam') expect(Math.max(...wide.path.map((q) => q[1]))).toBeGreaterThan(20);
+    expect(COLLAPSE_T.collapse).toBeGreaterThanOrEqual(COLLAPSE_T.close);
+  });
+
+  for (const mode of ['полный просмотр', 'пропуск', 'короткая версия (третий раз)'] as const) {
+    it(`этап 4.5 C2: ${mode} — бой в верном состоянии, первый телеграф после возврата камеры и паузы`, () => {
+      const { w, b, ctrl, tick, director, hold } = fight(4, 8, mode.startsWith('короткая') ? 2 : 0);
+      const tele: number[] = [];
+      let t = 0, back = -1, entered = -1;
+      w.bus.on('telegraph', () => tele.push(t));
+      b.hp = b.maxHp * PHASE2_AT + 1; light(w, b);
+      tick(INTERCEPT_WINDOW + 0.1, () => { t += DT; });
+      expect(director.active).toBe(true);
+      if (mode === 'пропуск') hold(true);
+      tick(8, () => { t += DT; if (entered < 0 && ctrl.phase === 2) entered = t; if (back < 0 && !director.active) { back = t; hold(false); } });
+      // состояние: фаза II, пол обрушен, Пилот на мосту, босс над средокрестием, переход закончен
+      expect(ctrl.phase).toBe(2);
+      expect(b.transitioning).toBe(0);
+      expect(w.arena.edge).toBe('abyss');
+      expect(w.arena.tileAt(w.hero.x, w.hero.z)?.cross).toBe(true);
+      expect(Math.hypot(b.x, b.z)).toBeLessThan(0.5);
+      expect(w.hero.dead).toBe(false);
+      // первый опасный сигнал — не раньше, чем камера вернулась (COLLAPSE_BLEND после конца дорожки) и прошла пауза
+      // RETURN_CALM; короткая версия камеру не берёт — отсчёт от входа в фазу
+      const camBack = mode.startsWith('короткая') ? entered : back + COLLAPSE_BLEND;
+      const first = tele.find((x) => x > entered)!;
+      expect(first).toBeDefined();
+      expect(first - camBack).toBeGreaterThanOrEqual(RETURN_CALM - 0.05);
+      expect(tele.filter((x) => x <= entered)).toHaveLength(0);
+    });
+  }
 
   it('фаза III: облетает арену на цепях над бездной; три спутника звонят по очереди, каждый с меткой ≥ 0.8 с', () => {
     const { w, b, ctrl, tick } = fight();
