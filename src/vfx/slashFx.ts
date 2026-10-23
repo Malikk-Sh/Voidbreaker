@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { HitShape } from '../data/weapons';
+import { LINE_BACK, type HitShape } from '../data/weapons';
 import { G } from '../render/materials';
 
 /**
@@ -97,6 +97,12 @@ function basisCross(m: THREE.Mesh, facing: number, tilt: number, len: number, di
 
 interface Live { mesh: THREE.Mesh; u: { uBorn: { value: number }; uLife: { value: number }; uDir: { value: number }; uBright: { value: number } }; busy: boolean }
 
+/** Откуда идёт след: Пилот (живой объект — пока открыт хитбокс, след едет за ним). */
+export interface SlashSource { x: number; y: number; z: number; facing: number }
+
+/** След, который ещё едет за Пилотом: где он был в кадре удара, до какого времени, длина штриха. */
+interface Follow { l: Live; born: number; src: SlashSource; until: number; x: number; y: number; z: number; streak: number }
+
 /** Сектор кольца в плоскости XZ (вперёд — +Z), uv.x — доля угла, uv.y — от внутреннего края к внешнему. */
 function sector(angle: number, r0: number, r1: number, seg: number): THREE.BufferGeometry {
   const pos: number[] = [], uv: number[] = [], idx: number[] = [];
@@ -169,7 +175,8 @@ export class SlashFx {
   private readonly pool: { arc: Live[]; strip: Live[] } = { arc: [], strip: [] };
   private readonly arcs = new Map<string, THREE.BufferGeometry>();
   private readonly stripGeo = strip();
-  private readonly pending: { spec: SlashSpec; x: number; z: number; facing: number; at: number }[] = [];
+  private readonly pending: { spec: SlashSpec; src: SlashSource; end: number; at: number }[] = [];
+  private readonly follows: Follow[] = [];
 
   constructor() {
     for (let i = 0; i < 10; i++) this.pool.arc.push(this.make(false));
@@ -195,9 +202,13 @@ export class SlashFx {
     return g;
   }
 
-  /** Следы приёма от героя в (x, z), смотрящего по facing; now — время мира. */
-  spawn(specs: SlashSpec[], x: number, z: number, facing: number, now: number): void {
-    for (const spec of specs) this.pending.push({ spec, x, z, facing, at: now + (spec.delay ?? 0) });
+  /**
+   * Следы приёма от Пилота (src: позиция, высота — в воздухе выше, взгляд), в кадр удара; now — время мира.
+   * follow — сколько секунд хитбокс ещё открыт: столько след едет за Пилотом (штрих выпада тянется от точки
+   * первого удара до острия), потом стоит в пространстве.
+   */
+  spawn(specs: SlashSpec[], src: SlashSource, now: number, follow = 0): void {
+    for (const spec of specs) this.pending.push({ spec, src, end: now + follow, at: now + (spec.delay ?? 0) });
   }
 
   private take(isStrip: boolean, now: number): Live {
@@ -211,17 +222,20 @@ export class SlashFx {
     return best;
   }
 
-  private place(spec: SlashSpec, x: number, z: number, facing: number, now: number): void {
+  private place(spec: SlashSpec, src: SlashSource, follow: number, now: number): void {
     const heavy = !!spec.heavy;
     const life = heavy ? SLASH.heavyLife : SLASH.life;
+    const { x, y, z, facing } = src;
     const put = (isStrip: boolean, setup: (m: THREE.Mesh) => void, dir = 1) => {
       const l = this.take(isStrip, now);
+      for (let i = this.follows.length - 1; i >= 0; i--) if (this.follows[i].l === l) this.follows.splice(i, 1);
       l.u.uBorn.value = now; l.u.uLife.value = life; l.u.uDir.value = dir;
       l.u.uBright.value = heavy ? SLASH.heavyBright : SLASH.bright;
       l.mesh.visible = true;
-      l.mesh.position.set(x, spec.y ?? 1, z);
+      l.mesh.position.set(x, y + (spec.y ?? 1), z);
       l.mesh.rotation.set(0, 0, 0); l.mesh.scale.set(1, 1, 1);
       setup(l.mesh);
+      if (follow > 0) this.follows.push({ l, born: now, src, until: now + follow, x, y, z, streak: spec.shape === 'streak' ? l.mesh.scale.z : 0 });
     };
     const r = spec.reach;
     switch (spec.shape) {
@@ -241,12 +255,14 @@ export class SlashFx {
           m.geometry = this.arcGeo(spec.angle ?? 2.4);
           basisArc(m, facing, spec.tilt ?? VERT_ROLL);
           m.scale.setScalar(r);
-          m.position.y = (spec.y ?? 0.2) + r * 0.45;
+          m.position.y = y + (spec.y ?? 0.2) + r * 0.45;
         }, spec.dir ?? -1);
         break;
       }
       case 'streak': {
-        const side = spec.side ?? 0, sx = Math.cos(facing) * side, sz = -Math.sin(facing) * side;
+        // как линейный хитбокс: от LINE_BACK позади Пилота на всю длину
+        const side = spec.side ?? 0;
+        const sx = Math.cos(facing) * side - Math.sin(facing) * LINE_BACK, sz = -Math.sin(facing) * side - Math.cos(facing) * LINE_BACK;
         put(true, (m) => {
           m.position.x += sx; m.position.z += sz;
           m.rotation.set(0, facing, 0, 'YXZ');
@@ -265,13 +281,29 @@ export class SlashFx {
     }
   }
 
-  /** Кадр: отложенные следы — в момент удара; погасшие — скрыть. */
+  /** Кадр: отложенные следы — в момент удара; открытый хитбокс — след за Пилотом; погасшие — скрыть. */
   update(now: number): void {
     for (let i = this.pending.length - 1; i >= 0; i--) {
       const p = this.pending[i];
       if (now < p.at) continue;
-      this.place(p.spec, p.x, p.z, p.facing, now);
+      // отложенный слой едет за Пилотом только остаток окна удара
+      this.place(p.spec, p.src, Math.max(0, p.end - now), now);
       this.pending.splice(i, 1);
+    }
+    for (let i = this.follows.length - 1; i >= 0; i--) {
+      const f = this.follows[i], m = f.l.mesh, s = f.src;
+      if (f.l.u.uBorn.value !== f.born) { this.follows.splice(i, 1); continue; }
+      const dx = s.x - f.x, dy = s.y - f.y, dz = s.z - f.z;
+      if (f.streak > 0) {
+        // штрих выпада: начало там, где был первый удар, острие — у текущего конца хитбокса
+        const fx = Math.sin(s.facing), fz = Math.cos(s.facing);
+        m.scale.z = f.streak + Math.max(0, dx * fx + dz * fz);
+        m.position.y += dy; f.y = s.y;
+      } else {
+        m.position.x += dx; m.position.y += dy; m.position.z += dz;
+        f.x = s.x; f.y = s.y; f.z = s.z;
+      }
+      if (now >= f.until) this.follows.splice(i, 1);
     }
     for (const l of [...this.pool.arc, ...this.pool.strip]) {
       if (l.mesh.visible && now - l.u.uBorn.value > l.u.uLife.value) l.mesh.visible = false;
@@ -281,7 +313,7 @@ export class SlashFx {
   /** Сколько следов на экране (тесты). */
   get active(): number { let n = 0; for (const l of [...this.pool.arc, ...this.pool.strip]) if (l.mesh.visible) n++; return n; }
 
-  clear(): void { this.pending.length = 0; for (const l of [...this.pool.arc, ...this.pool.strip]) l.mesh.visible = false; }
+  clear(): void { this.pending.length = 0; this.follows.length = 0; for (const l of [...this.pool.arc, ...this.pool.strip]) l.mesh.visible = false; }
 
   dispose(): void {
     for (const g of this.arcs.values()) g.dispose();

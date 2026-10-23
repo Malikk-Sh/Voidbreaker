@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { slashFor } from '../src/vfx/slashFx';
+import * as THREE from 'three';
+import { SlashFx, slashFor } from '../src/vfx/slashFx';
+import { World } from '../src/world/world';
+import { Arena } from '../src/world/arena';
+import { ARENAS } from '../src/data/arenas';
+import type { GameEvents } from '../src/world/events';
+import { Abilities } from '../src/world/abilities';
+import { InputBuffer, type Input } from '../src/input/input';
+
+const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
+function arena(seed: string): World {
+  const w = new World(new Arena(ARENAS.naves), seed);
+  w.abilities = new Abilities(w);
+  w.hero.spawn(0, 0, 0);
+  return w;
+}
 import { VOID_BLADE } from '../src/data/weapons';
 import { Clip } from '../src/anim/clip';
 import { HERO_CLIPS, WHIP, WHIP_CLIPS } from '../src/anim/clips/hero';
@@ -39,5 +54,56 @@ describe('приёмы: своя форма следа и вес (разбор)'
     expect(Math.abs(a[bi] - b[bi]) + Math.abs(a[bi + 1] - b[bi + 1]) + Math.abs(a[bi + 2] - b[bi + 2])).toBeGreaterThan(1e-4);
     whip.sample(def.dur + 0.05, a, root); flat.sample(def.dur + 0.05, b, root);
     for (let k = 0; k < 4; k++) expect(a[bi + k]).toBeCloseTo(b[bi + k], 5);
+  });
+
+  it('след ложится туда, где Пилот в кадре удара: после выпада, по всей зоне, которую прошёл хитбокс', () => {
+    const w = arena('slash');
+    const h = w.hero;
+    const fx = new SlashFx();
+    const got: GameEvents['slash'][] = [];
+    let t = 0;
+    w.bus.on('slash', (e) => { got.push(e); fx.spawn(slashFor(e.move, e.hit, e.second), h, t, e.active); });
+    (h as unknown as { beginMove(m: unknown, lunge: number): void }).beginMove(VOID_BLADE.lunge, 3);
+    const input = idle();
+    // хитбокс укола по кадрам: начало и конец линии вдоль +z
+    let first: { z0: number; z1: number } | null = null, last: { z0: number; z1: number } | null = null;
+    for (let i = 0; i < 40; i++) {
+      w.step(1 / 60, 1 / 60, input);
+      t += 1 / 60;
+      fx.update(t);
+      if ((h as unknown as { hitActive: boolean }).hitActive) {
+        const sh = h.moveShape(VOID_BLADE.lunge) as { z: number; len: number };
+        last = { z0: sh.z, z1: sh.z + sh.len };
+        first ??= last;
+      } else if (last) break;
+    }
+    expect(got.length).toBe(1);
+    expect(got[0].active).toBeGreaterThan(0);
+    // выпад унёс Пилота вперёд — хитбокс прошёл больше метра
+    expect(last!.z0 - first!.z0).toBeGreaterThan(1);
+    const live = fx.group.children.find((m) => m.visible) as THREE.Mesh;
+    expect(live).toBeTruthy();
+    // штрих: от начала хитбокса в первый кадр удара до его острия в последний
+    expect(live.position.z).toBeCloseTo(first!.z0, 1);
+    expect(live.position.z + live.scale.z).toBeCloseTo(last!.z1, 1);
+    // после удара след стоит в пространстве
+    const z = live.position.z, len = live.scale.z;
+    h.z += 2;
+    fx.update(t + 0.02);
+    expect(live.position.z).toBe(z);
+    expect(live.scale.z).toBe(len);
+  });
+
+  it('заряженный удар даёт один след, а не два', () => {
+    const w = arena('slash2');
+    const h = w.hero;
+    let n = 0;
+    w.bus.on('slash', () => n++);
+    const hp = h as unknown as { chargeLevel: number; releaseCharge(): void };
+    hp.chargeLevel = 2;
+    hp.releaseCharge();
+    const input = idle();
+    for (let i = 0; i < 40; i++) w.step(1 / 60, 1 / 60, input);
+    expect(n).toBe(1);
   });
 });

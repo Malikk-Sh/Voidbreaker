@@ -35,7 +35,13 @@ export interface GameEvents {
   secondWind: { x: number; z: number };
   /** Начат взмах; hitAt — через сколько (время героя) кадр удара: туда ставится смазанный кадр. */
   /** move/hit — какой удар и его зона (форма следа, vfx/slashFx); second — второй взмах того же удара. */
-  swing: { kind: 'light' | 'spin' | 'heavy' | 'stab' | 'charged'; hitAt?: number; move?: string; hit?: HitShape; second?: boolean };
+  swing: { kind: 'light' | 'spin' | 'heavy' | 'stab' | 'charged'; hitAt?: number };
+  /**
+   * Кадр удара (первое hitOn приёма; второй взмах — укол шквала, второй разрез креста): где Пилот сейчас и
+   * куда смотрит. След удара ложится сюда — после выпада, а не там, где начался взмах (ревью). reach — ×досягаемость
+   * (Затмение); active — сколько секунд хитбокс ещё открыт: столько след едет за Пилотом (выпад, воздушный разрез).
+   */
+  slash: { move: string; hit: HitShape; second: boolean; x: number; y: number; z: number; facing: number; reach: number; active: number };
   /** Начат приём (для подсказок о ветках комбо). */
   moveStart: { id: string };
   dash: { x: number; z: number; dirX: number; dirZ: number };

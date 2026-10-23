@@ -198,12 +198,12 @@ export class FeelSystem {
         this.audio.play(id, { gain: 0.8 });
         // смазанный кадр в кадре удара (уколы — без веера)
         if (e.kind !== 'stab') this.vfx.trail.armSmear(e.hitAt ?? 0.06);
-        // след своей формы — по зоне поражения приёма, в кадр удара
-        if (e.move) {
-          const h = this.w.hero, specs = slashFor(e.move, e.hit, e.second);
-          if (!e.second) for (const sp of specs) sp.delay = (sp.delay ?? 0) + (e.hitAt ?? 0.05);
-          this.vfx.slashes.spawn(specs, h.x, h.z, h.facing, this.time.world);
-        }
+      }),
+      // след своей формы — по зоне поражения приёма, в кадр удара и там, где Пилот в этот кадр
+      b.on('slash', (e) => {
+        const specs = slashFor(e.move, e.hit, e.second);
+        if (e.reach !== 1) for (const sp of specs) sp.reach *= e.reach;
+        this.vfx.slashes.spawn(specs, this.w.hero, this.time.world, e.active);
       }),
       // украденный импульс: снаряд стал осколком Пилота; удар клинка их отправляет
       b.on('steal', (e) => {

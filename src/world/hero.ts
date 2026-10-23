@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { angleOf, clamp, dampAngle, len2 } from '../core/math';
 import { Ease } from '../core/ease';
 import { PLAYER_BASE, RESONANCE } from '../data/player';
-import { AIM, VOID_BLADE, type MoveDef, type WeaponDef } from '../data/weapons';
+import { AIM, LINE_BACK, VOID_BLADE, type MoveDef, type WeaponDef } from '../data/weapons';
 import type { Input } from '../input/input';
 import type { Actor } from './actor';
 import type { Shape } from './combat';
@@ -99,6 +99,9 @@ export class Hero implements Actor {
   /** Отмены (план §6.4): удар попал и прошёл hitOff — можно в Q/E; каст отпустил способность — можно в удар. */
   private moveLanded = false;
   private hitOffSeen = false;
+  /** След этого приёма уже показан (первое hitOn); клип приёма (с альтернативой ранга S). */
+  private slashShown = false;
+  private moveClip = '';
   private castReleased = false;
   private slideHits = new Set<number>();
 
@@ -394,14 +397,16 @@ export class Hero implements Actor {
     this.lastMove = m;
     this.lastMoveStart = this.clock;
     this.hitActive = false;
+    this.slashShown = false;
     this.hitList.clear();
     this.lungeLeft = lunge;
     this.lungeDirX = Math.sin(this.facing); this.lungeDirZ = Math.cos(this.facing);
     this.vx *= 0.2; this.vz *= 0.2;
     // ранг S: альтернативные финишеры (разворот, прыжок)
     const clip = this.world.rank.rankIdx >= 4 ? RANK_S_CLIPS[m.clip] ?? m.clip : m.clip;
+    this.moveClip = clip;
     this.avatar.puppet.play(clip, this.atkSpeed, fade ?? (m.id === 'slash1' ? 0.04 : 0.03));
-    this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(clip) / this.atkSpeed, move: m.id, hit: m.hitbox });
+    this.world.bus.emit('swing', { kind: m.swing, hitAt: this.hitFrame(clip) / this.atkSpeed });
     // удар клинка отправляет украденные осколки в цель автоприцела
     this.world.fireStolen(this.target);
     this.world.bus.emit('moveStart', { id: m.id });
@@ -438,6 +443,7 @@ export class Hero implements Actor {
       case 'hitOn':
         this.hitActive = true;
         if (this.move?.multi) this.hitList.clear();
+        if (!this.slashShown) { this.slashShown = true; this.emitSlash(false); }
         break;
       case 'hitOff': this.hitActive = false; this.hitOffSeen = true; break;
       case 'trailOn': this.trailOn = true; break;
@@ -459,9 +465,25 @@ export class Hero implements Actor {
         break;
       }
       case 'release': this.castRelease?.(); this.castRelease = null; this.castReleased = true; break;
-      case 'stab': this.stabN++; this.world.bus.emit('swing', { kind: 'stab', move: this.move?.id, hit: this.move?.hitbox, second: this.stabN % 2 === 0 }); break;
-      case 'swing2': this.world.bus.emit('swing', { kind: 'heavy', move: this.move?.id, hit: this.move?.hitbox, second: true }); break;
+      case 'stab': this.stabN++; this.world.bus.emit('swing', { kind: 'stab' }); this.emitSlash(this.stabN % 2 === 0); break;
+      case 'swing2': this.world.bus.emit('swing', { kind: 'heavy' }); this.emitSlash(true); break;
     }
+  }
+
+  /** След удара — от того места, где Пилот в кадре удара (после выпада), с досягаемостью хитбокса. */
+  private emitSlash(second: boolean): void {
+    const m = this.move;
+    if (!m) return;
+    const reach = !this.eclipse ? 1 : m.hitbox.shape === 'circle' ? 1.35 : 1.6;
+    this.world.bus.emit('slash', { move: m.id, hit: m.hitbox, second, x: this.x, y: this.y, z: this.z, facing: this.facing, reach, active: second ? 0 : this.activeWindow() });
+  }
+
+  /** Сколько секунд открыт хитбокс текущего клипа: от первого hitOn до следующего hitOff. */
+  private activeWindow(): number {
+    const ev = this.avatar.puppet.clips.get(this.moveClip)?.events;
+    const on = ev?.find((e) => e.name === 'hitOn');
+    const off = on && ev!.filter((e) => e.name === 'hitOff' && e.t >= on.t).sort((a, b) => a.t - b.t)[0];
+    return on && off ? (off.t - on.t) / this.atkSpeed : 0;
   }
 
   /** Хитбокс текущего удара в мире. */
@@ -472,7 +494,7 @@ export class Hero implements Actor {
     switch (h.shape) {
       case 'arc': return { k: 'arc', x: this.x, z: this.z, r: h.radius * reach, dir: this.facing, half: (h.angle * Math.PI) / 360 };
       case 'circle': return { k: 'circle', x: this.x + fx * (h.offset ?? 0), z: this.z + fz * (h.offset ?? 0), r: h.radius * (this.eclipse ? 1.35 : 1) };
-      case 'line': return { k: 'line', x: this.x - fx * 0.3, z: this.z - fz * 0.3, dx: fx, dz: fz, len: h.length * reach, w: h.width * (this.state === 'charged' ? this.chargedWide : 1) };
+      case 'line': return { k: 'line', x: this.x - fx * LINE_BACK, z: this.z - fz * LINE_BACK, dx: fx, dz: fz, len: h.length * reach, w: h.width * (this.state === 'charged' ? this.chargedWide : 1) };
     }
   }
 
@@ -532,7 +554,7 @@ export class Hero implements Actor {
     this.beginMove(m, 1.6);
     this.state = 'charged';
     this.lastMove = null;
-    this.world.bus.emit('swing', { kind: 'charged', hitAt: this.hitFrame('cleave'), move: 'charged', hit: m.hitbox });
+    this.world.bus.emit('swing', { kind: 'charged', hitAt: this.hitFrame('cleave') });
   }
 
   // ------------------------------------------------------------------ рывок
