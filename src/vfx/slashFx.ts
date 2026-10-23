@@ -52,7 +52,8 @@ export function slashFor(move: string, hit: HitShape | undefined, second = false
     case 'slash1': return [{ shape: 'arc', reach: r, angle: arcA, dir: -1, y: 1.15, tilt: 0.12 }];
     case 'slash2': return [{ shape: 'arc', reach: r, angle: arcA, dir: 1, y: 1.0, tilt: -0.12 }];
     case 'spin': return [{ shape: 'ring', reach: r, y: 0.95 }];
-    case 'counter': return [{ shape: 'ring', reach: r, y: 1.0, heavy: true }, { shape: 'ring', reach: r * 0.6, y: 0.08, heavy: true, delay: 0.04 }];
+    // разворот-разрез 270° слева направо (этап 4.5, B2): дуга с центром на цели, второй слой — у пола
+    case 'counter': return [{ shape: 'arc', reach: r, angle: arcA, dir: 1, y: 1.0, heavy: true }, { shape: 'arc', reach: r * 0.6, angle: arcA, dir: 1, y: 0.08, heavy: true, delay: 0.04 }];
     case 'rift': case 'skyfall': return [{ shape: 'vert', reach: 1.8, angle: 2.4, dir: -1, y: 0.25, heavy: true }];
     case 'charged': return [{ shape: 'vert', reach: 1.9, angle: 2.4, dir: -1, y: 0.2, heavy: true }, { shape: 'streak', reach: len, width: 0.55, y: 0.06, heavy: true, delay: 0.05 }];
     case 'rising': return [{ shape: 'vert', reach: 1.8, angle: 2.2, dir: 1, y: 0.3 }];

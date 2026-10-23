@@ -15,6 +15,8 @@ import type { World } from './world';
 export type HeroState = 'move' | 'attack' | 'charge' | 'charged' | 'dash' | 'cast' | 'dead' | 'fall' | 'victory' | 'frozen';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+/** Сколько силуэтов Пилота остаётся на пути проскока Контрудара (этап 4.5, B2). */
+const COUNTER_TRAIL = 3;
 
 /**
  * Пилот: стейт-машина атаки (Tech §15.2), комбо из клипов-поз, рывок с зарядами, заряженный удар,
@@ -362,18 +364,21 @@ export class Hero implements Actor {
     else if (input.aimActive) { fx = input.aimX; fz = input.aimZ; }
     this.facing = angleOf(fx, fz);
 
-    // Контрудар: мгновенно сквозь цель (за спину), разрез-вращение
+    // Контрудар: мгновенно сквозь цель (за спину), разворот-разрез. Путь проскока виден (этап 4.5, B2):
+    // штрих по линии и силуэты Пилота в позе прихода между началом и концом
     if (next.blink) {
       const tg = t ?? this.pickTarget(0, 0, false);
       if (tg) {
         const dx = tg.x - this.x, dz = tg.z - this.z, d = Math.hypot(dx, dz) || 1;
         const go = d + tg.radius + 0.9;
-        const o = { x: this.x, z: this.z };
+        const o = { x: this.x, z: this.z }, x0 = this.x, z0 = this.z;
         this.world.bus.emit('dash', { x: this.x, z: this.z, dirX: dx / d, dirZ: dz / d });
         this.world.arena.move(this.x, this.z, (dx / d) * go, (dz / d) * go, this.radius, o);
         this.x = o.x; this.z = o.z;
         this.facing = angleOf(-dx, -dz);
         this.invulnUntil = Math.max(this.invulnUntil, this.clock + 0.3);
+        this.world.bus.emit('counterBlink', { x0, z0, x1: this.x, z1: this.z });
+        this.avatar.trailBack(x0 - this.x, z0 - this.z, COUNTER_TRAIL);
       }
       this.beginMove(next, 0, fade);
       return;
@@ -528,7 +533,7 @@ export class Hero implements Actor {
     const n = this.world.heroStrike(shape, this.hitList, {
       mult, stun, stunKind: charged ? 'charged' : m.stunKind, knockback: m.knockback * (charged ? 2 : 1), feel, finisher: !!m.finisher || charged,
       dirX: Math.sin(this.facing), dirZ: Math.cos(this.facing), pierce: true, source: 'blade', launch: m.launch,
-      moveId: charged ? 'charged' : m.id,
+      moveId: charged ? 'charged' : m.id, sweep: charged ? undefined : m.sweep,
     });
     if (n > 0) this.moveLanded = true;
     if (n > 0 && this.eclipse && !this.hitWaveDone) {

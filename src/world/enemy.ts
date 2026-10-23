@@ -20,6 +20,12 @@ const _head = new THREE.Vector3();
 
 /** На каком расстоянии от поста (м) враг на поводке считается вернувшимся. */
 const LEASH_HOME = 0.5;
+/**
+ * Направленная реакция на удар поперёк цели (этап 4.5, B2): пружина корпуса — смесь линии удара (push)
+ * и хода клинка (side); проворот — сколько радиан цель доворачивается по ходу клинка за ~0.15 с.
+ * Оглушённые и сбитые с ног; у боссов — только пружина, без проворота (их атаки не сбиваются с направления).
+ */
+export const REACT_SWEEP = { push: 0.55, side: 0.85, damp: 7, twist: { swarm: 0.9, duelist: 0.6, heavy: 0.22, elite: 0.15, boss: 0 } };
 
 export type EState = 'spawn' | 'idle' | 'chase' | 'orbit' | 'telegraph' | 'attack' | 'recover' | 'stagger' | 'stunned' | 'dead' | 'special' | 'warp';
 
@@ -96,6 +102,8 @@ export abstract class Enemy implements Actor {
   lagT = 0;
   /** Стопкадр после попадания (мировые с): поза и тело стоят, модель дрожит (план §5.1, п. 4). */
   freeze = 0;
+  /** Скорость проворота от удара поперёк (рад/с), гаснет за ~0.15 с. */
+  twistV = 0;
   /** Рядовой сбит с ног тяжёлым ударом: две маленькие звезды (с). */
   dazeT = 0;
   /** Метки Пустоты (план §6.1): удары клинка кладут до 5 стопок; гаснут через 4 с без ударов. */
@@ -239,6 +247,12 @@ export abstract class Enemy implements Actor {
       this.applyShiver();
       return;
     }
+    // проворот от удара поперёк (REACT_SWEEP): доворачивается по ходу клинка, а не рывком
+    if (this.twistV) {
+      this.facing += this.twistV * dt;
+      this.twistV *= Math.exp(-dt * REACT_SWEEP.damp);
+      if (Math.abs(this.twistV) < 0.02) this.twistV = 0;
+    }
     // отбрасывание
     if (this.kbX || this.kbZ) {
       this.vx = this.kbX; this.vz = this.kbZ;
@@ -336,9 +350,17 @@ export abstract class Enemy implements Actor {
    * (тяжёлый — опрокидывается на 0.6 с), Голем едва сдвигается (тяжёлый — шаг назад и камни с плеч),
    * элита почти не двигается (тяжёлый — сильная пружина), босс вздрагивает (тяжёлый — пружина всего тела, обломки).
    */
-  react(w: World, heavy: boolean, spring: number, dirX: number, dirZ: number): void {
-    const p = this.puppet;
-    switch (this.reactClass) {
+  react(w: World, heavy: boolean, spring: number, dirX: number, dirZ: number, sweep = 0): void {
+    const p = this.puppet, cls = this.reactClass;
+    if (sweep) {
+      // клинок идёт поперёк: корпус уходит по ходу клинка (вправо от Пилота при sweep 1), цель доворачивается;
+      // момент силы касательного удара по ближней стороне всегда +sweep к углу взгляда
+      const R = REACT_SWEEP, tx = -dirZ * sweep, tz = dirX * sweep;
+      const kx = dirX * R.push + tx * R.side, kz = dirZ * R.push + tz * R.side, l = Math.hypot(kx, kz) || 1;
+      dirX = kx / l; dirZ = kz / l;
+      if (this.state === 'stagger' || this.stunned) this.twistV += sweep * R.twist[cls] * R.damp;
+    }
+    switch (cls) {
       case 'swarm':
         p.kickSpring(dirX, dirZ, spring * 1.1);
         if (heavy) { this.kbX += dirX * 3; this.kbZ += dirZ * 3; w.bus.emit('hitReact', { x: this.x, y: 0.1, z: this.z, kind: 'dust' }); }
@@ -346,7 +368,7 @@ export abstract class Enemy implements Actor {
       case 'duelist':
         p.kickSpring(dirX, dirZ, spring * 0.9);
         if (heavy && this.state === 'stagger') this.toppleT = 0.6;
-        else if (!this.steadfast) this.facing += (this.id % 2 ? 0.3 : -0.3);
+        else if (!this.steadfast && !sweep) this.facing += (this.id % 2 ? 0.3 : -0.3);
         break;
       case 'heavy':
         // тяжёлый стоит на месте: лёгкий удар — только корпус и колени, тяжёлый — короткий шаг назад

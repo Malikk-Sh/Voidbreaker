@@ -41,6 +41,8 @@ export const HIT_FX = { flare: 0.5, flareHeavy: 0.3, grow: 1.8, alpha: 0.75, rin
 export const STUN_FX = { ring: 0.7, flare: 0.8, alpha: 0.55, light: 4 };
 
 /** Удар о землю (impact): яркость и непрозрачность кольца, внутреннее кольцо (непрозрачность, ширина), сила и радиус (×r) света. Было 2.5 / 1 / 0.6 / 0.6 / 3 / 2.5. */
+/** Штрих проскока Контрудара: число искр, высота (м), скорость по ходу (м/с), жизнь (с). */
+export const BLINK = { n: 14, y: 1.05, v: 6, life: 0.26 };
 export const IMPACT = { ring: 1.4, outer: 0.55, inner: 0.35, innerW: 0.3, light: 1.8, lightR: 2.0 };
 /** Пыль, поднятая волной с пола: светлее дыма удара — её видно на обсидиане и в лучах. */
 const WAVE_DUST = lin('#5d586a');
@@ -373,6 +375,20 @@ export class BattleVfx {
     this.rings.spawn(x, z, 0.3, heavy ? 4 : 2.6, heavy ? 0.5 : 0.35, C.voidHot, 0.1, heavy ? 0.9 : 0.6);
     this.burst(heavy ? 26 : 12, { x, y: 1, z, life: heavy ? 0.8 : 0.5, size: heavy ? 0.1 : 0.06, size1: 0.01, color: heavy ? C.voidHot : C.core, drag: 2.5, frame: 'star', gravity: 0.5 }, { v: heavy ? 5 : 3.5, vy: 1.5 });
     this.lights.flash(x, 1.4, z, C.void, heavy ? 6 : 3, heavy ? 8 : 5, heavy ? 0.5 : 0.3);
+  }
+
+  /**
+   * Путь проскока Контрудара (этап 4.5, B2): тонкий фиолетовый штрих на высоте корпуса от начала к цели и за неё,
+   * искры летят по ходу — видно, что Пилот прошёл сквозь врага, а не возник за спиной.
+   */
+  blinkStreak(x0: number, z0: number, x1: number, z1: number): void {
+    const dx = x1 - x0, dz = z1 - z0, len = Math.hypot(dx, dz) || 1, ux = dx / len, uz = dz / len;
+    const n = Math.round(BLINK.n * this.quality) + 4;
+    for (let k = 0; k < n; k++) {
+      const f = k / (n - 1);
+      this.add.emit({ x: x0 + dx * f, y: BLINK.y + fxRng.spread(0.25), z: z0 + dz * f, vx: ux * BLINK.v, vz: uz * BLINK.v, life: BLINK.life * (0.5 + 0.5 * f), size: 0.16 * (0.4 + 0.6 * f), size1: 0.02, color: f > 0.7 ? C.core : C.voidHot, frame: 'spark', stretch: 2.2 });
+    }
+    this.lights.flash(x0 + dx * 0.5, 1.1, z0 + dz * 0.5, C.void, 2, 5, 0.18);
   }
 
   /** Раскол: взрыв обсидиановых осколков и светящихся трещин. */

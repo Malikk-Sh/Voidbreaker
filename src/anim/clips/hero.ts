@@ -125,14 +125,24 @@ export const HERO_CLIPS: ClipDef[] = [
     events: [{ t: 0.0, name: 'trailOn' }, { t: 0.03, name: 'hitOn' }, { t: 0.08, name: 'hitOff' }, { t: 0.15, name: 'swing2' }, { t: 0.17, name: 'hitOn' }, { t: 0.2, name: 'impact' }, { t: 0.24, name: 'hitOff' }, { t: 0.27, name: 'trailOff' }],
   },
   {
-    // Контрудар: из рывка — разворот на 360° с вытянутой рукой, плащ веером
+    // Контрудар (этап 4.5, B2): Пилот проскочил сквозь цель и приходит спиной к ней (разворот 1.25π — лицом
+    // по ходу проскока), голова первой находит цель через плечо; сжатие, затем разворот на 270° — сам разрез:
+    // клинок идёт слева направо и проходит цель в кадре контакта (hitOn — рука смотрит вперёд). Выход —
+    // широкая низкая стойка лицом к цели, клинок отведён вправо-назад, левая рука вперёд; держится до 0.27
     id: 'counter', dur: 0.38, mask: 'full',
     keys: [
-      { t: 0, spin: 0, rootOffset: [0, -0.2, 0], pose: { chest: [0.45, -0.7, 0], spine: [0.2, -0.3, 0], shR: [0.2, 0.2, -0.9], elbR: [-0.3, 0, 0], blade: [0.5, 0, 0], shL: [-0.6, 0, 0.8], hipL: [-0.9, 0, 0.2], kneeL: [1.2, 0, 0], hipR: [0.4, 0, -0.2], kneeR: [0.9, 0, 0] } },
-      { t: 0.18, spin: -Math.PI * 2, ease: 'outCubic', stretch: 1.1, rootOffset: [0, -0.1, 0], pose: { chest: [0.2, 0.3, 0], spine: [0.1, 0.1, 0], shR: [-1.55, 0, -1.45], elbR: [0, 0, 0], blade: [-0.15, 0, 0], shL: [-0.3, 0, 1.1], hipL: [-0.6, 0, 0.2], kneeL: [0.8, 0, 0], hipR: [0.3, 0, -0.2], kneeR: [0.6, 0, 0] } },
-      { t: 0.38, spin: -Math.PI * 2, ease: 'outQuart', stretch: 1, rootOffset: [0, 0, 0], pose: { chest: [0.15, 0.1, 0], shR: [-0.9, 0.1, -0.6], elbR: [-0.4, 0, 0], blade: [0.35, 0, 0], shL: [0, 0, 0.5], hipL: [-0.3, 0, 0.1], kneeL: [0.4, 0, 0], hipR: [0.2, 0, -0.1], kneeR: [0.4, 0, 0] } },
+      { t: 0, spin: Math.PI * 1.25, rootOffset: [0, -0.24, 0], pose: { pelvis: [0.1, -0.2, 0], chest: [0.55, -0.5, 0], spine: [0.25, -0.25, 0], shR: [0.35, 0.2, -0.85], elbR: [-0.2, 0, 0], blade: [0.6, 0, 0], shL: [-0.7, 0, 0.7], elbL: [-0.6, 0, 0],
+        hipL: [-1.0, 0, 0.2], kneeL: [1.25, 0, 0], hipR: [0.45, 0, -0.2], kneeR: [0.9, 0, 0], head: [0, 0.9, 0] } },
+      { t: 0.035, ease: 'inBack', spin: Math.PI * 1.32, rootOffset: [0, -0.27, 0], pose: { pelvis: [0.1, -0.3, 0], chest: [0.5, -0.75, 0], spine: [0.25, -0.35, 0], shR: [0.2, 0.3, -1.0], blade: [0.7, 0, 0], head: [0, 1.0, 0] } },
+      { t: 0.075, ease: 'outExpo', spin: Math.PI * 0.55, stretch: 1.1, rootOffset: [0, -0.16, 0], pose: { pelvis: [0.05, 0.25, 0], chest: [0.25, 0.35, 0], spine: [0.12, 0.15, 0], shR: [-1.55, 0, -1.45], elbR: [0, 0, 0], blade: [-0.15, 0, 0], shL: [-0.3, 0, 1.1], elbL: [-0.4, 0, 0],
+        hipL: [-0.7, 0, 0.2], kneeL: [0.85, 0, 0], hipR: [0.35, 0, -0.2], kneeR: [0.6, 0, 0], head: [0, -0.7, 0] } },
+      { t: 0.14, ease: 'outQuart', spin: -Math.PI * 0.2, stretch: 1.04, rootOffset: [0, -0.22, 0], pose: { pelvis: [0.05, -0.15, 0], chest: [0.3, -0.2, 0], spine: [0.15, -0.1, 0], shR: [-1.45, 0.35, -1.5], elbR: [0, 0, 0], blade: [0.1, 0, 0], shL: [-0.9, 0, 0.4], elbL: [-0.5, 0, 0],
+        hipL: [-0.95, 0, 0.3], kneeL: [1.05, 0, 0], hipR: [0.5, 0, -0.35], kneeR: [0.75, 0, 0], footL: [-0.15, 0, 0], footR: [0.2, 0, 0], head: [0, 0.55, 0] } },
+      { t: 0.27, ease: 'inOutQuad', spin: -Math.PI * 0.2, stretch: 1, rootOffset: [0, -0.24, 0], pose: { chest: [0.32, -0.25, 0], shR: [-1.35, 0.45, -1.45], blade: [0.2, 0, 0], head: [0, 0.6, 0] } },
+      { t: 0.38, ease: 'outQuart', spin: -Math.PI * 0.08, rootOffset: [0, -0.1, 0], pose: { pelvis: [0.02, 0, 0], chest: [0.15, 0, 0], spine: [0.05, 0, 0], shR: [-0.9, 0.1, -0.6], elbR: [-0.4, 0, 0], blade: [0.35, 0, 0], shL: [0, 0, 0.5], elbL: [-0.5, 0, 0],
+        hipL: [-0.4, 0, 0.15], kneeL: [0.5, 0, 0], hipR: [0.25, 0, -0.15], kneeR: [0.45, 0, 0], footL: [0, 0, 0], footR: [0, 0, 0], head: [0, 0.25, 0] } },
     ],
-    events: [{ t: 0.02, name: 'trailOn' }, { t: 0.04, name: 'hitOn' }, { t: 0.18, name: 'hitOff' }, { t: 0.22, name: 'trailOff' }],
+    events: [{ t: 0.035, name: 'trailOn' }, { t: 0.075, name: 'hitOn' }, { t: 0.14, name: 'hitOff' }, { t: 0.18, name: 'trailOff' }],
   },
   {
     // Заряженный удар: выпад через линию с растяжением ×1.5

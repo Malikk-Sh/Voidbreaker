@@ -9,6 +9,8 @@ import { RigBatch } from '../render/rigbatch';
 import { ClothMesh } from '../render/cloth';
 
 const GHOSTS = 6;
+/** Возраст дальнего силуэта проскока (с) при жизни силуэта 0.22: ближний к Пилоту держится дольше. */
+const TRAIL_AGE = 0.12;
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _tb = new THREE.Vector3(), _tt = new THREE.Vector3();
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
 
@@ -188,6 +190,7 @@ export class HeroAvatar {
 
     this.updateCloth(adt);
     this.updateGhosts(dt);
+    if (this.pendingTrail) this.spawnTrail();
   }
 
   /** Шаг-выпад (вес 0.6 по маске «всё тело»): ноги из клипа «верх» иначе стоят на месте. */
@@ -259,6 +262,27 @@ export class HeroAvatar {
     for (let i = 0; i < sub; i++) { this.cloak.step(dt / sub); this.scarf.step(dt / sub); }
     this.cloakMesh.sync();
     this.scarfMesh.sync();
+  }
+
+  private pendingTrail: { dx: number; dz: number; n: number } | null = null;
+
+  /**
+   * Силуэты на пути проскока (Контрудар, этап 4.5, B2): после ближайшего расчёта позы — n копий текущего
+   * скелета, сдвинутых назад по пути (dx, dz — от точки прихода к началу). Дальние старше и гаснут первыми.
+   */
+  trailBack(dx: number, dz: number, n: number): void { this.pendingTrail = { dx, dz, n }; }
+
+  private spawnTrail(): void {
+    const T = this.pendingTrail!, src = this.puppet.skel.world;
+    this.pendingTrail = null;
+    for (let i = 1; i <= T.n; i++) {
+      const f = i / (T.n + 1);
+      let g = this.ghosts[0];
+      for (const q of this.ghosts) if (q.age > g.age) g = q;
+      g.world.set(src);
+      for (let o = 0; o < src.length; o += 16) { g.world[o + 12] += T.dx * f; g.world[o + 14] += T.dz * f; }
+      g.age = f * TRAIL_AGE;
+    }
   }
 
   /** Сбросить ткань (телепорт/спаун). */

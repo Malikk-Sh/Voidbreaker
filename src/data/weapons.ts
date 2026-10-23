@@ -44,6 +44,11 @@ export interface MoveDef {
   noChain?: boolean;
   /** Мгновенный рывок сквозь цель (Контрудар). */
   blink?: boolean;
+  /**
+   * Куда клинок идёт поперёк цели (вид от Пилота): 1 — слева направо, −1 — справа налево. Цель отшатывается
+   * и проворачивается по ходу клинка (этап 4.5, B2); без поля реакция — по линии удара.
+   */
+  sweep?: number;
 }
 
 export interface WeaponDef {
@@ -85,7 +90,9 @@ export const VOID_BLADE: WeaponDef = {
   // Крест: два диагональных разреза крест-накрест
   cross: { id: 'cross', clip: 'cross', dur: 0.42, chain: [0.42, 0.42], dashCancelFrom: 0.28, hitbox: { shape: 'arc', radius: 2.6, angle: 150 }, dmg: 1.25, stun: 6, knockback: 3, feel: 'heavy', lunge: 0.7, multi: true, finisher: true, noChain: true, swing: 'heavy' },
   // Контрудар: после идеального уклонения — мгновенный рывок сквозь цель и разрез-вращение
-  counter: { id: 'counter', clip: 'counter', dur: 0.38, chain: [0.2, 0.55], dashCancelFrom: 0.2, hitbox: { shape: 'circle', radius: 2.6 }, dmg: 2.4, stun: 20, stunKind: 'counter', knockback: 3, feel: 'heavy', lunge: 0, finisher: true, blink: true, swing: 'spin' },
+  // этап 4.5, B2: разрез — разворот на 270° к цели, поэтому дуга 270° с центром на цели вместо круга 360°;
+  // сектор 90° за спиной (сторона, откуда Пилот проскочил) клинок не проходит
+  counter: { id: 'counter', clip: 'counter', dur: 0.38, chain: [0.2, 0.55], dashCancelFrom: 0.2, hitbox: { shape: 'arc', radius: 2.6, angle: 270 }, dmg: 2.4, stun: 20, stunKind: 'counter', knockback: 3, feel: 'heavy', lunge: 0, finisher: true, blink: true, sweep: 1, swing: 'spin' },
   charged: { minHold: 0.45, fullHold: 0.9, dmg: [3.0, 4.5], stun: [12, 30], length: 5, width: 1.4 },
 };
 

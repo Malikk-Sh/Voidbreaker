@@ -29,6 +29,8 @@ export interface GameEvents {
    * sx, sz — где начался рывок (там остаётся силуэт).
    */
   perfectDodge: { x: number; z: number; heavy: boolean; sx: number; sz: number };
+  /** Контрудар проскочил сквозь цель: откуда и куда (этап 4.5, B2). */
+  counterBlink: { x0: number; z0: number; x1: number; z1: number };
   dodge: { x: number; z: number };
   playerHurt: { dmg: number; hpLeft: number; dirX: number; dirZ: number; source: string };
   heroDeath: { x: number; z: number };

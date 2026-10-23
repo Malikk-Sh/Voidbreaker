@@ -43,6 +43,8 @@ export interface StrikeParams {
   launch?: number;
   /** Приём героя (высота звука по шагу комбо). */
   moveId?: string;
+  /** Ход клинка поперёк цели (MoveDef.sweep): направленная реакция цели (этап 4.5, B2). */
+  sweep?: number;
   /** Детонатор меток Пустоты: +доля урона за стопку, стопки снимаются (Серп, Колодец 0.2; линия Раскола 0.1). */
   detonate?: number;
 }
@@ -370,7 +372,7 @@ export class World {
       }
     }
     // реакция по классу врага (план §7.1)
-    e.react(this, p.feel === 'heavy' || feel === 'break', FEEL[feel].spring, p.dirX, p.dirZ);
+    e.react(this, p.feel === 'heavy' || feel === 'break', FEEL[feel].spring, p.dirX, p.dirZ, p.sweep ?? 0);
     if (p.source === 'blade' && !e.dead) e.onBladeHit(this, p, kind);
     if (!shatter) e.recoilHit(this, !!p.finisher);
     if (!p.noResonance) h.addResonance(RESONANCE.perHit + (p.finisher ? RESONANCE.perFinisher - RESONANCE.perHit : 0));

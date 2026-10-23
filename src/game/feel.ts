@@ -167,6 +167,7 @@ export class FeelSystem {
         const note = MOTIF[this.motifStep++ % MOTIF.length];
         this.audio.play('motif_note', { gain: 0.55, pitch: Math.pow(2, (note - 62) / 12), vary: 0, delay: 0.12 });
       }),
+      b.on('counterBlink', (e) => this.vfx.blinkStreak(e.x0, e.z0, e.x1, e.z1)),
       b.on('dodge', () => { /* рывок сквозь атаку без бонуса — только звук свиста */ this.audio.play('swing_stab', { pitch: 0.7, gain: 0.4 }); }),
       b.on('playerHurt', (e) => {
         if (e.dmg <= 0) return;
