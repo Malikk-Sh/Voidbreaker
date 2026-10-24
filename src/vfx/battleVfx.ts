@@ -1,0 +1,799 @@
+import * as THREE from 'three';
+import { fxRng } from '../core/rng';
+import { hexToLinear } from '../core/math';
+import { GeomBuilder } from '../gen/geom/build';
+import { crescent } from '../gen/geom/prims';
+import { obsidianMaterial, G } from '../render/materials';
+import type { World } from '../world/world';
+import type { Abilities } from '../world/abilities';
+import { Acolyte } from '../world/enemies/acolyte';
+import { Psalmist } from '../world/enemies/psalmist';
+import { Obelisk } from '../world/enemies/obelisk';
+import type { Enemy } from '../world/enemy';
+import { ClothMesh } from '../render/cloth';
+import { Debris } from './debris';
+import { LightManager } from './lights';
+import { Particles, type ParticleSpec } from './particles';
+import { Rings } from './rings';
+import { Sprites } from './sprites';
+import { TelegraphView } from './telegraphs';
+import { RibbonTrail } from './trail';
+import { LightPools } from './ambient';
+import { StunStars } from './stunStars';
+import { FloorRiftsView } from './floorRifts';
+import { FloorSpikes } from './floorSpikes';
+import { ChainsView } from './chains';
+import { BellSatsView } from './bellSats';
+import { SlashFx } from './slashFx';
+
+const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLinear(h); return [c[0] * k, c[1] * k, c[2] * k]; };
+export const C = {
+  void: lin('#8B5CF6'), voidHot: lin('#B794FF', 2.2), core: lin('#F1E8FF', 2.5), hunger: lin('#E11D2E'), hungerHot: lin('#FF4A57', 2.4),
+  ember: lin('#FF8A3D', 2), gold: lin('#B8954E', 1.5), dust: lin('#3a3150'), dark: lin('#0b0910'), ether: lin('#F4F1FF', 3),
+  star: lin('#4aa3c8'), starHot: lin('#9fe4f7', 2.2),
+};
+/**
+ * Иерархия эффектов удара (ревью): главный акцент — след приёма; вспышка в точке попадания (м, +за тяжесть,
+ * рост за жизнь, непрозрачность) и кольцо тяжёлого — мельче. Было 0.9 / 0.5 / до 2.6 м / 0.9 и кольцо 2.6 м.
+ */
+export const HIT_FX = { flare: 0.5, flareHeavy: 0.3, grow: 1.8, alpha: 0.75, ring: 1.6 };
+/** Вспышка оглушения (и Раскола — чуть сильнее): непрозрачность белого кольца, размер и непрозрачность белой сердцевины, свет. Было 1.2 / 1.4 / 0.85 / 6 (Раскол 1.2 / 1.2 / 0.9 / 7). */
+export const STUN_FX = { ring: 0.7, flare: 0.8, alpha: 0.55, light: 4 };
+
+/** Удар о землю (impact): яркость и непрозрачность кольца, внутреннее кольцо (непрозрачность, ширина), сила и радиус (×r) света. Было 2.5 / 1 / 0.6 / 0.6 / 3 / 2.5. */
+/** Штрих проскока Контрудара: число искр, высота (м), скорость по ходу (м/с), жизнь (с). */
+export const BLINK = { n: 14, y: 1.05, v: 6, life: 0.26 };
+export const IMPACT = { ring: 1.4, outer: 0.55, inner: 0.35, innerW: 0.3, light: 1.8, lightR: 2.0 };
+/** Пыль, поднятая волной с пола: светлее дыма удара — её видно на обсидиане и в лучах. */
+const WAVE_DUST = lin('#5d586a');
+
+
+const _wp = { x: 0, y: 0, z: 0 };
+const _v = new THREE.Vector3(), _w = new THREE.Vector3();
+
+/**
+ * Все визуальные системы боя (GDD §16): частицы, шлейф клинка, ударные волны, телеграфы, снаряды, подбор,
+ * осколки, свет. Рецепты эффектов — методы; sync() переносит состояние мира в рендер каждый кадр.
+ */
+export class BattleVfx {
+  readonly group = new THREE.Group();
+  readonly add: Particles;
+  readonly norm: Particles;
+  readonly trail = new RibbonTrail('#8B5CF6', '#F1E8FF');
+  readonly rings = new Rings(28);
+  /** Следы ударов: своя форма у каждого приёма (разбор). */
+  readonly slashes = new SlashFx();
+  readonly tele = new TelegraphView(48);
+  readonly sprites = new Sprites(700, true);
+  readonly debris = new Debris(240);
+  readonly lights = new LightManager();
+  readonly pools: LightPools;
+  /** Звёзды оглушения над головами (план §5.5). */
+  readonly stars = new StunStars();
+  /** Разломы на полу (план §6.2). */
+  readonly rifts = new FloorRiftsView();
+  /** Шипы из пола (Погребальный ряд, план §7.2). */
+  readonly spikes = new FloorSpikes();
+  /** Цепи Звонаря — временные стены (план §7.4). */
+  readonly chains = new ChainsView();
+  readonly bellSats = new BellSatsView();
+  /** Рясы Псаломщиков — ткань Верле, по сетке на каждого (план §7.3). */
+  private robes = new Map<Psalmist, ClothMesh>();
+  /** Ступень ранга (план §6.6): 0 — ниже A, 1 — A, 2 — S, 3 — SS. Только визуал, без бонуса к урону. */
+  rankTier = 0;
+  /** Раскалённые следы тяжёлых (план §7.1). */
+  private prints: { x: number; z: number; r: number; t: number }[] = [];
+  /** Фиолетовые отпечатки шагов на ранге S+. */
+  private steps: { x: number; z: number; t: number }[] = [];
+  private stepAcc = 0; private stepSide = 1; private lastHX = 0; private lastHZ = 0;
+  /** Камера рендера: звёзды разворачиваются к ней. */
+  camera: THREE.Camera | null = null;
+  private sickleMeshes: THREE.Mesh[] = [];
+  /** Лента-шлейф за каждым Серпом (план §6.9). */
+  private sickleTrails: RibbonTrail[] = [];
+  private wellMeshes: THREE.Mesh[] = [];
+  private ambientT = 0;
+  /** Пыль/искры атмосферы зоны (слой 7, GDD §17.5). */
+  /** Частицы в воздухе вокруг Пилота. Пыль теперь только в лучах света, а пепел — свой слой (vfx/atmosphere). */
+  atmosphere: 'dust' | 'embers' | 'none' = 'none';
+  quality = 1;
+
+  constructor(maxParticles: number, pools: LightPools) {
+    this.add = new Particles(maxParticles, true);
+    this.norm = new Particles(Math.round(maxParticles * 0.35), false);
+    this.pools = pools;
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh, this.chains.mesh, this.bellSats.mesh, this.slashes.group);
+    for (const m of this.debris.meshes) this.group.add(m);
+    // серпы: выдавленный полумесяц с эмиссивной кромкой
+    const b = new GeomBuilder();
+    b.color = [0.02, 0.015, 0.03];
+    b.add(crescent(0.55, 0.22, 2.6, 0.05), { emissive: 0.6 });
+    b.add(crescent(0.57, 0.06, 2.4, 0.07), { emissive: 1.8 });
+    const sg = b.build();
+    const sm = obsidianMaterial({ rim: '#B794FF', rimStrength: 1.0, emissive: '#9b6cff', emissiveStrength: 2.6 });
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.Mesh(sg, sm);
+      m.visible = false; m.frustumCulled = false;
+      this.sickleMeshes.push(m); this.group.add(m);
+      const tr = new RibbonTrail('#8B5CF6', '#F1E8FF');
+      tr.life = 0.16;
+      this.sickleTrails.push(tr); this.group.add(tr.mesh);
+    }
+    // колодец: чёрное ядро + кольцо аккреции (шейдер)
+    const wm = new THREE.ShaderMaterial({
+      uniforms: { uTime: G.uTime, uK: { value: 0 } },
+      vertexShader: /* glsl */ `varying vec3 vN; varying vec3 vV; void main() { vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: /* glsl */ `
+        uniform float uTime, uK; varying vec3 vN; varying vec3 vV;
+        void main() {
+          float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+          float rim = pow(f, 2.5);
+          vec3 col = vec3(0.004, 0.0, 0.01) + vec3(0.55, 0.3, 1.0) * rim * (2.5 + uK * 3.0) + vec3(1.0) * pow(f, 8.0) * 2.0;
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    });
+    const wg = new THREE.IcosahedronGeometry(0.75, 2);
+    for (let i = 0; i < 3; i++) {
+      const m = new THREE.Mesh(wg, wm.clone());
+      m.visible = false;
+      this.wellMeshes.push(m); this.group.add(m);
+    }
+  }
+
+  // ------------------------------------------------------------------ рецепты
+  burst(n: number, base: ParticleSpec, spread: { v: number; vy?: number; dir?: [number, number]; cone?: number }, additive = true): void {
+    const sys = additive ? this.add : this.norm;
+    const count = Math.round(n * this.quality);
+    for (let i = 0; i < count; i++) {
+      let a = fxRng.range(0, Math.PI * 2);
+      if (spread.dir) a = Math.atan2(spread.dir[0], spread.dir[1]) + fxRng.spread(spread.cone ?? 0.8);
+      const sp = spread.v * fxRng.range(0.35, 1);
+      sys.emit({ ...base, vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, vy: (spread.vy ?? 0) * fxRng.range(0.3, 1.2), life: base.life * fxRng.range(0.6, 1.2), size: base.size * fxRng.range(0.6, 1.3) });
+    }
+  }
+
+  /**
+   * Попадание: фиолетовые искры от клинка, красные искры и обсидиановые осколки от врага (GDD §14.4).
+   * tx, tz — касательная к дуге взмаха (ход кончика клинка): основная часть искр летит узким конусом по ней (план §5.8).
+   */
+  hitSparks(x: number, y: number, z: number, dx: number, dz: number, heavy: number, crit: boolean, tx = dx, tz = dz): void {
+    // ранг A+: искры гуще
+    const dense = this.rankTier >= 1 ? 1.6 : 1;
+    this.burst((5 + heavy * 6) * dense, { x, y, z, life: 0.3, size: 0.09, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.5 }, { v: 11, vy: 2.5, dir: [tx, tz], cone: 0.35 });
+    this.burst(2 + heavy * 2, { x, y, z, life: 0.25, size: 0.08, size1: 0.02, color: C.voidHot, gravity: -6, drag: 4, frame: 'spark', stretch: 1.2 }, { v: 7, vy: 4, dir: [dx, dz], cone: 0.9 });
+    this.burst(4 + heavy * 4, { x, y, z, life: 0.35, size: 0.08, size1: 0.01, color: C.hungerHot, gravity: -10, drag: 3, frame: 'spark', stretch: 1 }, { v: 7, vy: 5, dir: [dx, dz], cone: 1.6 });
+    // вспышка в точке попадания — акцент, но мельче следа удара (была до 2.6 м: в стоп-кадре — белый шар)
+    const F = HIT_FX;
+    this.add.emit({ x, y, z, life: 0.12, size: F.flare + heavy * F.flareHeavy, size1: (F.flare + heavy * F.flareHeavy) * F.grow, color: crit ? C.core : C.voidHot, alpha: F.alpha, frame: 'flare', rot: fxRng.next() * 3 });
+    if (heavy > 0.5 || crit) this.add.emit({ x, y, z, life: 0.2, size: 0.3, size1: F.ring, color: C.void, alpha: 0.45, frame: 'ring' });
+    this.debris.burst(x, y, z, dx, dz, Math.round((2 + heavy * 4) * this.quality), 4 + heavy * 2, 0.16);
+  }
+
+  /** Смерть = распад: осколки, багровый выдох, облачко пыли. */
+  shatter(x: number, y: number, z: number, dx: number, dz: number, big: number): void {
+    this.debris.burst(x, y, z, dx, dz, Math.round((8 + big * 10) * this.quality), 5 + big * 2, 0.2 + big * 0.12);
+    this.burst(14 + big * 16, { x, y, z, life: 0.6, size: 0.12, size1: 0.02, color: C.hungerHot, gravity: -6, drag: 2.5, frame: 'spark', stretch: 0.8 }, { v: 7 + big * 3, vy: 6 });
+    this.burst(6 + big * 6, { x, y: 0.4, z, life: 1.1, size: 0.6 + big * 0.5, size1: 1.4 + big, color: C.dust, alpha: 0.5, drag: 3, frame: 'smoke' }, { v: 2.5, vy: 0.8 }, false);
+    this.add.emit({ x, y, z, life: 0.25, size: 0.9 + big * 0.8, size1: 1.8 + big * 1.5, color: C.hungerHot, alpha: 0.6, frame: 'dot' });
+    this.lights.flash(x, 1.2, z, C.hunger, 3 + big * 2.5, 6 + big * 4, 0.35);
+  }
+
+  /** Удар о землю: ударная волна + пылевое кольцо + осколки. */
+  impact(x: number, z: number, r: number, color: [number, number, number], strength = 1): void {
+    // кольцо — вторично к следу удара: ×1.4 (было ×2.5 — с HDR-цветом героя ×5.5, белый шар после блума)
+    const k = IMPACT.ring;
+    this.rings.spawn(x, z, 0.3, r * 1.15, 0.35, [color[0] * k, color[1] * k, color[2] * k], 0.3 * strength, IMPACT.outer);
+    // внутреннее кольцо было полосой 0.6 с непрозрачностью 0.6 в HDR — сверху читалось светящимся диском
+    this.rings.spawn(x, z, 0.2, r * 0.8, 0.5, [color[0], color[1], color[2]], IMPACT.innerW, IMPACT.inner);
+    const n = Math.round(18 * strength);
+    for (let i = 0; i < n * this.quality; i++) {
+      const a = (i / n) * Math.PI * 2 + fxRng.spread(0.2);
+      this.norm.emit({ x: x + Math.sin(a) * r * 0.3, y: 0.2, z: z + Math.cos(a) * r * 0.3, vx: Math.sin(a) * r * 2.2, vz: Math.cos(a) * r * 2.2, vy: fxRng.range(0.3, 1.5), life: 0.8, size: 0.5, size1: 1.3, color: C.dust, alpha: 0.55, drag: 3.5, frame: 'smoke' });
+    }
+    this.burst(10 * strength, { x, y: 0.2, z, life: 0.5, size: 0.08, size1: 0.02, color, gravity: -12, drag: 1.5, frame: 'spark', stretch: 1 }, { v: r * 2.5, vy: 6 });
+    if (r >= 2.5) this.waveDust(x, z, r);
+    this.debris.burst(x, 0.2, z, 0, 0, Math.round(6 * strength * this.quality), 4, 0.18);
+    this.lights.flash(x, 1, z, color, IMPACT.light * strength, r * IMPACT.lightR, 0.3);
+  }
+
+  /**
+   * Ударная волна поднимает пыль с пола (план §8.5): за фронтом волны (≈3r м/с) встаёт и долго висит
+   * низкая пылевая завеса — дальше от центра, чем быстрый клуб удара.
+   */
+  waveDust(x: number, z: number, r: number): void {
+    const n = Math.round(Math.min(28, 10 + r * 4) * this.quality);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + fxRng.spread(0.25), rr = r * fxRng.range(0.55, 1.15);
+      this.norm.emit({
+        x: x + Math.sin(a) * rr, y: 0.1, z: z + Math.cos(a) * rr, vx: Math.sin(a) * 0.7, vz: Math.cos(a) * 0.7, vy: fxRng.range(0.3, 0.75),
+        life: fxRng.range(1.7, 2.4), size: 0.5, size1: fxRng.range(1.5, 2.2), color: WAVE_DUST, alpha: 0.34, drag: 1.1, frame: 'smoke', delay: rr / (r * 3),
+      });
+    }
+  }
+
+  /** Портал спавна (0.8 с красный разлом). */
+  portal(x: number, z: number): void {
+    this.rings.spawn(x, z, 1.6, 0.2, 0.8, C.hungerHot, 0.12, 1.2);
+    for (let i = 0; i < 14 * this.quality; i++) {
+      const a = fxRng.range(0, Math.PI * 2), r = fxRng.range(1.0, 1.8);
+      this.add.emit({ x: x + Math.sin(a) * r, y: fxRng.range(0.1, 1.2), z: z + Math.cos(a) * r, vx: -Math.sin(a) * r * 1.6, vz: -Math.cos(a) * r * 1.6, vy: fxRng.range(0.5, 2), life: 0.7, size: 0.07, size1: 0.02, color: C.hungerHot, drag: 0.5, frame: 'spark', stretch: 1, delay: fxRng.range(0, 0.3) });
+    }
+    this.add.emit({ x, y: 0.1, z, life: 0.9, size: 0.6, size1: 2.2, color: C.hunger, alpha: 0.8, frame: 'ring' });
+  }
+
+  dashPuff(x: number, z: number, dx: number, dz: number): void {
+    this.rings.spawn(x, z, 0.2, 1.4, 0.3, C.voidHot, 0.12, 0.8);
+    this.burst(8, { x, y: 0.15, z, life: 0.45, size: 0.35, size1: 0.9, color: C.dust, alpha: 0.5, drag: 4, frame: 'smoke' }, { v: 3, vy: 0.5, dir: [-dx, -dz], cone: 1.2 }, false);
+    this.burst(10, { x, y: 1.0, z, life: 0.3, size: 0.06, size1: 0.01, color: C.voidHot, drag: 3, frame: 'spark', stretch: 1 }, { v: 6, vy: 1, dir: [-dx, -dz], cone: 0.8 });
+  }
+
+  /** Взмах врага: дуга багровых искр (серпы, когти, алебарда). */
+  enemySlash(x: number, z: number, dir: number, r: number, full = false): void {
+    const n = Math.round((full ? 26 : 14) * this.quality) + 4;
+    const span = full ? Math.PI * 2 : 2.0;
+    for (let k = 0; k < n; k++) {
+      const f = k / (n - 1);
+      const a = dir - span / 2 + span * f;
+      const rr = r * fxRng.range(0.75, 1.0);
+      this.add.emit({ x: x + Math.sin(a) * rr, y: 0.8 + fxRng.spread(0.25), z: z + Math.cos(a) * rr, vx: Math.cos(a) * 3, vz: -Math.sin(a) * 3, life: 0.22, size: 0.2, size1: 0.03, color: f > 0.3 && f < 0.7 ? C.hungerHot : C.ember, frame: 'spark', stretch: 1.2 });
+    }
+  }
+
+  /** Веер клинков (Распинатель): багровые росчерки бегут вдоль каждой полосы от тела. */
+  bladeFan(x: number, z: number, dir: number, angles: readonly number[], len: number): void {
+    const n = Math.round(9 * this.quality) + 3;
+    for (const a0 of angles) {
+      const dx = Math.sin(dir + a0), dz = Math.cos(dir + a0);
+      for (let k = 0; k < n; k++) {
+        const f = k / (n - 1), d = 0.6 + f * (len - 0.6);
+        this.add.emit({ x: x + dx * d, y: 0.25 + fxRng.spread(0.1), z: z + dz * d, vx: dx * 5, vz: dz * 5, vy: fxRng.range(0, 1), life: 0.28, size: 0.32 * (1 - f * 0.5), size1: 0.03, color: f < 0.5 ? C.hungerHot : C.ember, frame: 'spark', stretch: 2.4, delay: f * 0.07 });
+      }
+      this.burst(3, { x: x + dx * len, y: 0.2, z: z + dz * len, life: 0.5, size: 0.4, size1: 0.9, color: C.dust, alpha: 0.4, drag: 3, frame: 'smoke', delay: 0.07 }, { v: 1.5, vy: 0.4, dir: [dx, dz], cone: 0.8 }, false);
+    }
+    this.lights.flash(x, 1, z, C.hunger, 3, 6, 0.25);
+  }
+
+  /** Гвоздь: клинок пробил пол — искры фонтаном, трещина-кольцо. */
+  nail(x: number, z: number, r: number): void {
+    this.rings.spawn(x, z, 0.2, r * 1.2, 0.3, C.hungerHot, 0.2, 1);
+    this.burst(16, { x, y: 0.15, z, life: 0.45, size: 0.09, size1: 0.015, color: C.hungerHot, gravity: -12, drag: 1.5, frame: 'spark', stretch: 1.4 }, { v: 5, vy: 6 });
+    this.burst(5, { x, y: 0.2, z, life: 0.7, size: 0.4, size1: 1.1, color: C.dust, alpha: 0.5, drag: 3, frame: 'smoke' }, { v: 2, vy: 0.6 }, false);
+    this.debris.burst(x, 0.2, z, 0, 0, Math.round(5 * this.quality), 3.5, 0.14);
+    this.lights.flash(x, 0.6, z, C.hunger, 3, 4, 0.25);
+  }
+
+  /** Погребальный ряд: колья из пола полосой, пыль и угли. */
+  spikeRow(x: number, z: number, dirX: number, dirZ: number, w: number, big: boolean): void {
+    this.spikes.row(x, z, dirX, dirZ, w, big);
+    const px = dirZ, pz = -dirX, n = big ? 7 : 5;
+    for (let i = 0; i < n * this.quality; i++) {
+      const u = (i / Math.max(1, n - 1) - 0.5) * w;
+      this.norm.emit({ x: x + px * u, y: 0.2, z: z + pz * u, vx: fxRng.spread(1.5), vz: fxRng.spread(1.5), vy: fxRng.range(0.5, 1.5), life: 0.7, size: 0.4, size1: 1.1, color: C.dust, alpha: 0.5, drag: 3, frame: 'smoke' });
+    }
+    this.burst(big ? 18 : 10, { x, y: 0.3, z, life: 0.45, size: 0.09, size1: 0.015, color: C.ember, gravity: -12, drag: 1.5, frame: 'spark', stretch: 1.2 }, { v: 4, vy: 7 });
+    this.lights.flash(x, 0.8, z, C.hunger, big ? 4 : 2.5, 4, 0.25);
+  }
+
+  /** Пульсирующие нити Псаломщика к связанным (и тянущиеся к целям на псалме); погашенные — тусклые. */
+  private threads(e: Psalmist, time: number): void {
+    e.threadPoint(_wp);
+    const cast = e.state === 'telegraph' && e.mode === 'psalm';
+    const grow = cast ? Math.min(1, e.stateT / 0.6) : 1;
+    const on = e.linkActive;
+    for (const tg of cast ? e.casting : e.links) {
+      const ty = tg.height * 0.6, n = 14;
+      for (let k = 1; k <= n * grow; k++) {
+        const f = k / n;
+        // провисание и бегущая к цели волна
+        const sag = Math.sin(f * Math.PI) * 0.35, wave = Math.sin(f * 14 - time * 9) * 0.06;
+        const pulse = 0.5 + 0.5 * Math.sin(time * 6 - f * 8);
+        const a = on ? 0.35 + pulse * 0.55 : 0.08 + 0.08 * Math.sin(time * 30 + k);
+        this.sprites.add(_wp.x + (tg.x - _wp.x) * f, _wp.y + (ty - _wp.y) * f - sag + wave, _wp.z + (tg.z - _wp.z) * f, on ? 0.1 + pulse * 0.06 : 0.07, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], a, 'dot');
+      }
+    }
+  }
+
+  /** Обелиск питает щит Иерофанта: багровая нить от ядра к колоколу, импульсы бегут к боссу. */
+  private obeliskThread(o: Obelisk, boss: Enemy, time: number): void {
+    o.corePoint(_wp);
+    const tx = boss.x, ty = boss.height * 0.72, tz = boss.z, n = 18;
+    for (let k = 1; k < n; k++) {
+      const f = k / n, sag = Math.sin(f * Math.PI) * 0.6;
+      const pulse = 0.5 + 0.5 * Math.sin(time * 7 - f * 10);
+      this.sprites.add(_wp.x + (tx - _wp.x) * f, _wp.y + (ty - _wp.y) * f + sag, _wp.z + (tz - _wp.z) * f, 0.1 + pulse * 0.07, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], 0.35 + pulse * 0.5, 'dot');
+    }
+    this.lights.add(_wp.x, _wp.y, _wp.z, C.hunger, 1.2, 3);
+  }
+
+  /** Нить Псаломщика лопнула: хлёсткие багровые искры вдоль неё. */
+  threadSnap(x: number, z: number, tx: number, tz: number): void {
+    const n = Math.round(12 * this.quality) + 4;
+    for (let k = 0; k < n; k++) {
+      const f = k / (n - 1), y = 1.6 + Math.sin(f * Math.PI) * 0.4 - f * 0.5;
+      const side = (f < 0.5 ? -1 : 1) * fxRng.range(2, 5);
+      this.add.emit({ x: x + (tx - x) * f, y, z: z + (tz - z) * f, vx: (tz - z) * 0.1 * side, vz: -(tx - x) * 0.1 * side, vy: fxRng.range(-1, 2), life: 0.35, size: 0.12, size1: 0.02, color: C.hungerHot, gravity: -6, drag: 2, frame: 'spark', stretch: 1.6 });
+    }
+  }
+
+  /** Перезвон: кольцо звона и осколки света от плит. */
+  chime(x: number, z: number, r: number): void {
+    this.rings.spawn(x, z, 0.4, r * 1.1, 0.4, C.hungerHot, 0.18, 1);
+    this.burst(18, { x, y: 1.6, z, life: 0.45, size: 0.1, size1: 0.02, color: C.hungerHot, drag: 2.5, frame: 'spark', stretch: 1.4 }, { v: 8, vy: 1 });
+    this.lights.flash(x, 1.5, z, C.hunger, 4, r * 2, 0.3);
+  }
+
+  /** Свеча погасла: тонкая струйка дыма. */
+  smokePuff(x: number, y: number, z: number): void {
+    this.norm.emit({ x, y: y + 0.05, z, vy: 0.5, vx: fxRng.spread(0.1), life: 1.2, size: 0.08, size1: 0.45, color: C.dust, alpha: 0.45, drag: 0.6, frame: 'smoke' });
+  }
+
+  /** Удар колокола виден: вспышка на колоколе и кольцо по полу (дубль звука). */
+  bellPulse(x: number, y: number, z: number, big: boolean): void {
+    this.add.emit({ x, y, z, life: 0.3, size: big ? 1.6 : 1.0, size1: big ? 3.2 : 2, color: C.hungerHot, alpha: 0.55, frame: 'ring' });
+    this.add.emit({ x, y, z, life: 0.18, size: big ? 1.4 : 0.9, size1: 0.3, color: C.ember, alpha: 0.8, frame: 'dot' });
+    this.rings.spawn(x, z, 0.4, big ? 3.6 : 2.4, 0.4, C.hungerHot, 0.12, big ? 0.9 : 0.5);
+    this.lights.flash(x, y, z, C.hunger, big ? 4 : 2.5, 6, 0.25);
+  }
+
+  /** Колокол Звонаря ударен героем: фиолетовое кольцо силы. */
+  bellStrike(x: number, y: number, z: number, r: number): void {
+    this.rings.spawn(x, z, 0.5, r, 0.45, C.voidHot, 0.35, 1.5);
+    this.rings.spawn(x, z, 0.3, r * 0.7, 0.35, C.core, 0.15, 1);
+    this.burst(26, { x, y, z, life: 0.5, size: 0.12, size1: 0.02, color: C.voidHot, drag: 2.5, frame: 'spark', stretch: 1.6 }, { v: 12, vy: 2 });
+    this.add.emit({ x, y, z, life: 0.25, size: 1.5, size1: 4, color: C.voidHot, alpha: 0.7, frame: 'ring' });
+    this.lights.flash(x, y, z, C.void, 6, r * 1.5, 0.4);
+  }
+
+  /** «Тень» проявилась или рассеялась: багровый дым на её месте. */
+  shadowPuff(x: number, z: number, big: boolean): void {
+    this.burst(big ? 14 : 8, { x, y: 1.0, z, life: 0.8, size: 0.5, size1: 1.4, color: C.dark, alpha: 0.6, drag: 2.5, frame: 'smoke' }, { v: 2, vy: 1 }, false);
+    this.burst(big ? 12 : 6, { x, y: 1.2, z, life: 0.5, size: 0.08, size1: 0.01, color: C.hunger, drag: 2, frame: 'spark', stretch: 1 }, { v: 4, vy: 2 });
+  }
+
+  /** Искры от клинка, волочащегося по полу. */
+  scrape(x: number, y: number, z: number): void {
+    this.burst(2, { x, y, z, life: 0.28, size: 0.06, size1: 0.01, color: C.ember, gravity: -10, drag: 2, frame: 'spark', stretch: 1.3 }, { v: 2.5, vy: 1.6 });
+  }
+
+  private lobs: { fx: number; fz: number; tx: number; tz: number; t: number; dur: number; size: number }[] = [];
+  /** Навесной снаряд (камень): дуга, вращение, шлейф пыли и угольков. */
+  lob(fx: number, fz: number, tx: number, tz: number, dur: number, size: number): void { this.lobs.push({ fx, fz, tx, tz, t: 0, dur, size }); }
+
+  /** Идеальное уклонение — только лёгкий эффект: тонкое кольцо и россыпь звёздной пыли. */
+  /**
+   * Идеальное уклонение (план §5.4): силуэт на старом месте раскалывается фиолетовыми осколками;
+   * в «Мгновение Пустоты» ещё и красная атака рассыпается фиолетовым вокруг героя.
+   */
+  perfectDodge(x: number, z: number, heavy = false, sx = x, sz = z): void {
+    // силуэт: вертикальный столб осколков по росту героя
+    for (let i = 0; i < 18 * this.quality; i++) {
+      const y = fxRng.range(0.1, 1.9), a = fxRng.range(0, Math.PI * 2), v = fxRng.range(1.5, 4);
+      this.add.emit({ x: sx + fxRng.spread(0.25), y, z: sz + fxRng.spread(0.25), vx: Math.sin(a) * v, vz: Math.cos(a) * v, vy: fxRng.range(-0.5, 2), life: 0.55, size: 0.09, size1: 0.02, color: C.voidHot, gravity: -6, drag: 2, frame: 'spark', stretch: 1.1 });
+    }
+    this.debris.burst(sx, 1, sz, 0, 0, Math.round(6 * this.quality), 3, 0.12);
+    this.rings.spawn(x, z, 0.3, heavy ? 4 : 2.6, heavy ? 0.5 : 0.35, C.voidHot, 0.1, heavy ? 0.9 : 0.6);
+    this.burst(heavy ? 26 : 12, { x, y: 1, z, life: heavy ? 0.8 : 0.5, size: heavy ? 0.1 : 0.06, size1: 0.01, color: heavy ? C.voidHot : C.core, drag: 2.5, frame: 'star', gravity: 0.5 }, { v: heavy ? 5 : 3.5, vy: 1.5 });
+    this.lights.flash(x, 1.4, z, C.void, heavy ? 6 : 3, heavy ? 8 : 5, heavy ? 0.5 : 0.3);
+  }
+
+  /**
+   * Путь проскока Контрудара (этап 4.5, B2): тонкий фиолетовый штрих на высоте корпуса от начала к цели и за неё,
+   * искры летят по ходу — видно, что Пилот прошёл сквозь врага, а не возник за спиной.
+   */
+  blinkStreak(x0: number, z0: number, x1: number, z1: number): void {
+    const dx = x1 - x0, dz = z1 - z0, len = Math.hypot(dx, dz) || 1, ux = dx / len, uz = dz / len;
+    const n = Math.round(BLINK.n * this.quality) + 4;
+    for (let k = 0; k < n; k++) {
+      const f = k / (n - 1);
+      this.add.emit({ x: x0 + dx * f, y: BLINK.y + fxRng.spread(0.25), z: z0 + dz * f, vx: ux * BLINK.v, vz: uz * BLINK.v, life: BLINK.life * (0.5 + 0.5 * f), size: 0.16 * (0.4 + 0.6 * f), size1: 0.02, color: f > 0.7 ? C.core : C.voidHot, frame: 'spark', stretch: 2.2 });
+    }
+    this.lights.flash(x0 + dx * 0.5, 1.1, z0 + dz * 0.5, C.void, 2, 5, 0.18);
+  }
+
+  /** Раскол: взрыв обсидиановых осколков и светящихся трещин. */
+  shatterBurst(x: number, y: number, z: number, big: boolean): void {
+    const k = big ? 1.5 : 1;
+    // кульминация оглушения, но разрез и трещины Раскола должны читаться сквозь вспышку (ревью)
+    this.rings.spawn(x, z, 0.4, 4.2 * k, 0.45, C.core, 0.22, STUN_FX.ring);
+    this.rings.spawn(x, z, 0.3, 3.2 * k, 0.35, C.gold, 0.3, 0.9);
+    this.add.emit({ x, y, z, life: 0.25, size: STUN_FX.flare * 1.1 * k, size1: STUN_FX.flare * 2.6 * k, color: C.core, alpha: STUN_FX.alpha + 0.1, frame: 'flare' });
+    this.burst(Math.round(22 * k), { x, y, z, life: 0.55, size: 0.12, size1: 0.03, color: C.core, gravity: -10, drag: 1.5, frame: 'spark', stretch: 1.6 }, { v: 13, vy: 6 });
+    this.burst(Math.round(14 * k), { x, y, z, life: 0.9, size: 0.16, size1: 0.05, color: C.gold, gravity: -14, drag: 1, frame: 'star' }, { v: 7, vy: 7 });
+    this.lights.flash(x, y, z, [1, 0.92, 0.8], STUN_FX.light + 1, 8, 0.35);
+  }
+
+  /** Оглушение: золотисто-белая вспышка, кольцо и звёздные искры (свет вырывается из твари). */
+  stunBurst(x: number, y: number, z: number, big: boolean): void {
+    const k = big ? 1.4 : 1;
+    // язык оглушения — золотые кольцо и звёзды; белая сердцевина мелкая: вспышка до 3.6 м с белым кольцом
+    // закрывала и цель, и след удара (ревью)
+    this.rings.spawn(x, z, 0.5, 4.5 * k, 0.5, C.core, 0.2, STUN_FX.ring);
+    this.rings.spawn(x, z, 0.3, 3 * k, 0.4, C.gold, 0.25, 0.9);
+    this.add.emit({ x, y, z, life: 0.3, size: STUN_FX.flare * k, size1: STUN_FX.flare * 2.4 * k, color: C.core, alpha: STUN_FX.alpha, frame: 'flare' });
+    this.burst(Math.round(18 * k), { x, y, z, life: 0.7, size: 0.13, size1: 0.03, color: C.gold, gravity: -4, drag: 2, frame: 'star' }, { v: 7, vy: 5 });
+    this.burst(Math.round(16 * k), { x, y, z, life: 0.45, size: 0.09, size1: 0.02, color: C.core, gravity: -8, drag: 2, frame: 'spark', stretch: 1.4 }, { v: 11, vy: 4 });
+    this.lights.flash(x, y, z, [1, 0.88, 0.62], STUN_FX.light, 7, 0.4);
+  }
+
+  /** Раскол 2.0: разрез — длинный бело-фиолетовый смазанный след по линии (висит, пока мир стоит). */
+  shatterCut(x: number, z: number, dx: number, dz: number, len: number): void {
+    const n = Math.round(26 * this.quality) + 8;
+    for (let k = 0; k < n; k++) {
+      const f = k / (n - 1), d = -1 + f * (len + 1);
+      this.add.emit({ x: x + dx * d, y: 1.1 + Math.sin(f * Math.PI) * 0.4, z: z + dz * d, vx: dx * 2, vz: dz * 2, life: 0.35, size: 0.55 * (1 - Math.abs(f - 0.3)), size1: 0.05, color: f < 0.5 ? C.core : C.voidHot, frame: 'spark', stretch: 2.5 });
+    }
+    this.add.emit({ x, y: 1.2, z, life: 0.2, size: 1.6, size1: 3.2, color: C.core, alpha: 0.9, frame: 'flare' });
+    this.lights.flash(x + dx * len * 0.4, 1.2, z + dz * len * 0.4, [1, 0.92, 1], 3.5, 7, 0.3);
+  }
+
+  /** Раскол 2.0: разлёт — осколки и искры по всей линии разреза. */
+  shatterLine(x: number, z: number, dx: number, dz: number, len: number): void {
+    const n = Math.max(3, Math.round(len));
+    for (let k = 1; k <= n; k++) {
+      const d = (k / n) * len, px = x + dx * d, pz = z + dz * d;
+      this.debris.burst(px, 0.6, pz, dx, dz, Math.round(3 * this.quality) + 1, 6, 0.16);
+      this.burst(4, { x: px, y: 0.7, z: pz, life: 0.5, size: 0.1, size1: 0.02, color: C.voidHot, gravity: -10, drag: 1.5, frame: 'spark', stretch: 1.2 }, { v: 6, vy: 5, dir: [dx, dz], cone: 1.2 });
+    }
+    this.rings.spawn(x + dx * len * 0.5, z + dz * len * 0.5, 0.4, len * 0.6, 0.35, C.voidHot, 0.2, 1);
+  }
+
+  /** След тяжёлого шага: тусклое раскалённое пятно на полу, гаснет за 2 с. */
+  footprint(x: number, z: number, r: number): void {
+    this.prints.push({ x, z, r: Math.min(1.2, 0.3 + r * 0.25), t: 0 });
+    if (this.prints.length > 24) this.prints.shift();
+  }
+
+  /** Детонация меток Пустоты: салют фиолетовых трещин от цели, сильнее за каждую стопку. */
+  detonate(x: number, y: number, z: number, stacks: number): void {
+    const k = 0.6 + stacks * 0.2;
+    this.burst(Math.round(6 + stacks * 4), { x, y, z, life: 0.35, size: 0.11, size1: 0.02, color: C.voidHot, gravity: -4, drag: 3, frame: 'spark', stretch: 1.8 }, { v: 9 * k, vy: 3 });
+    this.add.emit({ x, y, z, life: 0.18, size: 0.6 * k, size1: 1.8 * k, color: C.core, alpha: 0.8, frame: 'flare', rot: fxRng.next() * 3 });
+    this.rings.spawn(x, z, 0.3, 1.6 * k, 0.3, C.voidHot, 0.12, 0.8);
+  }
+
+  /** Погасла звезда оглушения: маленькая вспышка там, где она кружила. */
+  starOut(x: number, y: number, z: number): void {
+    this.add.emit({ x, y, z, life: 0.22, size: 0.5, size1: 1.1, color: C.core, alpha: 0.8, frame: 'flare' });
+    this.burst(5, { x, y, z, life: 0.35, size: 0.06, size1: 0.01, color: C.gold, gravity: -6, drag: 2, frame: 'spark' }, { v: 2.5, vy: 1 });
+  }
+
+  chargeGather(bx: number, by: number, bz: number, level: number): void {
+    for (let i = 0; i < 2 + level * 2; i++) {
+      const a = fxRng.range(0, Math.PI * 2), r = fxRng.range(0.8, 1.6), up = fxRng.spread(0.8);
+      this.add.emit({ x: bx + Math.sin(a) * r, y: by + up, z: bz + Math.cos(a) * r, vx: -Math.sin(a) * r * 3, vy: -up * 3, vz: -Math.cos(a) * r * 3, life: 0.3, size: 0.06, size1: 0.02, color: level >= 2 ? C.core : C.voidHot, drag: 0, frame: 'spark', stretch: 1 });
+    }
+  }
+
+  // ------------------------------------------------------------------ синхронизация мира
+  sync(w: World, dtReal: number, dtW: number): void {
+    this.syncRobes(w);
+    // телеграфы
+    this.tele.sync(w.telegraphs, w.ringWaves);
+    this.sprites.begin();
+    this.lights.begin();
+    this.pools.beginDynamic();
+    const h = w.hero;
+
+    // свет клинка героя
+    if (!h.dead) {
+      h.avatar.bladePoints(_v, _w);
+      // заряд удара или способности: фиолетовый свет у клинка нарастает — блики на броне, полу, колоннах
+      const charging = h.state === 'charge' ? 0.5 + Math.min(1, h.stateT / 0.9) * 1.3 : h.state === 'cast' ? 1.4 : 0;
+      const glow = 0.3 + (h.trailOn ? 1.0 : 0) + (h.eclipse ? 2 : 0) + h.chargeLevel * 0.8 + charging;
+      this.lights.add((_v.x + _w.x) / 2, (_v.y + _w.y) / 2 + 0.3, (_v.z + _w.z) / 2, C.void, glow * 1.6, 4 + (h.eclipse ? 3 : 0));
+      this.pools.addDynamic(h.x, h.z, 2.4 + (h.eclipse ? 1.5 : 0), C.void, 0.1 + glow * 0.08);
+      if (h.eclipse) {
+        if (fxRng.chance(0.6)) this.add.emit({ x: h.x + fxRng.spread(0.6), y: fxRng.range(0, 1.8), z: h.z + fxRng.spread(0.6), vy: 2.5, life: 0.7, size: 0.1, size1: 0.02, color: C.voidHot, drag: 1, frame: 'star' });
+      }
+      if (h.state === 'charge') this.chargeGather(_w.x, _w.y, _w.z, h.chargeLevel);
+      // ранг S: фиолетовые отпечатки шагов; SS: лёгкая аура
+      const moved = Math.hypot(h.x - this.lastHX, h.z - this.lastHZ);
+      this.lastHX = h.x; this.lastHZ = h.z;
+      if (this.rankTier >= 2 && h.state === 'move' && moved < 1) {
+        this.stepAcc += moved;
+        if (this.stepAcc > 0.75) {
+          this.stepAcc = 0; this.stepSide = -this.stepSide;
+          const sx = Math.cos(h.facing) * 0.14 * this.stepSide, sz = -Math.sin(h.facing) * 0.14 * this.stepSide;
+          this.steps.push({ x: h.x + sx, z: h.z + sz, t: 0 });
+          if (this.steps.length > 16) this.steps.shift();
+        }
+      }
+      if (this.rankTier >= 3 && fxRng.chance(0.5 * this.quality)) {
+        const a = fxRng.range(0, Math.PI * 2);
+        this.add.emit({ x: h.x + Math.sin(a) * 0.5, y: fxRng.range(0.1, 1.6), z: h.z + Math.cos(a) * 0.5, vy: 1.2, life: 0.6, size: 0.07, size1: 0.01, color: C.voidHot, drag: 1, frame: 'dot' });
+      }
+      if (this.rankTier >= 3) this.pools.addDynamic(h.x, h.z, 1.6, C.void, 0.25);
+      // украденный импульс: фиолетовые осколки кружат вокруг Пилота
+      for (const st of w.stolen) {
+        const k = st.t > 1.6 ? 0.5 + 0.5 * Math.sin(st.t * 30) : 1;
+        const x = h.x + Math.sin(st.a) * 0.9, z = h.z + Math.cos(st.a) * 0.9, y = 1.25 + Math.sin(st.t * 6) * 0.12;
+        this.sprites.add(x, y, z, 0.42 * k, C.voidHot[0], C.voidHot[1], C.voidHot[2], 1, 'star', st.t * 6);
+        this.sprites.add(x, y, z, 0.18 * k, 2.4, 2.2, 2.6, 1, 'dot');
+        if (fxRng.chance(0.6)) this.add.emit({ x, y, z, life: 0.2, size: 0.12, size1: 0.01, color: C.voidHot, frame: 'dot' });
+      }
+      if (w.stolen.length) this.lights.add(h.x, 1.3, h.z, C.void, 1 + w.stolen.length * 0.5, 4);
+    }
+
+    // босс готовит красную атаку: ближние источники света слегка багровеют
+    let tintK = 0, tx = 0, tz = 0;
+    for (const e of w.enemies) {
+      if (e.dead || !(e.isBoss || e.isGuardian)) continue;
+      const k = e.windup * 0.45;
+      if (k > tintK) { tintK = k; tx = e.x; tz = e.z; }
+    }
+    this.pools.tintNear(tx, tz, 14, C.hunger, tintK);
+
+    for (const pr of this.prints) {
+      pr.t += dtW;
+      this.pools.addDynamic(pr.x, pr.z, pr.r, C.ember, 0.35 * Math.max(0, 1 - pr.t / 2));
+    }
+    if (this.prints.length && this.prints[0].t > 2) this.prints = this.prints.filter((pr) => pr.t <= 2);
+    for (const st of this.steps) {
+      st.t += dtW;
+      this.pools.addDynamic(st.x, st.z, 0.32, C.voidHot, 0.55 * Math.max(0, 1 - st.t / 1.4));
+    }
+    this.steps = this.steps.filter((st) => st.t < 1.4);
+
+    // враги: ядра при телеграфе, аура элиты, щиты Аколита
+    for (const e of w.enemies) {
+      if (e.dead) continue;
+      const y = e.height * 0.55;
+      if (e.coreGlow > 0.25) {
+        this.lights.add(e.x, y, e.z, C.hunger, e.coreGlow * 2.5, 4);
+        this.pools.addDynamic(e.x, e.z, 1.6 + e.radius, C.hunger, e.coreGlow * 0.5);
+      }
+      // замах: искры стягиваются к оружию/ядру, к концу — быстрее и ярче; у тяжёлых — сходящееся кольцо на полу
+      const wu = e.windup;
+      if (wu > 0) {
+        e.windupPoint(_wp);
+        const n = (1 + Math.floor(wu * 3)) * this.quality;
+        for (let k = 0; k < n; k++) {
+          if (!fxRng.chance(0.75)) continue;
+          const a = fxRng.range(0, Math.PI * 2), el = fxRng.range(-0.6, 0.9), r = (0.9 + e.radius) * fxRng.range(0.8, 1.4);
+          const ox = Math.cos(el) * Math.sin(a) * r, oy = Math.sin(el) * r, oz = Math.cos(el) * Math.cos(a) * r;
+          const life = 0.22 + (1 - wu) * 0.12;
+          this.add.emit({ x: _wp.x + ox, y: _wp.y + oy, z: _wp.z + oz, vx: -ox / life, vy: -oy / life, vz: -oz / life, life, size: 0.07 + wu * 0.05, size1: 0.015, color: wu > 0.8 ? C.hungerHot : C.ember, drag: 0, frame: 'spark', stretch: 1 });
+        }
+        this.sprites.add(_wp.x, _wp.y, _wp.z, 0.25 + wu * 0.6, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], 0.35 + wu * 0.6, 'dot');
+        if (e.heavyWindup && fxRng.chance(dtReal * 7)) this.rings.spawn(e.x, e.z, e.radius + 3.2, e.radius * 0.6, 0.35, C.hungerHot, 0.12, 0.5 + wu * 0.4);
+      }
+      if (e.elite.length && fxRng.chance(0.35 * this.quality)) {
+        const a = fxRng.range(0, Math.PI * 2);
+        this.add.emit({ x: e.x + Math.sin(a) * e.radius, y: 0.1, z: e.z + Math.cos(a) * e.radius, vy: 2.4, life: 0.8, size: 0.14, size1: 0.03, color: C.hungerHot, frame: 'dot', drag: 0.5 });
+      }
+      if (e.elite.length) this.pools.addDynamic(e.x, e.z, e.radius + 1.6, C.hunger, 0.35);
+      else if (e.spawned) this.pools.addDynamic(e.x, e.z, e.radius + 0.9, C.hunger, 0.1);
+      if (e.shieldMul < 1) this.sprites.add(e.x, y, e.z, e.radius * 1.6 + 0.4, C.hunger[0] * 0.8, C.hunger[1] * 0.8, C.hunger[2] * 0.8, 0.55 + Math.sin(w.time * 8) * 0.15, 'ring', w.time);
+      if (e.psalmLinked) {
+        // связанный нитью: багровая аура и угли вверх
+        this.sprites.add(e.x, y, e.z, e.radius * 1.8 + 0.5, C.hunger[0], C.hunger[1], C.hunger[2], 0.45 + Math.sin(w.time * 6) * 0.15, 'ring', -w.time);
+        this.pools.addDynamic(e.x, e.z, e.radius + 1.4, C.hunger, 0.3);
+        if (fxRng.chance(0.4 * this.quality)) {
+          const a = fxRng.range(0, Math.PI * 2);
+          this.add.emit({ x: e.x + Math.sin(a) * e.radius, y: 0.2, z: e.z + Math.cos(a) * e.radius, vy: 2, life: 0.7, size: 0.1, size1: 0.02, color: C.hungerHot, frame: 'dot', drag: 0.5 });
+        }
+      }
+      if (e instanceof Psalmist && !e.dead) this.threads(e, w.time);
+      if (e instanceof Obelisk && !e.dead && e.boss && !e.boss.dead) this.obeliskThread(e, e.boss, w.time);
+      if (e instanceof Acolyte) {
+        const t = e.beamTarget;
+        const links = t ? [t] : e.shielding;
+        for (const tg of links) {
+          const n = 8;
+          for (let k = 1; k < n; k++) {
+            const f = k / n;
+            const jx = fxRng.spread(0.15), jz = fxRng.spread(0.15);
+            this.sprites.add(e.x + (tg.x - e.x) * f + jx, 1.6 + Math.sin(f * Math.PI) * 0.6, e.z + (tg.z - e.z) * f + jz, t ? 0.18 : 0.12, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], t ? 0.8 : 0.45, 'dot');
+          }
+        }
+      }
+    }
+
+    // Раскол 2.0: до удара по линии будущего разреза бегут бело-фиолетовые трещины
+    const sq = w.shatterSeq;
+    if (sq && !sq.cutDone) {
+      const L = sq.line;
+      if (L.k === 'line') {
+        const f = Math.min(1, sq.t / Math.max(0.01, sq.cut));
+        for (let k = 0; k < 3; k++) {
+          const d = fxRng.next() * L.len * f, side = fxRng.spread(0.35);
+          this.add.emit({ x: L.x + L.dx * d - L.dz * side, y: 0.08, z: L.z + L.dz * d + L.dx * side, life: 0.5, size: 0.16, size1: 0.04, color: fxRng.chance(0.5) ? C.core : C.voidHot, frame: 'spark', stretch: 2, vx: L.dx * 0.5, vz: L.dz * 0.5 });
+        }
+      }
+    }
+
+    // звёзды оглушения: инстансы над головами + тонкий шлейф искр
+    if (this.camera) this.stars.sync(w, this.camera, w.time);
+    for (const p of this.stars.pos) {
+      if (!fxRng.chance(0.35 * this.quality)) continue;
+      this.add.emit({ x: p.x, y: p.y, z: p.z, vy: -0.2, life: 0.3, size: p.size * 0.35, size1: 0.01, color: C.gold, drag: 1, frame: 'dot' });
+    }
+
+    // навесные броски
+    for (const l of this.lobs) {
+      l.t += dtW;
+      const u = Math.min(1, l.t / l.dur);
+      const x = l.fx + (l.tx - l.fx) * u, z = l.fz + (l.tz - l.fz) * u, y = 2.4 + Math.sin(u * Math.PI) * 4.5 - u * 2.2;
+      this.sprites.add(x, y, z, 0.9 * l.size, C.ember[0] * 0.5, C.ember[1] * 0.4, C.ember[2] * 0.4, 0.9, 'dot');
+      this.sprites.add(x, y, z, 0.45 * l.size, 1.6, 1.0, 0.6, 1, 'dot');
+      if (fxRng.chance(0.9 * this.quality)) this.norm.emit({ x, y, z, vy: 0.3, life: 0.7, size: 0.3 * l.size, size1: 0.8 * l.size, color: C.dust, alpha: 0.5, drag: 1, frame: 'smoke' });
+      if (fxRng.chance(0.8)) this.add.emit({ x, y, z, vx: fxRng.spread(1), vy: fxRng.spread(1), vz: fxRng.spread(1), life: 0.35, size: 0.08, size1: 0.01, color: C.ember, frame: 'spark' });
+      this.lights.add(x, y, z, C.ember, 1.2, 3);
+    }
+    this.lobs = this.lobs.filter((l) => l.t < l.dur);
+
+    // лучи Ока: багровая жила с белым ядром вдоль линии
+    for (const e of w.enemies) {
+      const b = (e as { beam?: { x: number; z: number; dx: number; dz: number; len: number; on: boolean } }).beam;
+      if (!b || !b.on || e.dead) continue;
+      const n = Math.round(18 * this.quality) + 6;
+      for (let k = 0; k < n; k++) {
+        const f = fxRng.next();
+        const px = b.x + b.dx * b.len * f, pz = b.z + b.dz * b.len * f;
+        this.add.emit({ x: px + fxRng.spread(0.1), y: 1.7 - f * 0.9, z: pz + fxRng.spread(0.1), vy: fxRng.spread(0.6), life: 0.12, size: 0.35, size1: 0.1, color: C.hungerHot, frame: 'dot' });
+      }
+      for (let k = 0; k <= 10; k++) {
+        const f = k / 10;
+        this.sprites.add(b.x + b.dx * b.len * f, 1.7 - f * 0.9, b.z + b.dz * b.len * f, 0.22, 2.4, 1.8, 1.8, 1, 'dot');
+      }
+      this.lights.add(b.x + b.dx * b.len * 0.5, 1.2, b.z + b.dz * b.len * 0.5, C.hunger, 3, 6);
+    }
+
+    // снаряды: ядро + ореол + хвост
+    for (const p of w.projectiles) {
+      const censer = p.kind === 'censerBall' || p.kind === 'censer';
+      const big = p.kind === 'acolyteOrb' ? 1.3 : p.kind === 'censerBall' ? 2.8 : p.kind === 'censer' ? 2.1 : p.kind === 'stone' ? 1.5 : 1;
+      const col = p.reflected ? C.voidHot : censer || p.kind === 'stone' ? C.ember : C.hungerHot;
+      if (censer && fxRng.chance(0.7)) this.norm.emit({ x: p.x, y: 0.6, z: p.z, vy: 1.5, life: 1.2, size: 0.5, size1: 1.4, color: [0.05, 0.035, 0.05], alpha: 0.5, drag: 1, frame: 'smoke' });
+      this.sprites.add(p.x, p.y, p.z, 0.55 * big, col[0], col[1], col[2], 0.9, 'dot');
+      this.sprites.add(p.x, p.y, p.z, 0.22 * big, 2.5, 2.2, 2.2, 1, 'dot');
+      if (fxRng.chance(0.8 * this.quality)) this.add.emit({ x: p.x, y: p.y, z: p.z, vx: -p.vx * 0.1, vz: -p.vz * 0.1, life: 0.25, size: 0.25 * big, size1: 0.02, color: col, frame: 'dot' });
+      this.pools.addDynamic(p.x, p.z, 1.3, p.reflected ? C.void : C.hunger, 0.5);
+      this.lights.add(p.x, p.y, p.z, p.reflected ? C.void : C.hunger, 1.0, 3);
+    }
+
+    // подбор: Осколки — звёздно-голубые кристаллы (как в интерфейсе), Эфир — белое пламя
+    for (const p of w.pickups) {
+      const bob = Math.sin(p.age * 6) * 0.08;
+      if (p.kind === 'shard') {
+        this.sprites.add(p.x, p.y + bob, p.z, 0.32, C.starHot[0], C.starHot[1], C.starHot[2], 1, 'star', p.age * 2);
+        this.sprites.add(p.x, p.y + bob, p.z, 0.6, C.star[0], C.star[1], C.star[2], 0.5, 'dot');
+      } else if (p.kind === 'ether') {
+        this.sprites.add(p.x, p.y + bob + 0.2, p.z, 0.4, C.ether[0], C.ether[1], C.ether[2], 1, 'dot', 0, 1.8);
+        this.lights.add(p.x, p.y + 0.5, p.z, [1, 1, 1], 2, 3);
+      } else {
+        this.sprites.add(p.x, p.y + bob, p.z, 0.45, 2.4, 0.4, 0.6, 1, 'star', p.age);
+      }
+    }
+
+    // зоны: трещины Силы, след рывка
+    for (const hz of w.hazards) {
+      if (hz.shape.k === 'line' && fxRng.chance(0.7 * this.quality)) {
+        const f = fxRng.next();
+        const s = hz.shape;
+        this.add.emit({ x: s.x + s.dx * s.len * f + fxRng.spread(0.2), y: 0.1, z: s.z + s.dz * s.len * f + fxRng.spread(0.2), vy: 1.5, life: 0.4, size: 0.12, size1: 0.02, color: hz.hostile ? C.hungerHot : C.voidHot, frame: 'spark', stretch: 0.6 });
+      }
+    }
+
+    // способности: серпы, колодцы, волны, фазовый разрез, трещины на полу
+    const ab = w.abilities as Abilities;
+    this.rifts.sync(ab.floorRifts);
+    this.spikes.update(dtW);
+    this.chains.sync(w);
+    this.bellSats.sync(w);
+    for (const b of w.bellSats) {
+      if (b.glow <= 0) continue;
+      this.sprites.add(b.x, b.y - 0.5, b.z, 0.7 + b.glow * 0.9, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], 0.35 + b.glow * 0.5, 'dot');
+      this.lights.add(b.x, b.y, b.z, C.hunger, 1 + b.glow * 2, 5);
+    }
+    for (const r of ab.floorRifts) {
+      if (!fxRng.chance(0.5 * this.quality)) continue;
+      const d = fxRng.next() * r.len;
+      this.add.emit({ x: r.x + r.dx * d, y: 0.1, z: r.z + r.dz * d, vy: 1.2, life: 0.4, size: 0.08, size1: 0.01, color: C.voidHot, frame: 'spark', stretch: 0.6 });
+    }
+    this.sickleMeshes.forEach((m, i) => {
+      const s = ab.sickles[i];
+      m.visible = !!s;
+      const tr = this.sickleTrails[i];
+      if (s) {
+        // шлейф поперёк хода: лента от одного рога к другому
+        const l = Math.hypot(s.vx, s.vz) || 1, px = -s.vz / l * 0.45, pz = s.vx / l * 0.45;
+        _v.set(s.x - px, 1.1, s.z - pz); _w.set(s.x + px, 1.1, s.z + pz);
+        tr.push(_v, _w, 0.3);
+      }
+      tr.update(dtReal);
+      if (!s) return;
+      m.position.set(s.x, 1.1, s.z);
+      m.rotation.set(-Math.PI / 2, 0, s.rot);
+      this.add.emit({ x: s.x, y: 1.1, z: s.z, life: 0.2, size: 0.4, size1: 0.05, color: C.voidHot, frame: 'dot' });
+      this.lights.add(s.x, 1.2, s.z, C.void, 2.5, 4);
+    });
+    this.wellMeshes.forEach((m, i) => {
+      const wl = ab.wells[i];
+      m.visible = !!wl && !wl.exploded;
+      if (!wl) return;
+      const k = Math.min(1, wl.t / 0.25);
+      m.position.set(wl.x, 1.3, wl.z);
+      m.scale.setScalar(k * (1 + Math.sin(wl.t * 30) * 0.03) * (1 - (wl.t / wl.dur) * 0.3));
+      ((m.material as THREE.ShaderMaterial).uniforms.uK as THREE.IUniform).value = wl.t / wl.dur;
+      if (!wl.exploded) {
+        for (let n = 0; n < 4 * this.quality; n++) {
+          const a = fxRng.range(0, Math.PI * 2), r = fxRng.range(2.5, 5);
+          this.add.emit({ x: wl.x + Math.sin(a) * r, y: fxRng.range(0.2, 2.2), z: wl.z + Math.cos(a) * r, vx: -Math.sin(a + 0.9) * r * 1.6, vz: -Math.cos(a + 0.9) * r * 1.6, vy: (1.3 - 1.0) * 2, life: 0.55, size: 0.08, size1: 0.01, color: C.voidHot, frame: 'spark', stretch: 1 });
+        }
+        this.lights.add(wl.x, 1.3, wl.z, C.void, 3, 6);
+        this.pools.addDynamic(wl.x, wl.z, 5, C.void, 0.5);
+      }
+    });
+    for (const wv of ab.waves) {
+      if (wv.kind === 'blade') {
+        // полумесяц: дуга искр поперёк направления, концы отстают — серп летит вперёд. Сердцевина фиолетовая, не
+        // белая: белые искры каждый кадр копились в шар поверх цели (ревью — главный акцент удара терялся)
+        const n = Math.round(10 * this.quality) + 4;
+        for (let k = 0; k < n; k++) {
+          const f = (k / (n - 1)) * 2 - 1;
+          const back = f * f * 0.9;
+          this.add.emit({ x: wv.x - wv.dz * f * wv.r * 1.3 - wv.dx * back, y: 0.5 + (1 - Math.abs(f)) * 0.7, z: wv.z + wv.dx * f * wv.r * 1.3 - wv.dz * back, vx: wv.dx * 6, vz: wv.dz * 6, life: 0.16, size: 0.32 - Math.abs(f) * 0.16, size1: 0.04, color: C.voidHot, alpha: Math.abs(f) < 0.35 ? 0.9 : 0.7, frame: 'spark', stretch: 1.4 });
+        }
+        this.lights.add(wv.x, 0.9, wv.z, C.void, 2.2, 5);
+        continue;
+      }
+      for (let n = 0; n < 3; n++) {
+        const side = fxRng.spread(1.3);
+        this.add.emit({ x: wv.x + -wv.dz * side, y: 0.6 + fxRng.next() * 0.8, z: wv.z + wv.dx * side, vx: wv.dx * 4, vz: wv.dz * 4, vy: 0.5, life: 0.22, size: 0.35, size1: 0.05, color: C.voidHot, frame: 'spark', stretch: 1 });
+      }
+    }
+    const lp = ab.lastPhase;
+    if (lp && lp.t < dtW * 1.5 + 0.001) {
+      const n = 22;
+      for (let k = 0; k <= n; k++) {
+        const f = k / n;
+        this.add.emit({ x: lp.x0 + (lp.x1 - lp.x0) * f, y: 1.0, z: lp.z0 + (lp.z1 - lp.z0) * f, vy: 0.5, life: 0.4, size: 0.6, size1: 0.05, color: C.voidHot, frame: 'dot' });
+      }
+      this.rings.spawn(lp.x1, lp.z1, 0.2, 2, 0.3, C.voidHot, 0.15, 1);
+    }
+
+    // атмосфера: пыль и искры в воздухе вокруг камеры
+    this.ambientT += dtReal;
+    if (this.atmosphere !== 'none' && this.ambientT > 0.05) {
+      this.ambientT = 0;
+      const ember = this.atmosphere === 'embers';
+      for (let i = 0; i < 2 * this.quality; i++) {
+        this.add.emit({ x: h.x + fxRng.spread(16), y: fxRng.range(0.2, 6), z: h.z + fxRng.spread(11), vx: fxRng.spread(0.3), vy: ember ? 0.8 : 0.12, vz: fxRng.spread(0.3), life: 4, size: ember ? 0.05 : 0.035, color: ember ? C.ember : [0.35, 0.3, 0.5], alpha: 0.8, frame: 'dot' });
+      }
+    }
+
+    this.sprites.end();
+    this.pools.commit();
+    this.add.flush();
+    this.norm.flush();
+    this.rings.update(dtW);
+    this.debris.update(dtW);
+    this.lights.end(dtW);
+  }
+
+  private syncRobes(w: World): void {
+    for (const e of w.enemies) {
+      if (!(e instanceof Psalmist)) continue;
+      let m = this.robes.get(e);
+      if (!m) {
+        m = new ClothMesh(e.robe, '#4a0f18', { rim: '#d02838', rimStrength: 0.5, rimPower: 2.6, emissive: '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 1.6 }, 1, 0.9);
+        this.robes.set(e, m); this.group.add(m.mesh);
+      }
+      m.sync();
+      m.mesh.visible = e.puppet.dissolve < 0.5;
+    }
+    for (const [e, m] of this.robes) {
+      if (w.enemies.includes(e)) continue;
+      this.group.remove(m.mesh); m.dispose(); this.robes.delete(e);
+    }
+  }
+
+  clear(): void {
+    for (const m of this.robes.values()) { this.group.remove(m.mesh); m.dispose(); }
+    this.robes.clear();
+    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear(); this.chains.clear(); this.bellSats.clear(); this.slashes.clear();
+  }
+}
+
