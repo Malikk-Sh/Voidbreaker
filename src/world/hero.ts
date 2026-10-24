@@ -163,6 +163,9 @@ export class Hero implements Actor {
   update(dt: number, input: Input): void {
     this.clock += dt;
     this.stateT += dt;
+    // Владелец сценической позы — Director. Боевая логика не отменяет клип,
+    // не двигает актёра и не проверяет землю во время постановочного подъёма.
+    if (this.sceneActive) return;
     const S = this.stats;
     if (this.dead) {
       // поражение (план §8.8): осколки Пилота разлетаются и растворяются в Пустоте
@@ -741,6 +744,7 @@ export class Hero implements Actor {
 
   // ------------------------------------------------------------------ пропасть (coyote 0.1 с)
   private checkGround(dt: number): void {
+    if (this.scripted || this.avatar.puppet.anim.sceneDriven) return;
     if (this.state === 'dash' || this.state === 'fall' || this.state === 'dead') return;
     const ground = this.world.arena.walkable(this.x, this.z);
     if (ground) {
@@ -795,6 +799,43 @@ export class Hero implements Actor {
   glowBoost = 0;
   /** Остаточные образы в сцене (рывок казни). */
   sceneGhosts = false;
+  private sceneActive = false;
+  private sceneWasScripted = false;
+
+  /** Синхронная поза текущего момента сцены, до маркеров, реквизита и батчей. */
+  sampleSceneClip(id: string, time: number, reset = false): void {
+    const a = this.avatar, p = a.puppet, clip = p.clips.get(id);
+    if (!clip) throw new Error(`Unknown scene clip: ${id}`);
+    const entering = !this.sceneActive;
+    const dt = reset || entering ? 0 : Math.min(0.1, Math.max(0, time - p.anim.t));
+    if (entering) {
+      this.sceneActive = true;
+      this.sceneWasScripted = this.scripted;
+      this.scripted = true;
+      this.state = 'frozen'; this.stateT = 0;
+      this.move = null; this.hitActive = false; this.trailOn = false;
+      this.lungeLeft = 0; this.kbX = 0; this.kbZ = 0; this.vx = 0; this.vz = 0;
+      this.slashQueue.length = 0;
+      a.hold = 0;
+      p.springX = 0; p.springZ = 0; p.springVX = 0; p.springVZ = 0;
+    }
+    p.anim.sampleScene(clip, time, reset);
+    a.lift = this.y;
+    a.stretch = 1;
+    a.glow = this.resonance / 100 * 1.2 + this.glowBoost;
+    a.ghostsOn = this.sceneGhosts;
+    a.update(dt, this.x, this.z, this.facing, 0, 0, 0, false);
+  }
+
+  releaseSceneClip(): void {
+    if (!this.sceneActive) return;
+    this.sceneActive = false;
+    this.avatar.puppet.anim.releaseScene();
+    // Конечное действие сцены могло уже явно вернуть управление.
+    if (this.scripted) this.scripted = this.sceneWasScripted;
+    if (this.state === 'frozen') this.toMove();
+    this.lastX = this.x; this.lastZ = this.z; this.lastSpeed = 0;
+  }
 
   freeze(on: boolean): void {
     if (on) { this.state = 'frozen'; this.hitActive = false; this.trailOn = false; this.vx = this.vz = 0; this.avatar.puppet.anim.stop(0.15); }

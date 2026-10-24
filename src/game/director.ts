@@ -16,6 +16,8 @@ export type CineStep =
   | { t: number; do: 'cam'; path: V3[]; look: V3[]; dur: number; ease?: EaseId; fov?: number; roll?: number }
   /** turn — разворот к lookAt за столько секунд (без него — сразу). */
   | { t: number; do: 'actor'; who: string; clip?: string; moveTo?: V3; dur?: number; lookAt?: V3; ease?: EaseId; turn?: number }
+  /** Абсолютное время позы и маркеры клипа; движение корня задаётся отдельным actor. */
+  | { t: number; do: 'clip'; who: string; clip: string; speed?: number; dur?: number; markers?: Record<string, string> }
   | { t: number; do: 'crack' | 'dissolve'; who: string; to: number; dur?: number }
   | { t: number; do: 'shatter'; who: string; dir?: V3; power?: number }
   | { t: number; do: 'time'; scale: number; dur: number }
@@ -50,6 +52,10 @@ export interface DirectorActor { x: number; z: number; y?: number; facing: numbe
 export interface DirectorHost {
   actor(who: string): DirectorActor | null;
   playClip?(who: string, clip: string): void;
+  clipEvents?(who: string, clip: string): readonly { t: number; name: string }[];
+  clipDuration?(who: string, clip: string): number;
+  sampleClip?(who: string, clip: string, time: number, reset: boolean): void;
+  releaseClip?(who: string): void;
   shatter?(who: string, dirX: number, dirZ: number, power: number): void;
   timeScale?(scale: number, dur: number): void;
   sky?(param: SkyParam, value: number): void;
@@ -76,7 +82,8 @@ export const SKIP_HOLD = 0.6;
 /** Пропуск доступен не раньше (с): случайное удержание с прошлой сцены не съедает новую. */
 const SKIP_FROM = 0.4;
 
-interface Live { s: CineStep; started: boolean; done: boolean; from?: number; fromX?: number; fromZ?: number; fromY?: number; fromF?: number; curve?: THREE.CatmullRomCurve3; lookCurve?: THREE.CatmullRomCurve3 }
+interface Live { s: CineStep; started: boolean; done: boolean; until?: number; from?: number; fromX?: number; fromZ?: number; fromY?: number; fromF?: number; curve?: THREE.CatmullRomCurve3; lookCurve?: THREE.CatmullRomCurve3 }
+interface SceneMarker { t: number; fn: string; source: Live; done: boolean }
 
 const _p = new THREE.Vector3();
 
@@ -98,6 +105,8 @@ function stepEnd(s: CineStep): number {
 export class Director {
   private track: CineTrack | null = null;
   private live: Live[] = [];
+  private markers: SceneMarker[] = [];
+  private readonly bindings = new Set<string>();
   private t = 0;
   private dur = 0;
   private hold = 0;
@@ -132,6 +141,22 @@ export class Director {
     this.t = 0; this.hold = 0;
     this.dur = track.dur ?? Math.max(0, ...steps.map(stepEnd)) + 0.3;
     if (this.short && track.dur) this.dur = Math.max(0, ...steps.map(stepEnd)) + 0.3;
+    // Длина позы берётся из клипа, когда дорожка не задаёт собственный конец.
+    if (!track.dur || this.short) for (const s of steps) if (s.do === 'clip') {
+      this.dur = Math.max(this.dur, s.t + (s.dur ?? (this.host.clipDuration?.(s.who, s.clip) ?? 0) / (s.speed ?? 1)) + 0.3);
+    }
+    this.markers = [];
+    for (let i = 0; i < this.live.length; i++) {
+      const l = this.live[i], s = l.s;
+      if (s.do !== 'clip') continue;
+      const next = this.live.slice(i + 1).find((x) => x.s.do === 'clip' && x.s.who === s.who);
+      l.until = Math.min(next?.s.t ?? this.dur, s.dur === undefined ? this.dur : s.t + s.dur);
+      for (const e of this.host.clipEvents?.(s.who, s.clip) ?? []) {
+        const fn = s.markers?.[e.name], t = s.t + e.t / (s.speed ?? 1);
+        if (fn && t <= l.until + 1e-8) this.markers.push({ t, fn, source: l, done: false });
+      }
+    }
+    this.markers.sort((a, b) => a.t - b.t);
     this.blendOut = track.blendOut ?? 0.4;
     this.hits.clear();
     this.tap = null;
@@ -142,20 +167,57 @@ export class Director {
   update(realDt: number, cam: CameraRig): void {
     const tr = this.track;
     if (tr) {
-      this.t += realDt;
+      const target = this.t + realDt;
       // пропуск удержанием атаки
-      if (tr.skippable !== false && this.t > SKIP_FROM && this.host.holding()) this.hold += realDt;
+      if (tr.skippable !== false && target > SKIP_FROM && this.host.holding()) this.hold += realDt;
       else this.hold = Math.max(0, this.hold - realDt * 2);
       if (this.hold >= SKIP_HOLD) { this.skip(); return this.applyCam(realDt, cam); }
-      for (const l of this.live) this.run(l, false);
-      if (this.tap) {
-        if (!this.tap.hit && this.t >= this.tap.from && this.t <= this.tap.to && this.host.tapped()) { this.tap.hit = true; this.hits.add(this.tap.id); }
-        if (this.t > this.tap.to + 0.25) this.tap = null;
+      // Пересечённый маркер сначала получает точную позу и корень этого момента.
+      // Даже большой dt не теряет контакт перед следующей привязкой того же актёра.
+      for (const m of this.markers) if (!m.done && m.t <= target + 1e-8) {
+        this.advance(m.t);
+        if (this.track !== tr) return this.applyCam(realDt, cam);
+        this.samplePose(m.source, m.t);
+        this.updateTap();
+        m.done = true;
+        this.host.call?.(m.fn);
+        if (this.track !== tr) return this.applyCam(realDt, cam);
       }
+      this.advance(target);
+      if (this.track !== tr) return this.applyCam(realDt, cam);
+      this.updateTap();
       this.host.overlay?.(tr.skippable === false ? 0 : this.hold / SKIP_HOLD, this.tap ? { k: clamp((this.t - this.tap.from) / Math.max(0.01, this.tap.to - this.tap.from), 0, 1), hit: this.tap.hit } : null);
       if (this.t >= this.dur) this.finish(false);
     }
     this.applyCam(realDt, cam);
+  }
+
+  private updateTap(): void {
+    if (!this.tap) return;
+    if (!this.tap.hit && this.t >= this.tap.from && this.t <= this.tap.to && this.host.tapped()) { this.tap.hit = true; this.hits.add(this.tap.id); }
+    if (this.t > this.tap.to + 0.25) this.tap = null;
+  }
+
+  private advance(time: number): void {
+    const track = this.track;
+    this.t = time;
+    for (const l of this.live) {
+      if (l.s.do !== 'clip') this.run(l, false);
+      if (this.track !== track) return;
+    }
+    for (const l of this.live) if (l.s.do === 'clip' && !l.done && time >= l.s.t) {
+      this.samplePose(l, Math.min(time, l.until!));
+      if (time >= l.until!) l.done = true;
+    }
+  }
+
+  private samplePose(l: Live, time: number): void {
+    const s = l.s;
+    if (s.do !== 'clip') return;
+    const reset = !l.started;
+    l.started = true;
+    this.bindings.add(s.who);
+    this.host.sampleClip?.(s.who, s.clip, Math.max(0, time - s.t) * (s.speed ?? 1), reset);
   }
 
   /** Выполнить шаг (или довести до конца: fast — пропуск). */
@@ -236,9 +298,30 @@ export class Director {
 
   /** Пропуск: логика сцены и конечные состояния — сразу, подача — нет. */
   skip(): void {
-    if (!this.track) return;
-    for (const l of this.live) this.run(l, true);
+    const track = this.track;
+    if (!track) return;
+    const remaining = [
+      ...this.live.filter((l) => !l.done).map((l) => ({ t: l.s.t, live: l, marker: null as SceneMarker | null })),
+      ...this.markers.filter((m) => !m.done).map((m) => ({ t: m.t, live: null as Live | null, marker: m })),
+    ].sort((a, b) => a.t - b.t);
+    for (const item of remaining) {
+      if (item.marker) {
+        const m = item.marker;
+        this.samplePose(m.source, m.t); m.done = true;
+        this.host.call?.(m.fn);
+      } else if (item.live) {
+        const l = item.live;
+        if (l.s.do === 'clip') { this.samplePose(l, l.until!); l.done = true; }
+        else this.run(l, true);
+      }
+      if (this.track !== track) return;
+    }
     this.finish(true);
+  }
+
+  private releaseClips(): void {
+    for (const who of this.bindings) this.host.releaseClip?.(who);
+    this.bindings.clear();
   }
 
   private finish(skipped: boolean): void {
@@ -246,6 +329,8 @@ export class Director {
     if (!tr) return;
     this.track = null;
     this.live = [];
+    this.markers = [];
+    this.releaseClips();
     this.tap = null;
     this.host.letterbox?.(0);
     this.host.overlay?.(0, null);
@@ -272,7 +357,7 @@ export class Director {
   static sample(path: V3[], u: number, out = _p): THREE.Vector3 { return curveOf(path).getPoint(u, out); }
 
   clear(cam: CameraRig): void {
-    this.track = null; this.live = []; this.w = 0; this.tap = null; this.onEnd = null;
+    this.track = null; this.live = []; this.markers = []; this.releaseClips(); this.w = 0; this.tap = null; this.onEnd = null;
     if (this.hadCam) { cam.cine = null; this.hadCam = false; }
   }
 }

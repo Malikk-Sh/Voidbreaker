@@ -444,6 +444,13 @@ export class Battle {
     if (steps >= 6) this.acc = 0;
     const dtW = realDt * T.worldScale;
 
+    // Сначала корень, поза и маркеры сцены; зависимые объекты и батчи видят
+    // тот же момент времени, что и камера, а не позу прошлого кадра.
+    if (!T.paused) {
+      this.cine.update(realDt, this.cam);
+      this.director.update(realDt, this.cam);
+    }
+
     // шлейф клинка: сэмплы рукоять/кончик
     const h = this.world.hero;
     if (h.trailOn && !h.dead) { h.bladePoints(this.bladeA, this.bladeB); this.vfx.trail.push(this.bladeA, this.bladeB, h.swingWeight); }
@@ -730,11 +737,6 @@ export class Battle {
     sky.uSkyCrack.value = this.skyCine.crack;
     G.uHemiTop.value.copy(this.baseHemi).lerp(ECLIPSE_HEMI, this.eclipseK * 0.8);
     G.uMoonColor.value.copy(this.baseMoon).lerp(ECLIPSE_MOON, this.eclipseK * 0.7);
-    if (!this.ctx.time.paused) {
-      this.cine.update(realDt, cam);
-      // дорожка режиссёра ведёт камеру поверх пролётов
-      this.director.update(realDt, cam);
-    }
   }
 
   /**
@@ -772,6 +774,10 @@ export class Battle {
     return {
       actor: (who: string) => (who === 'hero' ? heroActor : this.props.get(who) ?? enemyActor(who)),
       playClip: (who: string, clip: string) => { if (who === 'hero') w.hero.avatar.puppet.play(clip, 1, 0.08); },
+      clipEvents: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.events ?? [] : [],
+      clipDuration: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.dur ?? 0 : 0,
+      sampleClip: (who: string, clip: string, time: number, reset: boolean) => { if (who === 'hero') w.hero.sampleSceneClip(clip, time, reset); },
+      releaseClip: (who: string) => { if (who === 'hero') w.hero.releaseSceneClip(); },
       shatter: (who: string, dx: number, dz: number, power: number) => {
         const e = enemyActor(who) as Enemy | null;
         if (e) w.killEnemy(e, dx, dz, power);
