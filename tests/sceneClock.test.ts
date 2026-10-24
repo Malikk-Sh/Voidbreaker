@@ -142,6 +142,27 @@ describe('Director + настоящий Animator: единое время пос
     director.clear(cam); h.avatar.dispose();
   });
 
+  it('клип шага актёра не стирает идущий сценический клип; после конца сцены-клипа — играет, актёр освобождён', () => {
+    const { h, director, cam, host } = fixture();
+    host.playClip = (_who, id) => h.avatar.puppet.play(id, 1, 0.08);
+    const a = h.avatar.puppet.anim;
+    director.play({ id: 'mix', dur: 2, steps: [
+      { t: 0, do: 'clip', who: 'hero', clip: 'sceneClockProbe', dur: 1 },
+      { t: 0.5, do: 'actor', who: 'hero', clip: 'dash' },
+      { t: 1.3, do: 'actor', who: 'hero', clip: 'land' },
+    ] });
+    for (let i = 0; i < 40; i++) director.update(DT, cam);
+    // 0.66 с: шаг с dash пройден, поза по-прежнему у сценического клипа
+    expect(a.clip?.id).toBe('sceneClockProbe');
+    expect(a.sceneDriven).toBe(true);
+    for (let i = 0; i < 45; i++) director.update(DT, cam);
+    // 1.4 с: клип сцены кончился, land играет боевым временем — без застывшего «сценического» актёра
+    expect(a.clip?.id).toBe('land');
+    expect(a.sceneDriven).toBe(false);
+    expect(h.scripted).toBe(false);
+    h.avatar.dispose();
+  });
+
   it('маркер может заменить сцену; оставшиеся вызовы прежней сцены не исполняются', () => {
     const { h, host, calls, director, cam, track } = fixture();
     const call = host.call!;

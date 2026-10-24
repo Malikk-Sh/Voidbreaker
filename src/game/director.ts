@@ -292,7 +292,14 @@ export class Director {
       }
       case 'actor': {
         const a = h.actor(s.who);
-        if (start && s.clip && !fast) h.playClip?.(s.who, s.clip);
+        if (start && s.clip && !fast) {
+          // позой актёра, пока идёт его сценический клип, владеет клип: боевой клип шага актёра молча стёр бы её
+          // на кадр (Animator.play снимает сценическое управление). Клипы актёра кончились — сначала освободить его.
+          if (!this.live.some((o) => o.s.do === 'clip' && o.s.who === s.who && o.started && !o.done)) {
+            if (this.bindings.delete(s.who)) h.releaseClip?.(s.who);
+            h.playClip?.(s.who, s.clip);
+          }
+        }
         if (!a) { l.done = true; return; }
         if (start) { l.fromX = a.x; l.fromZ = a.z; l.fromY = a.y ?? 0; l.fromF = a.facing; }
         const e = Ease[s.ease ?? 'inOutQuad'](u);
