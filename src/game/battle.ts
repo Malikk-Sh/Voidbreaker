@@ -918,7 +918,7 @@ export class Battle {
     const shard = new THREE.Mesh(buildHullShard(), shardMat);
     shard.matrixAutoUpdate = false;
     shard.matrix.copy(planted);
-    // The grip is already visible above the socket. Nothing grows from zero.
+    // Рукоять видна над гнездом заранее. Ничего не вырастает из нуля.
     const socket = new THREE.Mesh(buildBladeSocket(), obsidianMaterial({ rim: '#9fb4d0', rimStrength: 0.3, emissiveStrength: 0 }));
     _top.set(0, -1.36, 0).applyMatrix4(planted);
     socket.position.set(_top.x, 0.04, _top.z);
@@ -977,7 +977,7 @@ export class Battle {
       L.igniteT = 0;
       h.avatar.weaponMatrix(this.landingWeaponMatrix);
       L.attachment.awaken(this.landingWeaponMatrix);
-      // Identical local geometry at the same joint transform: only energy wakes.
+      // Та же геометрия в том же трансформе сустава: просыпается только энергия.
       h.bladeTarget = 1; h.avatar.bladeScale = 1; h.avatar.bladeVisible = true;
       this.syncLandingWeapon();
       h.avatar.handPos(_top);
@@ -1211,7 +1211,7 @@ export class Battle {
     return _top.z < 1 ? { x: _top.x, y: _top.y } : null;
   }
 
-  /** Called after the Director has sampled this frame's pose. */
+  /** Вызывается после того, как Director посчитал позу этого кадра. */
   private syncLandingWeapon(): void {
     const L = this.landing;
     if (!L) return;

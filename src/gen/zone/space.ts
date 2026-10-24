@@ -64,14 +64,14 @@ export function buildShip(seed = 41): { rig: RigDef; geometry: THREE.BufferGeome
   return { rig, geometry: b.build() };
 }
 
-/** The recognizable weapon blank: the same grip, guard and blade as the held weapon, along local −Y. */
+/** Узнаваемая заготовка оружия: та же рукоять, гарда и клинок, что у оружия в руке, вдоль локальной −Y. */
 export function buildHullShard(seed = 43): THREE.BufferGeometry {
   const b = new GeomBuilder(); b.rng = new Rng(seed); b.shade = 0.14;
   bladeParts(b, BLADE_LEN, 0, hexToLinear(HERO_DEFAULT.armor));
   return b.build();
 }
 
-/** Broken hull plates hold only the buried tip; they never cover the hilt. */
+/** Обломки обшивки держат только погружённое острие; рукоять они не закрывают. */
 export function buildBladeSocket(seed = 44): THREE.BufferGeometry {
   const b = new GeomBuilder(); b.rng = new Rng(seed); b.color = PANEL;
   for (let i = 0; i < 4; i++) {

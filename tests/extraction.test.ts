@@ -75,7 +75,7 @@ describe('пролог: непрерывное извлечение единст
     expect(matrixGap(before, item.matrix)).toBeLessThan(1e-8);
     expect(item.propVisible).toBe(false); expect(item.rigVisible).toBe(true);
     expect(new THREE.Vector3().setFromMatrixScale(item.matrix).length()).toBeCloseTo(Math.sqrt(3), 5);
-    // Repeated callbacks and a late skip cannot recreate the prop.
+    // Повторные вызовы и поздний пропуск не возвращают заготовку.
     item.grip(pose(0)); item.release(); item.awaken(awake);
     expect(item.phase).toBe('awake');
   });

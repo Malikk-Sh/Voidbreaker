@@ -203,7 +203,7 @@ export function landingTrack(p: LandingSpots): CineTrack {
     { t: L.pull, do: 'wait', prompt: 'Взять клинок' },
     // одно время сцены ведёт кисть, оружие и все три маркера передачи
     { t: L.pull, do: 'clip', who: 'hero', clip: 'extractBlade', markers: { grip: 'grip', releaseFromGround: 'releaseFromGround', weaponAwake: 'ignite' } },
-    // Blade inspection holds a broad silhouette with hilt and tip inside letterbox.
+    // Осмотр клинка — широкий силуэт: рукоять и острие внутри леттербокса.
     { t: L.ignite, do: 'cam', path: [at(sx, sz, 4.0, -4.5, 0.9), at(sx, sz, 4.4, -4.1, 1.0)], look: [[sx, 1.65, sz], [sx, 1.2, sz]], dur: L.turn - L.ignite, ease: 'outQuad', fov: 50 },
     { t: L.ignite + 0.15, do: 'music', cue: 'leitmotif' },
     // план 8: шорох за спиной — Пилот оборачивается; через плечо — Шелуха выползает из темноты

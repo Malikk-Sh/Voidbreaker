@@ -155,7 +155,7 @@ describe('кат-сцены: приземление, ракурсы, Киноз�
     }
     expect(out).toEqual([]);
     expect(n).toBeGreaterThan(30);
-    // Low angle keeps the weapon clear against the cathedral, without cropping it.
+    // Низкий ракурс: оружие чисто читается на фоне собора и не обрезано.
     expect(lowest).toBeLessThanOrEqual(1.1);
   });
 
@@ -163,7 +163,7 @@ describe('кат-сцены: приземление, ракурсы, Киноз�
     const land = landingTrack(SPOTS);
     const pull = land.steps.find((s) => s.do === 'clip' && s.clip === 'extractBlade');
     expect(pull && pull.do === 'clip' ? pull.markers?.weaponAwake : null).toBe('ignite');
-    // There is no independent timed flash that can precede the handoff marker.
+    // Нет отдельной вспышки по таймеру, которая могла бы опередить маркер передачи.
     expect(land.steps.some((s) => s.do === 'flash' && s.t === LANDING_T.ignite)).toBe(false);
     expect(IGNITE.flash).toBeLessThanOrEqual(0.15);
     expect(IGNITE.visor + IGNITE.glow).toBeLessThanOrEqual(1.6);

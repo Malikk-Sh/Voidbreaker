@@ -11,7 +11,7 @@ const gripSkeleton = new Skeleton(layout);
 const gripRoot = { x: 0, y: 0, z: 0, stretch: 1, spin: 0 };
 const point = new THREE.Vector3();
 
-/** The planted object is authored from the actual future grip pose. */
+/** Посаженный клинок ставится по настоящей будущей позе хвата. */
 export function extractionGripMatrix(x: number, z: number, facing: number, out: THREE.Matrix4): THREE.Matrix4 {
   gripSkeleton.resetPose();
   gripClip.sample(EXTRACTION_T.grip, gripSkeleton.rot, gripRoot);
@@ -22,14 +22,14 @@ export function extractionGripMatrix(x: number, z: number, facing: number, out: 
   return out.fromArray(gripSkeleton.world, layout.idx('blade') * 16);
 }
 
-/** Put the future hilt at the requested location without a hand/prop teleport. */
+/** Будущая рукоять — в заданной точке, без телепорта кисти или предмета. */
 export function extractionStand(shardX: number, shardZ: number, facing: number): [number, number, number] {
   const matrix = extractionGripMatrix(0, 0, facing, new THREE.Matrix4());
   point.setFromMatrixPosition(matrix);
   return [shardX - point.x, 0, shardZ - point.z];
 }
 
-/** One visual object: planted → held → transferred to the matching rig blade. */
+/** Один видимый предмет: посажен → в руке → передан совпадающему клинку рига. */
 export class ExtractionAttachment {
   readonly matrix = new THREE.Matrix4();
   phase: 'planted' | 'held' | 'awake' = 'planted';
