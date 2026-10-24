@@ -48,10 +48,10 @@ describe('kill-cam Стражей (план §8.4)', () => {
     });
   }
 
-  it('сцены 3–4 с, без летербокса, кончаются добиванием', () => {
+  it('сцены около 5 с: действие и результат успевают прочитаться до распада', () => {
     for (const tr of [killGateTrack({ gx: 0, gz: 0, hx: 0, hz: 5 }), killBellTrack({ gx: 0, gz: 0, hx: 0, hz: 5 })]) {
-      expect(tr.dur).toBeGreaterThanOrEqual(3);
-      expect(tr.dur).toBeLessThanOrEqual(4);
+      expect(tr.dur).toBeGreaterThanOrEqual(4.5);
+      expect(tr.dur).toBeLessThanOrEqual(5.5);
       expect(tr.steps.some((s) => s.do === 'letterbox')).toBe(false);
       expect(tr.steps.some((s) => s.do === 'call' && s.fn === 'crumble')).toBe(true);
       expect(tr.skippable).not.toBe(false);

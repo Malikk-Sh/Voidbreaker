@@ -16,7 +16,7 @@ export type MusicCue = 'silence' | 'stinger' | 'leitmotif' | 'major' | 'resolve'
  */
 export type CineStep =
   /** moon — план «на фоне луны»: на время плана диск луны в небе стоит за этой точкой с начала плана (киноприём). */
-  | { t: number; do: 'cam'; path: V3[]; look: V3[]; dur: number; ease?: EaseId; fov?: number; roll?: number; moon?: V3 }
+  | { t: number; do: 'cam'; path: V3[]; look: V3[]; dur: number; ease?: EaseId; fov?: number; roll?: number; moon?: V3; blend?: number }
   /** turn — разворот к lookAt за столько секунд (без него — сразу). */
   | { t: number; do: 'actor'; who: string; clip?: string; moveTo?: V3; dur?: number; lookAt?: V3; ease?: EaseId; turn?: number; bends?: V3[] }
   /**
@@ -26,7 +26,7 @@ export type CineStep =
   | { t: number; do: 'clip'; who: string; clip: string; speed?: number; dur?: number; blend?: number; markers?: Record<string, string>; definition?: ClipDef }
   | { t: number; do: 'crack' | 'dissolve'; who: string; to: number; dur?: number }
   | { t: number; do: 'shatter'; who: string; dir?: V3; power?: number }
-  | { t: number; do: 'time'; scale: number; dur: number }
+  | { t: number; do: 'time'; scale: number; dur: number; rampIn?: number; rampOut?: number }
   | { t: number; do: 'sky'; param: SkyParam; to: number; dur: number }
   | { t: number; do: 'music'; cue: MusicCue }
   | { t: number; do: 'sfx'; id: string; gain?: number }
@@ -47,6 +47,8 @@ export type CineStep =
 
 export interface CineTrack {
   id: string;
+  revision?: number;
+  cameraBlend?: number;
   /** Начало и оси постановки: правки редактора переносятся на живую арену. */
   origin?: V3;
   heading?: number;
@@ -76,7 +78,7 @@ export interface DirectorHost {
   sampleClip?(who: string, clip: string, time: number, reset: boolean, blend?: number): void;
   releaseClip?(who: string): void;
   shatter?(who: string, dirX: number, dirZ: number, power: number): void;
-  timeScale?(scale: number, dur: number): void;
+  timeScale?(scale: number, dur: number, rampIn?: number, rampOut?: number): void;
   sky?(param: SkyParam, value: number): void;
   /** Диск луны в небе — в направлении dir (план «на фоне луны»); null — вернуть прежнее положение. */
   moonBehind?(dir: V3 | null): void;
@@ -111,7 +113,7 @@ const WAIT_EPS = 1e-6;
 /** Пропуск доступен не раньше (с): случайное удержание с прошлой сцены не съедает новую. */
 const SKIP_FROM = 0.4;
 
-interface Live { s: CineStep; started: boolean; done: boolean; until?: number; from?: number; fromX?: number; fromZ?: number; fromY?: number; fromF?: number; curve?: THREE.CatmullRomCurve3; lookCurve?: THREE.CatmullRomCurve3 }
+interface Live { s: CineStep; started: boolean; done: boolean; until?: number; from?: number; fromX?: number; fromZ?: number; fromY?: number; fromF?: number; curve?: THREE.CatmullRomCurve3; lookCurve?: THREE.CatmullRomCurve3; camFrom?: THREE.Vector3; lookFrom?: THREE.Vector3; fovFrom?: number; rollFrom?: number }
 interface SceneMarker { t: number; fn: string; source: Live; done: boolean }
 
 const _p = new THREE.Vector3();
@@ -216,6 +218,8 @@ export class Director {
     this.hits.clear();
     this.tap = null;
     this.onEnd = onEnd ?? null;
+    // Захватываем видимую боевую позу до следующего шага мира: иначе ещё один кадр атаки попадал на стык сцены.
+    for (const l of this.live) if (l.s.do === 'clip' && l.s.t === 0 && !l.done) this.samplePose(l, 0);
   }
 
   /** Кадр: шаги, пропуск, камера. realDt — реальное время (сцена не зависит от замедления мира). */
@@ -299,6 +303,9 @@ export class Director {
       case 'cam': {
         if (fast) { l.done = true; return; }
         if (start) {
+          if (this.live.some((o) => o !== l && o.s.do === 'cam' && o.started)) {
+            l.camFrom = this.pos.clone(); l.lookFrom = this.look.clone(); l.fovFrom = this.fov ?? 30; l.rollFrom = this.roll;
+          }
           l.curve = curveOf(s.path); l.lookCurve = curveOf(s.look);
           // план на фоне луны: диск — по направлению взгляда в начале плана; любой следующий план возвращает его
           if (s.moon) {
@@ -312,6 +319,21 @@ export class Director {
         l.curve!.getPoint(e, this.pos);
         l.lookCurve!.getPoint(e, this.look);
         this.fov = s.fov; this.roll = s.roll ?? 0;
+        const blend = s.blend ?? this.track?.cameraBlend ?? 0.24;
+        if (l.camFrom && blend > 0) {
+          const k = clamp((this.t - s.t) / blend, 0, 1), w = k * k * (3 - 2 * k);
+          // Переход на другую сторону персонажа идёт вокруг него: прямая между камерами проходила сквозь тело.
+          const a = Math.atan2(l.camFrom.x - l.lookFrom!.x, l.camFrom.z - l.lookFrom!.z);
+          const b = Math.atan2(this.pos.x - this.look.x, this.pos.z - this.look.z);
+          const angle = a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * w;
+          const r0 = Math.hypot(l.camFrom.x - l.lookFrom!.x, l.camFrom.z - l.lookFrom!.z);
+          const r1 = Math.hypot(this.pos.x - this.look.x, this.pos.z - this.look.z);
+          const r = r0 + (r1 - r0) * w, y = l.camFrom.y + (this.pos.y - l.camFrom.y) * w;
+          this.look.lerpVectors(l.lookFrom!, this.look, w);
+          this.pos.set(this.look.x + Math.sin(angle) * r, y, this.look.z + Math.cos(angle) * r);
+          this.fov = l.fovFrom! + ((s.fov ?? 30) - l.fovFrom!) * w;
+          this.roll = l.rollFrom! + ((s.roll ?? 0) - l.rollFrom!) * w;
+        }
         if (u >= 1 && this.live.some((o) => o !== l && o.s.do === 'cam' && o.s.t > s.t && this.t >= o.s.t)) l.done = true;
         return;
       }
@@ -382,7 +404,7 @@ export class Director {
       }
       case 'call': h.call?.(s.fn, s.arg); break;
       // ниже — только подача: при пропуске не нужна
-      case 'time': if (!fast) h.timeScale?.(s.scale, s.dur); break;
+      case 'time': if (!fast) h.timeScale?.(s.scale, s.dur, s.rampIn, s.rampOut); break;
       case 'music': if (!fast) h.music?.(s.cue); break;
       case 'sfx': if (!fast) h.sfx?.(s.id, s.gain ?? 1); break;
       case 'say': if (!fast) h.say?.(s.line, s.speaker ?? 'kaelis'); break;

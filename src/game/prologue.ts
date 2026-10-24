@@ -206,7 +206,7 @@ export class Prologue {
       clipEvents: (who, id) => who === 'hero' ? this.hero.puppet.clips.get(id)?.events ?? [] : [],
       clipDuration: (who, id) => who === 'hero' ? this.hero.puppet.clips.get(id)?.dur ?? 0 : 0,
       releaseClip: (who) => { if (who === 'hero') this.hero.puppet.anim.releaseScene(); },
-      timeScale: (scale, dur) => ctx.time.cinematic(dur, scale),
+      timeScale: (scale, dur, rampIn, rampOut) => { if (rampIn !== undefined || rampOut !== undefined) ctx.time.cinematicSmooth(dur, scale, rampIn, rampOut); else ctx.time.cinematic(dur, scale); },
       sfx: (id, gain) => ctx.audio.play(id, { gain }),
       say: (line, sp) => { if (sp === 'boss' || KAELIS_LINES) { ctx.hud.subtitle(line, sp); ctx.audio.speak(line, 1, sp); } },
       banner: (text, sub, color, dur, size) => ctx.hud.bigBanner(text, sub, color, dur, size),

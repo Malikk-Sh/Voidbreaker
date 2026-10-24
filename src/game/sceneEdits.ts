@@ -16,6 +16,7 @@ export interface StepEdit {
   definition?: ClipDef;
 }
 export interface VariantEdit {
+  revision?: number;
   rate?: number;
   steps: Record<string, StepEdit>;
   placements?: Record<string, { offset: V3; yaw: number }>;
@@ -127,7 +128,7 @@ const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 /** Те же правки для редактора и игры. Векторы — дельты в осях сцены: живая маска остаётся якорем контакта. */
 export function resolveScene(source: CineTrack, project: SceneProject, variant: Variant): CineTrack {
   const track = structuredClone(source), e = project.scenes[source.id]?.[variant];
-  if (!e) return track;
+  if (!e || (source.revision !== undefined && e.revision !== source.revision)) return track;
   const original = variant === 'short' ? track.short ?? track.steps : track.steps;
   const keys = stepKeys(original), heading = source.heading ?? 0;
   const shift = (v: V3, delta?: V3) => delta ? add(v, offsetWorld(delta, heading)) : v;

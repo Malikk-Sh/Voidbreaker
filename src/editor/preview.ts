@@ -160,6 +160,7 @@ export class StudioPreview {
       this.bossPuppet.anim.out.set(this.bossPuppet.base);
       if (this.spec.id === 'hierophantEnd') this.bossPuppet.skel.off[this.bossPuppet.layout.idx('body') * 3 + 1] = -1.6;
     }
+    if (this.bossPuppet && ['gate', 'bell'].includes(this.spec.model)) this.bossPuppet.skel.off[this.bossPuppet.layout.idx('root') * 3 + 1] = -0.7;
     this.renderer.sky.u.uStarLit.value = 0; this.renderer.sky.u.uSkyCrack.value = 0;
     this.renderer.sky.u.uMoonDir.value.copy(this.moonSaved);
     this.director = this.createDirector();
@@ -222,8 +223,8 @@ export class StudioPreview {
       Object.assign(s, { x: a.x, y: a.y, z: a.z, facing: a.facing }); s.update();
       this.bossBatch.begin(); this.bossBatch.push(s.world, 0, p.dissolve, 0, p.crack); this.bossBatch.end();
     }
-    this.chain.visible = this.spec.id === 'hierophantEnd'; this.target.visible = this.chain.visible;
-    if (this.chain.visible) {
+    this.chain.visible = false; this.target.visible = this.spec.id === 'hierophantEnd';
+    if (this.target.visible) {
       if (this.bossPuppet) this.bossPuppet.skel.jointPoint(this.bossPuppet.layout.idx('bell'), 0, 0.32, 0.18, this.target.position);
       else this.target.position.set(...MASK);
       this.chain.geometry.dispose();

@@ -19,7 +19,6 @@ export function titleScreen(app: App): HTMLElement {
   };
   const corner = (icon: 'gear' | 'fullscreen', label: string, fn: () => void) => h('button', { class: 'vb-iconbtn', 'aria-label': label,
     onPointerdown: (e: Event) => { e.stopPropagation(); app.ctx.audio.unlock(); app.sfx('ui_click'); fn(); } }, iconCanvas(icon, 22, '#f0d9a0', 'rgba(240,200,120,.5)'));
-  const studio = h('a', { href: 'editor.html', style: { position: 'absolute', left: 'max(14px, env(safe-area-inset-left))', top: 'max(12px, env(safe-area-inset-top))', padding: '12px', minHeight: '44px', color: '#c9b6ee', fontSize: '12px', textDecoration: 'none', pointerEvents: 'auto' }, onPointerdown: (e: Event) => e.stopPropagation() }, 'Студия сцен');
   const el = h('div', { class: 'vb-screen', style: { display: 'grid', placeItems: 'center', cursor: 'pointer', background: 'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(5,7,10,.78) 100%)' }, onPointerdown: start },
     h('div', { class: 'vb-col', style: { alignItems: 'center', gap: '6px', marginTop: '-8vh' } },
       logo.el,
@@ -30,7 +29,6 @@ export function titleScreen(app: App): HTMLElement {
     h('div', { class: 'vb-row', style: { position: 'absolute', top: 'max(12px, env(safe-area-inset-top))', right: 'max(16px, env(safe-area-inset-right))', gap: '14px' } },
       fullscreenSupported() ? corner('fullscreen', 'Полный экран', () => { void (isFullscreen() ? exitFullscreen() : enterFullscreen()); app.ctx.settings.fullscreen = !isFullscreen(); app.save(); }) : null,
       corner('gear', 'Настройки', () => app.openSettings('title'))),
-    studio,
     h('div', { class: 'vb-dim vb-tech', style: { position: 'absolute', bottom: 'max(12px, env(safe-area-inset-bottom))', right: '20px', fontSize: '10px', letterSpacing: '.18em' } }, 'v0.2 · вся графика и звук созданы кодом'),
   );
   // анимация: разрез раскрывается, по металлу бежит блик

@@ -38,8 +38,8 @@ try {
     await page.getByRole('combobox', { name: 'Сцена', exact: true }).selectOption('hierophantEnd');
     const seek = await page.evaluate(() => {
       const s = window.__studio, p = s.preview;
-      p.seek(5.22); const a = [p.actors.hero.x, p.actors.hero.y, p.actors.hero.z, ...p.hero.puppet.anim.out], error = p.contactError;
-      p.seek(10.5); p.seek(5.22); const b = [p.actors.hero.x, p.actors.hero.y, p.actors.hero.z, ...p.hero.puppet.anim.out];
+      p.seek(2.62); const a = [p.actors.hero.x, p.actors.hero.y, p.actors.hero.z, ...p.hero.puppet.anim.out], error = p.contactError;
+      p.seek(6.8); p.seek(2.62); const b = [p.actors.hero.x, p.actors.hero.y, p.actors.hero.z, ...p.hero.puppet.anim.out];
       return { error, difference: Math.max(...a.map((v,i)=>Math.abs(v-b[i]))) };
     });
     check(seek.error < 0.0001 && seek.difference < 1e-6, `${size.width}×${size.height}: контакт точнее 0.1мм; перемотка назад воспроизводима`);
@@ -54,7 +54,7 @@ try {
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('voidbreaker.scene-studio.v1')));
     check(saved.scenes.hierophantEnd.full.steps['actor:hero:0'].ease === 'inOutCubic', `${size.width}×${size.height}: изменение записано в браузер`);
     await page.getByRole('button', { name: 'Отменить', exact: true }).tap();
-    check(await page.getByRole('combobox', { name: 'Характер движения', exact: true }).inputValue() === 'outCubic', `${size.width}×${size.height}: отмена`);
+    check(await page.getByRole('combobox', { name: 'Характер движения', exact: true }).inputValue() === 'inOutQuad', `${size.width}×${size.height}: отмена`);
     await page.getByRole('button', { name: 'Повторить', exact: true }).tap();
     check(await page.getByRole('combobox', { name: 'Характер движения', exact: true }).inputValue() === 'inOutCubic', `${size.width}×${size.height}: повтор`);
     await page.reload(); await page.waitForFunction(() => !!window.__studio);
@@ -72,14 +72,14 @@ try {
     await page.waitForFunction(() => document.querySelector('.toast').textContent.includes('Проект импортирован'));
     check(await page.evaluate(() => JSON.parse(localStorage.getItem('voidbreaker.scene-studio.v1')).version === 1), `${size.width}×${size.height}: импорт проекта`);
     await page.getByRole('button', { name: 'Поза', exact: true }).tap();
-    await page.getByRole('combobox', { name: 'Фрагмент анимации', exact: true }).selectOption('clip:hero:4');
+    await page.getByRole('combobox', { name: 'Фрагмент анимации', exact: true }).selectOption('clip:hero:1');
     await page.getByRole('button', { name: 'Показать контакт с маской', exact: true }).tap();
     await page.getByRole('combobox', { name: 'Сустав', exact: true }).selectOption('chest');
     await page.getByRole('button', { name: 'Увеличить Поворот сустава · градусы X · наклон', exact: true }).tap();
-    check(await page.evaluate(() => !!window.__studio.project.scenes.hierophantEnd.full.steps['clip:hero:4'].definition), `${size.width}×${size.height}: своя ключевая поза`);
+    check(await page.evaluate(() => !!window.__studio.project.scenes.hierophantEnd.full.steps['clip:hero:1'].definition), `${size.width}×${size.height}: своя ключевая поза`);
     await page.getByRole('button', { name: 'Совместить клинок с маской', exact: true }).tap();
     check(await page.evaluate(() => window.__studio.preview.contactError < 0.005), `${size.width}×${size.height}: повторное совмещение после правки позы`);
-    await page.evaluate(() => { const s = window.__studio; s.seek(5.22); });
+    await page.evaluate(() => { const s = window.__studio; s.seek(2.62); });
     await page.evaluate(() => window.scrollTo(0,0));
     await page.screenshot({ path: `${out}/studio-${size.width}x${size.height}.png`, fullPage: false });
     if (size.width === 412) {

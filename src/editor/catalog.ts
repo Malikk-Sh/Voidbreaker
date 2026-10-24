@@ -30,7 +30,7 @@ export const MASK: V3 = [m.x, m.y, m.z];
 const spots = { hx: hero.x, hz: hero.z, bx: boss.x, bz: boss.z };
 const star: V3 = [STAR.x, STAR.y, STAR.z];
 export const SCENES: SceneSpec[] = [
-  { id: 'hierophantEnd', title: 'Добивание Иерофанта', group: 'Финал', model: 'hierophant', note: 'Рывок → цепь → замах → контакт → приземление', actors: { hero, boss }, track: executionTrack({ ...spots, cx: 0, cz: 2.6, bellY: MASK[1], lx: 0, lz: -3.2, star, mask: MASK }) },
+  { id: 'hierophantEnd', title: 'Добивание Иерофанта', group: 'Финал', model: 'hierophant', note: 'Прыжок → маска → взрыв → приземление', actors: { hero, boss }, track: executionTrack({ ...spots, cx: 0, cz: 2.6, bellY: MASK[1], lx: 0, lz: -3.2, star, mask: MASK }) },
   { id: 'prologueLanding', title: 'Пролог · Клинок', group: 'Пролог', model: 'landing', note: 'Приземление и извлечение клинка', actors: { hero: { ...hero, x: 0, z: 0, y: 2 }, shard: { ...boss, x: 1.8, z: -2.1 } }, track: landingTrack({ x: 0, z: 0, shardX: 1.8, shardZ: -2.1, huskX: 0, huskZ: -7 }) },
   { id: 'prologue', title: 'Пролог · Падение', group: 'Пролог', model: 'space', note: 'Полёт корабля и падение. Стик игрока добавляется в игре.', actors: { hero: { ...hero, z: 0, facing: 0 }, ship: { ...boss } }, track: prologueTrack(BASIS) },
   { id: 'hierophantIntro', title: 'Иерофант · Появление', group: 'Иерофант', model: 'hierophant', note: 'Вход героя, колокол и спуск босса', actors: { hero, boss: { ...boss, y: 16 } }, track: hierophantIntroTrack(spots) },
@@ -67,7 +67,7 @@ for (const kind of ['gateGuardian', 'bellRinger'] as const) {
 cine.clear({ cine: null } as never); cine.victory(); append('Арена · Победа', 'landing', { hero });
 
 export const CLIP_NAMES: Record<string, string> = {
-  lowerBlade: 'Опустить клинок', chainBrace: 'Опора у цепи', chainRun: 'Бег по цепи', chainApex: 'Замах в прыжке', maskStrike: 'Удар в маску', chainExit: 'Отталкивание и посадка',
+  executionLeap: 'Прыжок', executionLand: 'Приземление после удара', guardianSweep: 'Подсечка', guardianApproach: 'Обход за спину', lowerBlade: 'Опустить клинок', chainBrace: 'Опора у цепи', chainRun: 'Бег по цепи', chainApex: 'Замах в прыжке', maskStrike: 'Удар в маску', chainExit: 'Отталкивание и посадка',
   pullBlade: 'Извлечь клинок', extractBlade: 'Извлечь клинок', extraction: 'Извлечь клинок', shaftRun: 'Бег по древку', land: 'Приземление', dash: 'Рывок', atk1: 'Первый удар', atk2: 'Второй удар',
 };
 export const ACTOR_NAMES: Record<string, string> = { hero: 'Пилот', boss: 'Иерофант', gateGuardian: 'Страж Врат', bellRinger: 'Звонарь', shard: 'Клинок в полу', ship: 'Иней' };

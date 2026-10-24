@@ -34,6 +34,8 @@ jobs:
         run: npm run smoke
         env:
           SMOKE_SHOT: smoke.png
+      - name: Cinematic finishers
+        run: npm run finishers
       - name: Scene studio (touch, storage, poses and replay)
         run: npm run studio-test
       - uses: actions/upload-artifact@v4
@@ -43,6 +45,8 @@ jobs:
           path: |
             dist
             smoke.png
+            work/finishers/report.json
+            work/finishers/*.png
             work/studio/report.json
             work/studio/*.png
           if-no-files-found: ignore

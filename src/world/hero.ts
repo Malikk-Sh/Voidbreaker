@@ -815,6 +815,8 @@ export class Hero implements Actor {
     const dt = entering ? 0 : Math.min(0.1, Math.max(0, reset ? time : time - this.sceneT));
     this.sceneT = time;
     if (entering) {
+      // В бою к Animator добавляются ноги, выпад и отдача. Вход сцены начинается с видимой позы, включая их.
+      p.anim.out.set(p.skel.rot);
       this.sceneActive = true;
       this.sceneWasScripted = this.scripted;
       this.scripted = true;

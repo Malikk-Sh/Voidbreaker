@@ -8,7 +8,7 @@ import { EXEC_HP, Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHA
 import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
 import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
 import { VOID_BLADE } from '../src/data/weapons';
-import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, CONTACT_SHOT, DESCEND_FROM, EXEC_FLASH, EXEC_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
+import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, CONTACT_SHOT, DESCEND_FROM, EXEC_FLASH, EXEC_T, EXEC_SHORT_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { InputBuffer, type Input } from '../src/input/input';
@@ -367,17 +367,16 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(ctrl.executable).toBe(false);
   });
 
-  it('казнь целиком: касание по кольцу — безупречная (вторая звезда), босс осыпается, бой закрывается в конце', () => {
-    const { w, b, ctrl, tick, log, director, tap } = toPhase3();
+  it('казнь целиком: босс взрывается до посадки, безупречность берётся из боя', () => {
+    const { w, b, ctrl, tick, log, director } = toPhase3();
     b.hp = b.maxHp * EXEC_HP - 1;
     w.stunEnemy(b);
     ctrl.execute();
     expect(ctrl.executing).toBe(true);
     expect(director.id).toBe('hierophantEnd');
-    let t = 0, tapped = false, diedAt = -1;
+    let t = 0, diedAt = -1;
     tick(EXEC_T.end + 1, () => {
       t += DT;
-      if (!tapped && t > EXEC_T.tap + 0.3) { tapped = true; tap(); }
       if (diedAt < 0 && b.dead) diedAt = t;
     });
     // умирает отложенным разрезом, а не раньше; бой закрывается после сцены
@@ -406,7 +405,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     for (const short of [false, true]) {
       const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, cx: 0, cz: 3, bellY: mask[1], lx: 3, lz: 5, star: [0.42, -0.5, -0.76], mask });
       const steps = short ? tr.short! : tr.steps;
-      const cam = steps.find((s) => s.do === 'cam' && Math.abs(s.t - (short ? MASK_CONTACT : EXEC_T.contact)) < 1e-9);
+      const cam = steps.find((s) => s.do === 'cam' && Math.abs(s.t - (short ? EXEC_SHORT_T.contact : EXEC_T.contact)) < 1e-9);
       if (!cam || cam.do !== 'cam') throw new Error('нет плана контакта');
       const c = new THREE.PerspectiveCamera(cam.fov, 844 / 390, 0.1, 200);
       c.position.set(...cam.path[0]); c.lookAt(...cam.look[0]); c.updateMatrixWorld();
@@ -423,25 +422,16 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     }
   });
 
-  it('казнь: толчок с цепи — силуэт на фоне луны; луна возвращается следующим планом, пропуском и концом', () => {
-    const mask: [number, number, number] = [0, 3.1, 0.9];
-    const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, cx: 0, cz: 3, bellY: mask[1], lx: 3, lz: 5, star: [0.42, -0.5, -0.76], mask });
-    const shot = tr.steps.find((s) => s.do === 'cam' && s.t === EXEC_T.jump);
-    if (!shot || shot.do !== 'cam' || !shot.moon) throw new Error('нет плана на фоне луны');
-    // снизу вверх: за Пилотом — небо, не стена собора (≥ 45° над горизонтом)
-    const [p, m] = [shot.path[0], shot.moon];
-    expect(Math.atan2(m[1] - p[1], Math.hypot(m[0] - p[0], m[2] - p[2]))).toBeGreaterThan(Math.PI / 4);
-    for (const skipAt of [null, EXEC_T.jump + 0.3]) {
-      const moon: (number[] | null)[] = [];
-      const host = { actor: () => ({ x: 0, z: 8, facing: Math.PI }), holding: () => false, tapped: () => false, seen: () => 0, markSeen: () => {}, moonBehind: (d: number[] | null) => moon.push(d) };
-      const d = new Director(host as never), cam = new CameraRig();
-      d.play(tr);
-      for (let t = 0; d.active && t < 20; t += DT) { d.update(DT, cam); if (skipAt !== null && t >= skipAt && d.active) d.skip(); }
-      // ровно одна перестановка и один возврат (следующим планом или пропуском)
-      expect(moon.filter((x) => x)).toHaveLength(1);
-      expect(moon.at(-1)).toBeNull();
-      expect(moon.filter((x) => x === null)).toHaveLength(1);
+  it('казнь — прямой прыжок: ни бега по цепи, ни дополнительного касания; взрыв раньше посадки', () => {
+    const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, bellY: 3, lx: 0, lz: -3, star: [0.42, -0.5, -0.76] });
+    for (const steps of [tr.steps, tr.short!]) {
+      expect(steps.some((s) => s.do === 'tap' || s.do === 'wait')).toBe(false);
+      expect(steps.some((s) => (s.do === 'clip' || s.do === 'actor') && s.clip?.startsWith('chain'))).toBe(false);
+      expect(steps.some((s) => s.do === 'clip' && s.clip === 'executionLeap')).toBe(true);
     }
+    expect(EXEC_T.cut).toBeLessThan(EXEC_T.touchdown);
+    expect(EXEC_SHORT_T.cut).toBeLessThan(EXEC_SHORT_T.touchdown);
+    expect(tr.steps.filter((s) => s.do === 'time' && s.scale <= 0.2).length).toBeGreaterThanOrEqual(2);
   });
 
   it('казнь: в финале свет звезды доходит до Пилота — один раз, со стороны звезды, и при пропуске', () => {
@@ -462,8 +452,8 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     const { w, b, ctrl, tick, director } = toPhase3();
     b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
     const rot = w.hero.avatar.puppet.skel.rot, n = w.hero.avatar.puppet.layout.n;
-    // начала клипов героя: lowerBlade, chainBrace, chainRun, chainApex, maskStrike, chainExit, lowerBlade
-    const starts = [0, EXEC_T.dash, EXEC_T.run, EXEC_T.jump, EXEC_T.strike, EXEC_T.land, EXEC_T.calm];
+    // Стыки подготовки прыжка, удара, полёта после контакта и восстановления.
+    const starts = [0, EXEC_T.strike, EXEC_T.land, EXEC_T.calm];
     let prev = Float32Array.from(rot), worst = 0, worstSeam = 0, seamAt = -1;
     tick(EXEC_T.end, () => {
       const t = director.time;
@@ -484,7 +474,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
   });
 
   it('казнь: пропуск каждого крупного плана не дублирует смерть/награду и освобождает героя', () => {
-    for (const skipAt of [0.2, EXEC_T.run + 0.1, EXEC_T.jump + 0.1, EXEC_T.contact + 0.1, EXEC_T.land + 0.1, EXEC_T.cut + 0.1, EXEC_T.beam + 0.1]) {
+    for (const skipAt of [0.2, EXEC_T.jump + 0.1, EXEC_T.contact + 0.1, EXEC_T.land + 0.1, EXEC_T.cut + 0.1, EXEC_T.beam + 0.1]) {
       const { w, b, ctrl, tick, log, director } = toPhase3();
       let kills = 0;
       w.bus.on('kill', (e) => { if (e.kind === 'hierophant') kills++; });
@@ -503,7 +493,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     const { w, b, ctrl, tick, log, director } = toPhase3(2);
     b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
     expect(director.short).toBe(true);
-    tick(5);
+    tick(EXEC_SHORT_T.end + 0.5);
     expect(b.dead).toBe(true);
     expect(director.active).toBe(false);
     expect(log.filter((s) => s === 'strike')).toHaveLength(1);
@@ -529,20 +519,17 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     }
   });
 
-  it('дорожка казни: 11–13 с, контакт задан специальным клипом, касание — в замедленном прыжке', () => {
+  it('дорожка казни: 7–9 с, контакт задан специальным клипом, замедления имеют плавный вход', () => {
     const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 6, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76] });
-    expect(tr.dur).toBeGreaterThanOrEqual(11);
-    expect(tr.dur).toBeLessThanOrEqual(13);
+    expect(tr.dur).toBeGreaterThanOrEqual(7);
+    expect(tr.dur).toBeLessThanOrEqual(9);
     const actions = tr.steps.flatMap((s) => s.do === 'call' ? [{ t: s.t, fn: s.fn }]
       : s.do === 'clip' ? (EXECUTION_CLIPS.find((c) => c.id === s.clip)?.events ?? []).filter((e) => s.markers?.[e.name]).map((e) => ({ t: s.t + e.t / (s.speed ?? 1), fn: s.markers![e.name] })) : []);
     const order = actions.sort((a, b) => a.t - b.t).map((s) => s.fn).filter((fn) => fn !== 'brace' && fn !== 'chainStep');
-    expect(order).toEqual(['freeze', 'dash', 'ghostsOff', 'flare', 'strike', 'toll', 'fracture', 'cut', 'beam', 'star2', 'calm', 'end']);
+    expect(order).toEqual(['freeze', 'flare', 'strike', 'toll', 'fracture', 'cut', 'beam', 'star2', 'calm', 'end']);
     expect(actions.find((s) => s.fn === 'strike')!.t).toBeCloseTo(EXEC_T.strike + MASK_CONTACT);
     expect(tr.steps.some((s) => (s.do === 'actor' || s.do === 'clip') && (s.clip === 'dash' || s.clip === 'skyfall'))).toBe(false);
-    const tapStep = tr.steps.find((s) => s.do === 'tap')!;
-    const slow = tr.steps.find((s) => s.do === 'time' && s.t === EXEC_T.jump)!;
-    expect(tapStep.t).toBeGreaterThanOrEqual(slow.t);
-    expect(tapStep.t).toBeLessThan(EXEC_T.strike);
+    expect(tr.steps.filter((s) => s.do === 'time').every((s) => s.do === 'time' && s.rampIn !== undefined && s.rampOut !== undefined)).toBe(true);
     expect(tr.steps.some((s) => s.do === 'say' && s.line === 'Одна звезда. Осталось четыре.')).toBe(true);
     expect(tr.steps.some((s) => s.do === 'sky' && s.param === 'starLit' && s.to === 1)).toBe(true);
   });

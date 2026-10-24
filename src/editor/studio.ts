@@ -150,7 +150,9 @@ class Studio {
   }
   private currentEdit(create = false): VariantEdit {
     const scene = this.project.scenes[this.spec.id] ?? (create ? this.project.scenes[this.spec.id] = {} : {});
-    return scene[this.variant] ?? (create ? scene[this.variant] = { steps: {} } : { steps: {} });
+    const current = scene[this.variant];
+    if (current && (this.spec.track.revision === undefined || current.revision === this.spec.track.revision)) return current;
+    return create ? scene[this.variant] = { steps: {}, revision: this.spec.track.revision } : { steps: {} };
   }
   private rate(): number { return this.currentEdit().rate ?? 1; }
   private entries(): { s: CineStep; key: string; added: boolean }[] {
@@ -437,7 +439,7 @@ class Studio {
     if (!entry || entry.s.do !== 'actor' || !entry.s.moveTo) { this.toast('Не найдено движение удара'); return; }
     const h = this.preview.actors.hero, delta = this.preview.contactDelta(), original = entry.s.moveTo;
     const moveOffset = offsetWorld([h.x + delta[0] - original[0], h.y + delta[1] - original[1], h.z + delta[2] - original[2]], -(this.spec.track.heading ?? 0));
-    this.change(() => { const e = this.currentEdit(true); e.steps[entry.key] = { ...e.steps[entry.key], moveOffset, t: d.t ?? s.t, dur: localTime }; });
+    this.change(() => { const e = this.currentEdit(true); e.steps[entry.key] = { ...e.steps[entry.key], moveOffset, lookOffset: moveOffset, t: d.t ?? s.t, dur: localTime }; });
     this.seek(t / this.rate()); this.toast(`Контакт совмещён · ошибка ${(this.preview.contactError * 100).toFixed(1)} см`);
   }
   private export(): void {

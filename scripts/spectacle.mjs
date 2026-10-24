@@ -135,7 +135,7 @@ async function prepare(page, scene, mode) {
       bt.ctx.hud.draw(1 / 60, bt.hudFrame());
       diag.hideEffects();
       const anim = bt.world.hero.avatar.puppet.anim;
-      if (anim.clip?.id === 'chainExit') {
+      if (anim.clip?.id === 'executionLand') {
         diag.flightStart ??= bt.director.time - anim.t;
         if (bt.director.time - diag.flightStart <= anim.clip.dur + 1e-7) {
           const s = diag.capture();
@@ -223,7 +223,7 @@ async function runCase(viewport, scene, mode) {
         ? [{ name: 'before-contact', time: plan.markers[0].time - 0.12 }, { name: 'contact', time: plan.markers[0].time }, { name: 'after-contact', time: plan.markers[0].time + 0.16 }]
         : plan.markers.map((m) => ({ name: m.name, time: m.time }));
       if (scene === 'execution') {
-        const exit = plan.clips.find((s) => s.clip === 'chainExit');
+        const exit = plan.clips.find((s) => s.clip === 'executionLand');
         if (exit) times.push({ name: 'push-off', time: exit.time + 0.2 }, { name: 'descent', time: exit.time + 0.6 }, { name: 'landing', time: exit.time + 1.0 });
       }
       if (scene === 'extraction') {
@@ -236,7 +236,7 @@ async function runCase(viewport, scene, mode) {
       }
       if (scene === 'execution' && mode === 'full') {
         times.push({ name: 'establishing', time: 0.5 });
-        for (const [clip, name, offset] of [['chainBrace', 'brace', 0.7], ['chainRun', 'climb', 0.8], ['chainApex', 'moon', 0.45]]) {
+        for (const [clip, name, offset] of [['executionLeap', 'jump', 0.9]]) {
           const step = plan.clips.find((s) => s.clip === clip);
           if (step) times.push({ name, time: step.time + offset });
         }
@@ -257,7 +257,7 @@ async function runCase(viewport, scene, mode) {
       // крупный план контакта (ТЗ §5, R05): от шлема до маски — не меньше 45 % высоты кадра (было 37 %)
       if (scene === 'execution' && key) check(Math.abs(key.screenMask.y - key.screenHead.y) >= 0.45, `${stem}: контакт крупно — шлем и маска на ${(Math.abs(key.screenMask.y - key.screenHead.y) * 100).toFixed(0)} % высоты`);
       const establishing = result.shots.find((s) => s.file.endsWith('-establishing.png'));
-      if (establishing) check([establishing.screenHead, establishing.screenMask, ...establishing.screenFeet].every(inside), `${stem}: общий план показывает героя целиком, маску и начало цепи`);
+      if (establishing) check([establishing.screenHead, establishing.screenMask, ...establishing.screenFeet].every(inside), `${stem}: общий план показывает героя целиком, маску и дистанцию прыжка`);
       const landing = result.shots.find((s) => s.file.endsWith('-landing.png'));
       if (landing) check([landing.screenHead, ...landing.screenFeet].every(inside), `${stem}: приземление показывает героя от шлема до стоп`);
       check(result.shots.every((s) => s.batchGap < 1e-6), `${stem}: батч рисует позу текущего кадра`);

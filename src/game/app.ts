@@ -246,6 +246,21 @@ export class App {
       const back = h('a', { href: `editor.html?scene=${encodeURIComponent(id ?? 'hierophantEnd')}`, style: { position: 'fixed', zIndex: '100', left: '12px', top: '12px', color: '#ddd2ff', background: '#161320df', border: '1px solid #786493', borderRadius: '10px', padding: '12px 16px', fontSize: '13px', textDecoration: 'none', pointerEvents: 'auto' } }, '← Студия сцен');
       document.body.append(back);
     }
+    const watch = p.get('watch');
+    if (watch && ['hierophantEnd', 'killGate', 'killBell'].includes(watch)) {
+      this.watchScene(watch);
+      const choices = h('div', { style: { position: 'fixed', zIndex: '100', left: 'max(10px, env(safe-area-inset-left))', bottom: 'max(10px, env(safe-area-inset-bottom))', display: 'flex', gap: '6px', pointerEvents: 'auto' } });
+      for (const [id, label] of [['hierophantEnd', 'Иерофант'], ['killGate', 'Страж Врат'], ['killBell', 'Звонарь']]) {
+        const link = h('a', { href: `?watch=${id}`, 'aria-current': watch === id ? 'true' : 'false', style: { display: 'inline-flex', alignItems: 'center', minHeight: '44px', padding: '9px 13px', color: '#e5d9ff', background: watch === id ? '#45345ded' : '#15131fed', border: '1px solid #786493', borderRadius: '10px', fontSize: '12px', textDecoration: 'none' }, onClick: (event: MouseEvent) => {
+          event.preventDefault(); event.stopPropagation();
+          // Сохраняем AudioContext: перезагрузка по ссылке снова блокировала звук на телефоне.
+          this.watchScene(id); history.replaceState(null, '', `?watch=${id}`);
+          for (const item of choices.querySelectorAll('a')) { const active = item === link; item.style.background = active ? '#45345ded' : '#15131fed'; item.setAttribute('aria-current', String(active)); }
+        } }, label);
+        choices.append(link);
+      }
+      document.body.append(choices);
+    }
     (window as unknown as { __app: App }).__app = this;
   }
 }

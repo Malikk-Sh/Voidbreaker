@@ -33,7 +33,8 @@ import type { ClipDef } from '../anim/clip';
 import { Director, type CineTrack, type DirectorActor, type SkyParam, type V3 } from './director';
 import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
-import '../world/boss/guardians';
+import { BellRinger, GateGuardian } from '../world/boss/guardians';
+import { guardianTargets } from '../world/boss/guardianStaging';
 import { EXEC_HP, Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
@@ -268,7 +269,7 @@ export class Battle {
       world: this.world,
       sceneHost: () => this.directorHost(),
       letterbox: (v) => this.feel.setLetterbox(v),
-      slow: (scale, sec) => ctx.time.cinematic(sec, scale),
+      slow: (scale, sec) => ctx.time.cinematicSmooth(sec, scale),
       banner: (text, sub, color, dur, size) => ctx.hud.bigBanner(text, sub, color, dur, size),
       say: (line, sp) => this.feel.voice(line, 0, sp),
       flash: (v) => this.feel.whiteFlash(v),
@@ -836,7 +837,10 @@ export class Battle {
         const e = enemyActor(who) as Enemy | null;
         if (e) w.killEnemy(e, dx, dz, power);
       },
-      timeScale: (scale: number, dur: number) => ctx.time.cinematic(dur, scale),
+      timeScale: (scale: number, dur: number, rampIn?: number, rampOut?: number) => {
+        if (rampIn !== undefined || rampOut !== undefined) ctx.time.cinematicSmooth(dur, scale, rampIn, rampOut);
+        else ctx.time.cinematic(dur, scale);
+      },
       sky: (p: SkyParam, v: number) => { this.skyCine[p] = v; },
       skyValue: (p: SkyParam) => this.skyCine[p],
       moonBehind: (d: V3 | null) => {
@@ -868,8 +872,12 @@ export class Battle {
    */
   private playKillcam(e: Enemy): void {
     const w = this.world, h = w.hero, ctx = this.ctx;
-    const spots = { gx: e.x, gz: e.z, hx: h.x, hz: h.z };
-    const dirX = e.x - h.x, dirZ = e.z - h.z;
+    for (const tele of w.telegraphs) tele.alive = false;
+    const anchors = guardianTargets(e.puppet.layout, e.x, e.z, e.facing, e.kind === 'gateGuardian' ? 1.65 : 1.45);
+    const angle = e.kind === 'bellRinger' ? e.facing : Math.atan2(e.x - h.x, e.z - h.z), fx = Math.sin(angle), fz = Math.cos(angle);
+    const safe = { x: 0, z: 0 }; this.arena.nearestWalkable(e.x - fx * 3.8 - fz * 1.5, e.z - fz * 3.8 + fx * 1.5, safe);
+    const spots = { gx: e.x, gz: e.z, hx: h.x, hz: h.z, facing: e.facing, ...anchors, landing: [safe.x, 0, safe.z] as V3 };
+    const dl = Math.hypot(e.x - h.x, e.z - h.z) || 1, dirX = (e.x - h.x) / dl, dirZ = (e.z - h.z) / dl;
     this.cine.clear(this.cam);
     let done = false;
     const crumble = () => {
@@ -877,34 +885,39 @@ export class Battle {
       done = true;
       e.killcamDone = true;
       e.killcam = false;
-      w.killEnemy(e, dirX, dirZ, 7);
+      w.killEnemy(e, dirX, dirZ, 4.5);
       w.bus.emit('sfx', { id: 'shatter_big', x: e.x, z: e.z });
       w.bus.emit('shake', { trauma: 0.5 });
-      ctx.hud.bigBanner('СТРАЖ ПОВЕРЖЕН', e.def.name, 'gold', 2.0, 50);
+
       const g = GUARDIAN[e.kind];
       if (g) setTimeout(() => this.feel.voice(g.down, 0), 700);
     };
     this.sceneCalls.set('crumble', crumble);
+    this.sceneCalls.set('guardianTitle', () => ctx.hud.bigBanner('СТРАЖ ПОВЕРЖЕН', e.def.name, 'gold', 2.0, 50));
     if (e.kind === 'gateGuardian') {
       this.sceneCalls.set('knee', () => {
+        if (e instanceof GateGuardian) e.setKillcamStage('kneel');
         w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
         w.bus.emit('sfx', { id: 'blade_scrape', x: e.x, z: e.z });
         w.bus.emit('shake', { trauma: 0.3 });
-        this.vfx.hitSparks(e.x, 0.9, e.z, -dirX, -dirZ, 1, true);
+        this.vfx.hitSparks(anchors.knee[0], anchors.knee[1], anchors.knee[2], -dirX, -dirZ, 0.6, true);
       });
       this.sceneCalls.set('helmet', () => {
+        if (e instanceof GateGuardian) e.setKillcamStage('hit');
         w.bus.emit('sfx', { id: 'bell_crack', x: e.x, z: e.z });
         w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
         // свет из трещин шлема
-        this.vfx.lights.flash(e.x, e.height, e.z, [1.6, 1.4, 1.0], 6, 7, 1.2);
-        this.vfx.burst(24, { x: e.x, y: e.height * 0.95, z: e.z, life: 0.6, size: 0.12, size1: 0.02, color: C.core, drag: 2, frame: 'spark', stretch: 1.5 }, { v: 6, vy: 3 });
+        this.vfx.lights.flash(...anchors.head, [1.6, 1.4, 1.0], 3, 5, 0.9);
+        this.vfx.burst(24, { x: anchors.head[0], y: anchors.head[1], z: anchors.head[2], life: 0.6, size: 0.12, size1: 0.02, color: C.core, drag: 2, frame: 'spark', stretch: 1.5 }, { v: 6, vy: 3 });
       });
       this.playScene(killGateTrack(spots), crumble, { letterbox: false, hud: false });
     } else {
       this.sceneCalls.set('bell', () => {
+        if (e instanceof BellRinger) { e.bellFlash = 1.5; e.setKillcamStage('hit'); }
+        this.vfx.lights.flash(...anchors.bell, C.void, 2.2, 5, 0.9);
         w.bus.emit('sfx', { id: 'boss_bell', x: e.x, z: e.z });
         // фиолетовое кольцо проходит сквозь Звонаря
-        w.bus.emit('shockwave', { x: e.x, z: e.z, r: 9, color: 'void', strength: 1.1 });
+        w.bus.emit('shockwave', { x: anchors.bell[0], z: anchors.bell[2], y: anchors.bell[1], r: 7, color: 'void', strength: 0.65 });
       });
       this.playScene(killBellTrack(spots), crumble, { letterbox: false, hud: false });
     }

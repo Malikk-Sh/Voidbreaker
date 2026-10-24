@@ -88,8 +88,8 @@ describe('Director + настоящий Animator: единое время пос
     for (let i = 0; i < 90; i++) director.update(DT, cam);
     // раньше после конца клипа шаг рос до 0.1 с за кадр (время клипа упиралось в его длину): плащ — в 6 раз быстрее
     expect(Math.max(...steps)).toBeLessThan(DT + 1e-6);
-    // за 1.5 с сцены (кадр входа — без шага) ткань прошла те же 1.5 с, ни кадра не потеряно на смене клипа
-    expect(steps.reduce((s, d) => s + d, 0)).toBeCloseTo(89 * DT, 6);
+    // нулевой кадр захватывается при play: ткань проходит ровно 1.5 с сцены, ни кадра не потеряно на смене клипа
+    expect(steps.reduce((s, d) => s + d, 0)).toBeCloseTo(90 * DT, 6);
     a.update = orig; h.avatar.dispose();
   });
 

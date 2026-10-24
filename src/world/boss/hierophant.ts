@@ -881,30 +881,23 @@ export class HierophantController implements BossController {
     b.setExecutionPose('brace');
     const dx = b.x - h.x, dz = b.z - h.z, dl = Math.hypot(dx, dz) || 1;
     const fx = dx / dl, fz = dz / dl;
-    const c = { x: 0, z: 0 }, l = { x: 0, z: 0 };
-    w.arena.nearestWalkable(b.x - fx * 2.6, b.z - fz * 2.6, c);
+    const l = { x: 0, z: 0 };
     w.arena.nearestWalkable(b.x + fx * 3.2, b.z + fz * 3.2, l);
     // маска оглушённого — где она на самом деле (склонился: ~2.8 м, ближе к герою); было max(4, …) — планы и удар
     // клинка шли на 1.2–1.5 м выше маски
     b.bellPos(this.tmp);
     const mask: [number, number, number] = [this.tmp.x, this.tmp.y, this.tmp.z];
     const bellY = mask[1];
-    // цепь от маски к полу — по ней Пилот взбегает
-    const chain = { x: c.x, z: c.z, y0: 0, len: 0, to: { x: mask[0] - fx * 0.65, y: bellY + 0.12, z: mask[2] - fz * 0.65 } };
     this.chainsOn = false;
+    H.chains([]);
     let contactDone = false;
-    H.scene(executionTrack({ bx: b.x, bz: b.z, hx: h.x, hz: h.z, cx: c.x, cz: c.z, bellY, lx: l.x, lz: l.z, star: H.starDir(), mask }), {
-      freeze: () => { H.slow(0.05, 0.5); H.duck(0, 30); H.chains([chain]); w.bus.emit('sfx', { id: 'choir_note', x: b.x, z: b.z }); this.faceLight('gold', 1.3); },
-      // цепь — с рывком: на крупном плане маски она шла поперёк лица
-      dash: () => { H.chains([chain]); h.sceneGhosts = true; w.bus.emit('sfx', { id: 'dash', x: h.x, z: h.z }); },
-      brace: () => { h.sceneGhosts = false; w.bus.emit('sfx', { id: 'chain_drop', x: c.x, z: c.z }); },
-      chainStep: () => { w.bus.emit('sfx', { id: 'step_heavy', x: h.x, z: h.z }); },
-      ghostsOff: () => { h.sceneGhosts = false; },
-      flare: () => { h.glowBoost = 2.2; },
+    H.scene(executionTrack({ bx: b.x, bz: b.z, hx: h.x, hz: h.z, bellY, lx: l.x, lz: l.z, star: H.starDir(), mask }), {
+      freeze: () => { H.duck(0, 30); H.chains([]); w.bus.emit('sfx', { id: 'choir_note', x: b.x, z: b.z }); this.faceLight('gold', 1.3); },
+      flare: () => { h.glowBoost = 1.7; },
       strike: () => {
         if (contactDone) return;
         contactDone = true;
-        this.flawless = H.sceneHit('perfect') || !this.p3Hurt;
+        this.flawless = !this.p3Hurt;
         b.puppet.crack = 0.35;
         w.bus.emit('sfx', { id: 'shatter_cut', x: b.x, z: b.z });
         w.bus.emit('sfx', { id: 'hit_heavy', x: b.x, z: b.z });
@@ -942,14 +935,16 @@ export class HierophantController implements BossController {
 
   /** Отложенный разрез: босс раскалывается по линии удара и осыпается в бездну. */
   private cut(): void {
-    const b = this.boss, w = this.host.world, h = w.hero;
+    const b = this.boss, w = this.host.world;
     if (b.dead) return;
     b.dying = true;
     b.bellPos(this.tmp);
     this.host.pages(b.x, this.tmp.y, b.z);
     w.bellSats.length = 0;
     this.host.chains([]);
-    w.killEnemy(b, b.x - h.x, b.z - h.z, 7);
+    w.killEnemy(b, 0, 0, 9);
+    w.bus.emit('shockwave', { x: b.x, z: b.z, y: this.tmp.y, r: 7, color: 'void', strength: 0.9 });
+    this.host.light?.(b.x, this.tmp.y, b.z, 'void', 4, 9, 0.75);
     w.bus.emit('sfx', { id: 'shatter_big', x: b.x, z: b.z });
     w.bus.emit('shake', { trauma: 0.6 });
     w.bus.emit('bossDeath', { x: b.x, z: b.z });

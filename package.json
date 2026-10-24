@@ -8,6 +8,7 @@
     "dev": "vite",
     "editor": "vite --open /editor.html",
     "studio-test": "node scripts/studio.mjs",
+    "finishers": "node scripts/finishers.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
