@@ -153,4 +153,15 @@ describe('Director + настоящий Animator: единое время пос
     expect(hidden.determinant()).toBeCloseTo(1, 6);
     h.releaseSceneClip(); h.avatar.dispose();
   });
+
+  it('после приземления в казни опорная стопа остаётся у пола во время подъёма корпуса', () => {
+    const { h } = fixture();
+    for (let t = 0.9; t <= 1.3 + 1e-8; t += DT) {
+      h.sampleSceneClip('chainExit', t, t === 0.9);
+      const a = h.avatar.sceneAnchor('footL', new THREE.Vector3()), b = h.avatar.sceneAnchor('footR', new THREE.Vector3());
+      expect(Math.min(a.y, b.y)).toBeGreaterThan(-0.06);
+      expect(Math.min(a.y, b.y)).toBeLessThan(0.1);
+    }
+    h.releaseSceneClip(); h.avatar.dispose();
+  });
 });

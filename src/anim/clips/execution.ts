@@ -7,7 +7,8 @@ import { BLADE_LEN, HERO_RIG } from '../../gen/chars/hero';
 export const MASK_CONTACT = 0.72;
 
 /**
- * Клипы казни не содержат боевых hitOn/impact и смещения корня: географией ведёт Director.
+ * Клипы казни не содержат боевых hitOn/impact: перемещением по сцене ведёт Director,
+ * вертикальная коррекция клипа удерживает опорную стопу у пола.
  * Крупные опорные позы остаются читаемы без следов и вспышек.
  */
 export const EXECUTION_CLIPS: ClipDef[] = [
@@ -50,8 +51,8 @@ export const EXECUTION_CLIPS: ClipDef[] = [
     keys: [
       { t: 0, pose: { pelvis: [0.1, 0, 0], chest: [0.25, 0.2, 0], spine: [0.12, 0, 0], head: [-0.1, -0.2, 0], shR: [-0.8, 0, -0.45], elbR: [-0.3, 0, 0], blade: [0.2, 0, 0], shL: [-0.45, 0, 0.8], elbL: [-0.5, 0, 0], hipL: [-0.8, 0, 0.12], kneeL: [1.2, 0, 0], hipR: [0.45, 0, -0.12], kneeR: [0.45, 0, 0] } },
       { t: 0.5, ease: 'linear', pose: {} },
-      { t: 0.9, ease: 'inQuad', pose: { chest: [0.7, 0.15, 0], spine: [0.25, 0, 0], shR: [-0.5, 0, -0.65], elbR: [-0.4, 0, 0], shL: [-0.8, 0, 0.6], elbL: [-0.2, 0, 0], hipL: [-1.0, 0, 0.14], kneeL: [1.5, 0, 0], hipR: [0.2, 0, -0.12], kneeR: [1.3, 0, 0], footL: [-0.2, 0, 0], footR: [0.2, 0, 0] } },
-      { t: 1.3, ease: 'outCubic', pose: { chest: [0.15, 0.12, 0], spine: [0.05, 0, 0], head: [0.08, -0.12, 0], shR: [0.15, 0, -0.3], elbR: [-0.3, 0, 0], blade: [0.4, 0, 0], shL: [0.05, 0, 0.3], elbL: [-0.3, 0, 0], hipL: [-0.25, 0, 0.08], kneeL: [0.3, 0, 0], hipR: [0.15, 0, -0.08], kneeR: [0.25, 0, 0], footL: [0, 0, 0], footR: [0, 0, 0] } },
+      { t: 0.9, ease: 'inQuad', rootOffset: [0, -0.26, 0], pose: { chest: [0.7, 0.15, 0], spine: [0.25, 0, 0], shR: [-0.5, 0, -0.65], elbR: [-0.4, 0, 0], shL: [-0.8, 0, 0.6], elbL: [-0.2, 0, 0], hipL: [-1.0, 0, 0.14], kneeL: [1.5, 0, 0], hipR: [0.2, 0, -0.12], kneeR: [1.3, 0, 0], footL: [-0.2, 0, 0], footR: [0.2, 0, 0] } },
+      { t: 1.3, ease: 'outCubic', rootOffset: [0, 0, 0], pose: { chest: [0.15, 0.12, 0], spine: [0.05, 0, 0], head: [0.08, -0.12, 0], shR: [0.15, 0, -0.3], elbR: [-0.3, 0, 0], blade: [0.4, 0, 0], shL: [0.05, 0, 0.3], elbL: [-0.3, 0, 0], hipL: [-0.25, 0, 0.08], kneeL: [0.3, 0, 0], hipR: [0.15, 0, -0.08], kneeR: [0.25, 0, 0], footL: [0, 0, 0], footR: [0, 0, 0] } },
     ],
   },
 ];

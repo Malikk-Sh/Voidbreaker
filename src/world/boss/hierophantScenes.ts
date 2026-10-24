@@ -233,7 +233,8 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.land, do: 'clip', who: 'hero', clip: 'chainExit' },
     { t: T.land, do: 'actor', who: 'hero', moveTo: away, dur: 0.3, ease: 'outQuad', lookAt: forward(away) },
     { t: T.land + 0.3, do: 'actor', who: 'hero', moveTo: landed, dur: 0.6, ease: 'inQuad', lookAt: forward(landed) },
-    { t: T.land, do: 'cam', path: [[kx - fx * 4.2 + sx * 5.2, ky + 0.8, kz - fz * 4.2 + sz * 5.2], [lx + sx * 5.5 - fx * 3.5, 2.3, lz + sz * 5.5 - fz * 3.5]], look: [[kx, ky + 0.5, kz], [(lx + bx) / 2, 1.6, (lz + bz) / 2]], dur: T.cut - T.land, fov: 48 },
+    // Камера достигает нижнего ракурса вместе со стопами и удерживает его до отложенного разреза.
+    { t: T.land, do: 'cam', path: [[kx - fx * 4.2 + sx * 5.2, ky + 0.8, kz - fz * 4.2 + sz * 5.2], [lx + sx * 5.5 + fx * 3.5, 2.3, lz + sz * 5.5 + fz * 3.5]], look: [[kx, ky + 0.5, kz], [(lx + bx) / 2, 1.6, (lz + bz) / 2]], dur: 0.9, fov: 48 },
     { t: T.cut, do: 'call', fn: 'cut' },
     { t: T.beam, do: 'call', fn: 'beam' },
     { t: T.beam, do: 'sky', param: 'starLit', to: 1, dur: 1.6 },
@@ -257,7 +258,7 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: 1.25, do: 'clip', who: 'hero', clip: 'chainExit' },
     { t: 1.25, do: 'actor', who: 'hero', moveTo: away, dur: 0.3, ease: 'outQuad', lookAt: forward(away) },
     { t: 1.55, do: 'actor', who: 'hero', moveTo: landed, dur: 0.6, ease: 'inQuad', lookAt: forward(landed) },
-    { t: 1.25, do: 'cam', path: [[lx + sx * 6 - fx * 4, 2.6, lz + sz * 6 - fz * 4]], look: [[(lx + bx) / 2, 2, (lz + bz) / 2]], dur: 1.4, fov: 48 },
+    { t: 1.25, do: 'cam', path: [[lx + sx * 5.5 + fx * 3.5, 2.3, lz + sz * 5.5 + fz * 3.5]], look: [[(lx + bx) / 2, 1.6, (lz + bz) / 2]], dur: 1.4, fov: 48 },
     { t: 2.3, do: 'call', fn: 'cut' },
     { t: 2.6, do: 'call', fn: 'beam' },
     { t: 2.6, do: 'sky', param: 'starLit', to: 1, dur: 1 },

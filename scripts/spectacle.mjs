@@ -208,9 +208,13 @@ async function runCase(viewport, scene, mode) {
       const times = scene === 'execution'
         ? [{ name: 'before-contact', time: plan.markers[0].time - 0.12 }, { name: 'contact', time: plan.markers[0].time }, { name: 'after-contact', time: plan.markers[0].time + 0.16 }]
         : plan.markers.map((m) => ({ name: m.name, time: m.time }));
+      if (scene === 'execution') {
+        const exit = plan.clips.find((s) => s.clip === 'chainExit');
+        if (exit) times.push({ name: 'landing', time: exit.time + 1.0 });
+      }
       if (scene === 'execution' && mode === 'full') {
         times.push({ name: 'establishing', time: 0.5 });
-        for (const [clip, name, offset] of [['chainBrace', 'brace', 0.7], ['chainRun', 'climb', 0.8], ['chainExit', 'landing', 1.0]]) {
+        for (const [clip, name, offset] of [['chainBrace', 'brace', 0.7], ['chainRun', 'climb', 0.8]]) {
           const step = plan.clips.find((s) => s.clip === clip);
           if (step) times.push({ name, time: step.time + offset });
         }
@@ -230,6 +234,8 @@ async function runCase(viewport, scene, mode) {
       if (scene === 'execution') check(result.shots.filter((s) => /-(before-contact|contact|after-contact)\.png$/.test(s.file)).every((s) => [s.screenHead, s.blade.screenBase, s.blade.screenTip, s.screenMask].every(inside)), `${stem}: замах и результат удара также остаются в кадре`);
       const establishing = result.shots.find((s) => s.file.endsWith('-establishing.png'));
       if (establishing) check([establishing.screenHead, establishing.screenMask, ...establishing.screenFeet].every(inside), `${stem}: общий план показывает героя целиком, маску и начало цепи`);
+      const landing = result.shots.find((s) => s.file.endsWith('-landing.png'));
+      if (landing) check([landing.screenHead, ...landing.screenFeet].every(inside), `${stem}: приземление показывает героя от шлема до стоп`);
       check(result.shots.every((s) => s.batchGap < 1e-6), `${stem}: батч рисует позу текущего кадра`);
     } else {
       const skipAt = mode === 'skip-early' ? 0.2 : plan.markers.at(-1).time + 0.1;
