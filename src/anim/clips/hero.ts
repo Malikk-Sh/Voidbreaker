@@ -1,4 +1,5 @@
 import type { ClipDef, Key } from '../clip';
+import { EXTRACTION_CLIPS } from './extraction';
 import { EXECUTION_CLIPS } from './execution';
 
 /**
@@ -17,6 +18,7 @@ const SKYFALL_TAIL: Key[] = [
 const SKYFALL_EVENTS = [{ t: 0.2, name: 'trailOn' }, { t: 0.22, name: 'whoosh' }, { t: 0.34, name: 'hitOn' }, { t: 0.34, name: 'impact' }, { t: 0.4, name: 'hitOff' }, { t: 0.44, name: 'trailOff' }];
 
 export const HERO_CLIPS: ClipDef[] = [
+  ...EXTRACTION_CLIPS,
   ...EXECUTION_CLIPS,
   {
     // Удар 1: горизонтальный разрез справа налево. Этап 4.5, B1: всем телом — вес с задней (правой) ноги

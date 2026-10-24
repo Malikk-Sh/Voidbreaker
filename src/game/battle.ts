@@ -37,13 +37,14 @@ import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
 import { clamp, hexToLinear } from '../core/math';
 import { G, obsidianMaterial } from '../render/materials';
-import { buildCrater, buildHullShard } from '../gen/zone/space';
+import { buildBladeSocket, buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
 import type { EnemyKind } from '../data/enemies';
 import { TRAINING_DRILLS, TRAINING_DUMMIES, TRAINING_SPAR } from '../data/stages';
 import type { TrainingCard } from '../ui/hud';
 import { DrillTracker, type DrillState } from './drills';
 import { IGNITE, LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
+import { ExtractionAttachment, extractionGripMatrix, extractionStand } from './extraction';
 
 
 const _top = new THREE.Vector3();
@@ -175,7 +176,9 @@ export class Battle {
   private drills: { tracker: DrillTracker; card: TrainingCard } | null = null;
   /** Сцена пересмотра закончилась — App возвращает в Святилище. */
   onReplayEnd: (() => void) | null = null;
-  private landing: { t: number; visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean; call: number } | null = null;
+  private landing: { t: number; visorT: number; igniteT: number; releaseT: number; shard: THREE.Mesh; socket: THREE.Mesh; attachment: ExtractionAttachment; music: boolean; call: number } | null = null;
+  private readonly landingWeaponMatrix = new THREE.Matrix4();
+  private readonly landingProps: THREE.Mesh[] = [];
 
   constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout, readonly opts: BattleOpts = {}) {
     this.scars = new FloorScars(stage.boss ? BOSS_SCAR_LIFE : SCAR_LIFE);
@@ -866,18 +869,26 @@ export class Battle {
     const hp = { x: 0, z: 0 };
     this.arena.nearestWalkable(spots.huskX, spots.huskZ, hp);
     spots.huskX = hp.x; spots.huskZ = hp.z;
-    const shardMat = obsidianMaterial({ rim: '#9fb4d0', rimStrength: 0.6, rimPower: 2.2, emissive: '#9f7bff', emissive2: '#ffd29a', emissiveStrength: 1.2 });
+    const facing = Math.atan2(spots.shardX - h.x, spots.shardZ - h.z);
+    const stand = extractionStand(spots.shardX, spots.shardZ, facing);
+    const planted = extractionGripMatrix(stand[0], stand[2], facing, new THREE.Matrix4());
+    const attachment = new ExtractionAttachment(planted);
+    const shardMat = obsidianMaterial({ rim: '#b49cff', rimStrength: 0.85, rimPower: 3.3, emissive: '#a07cff', emissive2: '#ffd29a', emissiveStrength: 0.7 });
     const shard = new THREE.Mesh(buildHullShard(), shardMat);
-    shard.position.set(spots.shardX, 0, spots.shardZ);
-    // наклонён к Пилоту — читается силуэтом на фоне пола
-    shard.rotation.y = Math.atan2(h.x - spots.shardX, h.z - spots.shardZ);
-    this.group.add(shard);
-    this.landing = { t: 0, visorT: -1, igniteT: -1, shard, music: false, call: -1 };
+    shard.matrixAutoUpdate = false;
+    shard.matrix.copy(planted);
+    // The grip is already visible above the socket. Nothing grows from zero.
+    const socket = new THREE.Mesh(buildBladeSocket(), obsidianMaterial({ rim: '#9fb4d0', rimStrength: 0.3, emissiveStrength: 0 }));
+    _top.set(0, -1.36, 0).applyMatrix4(planted);
+    socket.position.set(_top.x, 0.04, _top.z);
+    this.group.add(shard, socket);
+    this.landingProps.push(shard, socket);
+    this.landing = { t: 0, visorT: -1, igniteT: -1, releaseT: -1, shard, socket, attachment, music: false, call: -1 };
     const L = this.landing;
     const calls = this.sceneCalls;
     let thaw = () => {};
     calls.set('landStart', () => {
-      h.y = LANDING_FROM; h.bladeTarget = 0.001; h.avatar.bladeScale = 0.001; h.avatar.resetCloth();
+      h.y = LANDING_FROM; h.bladeTarget = 1; h.avatar.bladeScale = 1; h.avatar.bladeVisible = false; h.avatar.resetCloth();
       h.avatar.puppet.play('plunge', 1, 0);
       // стекло разбитой розы падает вместе с Пилотом
       for (let i = 0; i < 46; i++) {
@@ -905,17 +916,32 @@ export class Battle {
     calls.set('visor', () => { if (L.visorT < 0) L.visorT = 0; });
     calls.set('idle', () => { h.avatar.puppet.anim.stop(0.3); });
     calls.set('grip', () => {
-      // рывок из пола: искры и крошка у основания обломка
-      this.vfx.burst(22, { x: spots.shardX, y: 0.1, z: spots.shardZ, life: 0.5, size: 0.08, size1: 0.01, color: C.voidHot, drag: 2, frame: 'spark', stretch: 1.8, gravity: -9 }, { v: 5, vy: 3 });
-      this.vfx.lights.flash(spots.shardX, 0.5, spots.shardZ, C.voidHot, 2.5, 5, 0.4);
-      this.cam.addTrauma(0.2);
+      if (L.attachment.phase !== 'planted') return;
+      h.avatar.weaponMatrix(this.landingWeaponMatrix);
+      L.attachment.grip(this.landingWeaponMatrix);
+      this.syncLandingWeapon();
+      ctx.audio.play('blade_scrape', { gain: 0.35 });
+    });
+    calls.set('releaseFromGround', () => {
+      if (L.attachment.released) return;
+      L.attachment.release(); L.releaseT = 0;
+      const p = L.socket.position;
+      this.vfx.debris.burst(p.x, 0.08, p.z, -Math.sin(facing), -Math.cos(facing), 8, 2.2, 0.09);
+      this.vfx.burst(16, { x: p.x, y: 0.08, z: p.z, life: 0.6, size: 0.12, size1: 0.3, color: C.dust, alpha: 0.45, drag: 3, frame: 'smoke', gravity: -3 }, { v: 1.5, vy: 0.5 });
+      ctx.audio.play('blade_scrape', { gain: 0.75 });
+      this.cam.addTrauma(0.12);
     });
     calls.set('ignite', () => {
       if (L.igniteT >= 0) return;
       L.igniteT = 0;
-      shard.visible = false;
-      h.bladeTarget = 1;
+      h.avatar.weaponMatrix(this.landingWeaponMatrix);
+      L.attachment.awaken(this.landingWeaponMatrix);
+      // Identical local geometry at the same joint transform: only energy wakes.
+      h.bladeTarget = 1; h.avatar.bladeScale = 1; h.avatar.bladeVisible = true;
+      this.syncLandingWeapon();
       h.avatar.handPos(_top);
+      ctx.audio.play('blade_ignite', { gain: 0.8 });
+      this.feel.whiteFlash(IGNITE.flash);
       // обломок вспыхивает Пустотой: кольцо у руки и по полу, искры вверх по клинку
       // кольцо у руки — малое: большое на высоте руки проходит сквозь камеру сцены и заливает кадр
       this.vfx.rings.spawn(_top.x, _top.z, 0.2, 1.4, 0.45, C.voidHot, 0.18, 0.9, _top.y);
@@ -957,6 +983,8 @@ export class Battle {
       thaw();
       this.quench(0, 0, 0);
       h.y = 0; h.avatar.puppet.anim.stop(0.3);
+      h.bladeTarget = 1; h.avatar.bladeScale = 1; h.avatar.bladeVisible = true;
+      shard.visible = false;
       this.runner.introTime = 0;
       this.runner.skipIntro();
     }, { hud: false });
@@ -1106,22 +1134,45 @@ export class Battle {
   private updateLanding(realDt: number): void {
     const L = this.landing!, h = this.world.hero;
     L.t += realDt;
+    this.syncLandingWeapon();
+    if (L.releaseT >= 0) { L.releaseT += realDt; L.socket.scale.y = Math.max(0.2, 1 - L.releaseT * 2.5); }
     // падение: фиолетовый след за Пилотом
     if (h.y > 0.3) for (let i = 0; i < 2; i++) this.vfx.add.emit({ x: h.x + fxRng.spread(0.25), y: h.y + 0.9 + fxRng.spread(0.4), z: h.z + fxRng.spread(0.25), vy: 6, life: 0.3, size: 0.12, size1: 0.02, color: C.voidHot, drag: 1, frame: 'spark', stretch: 2.4 });
     // обломок зовёт: пульс Пустоты, чаще и ярче, пока Пилот подходит
     if (L.igniteT < 0 && L.visorT >= 0) {
       const u = L.shard.material as THREE.ShaderMaterial;
-      const near = clamp(1 - Math.hypot(h.x - L.shard.position.x, h.z - L.shard.position.z) / 3, 0, 1);
-      u.uniforms.uEmissiveStrength.value = 1.2 + (0.6 + near * 1.4) * Math.pow(0.5 + 0.5 * Math.sin(L.t * (4 + near * 6)), 2);
+      const near = clamp(1 - Math.hypot(h.x - L.shard.matrix.elements[12], h.z - L.shard.matrix.elements[14]) / 3, 0, 1);
+      u.uniforms.uEmissiveStrength.value = 0.45 + (0.2 + near * 0.35) * Math.pow(0.5 + 0.5 * Math.sin(L.t * 3), 2);
       if (Math.floor(L.t / 0.9) !== L.call) {
         L.call = Math.floor(L.t / 0.9);
-        this.vfx.lights.flash(L.shard.position.x, 0.8, L.shard.position.z, C.void, 1.2 + near, 3.5, 0.6);
+        this.vfx.lights.flash(L.shard.matrix.elements[12], 0.8, L.shard.matrix.elements[14], C.void, 0.7 + near * 0.3, 2.5, 0.6);
       }
     }
     // визор загорается, на клинке — вспышка Пустоты, дальше — как обычно
     if (L.visorT >= 0) { L.visorT += realDt; h.glowBoost = Math.min(IGNITE.visor, L.visorT * 2.4) * (L.igniteT >= 0 ? Math.max(0, 1 - L.igniteT / 2.5) : 1); }
     if (L.igniteT >= 0) { L.igniteT += realDt; h.glowBoost += Math.max(0, IGNITE.glow - L.igniteT * IGNITE.fall); }
-    if (!this.director.active && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; }
+    if (!this.director.active && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; this.disposeLandingProps(); }
+  }
+
+  /** Called after the Director has sampled this frame's pose. */
+  private syncLandingWeapon(): void {
+    const L = this.landing;
+    if (!L) return;
+    this.world.hero.avatar.weaponMatrix(this.landingWeaponMatrix);
+    L.attachment.follow(this.landingWeaponMatrix);
+    L.shard.matrix.copy(L.attachment.matrix);
+    L.shard.matrixWorldNeedsUpdate = true;
+    L.shard.visible = L.attachment.propVisible;
+  }
+
+  private disposeLandingProps(): void {
+    for (const mesh of this.landingProps) {
+      mesh.removeFromParent();
+      mesh.geometry.dispose();
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) material.dispose();
+    }
+    this.landingProps.length = 0;
   }
 
   /**
@@ -1210,6 +1261,7 @@ export class Battle {
 
   dispose(): void {
     this.disposed = true;
+    this.disposeLandingProps();
     this.ambience?.stop();
     this.ctx.audio.onSpeak = null;
     this.kaelis.dispose();

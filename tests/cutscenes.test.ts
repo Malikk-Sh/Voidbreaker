@@ -35,7 +35,8 @@ describe('кат-сцены: приземление, ракурсы, Киноз�
     expect(land.steps.some((s) => s.do === 'time' && s.t === LANDING_T.impact && s.scale < 0.5)).toBe(true);
     expect(land.steps.some((s) => s.do === 'cam' && s.t === LANDING_T.impact)).toBe(true);
     const at = (fn: string) => land.steps.find((s) => s.do === 'call' && s.fn === fn)!.t;
-    expect(at('grip')).toBeLessThan(at('ignite'));
+    expect(LANDING_T.grip).toBeLessThan(LANDING_T.releaseFromGround);
+    expect(LANDING_T.releaseFromGround).toBeLessThan(LANDING_T.ignite);
     expect(at('visor')).toBeGreaterThan(LANDING_T.impact);
     // все планы — шире игрового угла (крупные и низкие ракурсы)
     for (const s of land.steps) if (s.do === 'cam') expect(s.fov ?? CAM_FOV).toBeGreaterThan(CAM_FOV);
@@ -122,7 +123,7 @@ describe('кат-сцены: приземление, ракурсы, Киноз�
     const a: DirectorActor = { x: SPOTS.x, z: SPOTS.z, y: 0, facing: 0 };
     const d = new Director(hostWith(a)), cam = new CameraRig();
     const layout = layoutOf(HERO_RIG), skel = new Skeleton(layout);
-    const pull = new Clip(HERO_CLIPS.find((c) => c.id === 'pullBlade')!, layout);
+    const pull = new Clip(HERO_CLIPS.find((c) => c.id === 'extractBlade')!, layout);
     const root = { x: 0, y: 0, z: 0, stretch: 1, spin: 0 };
     const blade = layout.idx('blade'), head = layout.idx('head');
     const view = new THREE.PerspectiveCamera(40, 16 / 9, 0.05, 200);
@@ -153,14 +154,16 @@ describe('кат-сцены: приземление, ракурсы, Киноз�
     }
     expect(out).toEqual([]);
     expect(n).toBeGreaterThan(30);
-    // низкий ракурс: камера ниже пояса Пилота
-    expect(lowest).toBeLessThan(0.9);
+    // Low angle keeps the weapon clear against the cathedral, without cropping it.
+    expect(lowest).toBeLessThanOrEqual(1.1);
   });
 
   it('вспышка клинка сдержана: белая вспышка и свечение Пилота не заливают кадр', () => {
     const land = landingTrack(SPOTS);
-    const flash = land.steps.find((s) => s.do === 'flash' && s.t === LANDING_T.ignite);
-    expect(flash && flash.do === 'flash' ? flash.v : 1).toBeLessThanOrEqual(IGNITE.flash);
+    const pull = land.steps.find((s) => s.do === 'clip' && s.clip === 'extractBlade');
+    expect(pull && pull.do === 'clip' ? pull.markers?.weaponAwake : null).toBe('ignite');
+    // There is no independent timed flash that can precede the handoff marker.
+    expect(land.steps.some((s) => s.do === 'flash' && s.t === LANDING_T.ignite)).toBe(false);
     expect(IGNITE.flash).toBeLessThanOrEqual(0.15);
     expect(IGNITE.visor + IGNITE.glow).toBeLessThanOrEqual(1.6);
   });

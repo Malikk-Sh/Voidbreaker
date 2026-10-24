@@ -5,6 +5,7 @@ import type { RigDef } from '../../anim/skeleton';
 import { GeomBuilder, mat } from '../geom/build';
 import { bipyramid, box, lathe, octa, prism, shard } from '../geom/prims';
 import { roseWindow, spire } from '../geom/kit';
+import { bladeParts, BLADE_LEN, HERO_DEFAULT } from '../chars/hero';
 
 /** Корпус «Инея»: светлая сталь, тёмные панели, огни — цвет Пилота (фиолетово-белый). */
 const STEEL = hexToLinear('#5a6372');
@@ -63,16 +64,20 @@ export function buildShip(seed = 41): { rig: RigDef; geometry: THREE.BufferGeome
   return { rig, geometry: b.build() };
 }
 
-/** Обломок обшивки «Инея», торчащий из пола (станет клинком): стальная пластина с тлеющими швами. */
+/** The recognizable weapon blank: the same grip, guard and blade as the held weapon, along local −Y. */
 export function buildHullShard(seed = 43): THREE.BufferGeometry {
-  const b = new GeomBuilder(); b.rng = new Rng(seed); b.color = STEEL;
-  const shape = new THREE.Shape();
-  shape.moveTo(-0.22, 0); shape.lineTo(0.2, 0); shape.lineTo(0.16, 1.0); shape.lineTo(0.02, 1.45); shape.lineTo(-0.14, 1.1); shape.closePath();
-  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false });
-  g.translate(0, 0, -0.03);
-  b.add(g, { matrix: mat(0, -0.3, 0, 0.25, 0.3, 0.12) });
-  b.add(box(0.03, 1.1, 0.07), { matrix: mat(0.0, 0.3, 0, 0.25, 0.3, 0.12), emissive: 1.2, color: STEEL_HI });
-  for (let i = 0; i < 4; i++) b.add(shard(0.3, 0.08, 3, 0.3, i), { matrix: mat(Math.sin(i * 1.7) * 0.4, 0, Math.cos(i * 1.7) * 0.4, 0.4, i, 0), color: PANEL });
+  const b = new GeomBuilder(); b.rng = new Rng(seed); b.shade = 0.14;
+  bladeParts(b, BLADE_LEN, 0, hexToLinear(HERO_DEFAULT.armor));
+  return b.build();
+}
+
+/** Broken hull plates hold only the buried tip; they never cover the hilt. */
+export function buildBladeSocket(seed = 44): THREE.BufferGeometry {
+  const b = new GeomBuilder(); b.rng = new Rng(seed); b.color = PANEL;
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2;
+    b.add(shard(0.28, 0.12, 4, 0.3, seed + i), { matrix: mat(Math.sin(a) * 0.18, 0, Math.cos(a) * 0.18, 0.65, a, 0) });
+  }
   return b.build();
 }
 
