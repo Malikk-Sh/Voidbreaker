@@ -202,6 +202,11 @@ export function executionTrack(p: ExecSpots): CineTrack {
   const wide = Math.max(8.5, dl * 1.15);
   const medium: V3 = [kx - fx * wide + sx * wide * 0.85, Math.max(4, ky + 1.6), kz - fz * wide + sz * wide * 0.85];
   const landed: V3 = [lx, 0, lz];
+  const exitCam: V3 = [kx - fx * 4.2 + sx * 5.2, ky + 0.8, kz - fz * 4.2 + sz * 5.2];
+  const pushCam: V3 = [exitCam[0] + away[0] - contact[0], exitCam[1] + away[1] - contact[1], exitCam[2] + away[2] - contact[2]];
+  const pushLook: V3 = [both[0] + away[0] - contact[0], both[1] + away[1] - contact[1], both[2] + away[2] - contact[2]];
+  const landingCam: V3 = [lx + sx * 5.5 + fx * 3.5, 2.3, lz + sz * 5.5 + fz * 3.5];
+  const landingLook: V3 = [(lx + bx) / 2, 1.6, (lz + bz) / 2];
   const steps: CineStep[] = [
     { t: 0, do: 'call', fn: 'freeze' },
     { t: 0, do: 'clip', who: 'hero', clip: 'lowerBlade' },
@@ -228,13 +233,14 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.strike, do: 'actor', who: 'hero', moveTo: contact, dur: MASK_CONTACT, ease: 'inQuad', lookAt: forward(contact) },
     { t: T.strike, do: 'cam', path: [faceCam], look: [both], dur: T.toll - T.strike, fov: 50 },
     { t: T.toll, do: 'call', fn: 'toll' },
-    { t: T.toll, do: 'cam', path: [faceCam, [kx - fx * 4.2 + sx * 5.2, ky + 0.8, kz - fz * 4.2 + sz * 5.2]], look: [[kx, ky + 0.5, kz]], dur: T.land - T.toll, fov: 48 },
+    { t: T.toll, do: 'cam', path: [faceCam, exitCam], look: [both], dur: T.land - T.toll, fov: 48 },
     { t: T.crack, do: 'call', fn: 'fracture' },
     { t: T.land, do: 'clip', who: 'hero', clip: 'chainExit' },
     { t: T.land, do: 'actor', who: 'hero', moveTo: away, dur: 0.3, ease: 'outQuad', lookAt: forward(away) },
     { t: T.land + 0.3, do: 'actor', who: 'hero', moveTo: landed, dur: 0.6, ease: 'inQuad', lookAt: forward(landed) },
-    // Камера достигает нижнего ракурса вместе со стопами и удерживает его до отложенного разреза.
-    { t: T.land, do: 'cam', path: [[kx - fx * 4.2 + sx * 5.2, ky + 0.8, kz - fz * 4.2 + sz * 5.2], [lx + sx * 5.5 + fx * 3.5, 2.3, lz + sz * 5.5 + fz * 3.5]], look: [[kx, ky + 0.5, kz], [(lx + bx) / 2, 1.6, (lz + bz) / 2]], dur: 0.9, fov: 48 },
+    // Те же две фазы и easing, что у корня: камера не обгоняет героя при падении.
+    { t: T.land, do: 'cam', path: [exitCam, pushCam], look: [both, pushLook], dur: 0.3, ease: 'outQuad', fov: 48 },
+    { t: T.land + 0.3, do: 'cam', path: [pushCam, landingCam], look: [pushLook, landingLook], dur: 0.6, ease: 'inQuad', fov: 48 },
     { t: T.cut, do: 'call', fn: 'cut' },
     { t: T.beam, do: 'call', fn: 'beam' },
     { t: T.beam, do: 'sky', param: 'starLit', to: 1, dur: 1.6 },
@@ -258,7 +264,8 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: 1.25, do: 'clip', who: 'hero', clip: 'chainExit' },
     { t: 1.25, do: 'actor', who: 'hero', moveTo: away, dur: 0.3, ease: 'outQuad', lookAt: forward(away) },
     { t: 1.55, do: 'actor', who: 'hero', moveTo: landed, dur: 0.6, ease: 'inQuad', lookAt: forward(landed) },
-    { t: 1.25, do: 'cam', path: [[lx + sx * 5.5 + fx * 3.5, 2.3, lz + sz * 5.5 + fz * 3.5]], look: [[(lx + bx) / 2, 1.6, (lz + bz) / 2]], dur: 1.4, fov: 48 },
+    { t: 1.25, do: 'cam', path: [faceCam, pushCam], look: [both, pushLook], dur: 0.3, ease: 'outQuad', fov: 48 },
+    { t: 1.55, do: 'cam', path: [pushCam, landingCam], look: [pushLook, landingLook], dur: 0.6, ease: 'inQuad', fov: 48 },
     { t: 2.3, do: 'call', fn: 'cut' },
     { t: 2.6, do: 'call', fn: 'beam' },
     { t: 2.6, do: 'sky', param: 'starLit', to: 1, dur: 1 },

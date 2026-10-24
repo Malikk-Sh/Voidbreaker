@@ -67,7 +67,7 @@ async function prepare(page, scene, mode) {
   await page.waitForFunction(() => !!window.__vb?.battle, null, { timeout: 30000 });
   await page.evaluate(({ text, effects, mode }) => {
     const bt = window.__vb.battle;
-    const diag = window.__spectacle = { battle: bt, landing: bt.landing, calls: [], kills: [], samples: [], effects };
+    const diag = window.__spectacle = { battle: bt, landing: bt.landing, calls: [], kills: [], samples: [], flight: [], effects };
     bt.ctx.hud.canvas.style.visibility = text ? 'visible' : 'hidden';
     diag.hideEffects = () => { if (effects === 'off') {
       // Диагностическое отключение добавочных VFX: цепь, тело и ряса остаются видимыми.
@@ -80,6 +80,8 @@ async function prepare(page, scene, mode) {
     bt.world.bus.on('kill', (e) => diag.kills.push({ kind: e.kind, time: bt.director.time }));
     diag.capture = () => {
       const h = bt.world.hero, cam = bt.ctx.renderer.camera, a = cam.position.clone(), b = a.clone();
+      // Между диагностическими кадрами render не вызывается; проекции должны видеть текущую камеру.
+      cam.updateMatrixWorld(true);
       h.bladePoints(a, b);
       h.avatar.sceneAnchor('hilt', a);
       h.avatar.sceneAnchor('bladeTip', b);
@@ -128,6 +130,14 @@ async function prepare(page, scene, mode) {
       bt.frame(1 / 60);
       bt.ctx.hud.draw(1 / 60, bt.hudFrame());
       diag.hideEffects();
+      const anim = bt.world.hero.avatar.puppet.anim;
+      if (anim.clip?.id === 'chainExit') {
+        diag.flightStart ??= bt.director.time - anim.t;
+        if (bt.director.time - diag.flightStart <= anim.clip.dur + 1e-7) {
+          const s = diag.capture();
+          diag.flight.push({ time: s.time, head: s.screenHead, feet: s.screenFeet });
+        }
+      }
     };
     if (mode === 'short') {
       bt.director.full = false;
@@ -210,7 +220,7 @@ async function runCase(viewport, scene, mode) {
         : plan.markers.map((m) => ({ name: m.name, time: m.time }));
       if (scene === 'execution') {
         const exit = plan.clips.find((s) => s.clip === 'chainExit');
-        if (exit) times.push({ name: 'landing', time: exit.time + 1.0 });
+        if (exit) times.push({ name: 'push-off', time: exit.time + 0.2 }, { name: 'descent', time: exit.time + 0.6 }, { name: 'landing', time: exit.time + 1.0 });
       }
       if (scene === 'execution' && mode === 'full') {
         times.push({ name: 'establishing', time: 0.5 });
@@ -245,10 +255,14 @@ async function runCase(viewport, scene, mode) {
     await advance(page, plan.id, 0, { finish: true });
     result.final = await page.evaluate(() => {
       const diag = window.__spectacle;
-      return { ...diag.capture(), calls: diag.calls, kills: diag.kills, active: diag.battle.director.active, outcome: diag.battle.outcome };
+      return { ...diag.capture(), calls: diag.calls, kills: diag.kills, flight: diag.flight, active: diag.battle.director.active, outcome: diag.battle.outcome };
     });
     check(!result.final.active && !result.final.hero.scripted, `${stem}: сцена завершена, управление возвращено`);
     if (scene === 'execution') {
+      if (mode === 'full' || mode === 'short') {
+        const inside = (p) => p.depth > -1 && p.depth < 1 && p.x > 0.02 && p.x < 0.98 && p.y > 0.12 && p.y < 0.88;
+        check(result.final.flight.length > 0 && result.final.flight.every((s) => [s.head, ...s.feet].every(inside)), `${stem}: весь полёт остаётся в кадре (${result.final.flight.length} кадров)`);
+      }
       const strikes = result.final.calls.filter((c) => c.name === 'strike');
       const kills = result.final.kills.filter((k) => k.kind === 'hierophant');
       check(strikes.length === 1 && kills.length === 1, `${stem}: один контакт и одна смерть (${strikes.length}/${kills.length})`);
