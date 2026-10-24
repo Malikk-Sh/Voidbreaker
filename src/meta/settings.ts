@@ -30,12 +30,14 @@ export interface Settings {
   fullscreen: boolean;
   /** «Короткие казни»: Раскол элиты и Стражей всегда в короткой версии (план §5.6). */
   shortExec: boolean;
+  /** Сцены без нажатий: необязательные действия в сценах (поднять клинок) продолжаются сами (ТЗ §14). */
+  autoScenes: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   shake: 1, flashes: true, photosensitive: false, aberration: true, distortion: true, autoAim: 2, vibration: true,
   volMaster: 0.9, volMusic: 0.6, volSfx: 0.9, volVoice: 0.8, quality: 'auto', story: false, showFps: false,
-  hatch: 0.35, subtitleSize: 1, buttonScale: 1, buttonOffsetX: 0, buttonOffsetY: 0, camDist: 1, fullscreen: false, shortExec: false,
+  hatch: 0.35, subtitleSize: 1, buttonScale: 1, buttonOffsetX: 0, buttonOffsetY: 0, camDist: 1, fullscreen: false, shortExec: false, autoScenes: false,
 };
 
 export function effectiveFlashes(s: Settings): boolean { return s.flashes && !s.photosensitive; }

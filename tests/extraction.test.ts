@@ -7,7 +7,7 @@ import { Skeleton } from '../src/anim/skeleton';
 import { BLADE_LEN, HERO_RIG } from '../src/gen/chars/hero';
 import { buildHullShard } from '../src/gen/zone/space';
 import { ExtractionAttachment, extractionGripMatrix, extractionStand } from '../src/game/extraction';
-import { Director, type DirectorActor, type DirectorHost } from '../src/game/director';
+import { Director, SKIP_HOLD, WAIT_AUTO, type DirectorActor, type DirectorHost } from '../src/game/director';
 import { LANDING_T, landingTrack } from '../src/game/prologueTracks';
 import { CameraRig } from '../src/world/camera';
 
@@ -89,8 +89,9 @@ describe('пролог: непрерывное извлечение единст
       const item = new ExtractionAttachment(extractionGripMatrix(stand[0], stand[2], facing, new THREE.Matrix4()));
       let current = item.matrix.clone();
       const events: string[] = [];
+      let tapNow = false;
       const host: DirectorHost = {
-        actor: () => a, holding: () => false, tapped: () => false, seen: () => 0, markSeen: () => {},
+        actor: () => a, holding: () => false, tapped: () => { const t = tapNow; tapNow = false; return t; }, seen: () => 0, markSeen: () => {},
         clipEvents: (_who, id) => id === 'extractBlade' ? clip.events : [],
         clipDuration: (_who, id) => id === 'extractBlade' ? clip.dur : 0,
         sampleClip: (_who, id, t) => { if (id === 'extractBlade') current = pose(t, a.x, a.z, a.facing); },
@@ -103,6 +104,8 @@ describe('пролог: непрерывное извлечение единст
       const d = new Director(host), cam = new CameraRig();
       d.play(landingTrack(p));
       for (let t = 0; d.active && t < 20; t += DT) {
+        // игрок касается экрана, как только сцена ждёт хвата
+        if (d.waiting) tapNow = true;
         d.update(DT, cam); item.follow(current);
         if (skipAt !== null && d.time >= skipAt) d.skip();
       }
@@ -111,5 +114,75 @@ describe('пролог: непрерывное извлечение единст
       expect(item.released).toBe(true);
       expect(item.propVisible).toBe(false); expect(item.rigVisible).toBe(true);
     }
+  });
+
+  describe('хват — необязательное действие игрока (ТЗ §14, план §4.3)', () => {
+    const P = { x: 0, z: 0.5, shardX: 0.9, shardZ: 2.1, huskX: -1.2, huskZ: -6 };
+    function scene(opts: { auto?: boolean } = {}) {
+      const a: DirectorActor = { x: P.x, y: 0, z: P.z, facing: 0 };
+      const calls: { fn: string; t: number }[] = [], prompts: string[] = [];
+      let tapNow = false, held = false;
+      const host: DirectorHost = {
+        actor: () => a, holding: () => held, tapped: () => { const t = tapNow; tapNow = false; return t; },
+        autoContinue: () => !!opts.auto, seen: () => 0, markSeen: () => {},
+        clipEvents: (_who, id) => id === 'extractBlade' ? clip.events : [],
+        clipDuration: (_who, id) => id === 'extractBlade' ? clip.dur : 0,
+        call: (fn) => calls.push({ fn, t: d.time }),
+        overlay: (_s, _t, p) => { if (p) prompts.push(p.text); },
+      };
+      const d = new Director(host), cam = new CameraRig();
+      d.play(landingTrack(P));
+      const run = (sec: number, each?: () => void) => { for (let t = 0; t < sec && d.active; t += DT) { each?.(); d.update(DT, cam); } };
+      return { d, calls, prompts, run, tap: () => { tapNow = true; }, hold: (v: boolean) => { held = v; } };
+    }
+
+    it('без действия сцена ждёт у клинка с подсказкой: время сцены стоит, хвата нет', () => {
+      const { d, calls, prompts, run } = scene();
+      run(LANDING_T.pull + 30);
+      expect(d.active).toBe(true);
+      expect(d.waiting).toBe(true);
+      expect(d.time).toBeCloseTo(LANDING_T.pull, 4);
+      expect(calls.some((c) => c.fn === 'grip')).toBe(false);
+      expect(prompts.at(-1)).toBe('Взять клинок');
+    });
+
+    it('касание продолжает сцену: хват через своё время клипа после ответа, без наказания за момент', () => {
+      for (const after of [0.1, 3, 12]) {
+        const { d, calls, run, tap } = scene();
+        run(LANDING_T.pull + after);
+        tap(); run(DT * 2);
+        expect(d.waiting).toBe(false);
+        run(LANDING_T.end);
+        const grip = calls.find((c) => c.fn === 'grip')!;
+        expect(grip.t).toBeCloseTo(LANDING_T.grip, 4);
+        expect(calls.filter((c) => c.fn === 'ignite')).toHaveLength(1);
+        expect(d.active).toBe(false);
+      }
+    });
+
+    it('«Действия в сценах: сами» — продолжается без нажатия через WAIT_AUTO', () => {
+      const { d, calls, run } = scene({ auto: true });
+      run(LANDING_T.pull + WAIT_AUTO - 0.1);
+      expect(d.waiting).toBe(true);
+      run(0.25);
+      expect(d.waiting).toBe(false);
+      run(LANDING_T.end);
+      expect(calls.filter((c) => c.fn === 'grip')).toHaveLength(1);
+    });
+
+    it('короткое нажатие — действие, а не пропуск; удержание у клинка пропускает сцену целиком', () => {
+      const a = scene();
+      a.run(LANDING_T.pull + 1);
+      // нажатие на 0.15 с: хват начинается, сцена идёт дальше обычным ходом
+      a.tap(); a.hold(true); a.run(0.15); a.hold(false);
+      a.run(1);
+      expect(a.d.active).toBe(true);
+      expect(a.d.time).toBeGreaterThan(LANDING_T.grip);
+      const b = scene();
+      b.run(LANDING_T.pull + 1);
+      b.hold(true); b.run(SKIP_HOLD + 0.1);
+      expect(b.d.active).toBe(false);
+      expect(b.calls.map((c) => c.fn).filter((f) => ['grip', 'releaseFromGround', 'ignite'].includes(f))).toEqual(['grip', 'releaseFromGround', 'ignite']);
+    });
   });
 });

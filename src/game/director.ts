@@ -34,7 +34,13 @@ export type CineStep =
   /** Логика сцены (спаун, смена арены): выполняется и при пропуске. */
   | { t: number; do: 'call'; fn: string; arg?: number }
   /** Необязательное касание-тайминг: атака в окне dur — флаг onHit. */
-  | { t: number; do: 'tap'; dur: number; onHit: string };
+  | { t: number; do: 'tap'; dur: number; onHit: string }
+  /**
+   * Необязательное действие игрока (план §4.3, ТЗ §14): время сцены стоит на t, пока игрок не коснётся экрана
+   * или не нажмёт атаку; при автопродолжении (настройка) сцена идёт сама через auto с. Без наказания за тайминг;
+   * удержание атаки по-прежнему пропускает сцену. Шаги с тем же t начинаются после ответа. prompt — подсказка.
+   */
+  | { t: number; do: 'wait'; prompt: string; auto?: number };
 
 export interface CineTrack {
   id: string;
@@ -72,18 +78,24 @@ export interface DirectorHost {
   call?(fn: string, arg?: number): void;
   /** Атака удерживается (пропуск). */
   holding(): boolean;
-  /** Атака нажата в этом кадре (касание-тайминг). */
+  /** Касание экрана или атака в этом кадре (касание-тайминг, ожидание действия). */
   tapped(): boolean;
+  /** Сцены идут без нажатий: шаги ожидания продолжаются сами (настройка). */
+  autoContinue?(): boolean;
   seen(id: string): number;
   markSeen(id: string): void;
-  /** Индикаторы поверх кадра: заполнение пропуска 0..1 и кольцо касания. */
-  overlay?(skip: number, tap: { k: number; hit: boolean } | null): void;
+  /** Индикаторы поверх кадра: заполнение пропуска 0..1, кольцо касания, подсказка ожидаемого действия (t — сколько ждёт, с). */
+  overlay?(skip: number, tap: { k: number; hit: boolean } | null, prompt?: { text: string; t: number } | null): void;
 }
 
 /** Сколько держать атаку для пропуска (с). */
 export const SKIP_HOLD = 0.6;
 /** Смешивание позы при смене сценического клипа (с сцены): 7 кадров — без скачка, но и без «плавания». */
 export const SCENE_BLEND = 0.12;
+/** Автопродолжение ожидания (с): короткий план места действия успевает прочитаться. */
+export const WAIT_AUTO = 0.6;
+/** Ожидание держит время сцены чуть раньше своего t: шаги с тем же t начинаются только после ответа. */
+const WAIT_EPS = 1e-6;
 /** Пропуск доступен не раньше (с): случайное удержание с прошлой сцены не съедает новую. */
 const SKIP_FROM = 0.4;
 
@@ -124,6 +136,8 @@ export class Director {
   private fov: number | undefined;
   private roll = 0;
   private tap: { from: number; to: number; id: string; hit: boolean } | null = null;
+  /** Сколько (реальных с) сцена стоит у текущего шага ожидания. */
+  private waitT = 0;
   /** Флаги касаний, попавших в окно. */
   readonly hits = new Set<string>();
   /** Сцена играет укороченной. */
@@ -136,6 +150,12 @@ export class Director {
   get active(): boolean { return !!this.track; }
   get id(): string | null { return this.track?.id ?? null; }
   get time(): number { return this.t; }
+  /** Сцена стоит у шага ожидания и ждёт действия игрока. */
+  get waiting(): boolean { return !!this.pendingWait() && this.waitT > 0; }
+
+  private pendingWait(target = this.t): Live | null {
+    return this.live.find((l) => l.s.do === 'wait' && !l.done && l.s.t <= target + WAIT_EPS) ?? null;
+  }
 
   play(track: CineTrack, onEnd?: (skipped: boolean) => void): void {
     if (this.track) this.finish(false);
@@ -143,7 +163,7 @@ export class Director {
     const steps = (this.short ? track.short! : track.steps).slice().sort((a, b) => a.t - b.t);
     this.track = track;
     this.live = steps.map((s) => ({ s, started: false, done: false }));
-    this.t = 0; this.hold = 0;
+    this.t = 0; this.hold = 0; this.waitT = 0;
     this.dur = track.dur ?? Math.max(0, ...steps.map(stepEnd)) + 0.3;
     if (this.short && track.dur) this.dur = Math.max(0, ...steps.map(stepEnd)) + 0.3;
     // Длина позы берётся из клипа, когда дорожка не задаёт собственный конец.
@@ -172,7 +192,19 @@ export class Director {
   update(realDt: number, cam: CameraRig): void {
     const tr = this.track;
     if (tr) {
-      const target = this.t + realDt;
+      let target = this.t + realDt;
+      // необязательное действие: время сцены стоит у шага ожидания, пока игрок не ответит
+      const wait = this.pendingWait(target);
+      let prompt: { text: string; t: number } | null = null;
+      if (wait && wait.s.do === 'wait') {
+        if (this.t < wait.s.t - WAIT_EPS * 2) target = wait.s.t - WAIT_EPS;
+        else {
+          this.waitT += realDt;
+          if (this.host.tapped() || (this.host.autoContinue?.() && this.waitT >= (wait.s.auto ?? WAIT_AUTO))) {
+            wait.done = true; wait.started = true; this.waitT = 0; target = wait.s.t;
+          } else { target = this.t; prompt = { text: wait.s.prompt, t: this.waitT }; }
+        }
+      }
       // пропуск удержанием атаки
       if (tr.skippable !== false && target > SKIP_FROM && this.host.holding()) this.hold += realDt;
       else this.hold = Math.max(0, this.hold - realDt * 2);
@@ -191,7 +223,7 @@ export class Director {
       this.advance(target);
       if (this.track !== tr) return this.applyCam(realDt, cam);
       this.updateTap();
-      this.host.overlay?.(tr.skippable === false ? 0 : this.hold / SKIP_HOLD, this.tap ? { k: clamp((this.t - this.tap.from) / Math.max(0.01, this.tap.to - this.tap.from), 0, 1), hit: this.tap.hit } : null);
+      this.host.overlay?.(tr.skippable === false ? 0 : this.hold / SKIP_HOLD, this.tap ? { k: clamp((this.t - this.tap.from) / Math.max(0.01, this.tap.to - this.tap.from), 0, 1), hit: this.tap.hit } : null, prompt);
       if (this.t >= this.dur) this.finish(false);
     }
     this.applyCam(realDt, cam);
@@ -297,6 +329,8 @@ export class Director {
       case 'flash': if (!fast) h.flash?.(s.v); break;
       case 'letterbox': h.letterbox?.(fast ? 0 : s.v); break;
       case 'tap': if (!fast) this.tap = { from: s.t, to: s.t + s.dur, id: s.onHit, hit: false }; break;
+      // ожидание решается в update (или пропуском): здесь — только отметка пройденного шага
+      case 'wait': break;
     }
     l.done = true;
   }
@@ -336,7 +370,7 @@ export class Director {
     this.live = [];
     this.markers = [];
     this.releaseClips();
-    this.tap = null;
+    this.tap = null; this.waitT = 0;
     this.host.letterbox?.(0);
     this.host.overlay?.(0, null);
     this.host.markSeen(tr.id);
@@ -362,7 +396,7 @@ export class Director {
   static sample(path: V3[], u: number, out = _p): THREE.Vector3 { return curveOf(path).getPoint(u, out); }
 
   clear(cam: CameraRig): void {
-    this.track = null; this.live = []; this.markers = []; this.releaseClips(); this.w = 0; this.tap = null; this.onEnd = null;
+    this.track = null; this.live = []; this.markers = []; this.releaseClips(); this.w = 0; this.tap = null; this.waitT = 0; this.onEnd = null;
     if (this.hadCam) { cam.cine = null; this.hadCam = false; }
   }
 }

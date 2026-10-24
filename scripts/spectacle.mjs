@@ -126,7 +126,11 @@ async function prepare(page, scene, mode) {
     const originalSet = bt.sceneCalls.set;
     bt.sceneCalls.set = function(name, fn) { return originalSet.call(this, name, wrap(name, fn)); };
     for (const [name, fn] of bt.sceneCalls) bt.sceneCalls.set(name, fn);
+    diag.waitFrames = 0;
     diag.step = () => {
+      // хват — действие игрока: сцена ждёт; «игрок» касается экрана через 0.8 с ожидания
+      if (bt.director.waiting && ++diag.waitFrames === 48) { diag.tappedAt = bt.director.time; bt.ctx.input.buffer.push('attack', bt.ctx.input.now); }
+      if (!bt.director.waiting) diag.waitFrames = 0;
       bt.frame(1 / 60);
       bt.ctx.hud.draw(1 / 60, bt.hudFrame());
       diag.hideEffects();
@@ -221,6 +225,14 @@ async function runCase(viewport, scene, mode) {
       if (scene === 'execution') {
         const exit = plan.clips.find((s) => s.clip === 'chainExit');
         if (exit) times.push({ name: 'push-off', time: exit.time + 0.2 }, { name: 'descent', time: exit.time + 0.6 }, { name: 'landing', time: exit.time + 1.0 });
+      }
+      if (scene === 'extraction') {
+        // кадр ожидания: клинок, место хвата и подсказка до действия игрока
+        const pull = plan.clips.find((s) => s.clip === 'extractBlade');
+        await advance(page, plan.id, pull.time - 0.01);
+        const waited = await page.evaluate(() => { const diag = window.__spectacle, bt = diag.battle; for (let i = 0; i < 30; i++) diag.step(); return { waiting: bt.director.waiting, grips: diag.calls.filter((c) => c.name === 'grip').length }; });
+        result.shots.push(await shot(page, stem, 'prompt'));
+        check(waited.waiting && waited.grips === 0, `${stem}: сцена ждёт действия у клинка, хвата до касания нет`);
       }
       if (scene === 'execution' && mode === 'full') {
         times.push({ name: 'establishing', time: 0.5 });

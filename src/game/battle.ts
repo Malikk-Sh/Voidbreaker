@@ -796,10 +796,13 @@ export class Battle {
       letterbox: (v: number) => this.feel.setLetterbox(v),
       call: (fn: string, arg?: number) => this.sceneCalls.get(fn)?.(arg),
       holding: () => ctx.input.attackHeld,
-      tapped: () => !!ctx.input.buffer.consume('attack', ctx.input.now),
+      // в сцене кнопки боя скрыты: действие — касание экрана где угодно, клик или атака
+      tapped: () => ctx.input.consumeSceneTap(),
+      autoContinue: () => ctx.settings.autoScenes || !!this.replay,
       seen: (id: string) => ctx.save.cine[id] ?? 0,
       markSeen: (id: string) => { ctx.save.cine[id] = (ctx.save.cine[id] ?? 0) + 1; ctx.persist(); },
-      overlay: (skip: number, tap: { k: number; hit: boolean } | null) => ctx.hud.cineOverlay(skip, tap),
+      overlay: (skip: number, tap: { k: number; hit: boolean } | null, prompt?: { text: string; t: number } | null) =>
+        ctx.hud.cineOverlay(skip, tap, prompt ? { ...prompt, sub: this.promptHint(), at: this.promptAnchor() } : null),
     };
   }
 
@@ -1152,6 +1155,22 @@ export class Battle {
     if (L.visorT >= 0) { L.visorT += realDt; h.glowBoost = Math.min(IGNITE.visor, L.visorT * 2.4) * (L.igniteT >= 0 ? Math.max(0, 1 - L.igniteT / 2.5) : 1); }
     if (L.igniteT >= 0) { L.igniteT += realDt; h.glowBoost += Math.max(0, IGNITE.glow - L.igniteT * IGNITE.fall); }
     if (!this.director.active && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; this.disposeLandingProps(); }
+  }
+
+  /** Как выполнить действие сцены на текущем устройстве. */
+  private promptHint(): string {
+    const d = this.ctx.input.lastDevice;
+    return d === 'touch' ? 'коснитесь экрана' : d === 'pad' ? 'атака' : 'ЛКМ / J';
+  }
+
+  /** Место действия сцены на экране (NDC): рукоять посаженного клинка в прологе; иначе — по центру. */
+  private promptAnchor(): { x: number; y: number } | null {
+    const L = this.landing;
+    if (!L || L.attachment.phase !== 'planted') return null;
+    const cam = this.ctx.renderer.camera;
+    cam.updateMatrixWorld();
+    _top.setFromMatrixPosition(L.attachment.matrix).project(cam);
+    return _top.z < 1 ? { x: _top.x, y: _top.y } : null;
   }
 
   /** Called after the Director has sampled this frame's pose. */

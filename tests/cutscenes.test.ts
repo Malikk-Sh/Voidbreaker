@@ -21,8 +21,9 @@ import { newSave, type SaveData } from '../src/meta/save';
 const DT = 1 / 60;
 const SPOTS = { x: 0, z: 0.5, shardX: 0.9, shardZ: 2.1, huskX: -1.2, huskZ: -6 };
 
+/** Ход сцены без игрока: необязательные действия (поднять клинок) продолжаются сами. */
 function hostWith(actor: DirectorActor): DirectorHost {
-  return { actor: () => actor, holding: () => false, tapped: () => false, seen: () => 0, markSeen: () => {} };
+  return { actor: () => actor, holding: () => false, tapped: () => false, autoContinue: () => true, seen: () => 0, markSeen: () => {} };
 }
 
 describe('кат-сцены: приземление, ракурсы, Кинозал', () => {

@@ -142,7 +142,11 @@ export interface LandingSpots { x: number; z: number; shardX: number; shardZ: nu
  */
 export const IGNITE = { flash: 0.12, glow: 0.6, fall: 0.6, visor: 1.0, light: 2.5 };
 
-export const LANDING_T = { impact: 0.9, visor: 2.5, say: 3.0, walk: 4.0, pull: 5.0,
+/**
+ * reach — Пилот дошёл до клинка, план сбоку на рукоять и место хвата; pull — ожидание действия игрока
+ * (касание экрана или атака; с «Действия в сценах: сами» — через 0.6 с), затем извлечение (ТЗ §14).
+ */
+export const LANDING_T = { impact: 0.9, visor: 2.5, say: 3.0, walk: 4.0, reach: 4.65, pull: 5.0,
   grip: 5.0 + EXTRACTION_T.grip, releaseFromGround: 5.0 + EXTRACTION_T.releaseFromGround,
   ignite: 5.0 + EXTRACTION_T.weaponAwake, husk: 8.6, turn: 8.95, title: 10.3, music: 10.9, end: 11.7 };
 /** Высота, с которой Пилот падает в кратер (м). */
@@ -193,10 +197,12 @@ export function landingTrack(p: LandingSpots): CineTrack {
     // план 7: идёт к обломку — на камеру, обломок в переднем плане
     { t: L.walk - 0.1, do: 'call', fn: 'idle' },
     { t: L.walk, do: 'actor', who: 'hero', moveTo: stand, dur: 0.95, lookAt: [sx + Fx * 3, 0, sz + Fz * 3] },
-    { t: L.walk, do: 'cam', path: [at(x, z, 2.9, 0.7, 1.45), at(p.shardX, p.shardZ, 2.9, 1.2, 1.5)], look: [[x, 1.55, z], [p.shardX * 0.5 + sx * 0.5, 1.15, p.shardZ * 0.5 + sz * 0.5]], dur: L.pull - L.walk, ease: 'inOutSine', fov: 42 },
-    // A single scene clock owns the hand, weapon and all three transfer markers.
+    { t: L.walk, do: 'cam', path: [at(x, z, 2.9, 0.7, 1.45), at(p.shardX, p.shardZ, 2.9, 1.2, 1.5)], look: [[x, 1.55, z], [p.shardX * 0.5 + sx * 0.5, 1.15, p.shardZ * 0.5 + sz * 0.5]], dur: L.reach - L.walk, ease: 'inOutSine', fov: 42 },
+    // план сбоку: весь клинок, рукоять и место хвата — пока сцена ждёт действия игрока, кадр стоит на нём
+    { t: L.reach, do: 'cam', path: [at(sx, sz, 1.0, 4.0, 1.0), at(sx, sz, 0.8, 3.9, 1.12)], look: [[p.shardX, 0.95, p.shardZ], [(p.shardX + sx) / 2, 1.25, (p.shardZ + sz) / 2]], dur: L.ignite - L.reach, ease: 'linear', fov: 46 },
+    { t: L.pull, do: 'wait', prompt: 'Взять клинок' },
+    // одно время сцены ведёт кисть, оружие и все три маркера передачи
     { t: L.pull, do: 'clip', who: 'hero', clip: 'extractBlade', markers: { grip: 'grip', releaseFromGround: 'releaseFromGround', weaponAwake: 'ignite' } },
-    { t: L.pull, do: 'cam', path: [at(sx, sz, 1.0, 4.0, 1.0), at(sx, sz, 0.8, 3.9, 1.12)], look: [[p.shardX, 0.95, p.shardZ], [(p.shardX + sx) / 2, 1.25, (p.shardZ + sz) / 2]], dur: L.ignite - L.pull, ease: 'linear', fov: 46 },
     // Blade inspection holds a broad silhouette with hilt and tip inside letterbox.
     { t: L.ignite, do: 'cam', path: [at(sx, sz, 4.0, -4.5, 0.9), at(sx, sz, 4.4, -4.1, 1.0)], look: [[sx, 1.65, sz], [sx, 1.2, sz]], dur: L.turn - L.ignite, ease: 'outQuad', fov: 50 },
     { t: L.ignite + 0.15, do: 'music', cue: 'leitmotif' },
