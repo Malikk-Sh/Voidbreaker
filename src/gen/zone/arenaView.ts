@@ -168,6 +168,10 @@ function godRayMaterial(color: string): THREE.ShaderMaterial {
   });
 }
 
+/** Корень острова: радиус верхнего диска к rad (с разбросом shard); глубина корня под провалом (м, ниже дна −6.5). */
+export const ROOT_TOP = 1.3;
+export const ROOT_SUNK = -6.8;
+
 export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, density = 1): ArenaView {
   const def = arena.def;
   const rng = new Rng(seed + ':decor');
@@ -295,12 +299,14 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       });
     }
   }
-  // центральный «корень» острова
+  // центральный «корень» острова; верх корня (диск до 1.3·rad) под провалом затыкал бы яму на глубине ~1.7 м —
+  // такой уходит под светящееся дно бездны (тот же расход генератора: раскладка остальных арен не сдвигается)
   for (let i = 0; i < 16; i++) {
     const p = rng.pick(def.parts);
     const x = p.x + rng.spread(p.w * 0.35), z = p.z + rng.spread(p.h * 0.35);
     const rad = rng.range(2, 4);
-    D.add(shard(rng.range(10, 26), rad, 6, 0.3, rng.int(0, 999)), { matrix: matAlong(x, -1.0 - rad * 0.25, z, rng.spread(0.05), -1, rng.spread(0.05)), color: OBS_DEEP });
+    const y = (def.holes ?? []).some((h) => inPart(h, x, z, -rad * ROOT_TOP)) ? ROOT_SUNK : -1.0 - rad * 0.25;
+    D.add(shard(rng.range(10, 26), rad, 6, 0.3, rng.int(0, 999)), { matrix: matAlong(x, y, z, rng.spread(0.05), -1, rng.spread(0.05)), color: OBS_DEEP });
   }
 
   // рассказ окружением (план §8.6): свой генератор, чтобы не сдвигать раскладку остального декора
