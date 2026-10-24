@@ -3,8 +3,8 @@ import { hexToLinear } from '../../core/math';
 import { Rng } from '../../core/rng';
 import { G } from '../../render/materials';
 import { GeomBuilder, mat } from '../geom/build';
-import { GOLD, OBS, OBS_DEEP } from '../geom/kit';
-import { bipyramid, box, lathe, octa, prism, shard } from '../geom/prims';
+import { GOLD, OBS, OBS_DEEP, OBS_HI } from '../geom/kit';
+import { bipyramid, box, jitter, lathe, octa, prism, shard } from '../geom/prims';
 
 /**
  * Свои события арен (план §8.5): обломки «Инея» над 1-1, ворота-гигант и силуэт Стража за ними на 1-3,
@@ -195,4 +195,56 @@ export function frescoMaterial(kind: 0 | 1, seed: number): THREE.ShaderMaterial 
       }
     `,
   });
+}
+
+/** Часть сборной декорации: геометрия с центром в нуле, место и поворот в собранном силуэте (мир, центр арены — 0). */
+export interface SetPiecePart { geo: THREE.BufferGeometry; slot: [number, number, number]; rot: [number, number, number] }
+
+/**
+ * Хорист из бездны (1-9 «Хоры», этап 4.5, C3): огромная статуя лежит лицом вверх под полом. Лицо в капюшоне —
+ * в северном провале (z < 0), руки с раскрытым псалтырём — в южном; с боевой камеры силуэт читается целиком:
+ * поющее лицо над мостиком, книга под ним. y — плоскость лица (м, ниже пола: не заслоняет бой и не прячется
+ * за краем провала с камеры под 40°). Лицо — тёмный овал в арке капюшона; светятся золотом его кромка, сомкнутые
+ * глаза, рот «О» и строки книги: контур читается с высоты, заливка сливалась в плиту.
+ */
+export const CHORISTER = { faceZ: -3.7, bookZ: 3.55, y: -0.6 };
+
+export function buildChoristerParts(seed = 89): SetPiecePart[] {
+  const rng = new Rng(seed), parts: SetPiecePart[] = [];
+  const C = CHORISTER;
+  // u — вправо (+x), v — «вверх» по лицу (к северу, −z): с камеры с юга лицо стоит прямо
+  const part = (u: number, v: number, z0: number, dy: number, ry: number, build: (b: GeomBuilder) => void): void => {
+    const b = new GeomBuilder(); b.rng = rng; b.color = OBS;
+    build(b);
+    parts.push({ geo: b.build(), slot: [u, C.y + dy, z0 - v], rot: [0, ry, 0] });
+  };
+  const face = (u: number, v: number, dy: number, ry: number, build: (b: GeomBuilder) => void) => part(u, v, C.faceZ, dy, ry, build);
+  const book = (u: number, v: number, dy: number, ry: number, build: (b: GeomBuilder) => void) => part(u, v, C.bookZ, dy, ry, build);
+  // капюшон: тёмная арка над лицом и два бока до подбородка
+  face(0, 0.15, 0.1, 0, (b) => b.add(jitter(new THREE.TorusGeometry(1.75, 0.42, 4, 12, Math.PI), 0.05, 1), { matrix: mat(0, 0, 0, -Math.PI / 2, 0, 0, 1, 1.05, 0.6) }));
+  for (const s of [-1, 1]) face(s * 1.75, -0.75, 0.1, s * 0.05, (b) => b.add(jitter(box(0.8, 0.5, 2.3), 0.06, 2 + s)));
+  // лицо — пологий овал (свет по рельефу) с золотой кромкой: контур, а не заливка, читается с боевой камеры
+  for (const [v, ph, rx] of [[0.02, Math.PI, -Math.PI / 2], [-0.02, 0, Math.PI / 2]] as const) face(0, v, 0, 0, (b) => {
+    b.add(new THREE.SphereGeometry(1, 10, 4, ph, Math.PI, 0, Math.PI / 2), { matrix: mat(0, 0, 0, 0, 0, 0, 1.3, 0.32, 1.65), color: OBS_HI });
+    b.add(new THREE.TorusGeometry(1, 0.045, 3, 12, Math.PI), { matrix: mat(0, 0.02, 0, rx, 0, 0, 1.3, 1.65, 1), emissive: 0.9, color: GOLD });
+  });
+  // сомкнутые глаза — дуги вниз, нос — черта, рот «О» — кольцо и свет внутри (поёт)
+  for (const s of [-1, 1]) face(s * 0.6, 0.55, 0.3, 0, (b) => b.add(new THREE.TorusGeometry(0.34, 0.055, 3, 8, Math.PI), { matrix: mat(0, 0, 0, -Math.PI / 2, 0, Math.PI), emissive: 1.0, color: GOLD }));
+  face(0, 0.05, 0.3, 0, (b) => b.add(box(0.1, 0.06, 0.75), { emissive: 0.5, color: GOLD }));
+  face(0, -0.85, 0.28, 0, (b) => {
+    b.add(new THREE.TorusGeometry(0.36, 0.08, 4, 14), { matrix: mat(0, 0, 0, Math.PI / 2, 0, 0), emissive: 0.9, color: GOLD });
+    b.add(new THREE.CircleGeometry(0.3, 12), { matrix: mat(0, -0.03, 0, -Math.PI / 2, 0, 0), emissive: 1.4, color: GOLD });
+  });
+  // псалтырь: страницы с золотыми строками, переплёт, две руки по краям
+  for (const s of [-1, 1]) book(s * 1.2, 0, 0.05, 0, (b) => {
+    b.add(box(2.3, 0.16, 2.7), { matrix: mat(0, 0, 0, 0, 0, s * 0.1), color: OBS_HI });
+    for (let k = 0; k < 5; k++) b.add(box(1.6 - (k === 4 ? 0.6 : 0), 0.04, 0.07), { matrix: mat(s * 0.05 - (k === 4 ? s * 0.3 : 0), 0.1, 0.9 - k * 0.42), emissive: 1.3, color: GOLD });
+  });
+  book(0, 0, -0.14, 0, (b) => { b.add(box(5.0, 0.14, 3.0)); b.add(box(0.2, 0.2, 3.0), { matrix: mat(0, 0.1, 0) }); });
+  for (const s of [-1, 1]) book(s * 2.7, -0.15, 0.12, -s * 0.15, (b) => {
+    b.add(jitter(box(0.95, 0.38, 1.35), 0.05, 9 + s));
+    b.add(box(0.32, 0.26, 0.75), { matrix: mat(-s * 0.55, 0.1, 0.35, 0, s * 0.6, 0) });
+    for (let k = 0; k < 3; k++) b.add(box(0.2, 0.2, 0.6), { matrix: mat(-s * 0.5, -0.05, -0.45 + k * 0.32, 0, s * 0.2, 0) });
+  });
+  return parts;
 }

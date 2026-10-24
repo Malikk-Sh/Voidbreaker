@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { inPart } from '../data/arenas';
 import type { StageDef } from '../data/stages';
-import { buildGiantBell, buildGiantGate, buildGuardianSilhouette, buildPrayingFigure, buildWreck } from '../gen/zone/setPieces';
+import { buildChoristerParts, buildGiantBell, buildGiantGate, buildGuardianSilhouette, buildPrayingFigure, buildWreck } from '../gen/zone/setPieces';
+import { ASSEMBLY, Assembly } from './assembly';
 import { boundaryAt, ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
 import { obsidianMaterial } from '../render/materials';
 import { TileState, type Tile } from '../world/arena';
@@ -53,6 +54,8 @@ export class ArenaEvents {
   private readonly wearH: number;
   private readonly cx: number;
   private readonly stageId: string;
+  /** Сборная декорация (этап 4.5, C3): 1-9 — хорист из бездны; потом — Клуатр и Крипта. */
+  readonly assembly: Assembly | null = null;
 
   constructor(private readonly w: World, view: ArenaView, group: THREE.Group, private readonly vfx: BattleVfx, stage: StageDef) {
     const b = w.arena.bounds, id = stage.id;
@@ -87,6 +90,8 @@ export class ArenaEvents {
       this.bell.scale.setScalar(BELL.scale);
     }
     if (id === '1-2') view.coverMeshes.forEach((m, i) => { const c = w.arena.covers[i]; if (c) this.standing.push({ m, cover: c }); });
+    // TODO(design): Клуатр (1-7) и Крипта — свои части и ступени тем же Assembly; что там собирается, решает дизайн
+    if (id === '1-9') this.assembly = this.buildAssembly(group);
 
     // молящиеся по краю арены (план §8.6): между колоннами, на ободе за краем пола, лицом к центру
     if (w.arena.def.edge === 'wall') {
@@ -138,6 +143,34 @@ export class ArenaEvents {
   }
 
   /**
+   * Хорист из бездны (1-9): части огромной статуи висят в провалах, с каждой волной поднимаются; перед последней
+   * встают в поющее лицо и руки с псалтырём — нарастающий хор, на сборке «брам» и золотой свет из провалов;
+   * после боя гаснут и уходят вниз.
+   */
+  private buildAssembly(group: THREE.Group): Assembly {
+    const holes = (this.w.arena.def.holes ?? []).filter((h) => h.kind === 'rect').map((h) => ({ x0: h.x - h.w / 2, x1: h.x + h.w / 2, z0: h.z - h.h / 2, z1: h.z + h.h / 2 }));
+    const mat = obsidianMaterial({ rim: ZONE1_LOOK.rim, rimStrength: 0.45, rimPower: 2.4, emissive: '#FFC872', emissive2: '#FFC872', emissiveStrength: ASSEMBLY.glow[0] });
+    const a = new Assembly(buildChoristerParts(), mat, holes, 89);
+    a.group.position.x = this.cx;
+    group.add(a.group);
+    const bus = this.w.bus, last = ASSEMBLY.steps.length - 1;
+    a.onClimax = () => {
+      bus.emit('sfx', { id: 'braam', x: this.cx, z: 0, gain: 0.7 });
+      for (const h of holes) this.vfx.lights.flash(this.cx + (h.x0 + h.x1) / 2, -0.4, (h.z0 + h.z1) / 2, [1, 0.78, 0.42], 5, 7, 1.4);
+    };
+    bus.on('waveClear', (e) => {
+      const before = a.stage;
+      a.wavesCleared(e.index + 1, e.total);
+      if (before < last && a.stage === last) bus.emit('sfx', { id: 'choir_rise', x: this.cx, z: 0, gain: 0.8 });
+    });
+    bus.on('waveStart', (e) => a.jumpTo(e.index, e.total));
+    return a;
+  }
+
+  /** Свои геометрии и материал сборной декорации (остальной декор уходит вместе с группой арены). */
+  dispose(): void { this.assembly?.dispose(); }
+
+  /**
    * Низкий план на декорацию для интро этапа (из боевой камеры сверху её не видно): из-за плеча Пилота
    * (hx, hz) — на ворота 1-3 и обломки «Инея» 1-1, снизу — на колокол 1-6. null — арена без такого плана.
    */
@@ -167,6 +200,7 @@ export class ArenaEvents {
     this.fieldOut += (this.fieldTarget - this.fieldOut) * Math.min(1, realDt * (this.fieldTarget > this.fieldOut ? 0.9 : 1.6));
     this.updateBell(dtW);
     this.updateColumns(dtW);
+    this.assembly?.update(dtW);
   }
 
   // ------------------------------------------------------------------ молящиеся

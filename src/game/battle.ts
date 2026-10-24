@@ -1213,6 +1213,7 @@ export class Battle {
     this.world.hero.avatar.dispose();
     this.world.bus.clear();
     this.ctx.renderer.scene.remove(this.group);
+    this.events.dispose();
     this.view.dispose();
     this.flames.dispose();
     this.scars.dispose();
