@@ -292,6 +292,15 @@ export const SFX: Record<string, SfxRecipe> = {
     choir(c, o, t + 2.5, [50, 57], 6.5, 0.05, 'u', 'a');
     choir(c, o, t + 5, [62, 65, 69], 4.2, 0.06, 'o', 'a');
   } },
+  // короткий выдох Пилота после казни: дыхание сквозь шлем — розовый шум, полоса опускается с 900 до 420 Гц
+  exhale: { len: 1.2, reverb: 0.12, render: (c, o, t) => {
+    const src = c.createBufferSource(); src.buffer = pink(c);
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.1;
+    f.frequency.setValueAtTime(900, t); f.frequency.exponentialRampToValueAtTime(420, t + 0.8);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.32, t + 0.09); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+    src.connect(f).connect(g).connect(o); src.start(t); src.stop(t + 0.9);
+  } },
   glass_break: { len: 3.2, reverb: 0.3, render: (c, o, t) => {
     transient(c, o, t, 4200, 0.6); crunch(c, o, t, 2600, 0.12, 0.4); chips(c, o, t + 0.01, 8, 0.2, 0.06);
     glassTail(c, o, t + 0.02, 34, 0.07); glassTail(c, o, t + 0.35, 18, 0.04);

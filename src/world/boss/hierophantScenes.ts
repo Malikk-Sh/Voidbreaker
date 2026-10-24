@@ -292,7 +292,9 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.beam, do: 'cam', path: [[bx - fx * 9 + sx * 4, 3, bz - fz * 9 + sz * 4], [bx - star[0] * 22 + sx * 3, 13, bz - star[2] * 22 + sz * 3]], look: [[bx, 3.5, bz], [bx + star[0] * 100, 13 + star[1] * 100, bz + star[2] * 100]], dur: T.calm - T.beam, ease: 'inOutSine', fov: 48 },
     { t: T.calm, do: 'call', fn: 'calm' },
     { t: T.calm, do: 'clip', who: 'hero', clip: 'lowerBlade' },
-    { t: T.calm, do: 'cam', path: [[lx + sx * 4.8 - fx * 2.8, 1.9, lz + sz * 4.8 - fz * 2.8]], look: [[lx, 1.15, lz]], dur: T.end - T.calm, fov: 44 },
+    // свет звезды доходит до лица и брони: средний план, короткий выдох
+    { t: T.calm, do: 'cam', path: [[lx + sx * 3.1 - fx * 1.8, 1.75, lz + sz * 3.1 - fz * 1.8], [lx + sx * 2.8 - fx * 1.6, 1.7, lz + sz * 2.8 - fz * 1.6]], look: [[lx, 1.3, lz]], dur: T.end - T.calm, fov: 40 },
+    { t: T.calm + 0.5, do: 'sfx', id: 'exhale', gain: 0.6 },
     { t: T.say, do: 'say', line: 'Одна звезда. Осталось четыре.' },
     { t: T.end, do: 'call', fn: 'end' },
   ];
@@ -319,6 +321,7 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: 3.0, do: 'call', fn: 'star2' },
     { t: 3.4, do: 'call', fn: 'calm' },
     { t: 3.4, do: 'clip', who: 'hero', clip: 'lowerBlade', dur: 0.7 },
+    { t: 3.6, do: 'sfx', id: 'exhale', gain: 0.6 },
     { t: 4.1, do: 'call', fn: 'end' },
   ];
   return { id: 'hierophantEnd', steps, short, dur: T.end + 0.2, blendOut: 0.7 };

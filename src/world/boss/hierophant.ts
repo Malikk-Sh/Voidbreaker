@@ -598,6 +598,8 @@ export interface BossHost {
   pages(x: number, y: number, z: number): void;
   /** Луч из провала в небо. */
   beam(x: number, z: number): void;
+  /** Свет загоревшейся звезды доходит до Пилота: с неба (dir — на звезду) на лицо и броню, до конца сцены. */
+  starLight?(dir: [number, number, number]): void;
   /** Звезда зоны загорелась навсегда (flawless — и вторая малая, титул, запись в журнале). */
   saveStar(flawless: boolean): void;
   /** Казнь досмотрена — бой можно закрывать. */
@@ -936,7 +938,7 @@ export class HierophantController implements BossController {
       cut: () => this.cut(),
       beam: () => { H.beam(b.x, b.z); w.bus.emit('sfx', { id: 'beam_up', x: b.x, z: b.z }); },
       star2: () => { if (this.flawless) H.sky('star2', 1); },
-      calm: () => { h.glowBoost = 0; h.sceneGhosts = false; },
+      calm: () => { h.glowBoost = 0; h.sceneGhosts = false; H.starLight?.(H.starDir()); },
       end: () => this.finish(),
     }, () => { this.cut(); this.finish(); });
   }

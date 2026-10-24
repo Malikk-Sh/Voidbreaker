@@ -50,7 +50,7 @@ function fakeHost(w: World, b: Hierophant, hold = () => false, tap = () => false
     scene: (track: CineTrack, c, end) => { calls = c; onEnd = end; director.play(track, (s) => onEnd?.(s)); },
     music: (cue) => log.push(`music:${cue}`), startSong: () => log.push('song'), quench: (_x, _z, r) => log.push(`quench:${r}`),
     runes: () => {}, chains: () => {}, dust: () => {}, sky: (pp, v) => log.push(`sky:${pp}:${v}`), transpose: (c) => log.push(`transpose:${c}`), duck: () => log.push('duck'), starDir: () => [0.42, -0.5, -0.76],
-    sceneHit: (id) => director.hits.has(id), pages: () => log.push('pages'), beam: () => log.push('beam'), saveStar: (f) => log.push(`star:${f}`), finishFight: () => log.push('finish'),
+    sceneHit: (id) => director.hits.has(id), pages: () => log.push('pages'), beam: () => log.push('beam'), starLight: (d) => log.push(`starLight:${d}`), saveStar: (f) => log.push(`star:${f}`), finishFight: () => log.push('finish'),
   };
   return { host, log, director };
 }
@@ -441,6 +441,20 @@ describe('Иерофант 2.0 (план §8.3)', () => {
       expect(moon.filter((x) => x)).toHaveLength(1);
       expect(moon.at(-1)).toBeNull();
       expect(moon.filter((x) => x === null)).toHaveLength(1);
+    }
+  });
+
+  it('казнь: в финале свет звезды доходит до Пилота — один раз, со стороны звезды, и при пропуске', () => {
+    for (const mode of ['full', 'short', 'skip'] as const) {
+      const { w, b, ctrl, tick, log, director } = toPhase3(mode === 'short' ? 2 : 0);
+      b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
+      if (mode === 'skip') { tick(1); director.skip(); }
+      tick(EXEC_T.end + 1);
+      const lit = log.filter((x) => x.startsWith('starLight:'));
+      expect(lit).toEqual(['starLight:0.42,-0.5,-0.76']);
+      // свет — после луча к звезде: сначала звезда, потом её свет на герое
+      expect(log.indexOf('beam')).toBeLessThan(log.indexOf(lit[0]));
+      w.hero.avatar.dispose();
     }
   });
 

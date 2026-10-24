@@ -36,6 +36,7 @@ import { EXEC_HP, Hierophant, HierophantController, type BossHost } from '../wor
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
 import { clamp, hexToLinear } from '../core/math';
+import { Ease } from '../core/ease';
 import { G, obsidianMaterial } from '../render/materials';
 import { buildBladeSocket, buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
@@ -48,6 +49,12 @@ import { ExtractionAttachment, extractionGripMatrix, extractionStand } from './e
 
 
 const _top = new THREE.Vector3();
+/**
+ * Свет загоревшейся звезды на Пилоте в финале казни (ТЗ §5): за reach с прилетает от звезды (from м по
+ * горизонтали в её сторону, на высоте fromY) к лицу (near м к камере, высота y) и держится до конца сцены;
+ * после — гаснет за fade. Тёплый белый: золото — окружение, не угроза.
+ */
+export const STAR_LIGHT = { reach: 0.8, fade: 1.0, from: 6, fromY: 7, near: 1.1, y: 1.6, rgb: [1.5, 1.32, 1.05] as [number, number, number], intensity: 4.5, radius: 4.5 };
 /** Базовая дистанция боевой камеры (м) при «Дистанции камеры» = 100 %. Герой ~13 % высоты экрана (план §5.3). */
 const CAM_DIST = 17;
 export const STEP = 1 / 60;
@@ -481,6 +488,7 @@ export class Battle {
     this.pools.douse(acx, acz, this.world.candlesFrom, out);
     this.updateQuench(realDt);
     this.updateBeam(realDt);
+    this.updateStarLight(realDt);
     this.updateMood(realDt);
     if (this.landing) this.updateLanding(realDt);
     if (this.replay) this.updateReplay(realDt);
@@ -581,6 +589,7 @@ export class Battle {
         for (let i = 0; i < 42; i++) this.vfx.norm.emit({ x: x + fxRng.spread(1.3), y: y + fxRng.spread(1.5), z: z + fxRng.spread(1.3), vx: fxRng.spread(1.6), vz: fxRng.spread(1.6), vy: fxRng.range(-0.3, 1.2), gravity: -0.9, drag: 0.6, life: fxRng.range(3, 4.5), size: fxRng.range(0.18, 0.28), size1: 0.12, color: [0.86, 0.82, 0.72], frame: 'page', spin: fxRng.spread(2.2) });
       },
       beam: (x, z) => { this.beamAt = { x, z, t: 0 }; this.feel.whiteFlash(0.45); },
+      starLight: (dir) => { this.starLight = { t: 0, dir }; },
       // в пересмотре ctx.save — копия (replayContext): награда остаётся в ней
       saveStar: (flawless) => { awardExecution(ctx.save, this.stage.zone, flawless); ctx.persist(); },
       finishFight: () => { if (this.outcome === 'won') this.endT = 1.2; },
@@ -655,6 +664,28 @@ export class Battle {
     const k = Math.min(1, b.t / 0.3) * Math.min(1, (2.6 - b.t) / 0.8);
     for (let i = 0; i < 5; i++) this.vfx.add.emit({ x: b.x + fxRng.spread(0.6), y: fxRng.range(-8, 4), z: b.z + fxRng.spread(0.6), vy: fxRng.range(26, 40), life: 1.6, size: fxRng.range(0.8, 1.6) * k, size1: 0.2, color: [2.2, 1.9, 1.3], frame: 'flare' });
     this.vfx.lights.add(b.x, 3, b.z, [1.6, 1.4, 1.0], 5 * k, 14);
+  }
+
+  /**
+   * Свет загоревшейся звезды на Пилоте (ТЗ §5, 11.3–12.3 с): тёплый белый свет за STAR_LIGHT.reach с прилетает
+   * со стороны звезды (высоко и далеко) к лицу и броне Пилота со стороны камеры и держится до конца сцены,
+   * затем гаснет за fade. Одно прослеживаемое движение — «свет дошёл до героя».
+   */
+  private starLight: { t: number; dir: [number, number, number]; out?: number } | null = null;
+  private updateStarLight(realDt: number): void {
+    const L = this.starLight;
+    if (!L) return;
+    L.t += realDt;
+    const S = STAR_LIGHT, h = this.world.hero, cam = this.ctx.renderer.camera.position;
+    if (L.out === undefined && !this.director.active) L.out = 0;
+    if (L.out !== undefined) { L.out += realDt; if (L.out > S.fade) { this.starLight = null; return; } }
+    const u = Ease.outCubic(Math.min(1, L.t / S.reach));
+    const dl = Math.hypot(L.dir[0], L.dir[2]) || 1, cx = cam.x - h.x, cz = cam.z - h.z, cl = Math.hypot(cx, cz) || 1;
+    // откуда: со стороны звезды, высоко; куда: перед лицом Пилота, к камере
+    const fx = h.x + (L.dir[0] / dl) * S.from, fy = S.fromY, fz = h.z + (L.dir[2] / dl) * S.from;
+    const tx = h.x + (cx / cl) * S.near, ty = S.y, tz = h.z + (cz / cl) * S.near;
+    const k = Math.min(1, L.t / (S.reach * 0.5)) * (L.out !== undefined ? 1 - L.out / S.fade : 1);
+    this.vfx.lights.add(fx + (tx - fx) * u, fy + (ty - fy) * u, fz + (tz - fz) * u, S.rgb, S.intensity * k, S.radius);
   }
 
   /** Свечи гаснут в круге r от точки волной (r растёт); r = 0 — снова зажечь (план §8.2, §8.3). */
