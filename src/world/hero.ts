@@ -800,6 +800,8 @@ export class Hero implements Actor {
   /** Остаточные образы в сцене (рывок казни). */
   sceneGhosts = false;
   private sceneActive = false;
+  /** Время текущего сценического клипа на прошлом сэмпле (без ограничения его длиной). */
+  private sceneT = 0;
   private sceneWasScripted = false;
 
   /** Синхронная поза текущего момента сцены, до маркеров, реквизита и батчей. */
@@ -807,7 +809,11 @@ export class Hero implements Actor {
     const a = this.avatar, p = a.puppet, clip = p.clips.get(id);
     if (!clip) throw new Error(`Unknown scene clip: ${id}`);
     const entering = !this.sceneActive;
-    const dt = reset || entering ? 0 : Math.min(0.1, Math.max(0, time - p.anim.t));
+    // шаг ткани и образов — по времени сцены без ограничения длиной клипа: от anim.t (упирается в конец
+    // клипа) шаг после конца рос до 0.1 с за кадр. На смене клипа прошлый клип уже досэмплирован до своего
+    // конца — новому принадлежит его собственное время от начала.
+    const dt = entering ? 0 : Math.min(0.1, Math.max(0, reset ? time : time - this.sceneT));
+    this.sceneT = time;
     if (entering) {
       this.sceneActive = true;
       this.sceneWasScripted = this.scripted;

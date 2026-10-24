@@ -78,6 +78,21 @@ describe('Director + настоящий Animator: единое время пос
     expect(poses[2]).toEqual(poses[0]);
   });
 
+  it('ткань и остаточные образы идут по времени сцены и после конца клипа, и на смене клипа', () => {
+    const { h, director, cam, track } = fixture();
+    // клип 1 с, шаг держит позу до конца дорожки (1.2 с), затем — второй клип с середины пути
+    const tr: CineTrack = { ...track, dur: 1.6, steps: [...track.steps, { t: 1.2, do: 'clip', who: 'hero', clip: 'chainExit' }] };
+    const a = h.avatar, orig = a.update.bind(a), steps: number[] = [];
+    a.update = (dt, ...rest) => { steps.push(dt); orig(dt, ...rest); };
+    director.play(tr);
+    for (let i = 0; i < 90; i++) director.update(DT, cam);
+    // раньше после конца клипа шаг рос до 0.1 с за кадр (время клипа упиралось в его длину): плащ — в 6 раз быстрее
+    expect(Math.max(...steps)).toBeLessThan(DT + 1e-6);
+    // за 1.5 с сцены (кадр входа — без шага) ткань прошла те же 1.5 с, ни кадра не потеряно на смене клипа
+    expect(steps.reduce((s, d) => s + d, 0)).toBeCloseTo(89 * DT, 6);
+    a.update = orig; h.avatar.dispose();
+  });
+
   it('крупный шаг не теряет последний маркер перед повторным запуском того же клипа', () => {
     const { h, calls, director, cam, clip } = fixture();
     director.play({ id: 'rebind', dur: 2.2, steps: [
