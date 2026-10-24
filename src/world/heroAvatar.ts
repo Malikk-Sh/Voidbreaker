@@ -13,6 +13,9 @@ const GHOSTS = 6;
 const TRAIL_AGE = 0.12;
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _tb = new THREE.Vector3(), _tt = new THREE.Vector3();
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+const _weaponLocal = new THREE.Matrix4(), _weaponWorld = new THREE.Matrix4(), _weaponOffset = new THREE.Vector3(), _weaponScale = new THREE.Vector3();
+
+export type HeroAnchor = 'handR' | 'hilt' | 'bladeTip' | 'head' | 'footL' | 'footR';
 
 /** Шаг-выпад под удары серии (план §5.8, п. 5): передняя нога вперёд, таз ниже. L — левая нога впереди. */
 const LUNGE_POSE = {
@@ -41,6 +44,8 @@ export class HeroAvatar {
   private ghostTimer = 0;
   ghostsOn = false;
   bladeScale = 1;
+  /** Видимость предмета независима от его настоящего размера и точки хвата. */
+  bladeVisible = true;
   /** Высота корня над полом (м): прыжки, падение в провал, сцены пролога. Входит в матрицы до расчёта ткани. */
   lift = 0;
   stretch = 1;
@@ -128,39 +133,44 @@ export class HeroAvatar {
 
   update(dt: number, x: number, z: number, facing: number, moveDist: number, speed: number, accel: number, bladeBack: boolean): void {
     const p = this.puppet, s = p.skel;
+    const scene = p.anim.sceneDriven;
     this.time += dt;
     // удержание позы на hitstop: клип и походка стоят
-    const adt = this.hold > 0 ? 0 : dt;
-    this.gait.update(moveDist, speed, accel, adt);
-    this.gait.write(p.base, p.layout, this.J, bladeBack);
+    const adt = !scene && this.hold > 0 ? 0 : dt;
+    if (scene) { p.base.set(p.layout.restRot); this.lungeW = 0; }
+    else {
+      this.gait.update(moveDist, speed, accel, adt);
+      this.gait.write(p.base, p.layout, this.J, bladeBack);
+    }
     p.anim.update(adt);
     p.anim.compose(p.base);
     s.rot.set(p.anim.out);
-    this.applyLunge(adt);
+    if (!scene) this.applyLunge(adt);
     // аддитивные слои: пружина отдачи на корпусе
-    p.stepSpring(dt);
+    if (!scene) p.stepSpring(dt);
     const cf = Math.cos(facing), sf = Math.sin(facing);
     const lx = p.springX * cf - p.springZ * sf, lz = p.springX * sf + p.springZ * cf;
-    if (Math.abs(lx) + Math.abs(lz) > 1e-4) {
+    if (!scene && Math.abs(lx) + Math.abs(lz) > 1e-4) {
       addJoint(s.rot, this.J.spine, -lz * 0.6, 0, lx * 0.6);
       addJoint(s.rot, this.J.chest, -lz * 0.4, 0, lx * 0.4);
     }
     // Каэлис парит у плеча (в бою её рисует живой дрон — vfx/kaelis, здесь только точка)
-    s.off[this.iKaelis * 3 + 1] = Math.sin(this.time * 2.2) * 0.06;
+    s.off[this.iKaelis * 3 + 1] = scene ? 0 : Math.sin(this.time * 2.2) * 0.06;
     const ks = this.kaelisHidden ? 0 : 1;
     s.scl[this.iKaelis * 3] = ks; s.scl[this.iKaelis * 3 + 1] = ks; s.scl[this.iKaelis * 3 + 2] = ks;
-    s.setRotEuler(this.iKaelis, Math.sin(this.time * 0.9) * 0.3, this.time * 2.0, 0);
+    s.setRotEuler(this.iKaelis, scene ? 0 : Math.sin(this.time * 0.9) * 0.3, scene ? 0 : this.time * 2.0, 0);
     // клинок ×2 в ульте «Затмение»
-    s.scl[this.iBlade * 3] = this.bladeScale; s.scl[this.iBlade * 3 + 1] = this.bladeScale; s.scl[this.iBlade * 3 + 2] = this.bladeScale;
+    const bs = this.bladeVisible ? this.bladeScale : 0;
+    s.scl[this.iBlade * 3] = bs; s.scl[this.iBlade * 3 + 1] = bs; s.scl[this.iBlade * 3 + 2] = bs;
 
     const r = p.anim.root;
     let st = r.stretch * this.stretch;
-    if (this.hold > 0) st = Math.max(st, this.holdStretch);
+    if (!scene && this.hold > 0) st = Math.max(st, this.holdStretch);
     else this.lastStretch = st;
     s.facing = facing + r.spin;
     s.x = x + r.z * sf + r.x * cf;
     s.z = z + r.z * cf - r.x * sf;
-    s.y = this.lift + this.gait.bob + r.y - this.lungeW * 0.11;
+    s.y = this.lift + (scene ? 0 : this.gait.bob) + r.y - this.lungeW * 0.11;
     // видимый Пилот (этап 4.5, A2): высота с подъёмом клипа (прыжки Небесного разреза и Звездопада поднимают
     // корень до 1.7 м, физический y при этом 0); по горизонтали — физическая точка: на ней хитбокс
     this.visual.x = x; this.visual.z = z; this.visual.facing = facing;
@@ -320,6 +330,28 @@ export class HeroAvatar {
     const s = this.puppet.skel;
     s.jointPoint(this.iBlade, 0, -0.25, 0, base);
     s.jointPoint(this.iBlade, 0, -BLADE_LEN - 0.02, 0, tip);
+  }
+
+  /** Матрица оружия с настоящим масштабом, даже пока rig-предмет скрыт. */
+  weaponMatrix(out: THREE.Matrix4): THREE.Matrix4 {
+    const p = this.puppet, s = p.skel, i = this.iBlade, o = i * 3;
+    const parent = p.layout.parent[i];
+    _weaponOffset.fromArray(p.layout.rest, o).add(_weaponScale.fromArray(s.off, o));
+    _qa.fromArray(s.rot, i * 4);
+    _weaponLocal.compose(_weaponOffset, _qa, _weaponScale.setScalar(this.bladeScale));
+    if (parent >= 0) out.fromArray(s.world, parent * 16);
+    else out.identity();
+    return out.multiply(_weaponLocal);
+  }
+
+  /** Именованные опоры для постановки и проверки контакта. */
+  sceneAnchor(name: HeroAnchor, out: THREE.Vector3): THREE.Vector3 {
+    const p = this.puppet;
+    if (name === 'hilt' || name === 'bladeTip') {
+      this.weaponMatrix(_weaponWorld);
+      return out.set(0, name === 'bladeTip' ? -BLADE_LEN - 0.02 : 0, 0).applyMatrix4(_weaponWorld);
+    }
+    return p.skel.jointPoint(p.layout.idx(name), 0, name === 'head' ? 0.36 : 0, 0, out);
   }
 
   handPos(out: THREE.Vector3): THREE.Vector3 { return this.puppet.skel.jointPos(this.iHandR, out); }

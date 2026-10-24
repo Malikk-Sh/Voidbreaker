@@ -58,6 +58,7 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
     toggle('Автоприцел', 'autoAim', [[0, 'Выкл'], [1, 'Слабый'], [2, 'Стандарт'], [3, 'Сильный']]),
     toggle('Вибрация', 'vibration', [[true, 'Вкл'], [false, 'Выкл']]),
     toggle('Короткие казни (Раскол)', 'shortExec', [[false, 'Выкл'], [true, 'Вкл']]),
+    toggle('Действия в сценах', 'autoScenes', [[false, 'Касанием'], [true, 'Сами']]),
     slider('Размер кнопок', 'buttonScale', 0.7, 1.4, 0.05),
     slider('Размер субтитров', 'subtitleSize', 0.8, 1.6, 0.05),
     section('Сложность'),

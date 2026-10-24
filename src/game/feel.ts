@@ -61,7 +61,7 @@ export class FeelSystem {
   private scrapeN = 0;
   /** Каждое следующее «Мгновение Пустоты» — следующая нота лейтмотива Пилота. */
   private motifStep = 0;
-  private waveSlots: { x: number; z: number; t: number; life: number; r: number; s: number }[] = [];
+  private waveSlots: { x: number; y: number; z: number; t: number; life: number; r: number; s: number }[] = [];
   private lastVoice = -99;
   private lastChoir = -99;
   /** Стягивание экрана к схлопывающемуся Колодцу (реальные с). */
@@ -465,8 +465,8 @@ export class FeelSystem {
       }),
       b.on('shockwave', (e) => {
         // кольцо волны — половина силы: при alpha = strength (до 1.6, ×2 в шейдере) и HDR-цвете — белая заливка кадра
-        this.vfx.rings.spawn(e.x, e.z, 0.5, e.r, 0.5, e.color === 'void' ? C.voidHot : e.color === 'gold' ? C.gold : C.hungerHot, 0.25, e.strength * SHOCK_RING);
-        this.shockwave(e.x, e.z, e.strength, 0.5);
+        this.vfx.rings.spawn(e.x, e.z, 0.5, e.r, 0.5, e.color === 'void' ? C.voidHot : e.color === 'gold' ? C.gold : C.hungerHot, 0.25, e.strength * SHOCK_RING, e.y);
+        this.shockwave(e.x, e.z, e.strength, 0.5, e.y);
         if (e.color === 'void') this.audio.play('well_boom', { gain: 0.6 * e.strength });
       }),
       b.on('fall', (e) => {
@@ -506,9 +506,9 @@ export class FeelSystem {
   }
 
   /** Ударная волна искажения в посте (экранные координаты). */
-  shockwave(x: number, z: number, strength: number, life: number): void {
+  shockwave(x: number, z: number, strength: number, life: number, y = 0.5): void {
     if (!this.settings.distortion) return;
-    this.waveSlots.push({ x, z, t: 0, life, r: 0.02, s: strength });
+    this.waveSlots.push({ x, y, z, t: 0, life, r: 0.02, s: strength });
     if (this.waveSlots.length > 4) this.waveSlots.shift();
   }
 
@@ -562,7 +562,7 @@ export class FeelSystem {
     for (let i = 0; i < 4; i++) {
       const s = this.waveSlots[i], u = P.waves[i];
       if (!s) { u.set(0, 0, 0, 0); continue; }
-      _v.set(s.x, 0.5, s.z).project(this.camera);
+      _v.set(s.x, s.y, s.z).project(this.camera);
       const f = s.t / s.life;
       u.set(_v.x * 0.5 + 0.5, _v.y * 0.5 + 0.5, 0.02 + f * 0.35 * s.s, (1 - f) * s.s);
     }

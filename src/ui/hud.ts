@@ -60,6 +60,9 @@ const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
  * Боевой HUD — отдельный Canvas 2D поверх WebGL (Tech §22): тонкая золотая филигрань, ромбы и медальоны,
  * цифры — техно-гротеском, заголовки — антиквой. Весь UI рисуется кодом.
  */
+/** Подсказка действия в сцене: at — место действия в NDC (−1..1), t — сколько уже ждёт (с). */
+export interface ScenePrompt { text: string; sub?: string; at: { x: number; y: number } | null; t: number }
+
 export class Hud {
   readonly canvas: HTMLCanvasElement;
   private g: CanvasRenderingContext2D;
@@ -83,7 +86,7 @@ export class Hud {
   private sub: { text: string; t: number; speaker: string } | null = null;
   private hint: { text: string; t: number } | null = null;
   /** Поверх сцены режиссёра: заполнение пропуска и кольцо касания-тайминга. */
-  private cine: { skip: number; tap: { k: number; hit: boolean } | null } = { skip: 0, tap: null };
+  private cine: { skip: number; tap: { k: number; hit: boolean } | null; prompt: ScenePrompt | null } = { skip: 0, tap: null, prompt: null };
   private hpTrail = 1; private hpTrailDelay = 0; private lastHp = 1;
   private bossTrail = 1; private bossTrailDelay = 0; private lastBossHp = 1;
   private rankStamp = 0; private rankLast = 'D';
@@ -131,7 +134,7 @@ export class Hud {
   }
   subtitle(text: string, speaker: string): void { this.sub = { text, t: 0, speaker }; }
   showHint(text: string): void { this.hint = { text, t: 0 }; }
-  cineOverlay(skip: number, tap: { k: number; hit: boolean } | null): void { this.cine.skip = skip; this.cine.tap = tap; }
+  cineOverlay(skip: number, tap: { k: number; hit: boolean } | null, prompt: ScenePrompt | null = null): void { this.cine.skip = skip; this.cine.tap = tap; this.cine.prompt = prompt; }
   pulseUlt(): void { this.ultPulse = 1; this.readyT.r = 0; }
   /** Способность снова готова: вокруг иконки за 0.25 с замыкается кольцо. */
   abilityReady(slot: 'q' | 'e' | 'r'): void { this.readyT[slot] = 0; }
@@ -239,6 +242,7 @@ export class Hud {
       g.fillText('ПРОПУСК', x - r - 8 * s, y);
       g.restore();
     }
+    if (c.prompt) this.drawScenePrompt(c.prompt);
     if (c.tap) {
       const x = this.w / 2, y = this.h * 0.42, r0 = 26 * s, r = r0 * (1 + 2.2 * (1 - c.tap.k));
       g.save();
@@ -249,6 +253,34 @@ export class Hud {
       if (!c.tap.hit) { g.globalAlpha = 0.5 + 0.5 * c.tap.k; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke(); }
       g.restore();
     }
+  }
+
+  /**
+   * Подсказка необязательного действия в сцене (ТЗ §14): кольцо Пустоты на месте действия (рукоять клинка)
+   * дышит и расходится волной; под ним — что сделать и как. Появляется за 0.3 с, не закрывает предмет.
+   */
+  private drawScenePrompt(p: ScenePrompt): void {
+    const g = this.g, s = this.scale, a = Math.min(1, p.t / 0.3);
+    const x = p.at ? (p.at.x * 0.5 + 0.5) * this.w : this.w / 2, y = p.at ? (0.5 - p.at.y * 0.5) * this.h : this.h * 0.6;
+    const r0 = 15 * s, beat = 0.5 + 0.5 * Math.sin(p.t * 5);
+    g.save();
+    g.globalAlpha = a;
+    g.lineWidth = 2 * s;
+    g.strokeStyle = 'rgba(183,148,255,0.95)';
+    g.shadowColor = '#8B5CF6'; g.shadowBlur = 10 * s;
+    g.beginPath(); g.arc(x, y, r0 * (1 + 0.12 * beat), 0, Math.PI * 2); g.stroke();
+    // волна раз в 1.2 с: место действия видно и боковым зрением
+    const wave = (p.t % 1.2) / 1.2;
+    g.globalAlpha = a * (1 - wave) * 0.8;
+    g.beginPath(); g.arc(x, y, r0 * (1 + 1.6 * wave), 0, Math.PI * 2); g.stroke();
+    g.globalAlpha = a; g.shadowBlur = 0;
+    // подпись — сбоку, в сторону от центра кадра: не закрывает клинок и героя рядом с ним
+    const side = x < this.w / 2 ? -1 : 1, tx = x + side * (r0 + 12 * s);
+    g.textAlign = side < 0 ? 'right' : 'left'; g.textBaseline = 'middle';
+    g.fillStyle = UI.goldHi; g.font = `600 ${Math.round(16 * s)}px ${FONT_TECH}`;
+    g.fillText(p.text.toUpperCase(), tx, y - 7 * s);
+    if (p.sub) { g.fillStyle = UI.text; g.font = `500 ${Math.round(13 * s)}px ${FONT_BODY}`; g.fillText(p.sub, tx, y + 11 * s); }
+    g.restore();
   }
 
   // ------------------------------------------------------------------ примитивы

@@ -5,6 +5,7 @@ import { FALL, FallField } from '../src/game/prologueFall';
 import { DOME_IMPACT, LANDING_T, landingTrack, PROLOGUE_T, prologueTrack, SPACE, SpaceBasis } from '../src/game/prologueTracks';
 import { CameraRig } from '../src/world/camera';
 import { HeroAvatar } from '../src/world/heroAvatar';
+import { EXTRACTION_T } from '../src/anim/clips/extraction';
 
 const DT = 1 / 60;
 /** Направление на погасшую звезду неба (как в render/sky). */
@@ -80,10 +81,13 @@ describe('пролог «Падение» (план §8.2)', () => {
     const land = landingTrack({ x: 0, z: 0.5, shardX: 1, shardZ: -1, huskX: -2, huskZ: -10 });
     const at = (fn: string) => land.steps.find((s) => s.do === 'call' && s.fn === fn)!.t;
     expect(land.steps.some((s) => s.do === 'say' && s.line === 'Системы… живы. Пилот?')).toBe(true);
-    const pull = land.steps.find((s) => s.do === 'actor' && s.clip === 'pullBlade')!.t;
-    expect(at('ignite')).toBeGreaterThan(pull + 1);
+    const pull = land.steps.find((s) => s.do === 'clip' && s.clip === 'extractBlade');
+    expect(pull?.t).toBe(LANDING_T.pull);
+    expect(pull && pull.do === 'clip' ? pull.markers : {}).toEqual({ grip: 'grip', releaseFromGround: 'releaseFromGround', weaponAwake: 'ignite' });
+    expect(LANDING_T.ignite).toBeCloseTo(LANDING_T.pull + EXTRACTION_T.weaponAwake);
+    expect(LANDING_T.ignite).toBeGreaterThan(LANDING_T.releaseFromGround);
     const motif = land.steps.find((s) => s.do === 'music' && s.cue === 'leitmotif')!.t;
-    expect(motif).toBeGreaterThanOrEqual(at('ignite'));
+    expect(motif).toBeGreaterThanOrEqual(LANDING_T.ignite);
     expect(at('husk')).toBeLessThan(at('title'));
     expect(LANDING_T.end).toBe(at('end'));
   });

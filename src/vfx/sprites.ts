@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { makeParticleAtlas, ATLAS_FRAMES, type AtlasFrame } from '../gen/tex/textures';
+import { makeParticleAtlas, ATLAS_COLS, ATLAS_FRAMES, type AtlasFrame } from '../gen/tex/textures';
 
 let atlas: THREE.Texture | null = null;
 const getAtlas = () => (atlas ??= makeParticleAtlas());
@@ -40,7 +40,7 @@ export class Sprites {
           // слегка подтянуть к камере, чтобы не резалось полом
           mv.z += aM.w;
           gl_Position = projectionMatrix * mv;
-          vUv = vec2((uv.x + aM.x) / 8.0, uv.y);
+          vUv = vec2((uv.x + aM.x) / ${ATLAS_COLS.toFixed(1)}, uv.y);
           vCol = aC;
         }
       `,

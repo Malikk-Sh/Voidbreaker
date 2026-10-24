@@ -141,6 +141,10 @@ export class Animator {
   clip: Clip | null = null;
   t = 0;
   speed = 1;
+  /** Постановочный клип получает абсолютное время от Director, а не боевой dt. */
+  sceneDriven = false;
+  /** Время клипа, с которого идёт смешивание сценического клипа. */
+  private sceneFrom = 0;
   private from: Float32Array;
   private target: Float32Array;
   readonly out: Float32Array;
@@ -170,7 +174,7 @@ export class Animator {
   /** Передать накопленный сдвиг корня в позицию (onRootHandoff) — повторный вызов без нового клипа ничего не делает. */
   handoffRoot(): void {
     const r = this.root;
-    if ((r.x || r.z) && this.onRootHandoff) this.onRootHandoff(r.x, r.z);
+    if (!this.sceneDriven && (r.x || r.z) && this.onRootHandoff) this.onRootHandoff(r.x, r.z);
     this.rootFrom.y = r.y; this.rootFrom.stretch = r.stretch;
     // полный оборот вращения — это ноль: иначе после Вращения тело докрутилось бы назад на 360°
     this.rootFrom.spin = Math.atan2(Math.sin(r.spin), Math.cos(r.spin));
@@ -179,6 +183,7 @@ export class Animator {
 
   play(clip: Clip, speed = 1, fade = 0.05, startT = 0): void {
     this.handoffRoot();
+    this.sceneDriven = false;
     this.from.set(this.out);
     this.fade = 0; this.fadeDur = fade;
     this.clip = clip; this.t = startT; this.speed = speed; this.evIdx = 0;
@@ -188,6 +193,7 @@ export class Animator {
   stop(fade = 0.08): void {
     if (!this.clip) return;
     this.handoffRoot();
+    this.sceneDriven = false;
     this.from.set(this.out);
     this.fade = 0; this.fadeDur = fade;
     this.clip = null;
@@ -195,7 +201,36 @@ export class Animator {
 
   get done(): boolean { return !this.clip || (!this.clip.loop && this.t >= this.clip.dur); }
 
+  /**
+   * Чистая сценическая поза. Боевые события и передача корня здесь не выполняются;
+   * именованные маркеры клипа обрабатывает Director на той же временной основе.
+   */
+  sampleScene(clip: Clip, time: number, reset = false, blend = 0): void {
+    if (reset || !this.sceneDriven || this.clip !== clip) {
+      this.sceneDriven = true;
+      this.root.x = 0; this.root.z = 0; this.root.spin = 0;
+      // смешивание от текущей позы (прежнего клипа сцены или боя) — во времени сцены, не боевого dt:
+      // без него смена клипа на стыке была скачком за кадр (плечо на 168° на прыжке казни)
+      const F = this.rootFrom;
+      F.y = this.root.y; F.stretch = this.root.stretch; F.spin = 0;
+      this.from.set(this.out);
+      this.clip = clip;
+      this.speed = 1;
+      this.fadeDur = blend; this.sceneFrom = time;
+      this.evIdx = clip.events.length;
+    }
+    this.sceneDriven = true;
+    this.t = Math.max(0, Math.min(time, clip.dur));
+    this.fade = Math.max(0, time - this.sceneFrom);
+  }
+
+  releaseScene(fade = 0.12): void {
+    if (!this.sceneDriven) return;
+    this.stop(fade);
+  }
+
   update(dt: number): void {
+    if (this.sceneDriven) return;
     if (this.clip) {
       const prev = this.t;
       this.t += dt * this.speed;
@@ -217,6 +252,8 @@ export class Animator {
     if (this.clip) {
       const t = Math.min(this.t, this.clip.dur);
       this.clip.sample(t, this.target, r);
+      // Путь и разворот сценического актёра принадлежат дорожке режиссёра.
+      if (this.sceneDriven) { r.x = 0; r.z = 0; r.spin = 0; }
     }
     const k = this.fadeDur > 0 ? Math.min(1, this.fade / this.fadeDur) : 1;
     if (k >= 1) { this.out.set(this.target); return; }

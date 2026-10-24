@@ -28,7 +28,7 @@ import { RISER_LEN } from '../audio/sfx';
 import { AshFall, BeamDust } from '../vfx/atmosphere';
 import { KaelisDrone } from '../vfx/kaelis';
 import { killBellTrack, killGateTrack } from '../world/boss/guardianScenes';
-import { Director, type CineTrack, type DirectorActor, type SkyParam } from './director';
+import { Director, type CineTrack, type DirectorActor, type SkyParam, type V3 } from './director';
 import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
 import '../world/boss/guardians';
@@ -36,17 +36,25 @@ import { EXEC_HP, Hierophant, HierophantController, type BossHost } from '../wor
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
 import { clamp, hexToLinear } from '../core/math';
+import { Ease } from '../core/ease';
 import { G, obsidianMaterial } from '../render/materials';
-import { buildCrater, buildHullShard } from '../gen/zone/space';
+import { buildBladeSocket, buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
 import type { EnemyKind } from '../data/enemies';
 import { TRAINING_DRILLS, TRAINING_DUMMIES, TRAINING_SPAR } from '../data/stages';
 import type { TrainingCard } from '../ui/hud';
 import { DrillTracker, type DrillState } from './drills';
 import { IGNITE, LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
+import { ExtractionAttachment, extractionGripMatrix, extractionStand } from './extraction';
 
 
 const _top = new THREE.Vector3();
+/**
+ * Свет загоревшейся звезды на Пилоте в финале казни (ТЗ §5): за reach с прилетает от звезды (from м по
+ * горизонтали в её сторону, на высоте fromY) к лицу (near м к камере, высота y) и держится до конца сцены;
+ * после — гаснет за fade. Тёплый белый: золото — окружение, не угроза.
+ */
+export const STAR_LIGHT = { reach: 0.8, fade: 1.0, from: 6, fromY: 7, near: 1.1, y: 1.6, rgb: [1.5, 1.32, 1.05] as [number, number, number], intensity: 4.5, radius: 4.5 };
 /** Базовая дистанция боевой камеры (м) при «Дистанции камеры» = 100 %. Герой ~13 % высоты экрана (план §5.3). */
 const CAM_DIST = 17;
 export const STEP = 1 / 60;
@@ -175,7 +183,11 @@ export class Battle {
   private drills: { tracker: DrillTracker; card: TrainingCard } | null = null;
   /** Сцена пересмотра закончилась — App возвращает в Святилище. */
   onReplayEnd: (() => void) | null = null;
-  private landing: { t: number; visorT: number; igniteT: number; shard: THREE.Mesh; music: boolean; call: number } | null = null;
+  private landing: { t: number; visorT: number; igniteT: number; releaseT: number; shard: THREE.Mesh; socket: THREE.Mesh; attachment: ExtractionAttachment; music: boolean; call: number } | null = null;
+  private readonly landingWeaponMatrix = new THREE.Matrix4();
+  private readonly landingProps: THREE.Mesh[] = [];
+  /** Положение луны до плана «на фоне луны» (сцена возвращает его). */
+  private moonSaved: THREE.Vector3 | null = null;
 
   constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout, readonly opts: BattleOpts = {}) {
     this.scars = new FloorScars(stage.boss ? BOSS_SCAR_LIFE : SCAR_LIFE);
@@ -444,6 +456,13 @@ export class Battle {
     if (steps >= 6) this.acc = 0;
     const dtW = realDt * T.worldScale;
 
+    // Сначала корень, поза и маркеры сцены; зависимые объекты и батчи видят
+    // тот же момент времени, что и камера, а не позу прошлого кадра.
+    if (!T.paused) {
+      this.cine.update(realDt, this.cam);
+      this.director.update(realDt, this.cam);
+    }
+
     // шлейф клинка: сэмплы рукоять/кончик
     const h = this.world.hero;
     if (h.trailOn && !h.dead) { h.bladePoints(this.bladeA, this.bladeB); this.vfx.trail.push(this.bladeA, this.bladeB, h.swingWeight); }
@@ -469,6 +488,7 @@ export class Battle {
     this.pools.douse(acx, acz, this.world.candlesFrom, out);
     this.updateQuench(realDt);
     this.updateBeam(realDt);
+    this.updateStarLight(realDt);
     this.updateMood(realDt);
     if (this.landing) this.updateLanding(realDt);
     if (this.replay) this.updateReplay(realDt);
@@ -566,9 +586,10 @@ export class Battle {
       pages: (x, y, z) => {
         // обсидиан и страницы молитвенников осыпаются в бездну
         this.vfx.debris.burst(x, y, z, 0, 0, 18, 9, 0.24);
-        for (let i = 0; i < 70; i++) this.vfx.norm.emit({ x: x + fxRng.spread(1.5), y: y + fxRng.spread(2), z: z + fxRng.spread(1.5), vx: fxRng.spread(3), vz: fxRng.spread(3), vy: fxRng.range(-1, 3), gravity: -3.5, drag: 1.2, life: fxRng.range(2.5, 4), size: fxRng.range(0.1, 0.2), size1: 0.08, color: [0.86, 0.82, 0.72], frame: 'shard', spin: fxRng.spread(6) });
+        for (let i = 0; i < 42; i++) this.vfx.norm.emit({ x: x + fxRng.spread(1.3), y: y + fxRng.spread(1.5), z: z + fxRng.spread(1.3), vx: fxRng.spread(1.6), vz: fxRng.spread(1.6), vy: fxRng.range(-0.3, 1.2), gravity: -0.9, drag: 0.6, life: fxRng.range(3, 4.5), size: fxRng.range(0.18, 0.28), size1: 0.12, color: [0.86, 0.82, 0.72], frame: 'page', spin: fxRng.spread(2.2) });
       },
       beam: (x, z) => { this.beamAt = { x, z, t: 0 }; this.feel.whiteFlash(0.45); },
+      starLight: (dir) => { this.starLight = { t: 0, dir }; },
       // в пересмотре ctx.save — копия (replayContext): награда остаётся в ней
       saveStar: (flawless) => { awardExecution(ctx.save, this.stage.zone, flawless); ctx.persist(); },
       finishFight: () => { if (this.outcome === 'won') this.endT = 1.2; },
@@ -643,6 +664,28 @@ export class Battle {
     const k = Math.min(1, b.t / 0.3) * Math.min(1, (2.6 - b.t) / 0.8);
     for (let i = 0; i < 5; i++) this.vfx.add.emit({ x: b.x + fxRng.spread(0.6), y: fxRng.range(-8, 4), z: b.z + fxRng.spread(0.6), vy: fxRng.range(26, 40), life: 1.6, size: fxRng.range(0.8, 1.6) * k, size1: 0.2, color: [2.2, 1.9, 1.3], frame: 'flare' });
     this.vfx.lights.add(b.x, 3, b.z, [1.6, 1.4, 1.0], 5 * k, 14);
+  }
+
+  /**
+   * Свет загоревшейся звезды на Пилоте (ТЗ §5, 11.3–12.3 с): тёплый белый свет за STAR_LIGHT.reach с прилетает
+   * со стороны звезды (высоко и далеко) к лицу и броне Пилота со стороны камеры и держится до конца сцены,
+   * затем гаснет за fade. Одно прослеживаемое движение — «свет дошёл до героя».
+   */
+  private starLight: { t: number; dir: [number, number, number]; out?: number } | null = null;
+  private updateStarLight(realDt: number): void {
+    const L = this.starLight;
+    if (!L) return;
+    L.t += realDt;
+    const S = STAR_LIGHT, h = this.world.hero, cam = this.ctx.renderer.camera.position;
+    if (L.out === undefined && !this.director.active) L.out = 0;
+    if (L.out !== undefined) { L.out += realDt; if (L.out > S.fade) { this.starLight = null; return; } }
+    const u = Ease.outCubic(Math.min(1, L.t / S.reach));
+    const dl = Math.hypot(L.dir[0], L.dir[2]) || 1, cx = cam.x - h.x, cz = cam.z - h.z, cl = Math.hypot(cx, cz) || 1;
+    // откуда: со стороны звезды, высоко; куда: перед лицом Пилота, к камере
+    const fx = h.x + (L.dir[0] / dl) * S.from, fy = S.fromY, fz = h.z + (L.dir[2] / dl) * S.from;
+    const tx = h.x + (cx / cl) * S.near, ty = S.y, tz = h.z + (cz / cl) * S.near;
+    const k = Math.min(1, L.t / (S.reach * 0.5)) * (L.out !== undefined ? 1 - L.out / S.fade : 1);
+    this.vfx.lights.add(fx + (tx - fx) * u, fy + (ty - fy) * u, fz + (tz - fz) * u, S.rgb, S.intensity * k, S.radius);
   }
 
   /** Свечи гаснут в круге r от точки волной (r растёт); r = 0 — снова зажечь (план §8.2, §8.3). */
@@ -730,11 +773,6 @@ export class Battle {
     sky.uSkyCrack.value = this.skyCine.crack;
     G.uHemiTop.value.copy(this.baseHemi).lerp(ECLIPSE_HEMI, this.eclipseK * 0.8);
     G.uMoonColor.value.copy(this.baseMoon).lerp(ECLIPSE_MOON, this.eclipseK * 0.7);
-    if (!this.ctx.time.paused) {
-      this.cine.update(realDt, cam);
-      // дорожка режиссёра ведёт камеру поверх пролётов
-      this.director.update(realDt, cam);
-    }
   }
 
   /**
@@ -772,6 +810,10 @@ export class Battle {
     return {
       actor: (who: string) => (who === 'hero' ? heroActor : this.props.get(who) ?? enemyActor(who)),
       playClip: (who: string, clip: string) => { if (who === 'hero') w.hero.avatar.puppet.play(clip, 1, 0.08); },
+      clipEvents: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.events ?? [] : [],
+      clipDuration: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.dur ?? 0 : 0,
+      sampleClip: (who: string, clip: string, time: number, reset: boolean, blend?: number) => { if (who === 'hero') w.hero.sampleSceneClip(clip, time, reset, blend); },
+      releaseClip: (who: string) => { if (who === 'hero') w.hero.releaseSceneClip(); },
       shatter: (who: string, dx: number, dz: number, power: number) => {
         const e = enemyActor(who) as Enemy | null;
         if (e) w.killEnemy(e, dx, dz, power);
@@ -779,6 +821,11 @@ export class Battle {
       timeScale: (scale: number, dur: number) => ctx.time.cinematic(dur, scale),
       sky: (p: SkyParam, v: number) => { this.skyCine[p] = v; },
       skyValue: (p: SkyParam) => this.skyCine[p],
+      moonBehind: (d: V3 | null) => {
+        const u = ctx.renderer.sky.u.uMoonDir.value;
+        if (d) { this.moonSaved ??= u.clone(); u.set(d[0], d[1], d[2]).normalize(); }
+        else if (this.moonSaved) { u.copy(this.moonSaved); this.moonSaved = null; }
+      },
       music: (cue: MusicCue) => this.feel.musicCue(cue),
       sfx: (id: string, gain: number) => ctx.audio.play(id, { gain }),
       say: (line: string, sp: 'kaelis' | 'boss') => this.feel.voice(line, 0, sp),
@@ -787,10 +834,13 @@ export class Battle {
       letterbox: (v: number) => this.feel.setLetterbox(v),
       call: (fn: string, arg?: number) => this.sceneCalls.get(fn)?.(arg),
       holding: () => ctx.input.attackHeld,
-      tapped: () => !!ctx.input.buffer.consume('attack', ctx.input.now),
+      // в сцене кнопки боя скрыты: действие — касание экрана где угодно, клик или атака
+      tapped: () => ctx.input.consumeSceneTap(),
+      autoContinue: () => ctx.settings.autoScenes || !!this.replay,
       seen: (id: string) => ctx.save.cine[id] ?? 0,
       markSeen: (id: string) => { ctx.save.cine[id] = (ctx.save.cine[id] ?? 0) + 1; ctx.persist(); },
-      overlay: (skip: number, tap: { k: number; hit: boolean } | null) => ctx.hud.cineOverlay(skip, tap),
+      overlay: (skip: number, tap: { k: number; hit: boolean } | null, prompt?: { text: string; t: number } | null) =>
+        ctx.hud.cineOverlay(skip, tap, prompt ? { ...prompt, sub: this.promptHint(), at: this.promptAnchor() } : null),
     };
   }
 
@@ -860,18 +910,26 @@ export class Battle {
     const hp = { x: 0, z: 0 };
     this.arena.nearestWalkable(spots.huskX, spots.huskZ, hp);
     spots.huskX = hp.x; spots.huskZ = hp.z;
-    const shardMat = obsidianMaterial({ rim: '#9fb4d0', rimStrength: 0.6, rimPower: 2.2, emissive: '#9f7bff', emissive2: '#ffd29a', emissiveStrength: 1.2 });
+    const facing = Math.atan2(spots.shardX - h.x, spots.shardZ - h.z);
+    const stand = extractionStand(spots.shardX, spots.shardZ, facing);
+    const planted = extractionGripMatrix(stand[0], stand[2], facing, new THREE.Matrix4());
+    const attachment = new ExtractionAttachment(planted);
+    const shardMat = obsidianMaterial({ rim: '#b49cff', rimStrength: 0.85, rimPower: 3.3, emissive: '#a07cff', emissive2: '#ffd29a', emissiveStrength: 0.7 });
     const shard = new THREE.Mesh(buildHullShard(), shardMat);
-    shard.position.set(spots.shardX, 0, spots.shardZ);
-    // наклонён к Пилоту — читается силуэтом на фоне пола
-    shard.rotation.y = Math.atan2(h.x - spots.shardX, h.z - spots.shardZ);
-    this.group.add(shard);
-    this.landing = { t: 0, visorT: -1, igniteT: -1, shard, music: false, call: -1 };
+    shard.matrixAutoUpdate = false;
+    shard.matrix.copy(planted);
+    // Рукоять видна над гнездом заранее. Ничего не вырастает из нуля.
+    const socket = new THREE.Mesh(buildBladeSocket(), obsidianMaterial({ rim: '#9fb4d0', rimStrength: 0.3, emissiveStrength: 0 }));
+    _top.set(0, -1.36, 0).applyMatrix4(planted);
+    socket.position.set(_top.x, 0.04, _top.z);
+    this.group.add(shard, socket);
+    this.landingProps.push(shard, socket);
+    this.landing = { t: 0, visorT: -1, igniteT: -1, releaseT: -1, shard, socket, attachment, music: false, call: -1 };
     const L = this.landing;
     const calls = this.sceneCalls;
     let thaw = () => {};
     calls.set('landStart', () => {
-      h.y = LANDING_FROM; h.bladeTarget = 0.001; h.avatar.bladeScale = 0.001; h.avatar.resetCloth();
+      h.y = LANDING_FROM; h.bladeTarget = 1; h.avatar.bladeScale = 1; h.avatar.bladeVisible = false; h.avatar.resetCloth();
       h.avatar.puppet.play('plunge', 1, 0);
       // стекло разбитой розы падает вместе с Пилотом
       for (let i = 0; i < 46; i++) {
@@ -899,17 +957,32 @@ export class Battle {
     calls.set('visor', () => { if (L.visorT < 0) L.visorT = 0; });
     calls.set('idle', () => { h.avatar.puppet.anim.stop(0.3); });
     calls.set('grip', () => {
-      // рывок из пола: искры и крошка у основания обломка
-      this.vfx.burst(22, { x: spots.shardX, y: 0.1, z: spots.shardZ, life: 0.5, size: 0.08, size1: 0.01, color: C.voidHot, drag: 2, frame: 'spark', stretch: 1.8, gravity: -9 }, { v: 5, vy: 3 });
-      this.vfx.lights.flash(spots.shardX, 0.5, spots.shardZ, C.voidHot, 2.5, 5, 0.4);
-      this.cam.addTrauma(0.2);
+      if (L.attachment.phase !== 'planted') return;
+      h.avatar.weaponMatrix(this.landingWeaponMatrix);
+      L.attachment.grip(this.landingWeaponMatrix);
+      this.syncLandingWeapon();
+      ctx.audio.play('blade_scrape', { gain: 0.35 });
+    });
+    calls.set('releaseFromGround', () => {
+      if (L.attachment.released) return;
+      L.attachment.release(); L.releaseT = 0;
+      const p = L.socket.position;
+      this.vfx.debris.burst(p.x, 0.08, p.z, -Math.sin(facing), -Math.cos(facing), 8, 2.2, 0.09);
+      this.vfx.burst(16, { x: p.x, y: 0.08, z: p.z, life: 0.6, size: 0.12, size1: 0.3, color: C.dust, alpha: 0.45, drag: 3, frame: 'smoke', gravity: -3 }, { v: 1.5, vy: 0.5 });
+      ctx.audio.play('blade_scrape', { gain: 0.75 });
+      this.cam.addTrauma(0.12);
     });
     calls.set('ignite', () => {
       if (L.igniteT >= 0) return;
       L.igniteT = 0;
-      shard.visible = false;
-      h.bladeTarget = 1;
+      h.avatar.weaponMatrix(this.landingWeaponMatrix);
+      L.attachment.awaken(this.landingWeaponMatrix);
+      // Та же геометрия в том же трансформе сустава: просыпается только энергия.
+      h.bladeTarget = 1; h.avatar.bladeScale = 1; h.avatar.bladeVisible = true;
+      this.syncLandingWeapon();
       h.avatar.handPos(_top);
+      ctx.audio.play('blade_ignite', { gain: 0.8 });
+      this.feel.whiteFlash(IGNITE.flash);
       // обломок вспыхивает Пустотой: кольцо у руки и по полу, искры вверх по клинку
       // кольцо у руки — малое: большое на высоте руки проходит сквозь камеру сцены и заливает кадр
       this.vfx.rings.spawn(_top.x, _top.z, 0.2, 1.4, 0.45, C.voidHot, 0.18, 0.9, _top.y);
@@ -951,6 +1024,8 @@ export class Battle {
       thaw();
       this.quench(0, 0, 0);
       h.y = 0; h.avatar.puppet.anim.stop(0.3);
+      h.bladeTarget = 1; h.avatar.bladeScale = 1; h.avatar.bladeVisible = true;
+      shard.visible = false;
       this.runner.introTime = 0;
       this.runner.skipIntro();
     }, { hud: false });
@@ -1100,22 +1175,61 @@ export class Battle {
   private updateLanding(realDt: number): void {
     const L = this.landing!, h = this.world.hero;
     L.t += realDt;
+    this.syncLandingWeapon();
+    if (L.releaseT >= 0) { L.releaseT += realDt; L.socket.scale.y = Math.max(0.2, 1 - L.releaseT * 2.5); }
     // падение: фиолетовый след за Пилотом
     if (h.y > 0.3) for (let i = 0; i < 2; i++) this.vfx.add.emit({ x: h.x + fxRng.spread(0.25), y: h.y + 0.9 + fxRng.spread(0.4), z: h.z + fxRng.spread(0.25), vy: 6, life: 0.3, size: 0.12, size1: 0.02, color: C.voidHot, drag: 1, frame: 'spark', stretch: 2.4 });
     // обломок зовёт: пульс Пустоты, чаще и ярче, пока Пилот подходит
     if (L.igniteT < 0 && L.visorT >= 0) {
       const u = L.shard.material as THREE.ShaderMaterial;
-      const near = clamp(1 - Math.hypot(h.x - L.shard.position.x, h.z - L.shard.position.z) / 3, 0, 1);
-      u.uniforms.uEmissiveStrength.value = 1.2 + (0.6 + near * 1.4) * Math.pow(0.5 + 0.5 * Math.sin(L.t * (4 + near * 6)), 2);
+      const near = clamp(1 - Math.hypot(h.x - L.shard.matrix.elements[12], h.z - L.shard.matrix.elements[14]) / 3, 0, 1);
+      u.uniforms.uEmissiveStrength.value = 0.45 + (0.2 + near * 0.35) * Math.pow(0.5 + 0.5 * Math.sin(L.t * 3), 2);
       if (Math.floor(L.t / 0.9) !== L.call) {
         L.call = Math.floor(L.t / 0.9);
-        this.vfx.lights.flash(L.shard.position.x, 0.8, L.shard.position.z, C.void, 1.2 + near, 3.5, 0.6);
+        this.vfx.lights.flash(L.shard.matrix.elements[12], 0.8, L.shard.matrix.elements[14], C.void, 0.7 + near * 0.3, 2.5, 0.6);
       }
     }
     // визор загорается, на клинке — вспышка Пустоты, дальше — как обычно
     if (L.visorT >= 0) { L.visorT += realDt; h.glowBoost = Math.min(IGNITE.visor, L.visorT * 2.4) * (L.igniteT >= 0 ? Math.max(0, 1 - L.igniteT / 2.5) : 1); }
     if (L.igniteT >= 0) { L.igniteT += realDt; h.glowBoost += Math.max(0, IGNITE.glow - L.igniteT * IGNITE.fall); }
-    if (!this.director.active && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; }
+    if (!this.director.active && L.igniteT > 3) { h.glowBoost = 0; this.landing = null; this.disposeLandingProps(); }
+  }
+
+  /** Как выполнить действие сцены на текущем устройстве. */
+  private promptHint(): string {
+    const d = this.ctx.input.lastDevice;
+    return d === 'touch' ? 'коснитесь экрана' : d === 'pad' ? 'атака' : 'ЛКМ / J';
+  }
+
+  /** Место действия сцены на экране (NDC): рукоять посаженного клинка в прологе; иначе — по центру. */
+  private promptAnchor(): { x: number; y: number } | null {
+    const L = this.landing;
+    if (!L || L.attachment.phase !== 'planted') return null;
+    const cam = this.ctx.renderer.camera;
+    cam.updateMatrixWorld();
+    _top.setFromMatrixPosition(L.attachment.matrix).project(cam);
+    return _top.z < 1 ? { x: _top.x, y: _top.y } : null;
+  }
+
+  /** Вызывается после того, как Director посчитал позу этого кадра. */
+  private syncLandingWeapon(): void {
+    const L = this.landing;
+    if (!L) return;
+    this.world.hero.avatar.weaponMatrix(this.landingWeaponMatrix);
+    L.attachment.follow(this.landingWeaponMatrix);
+    L.shard.matrix.copy(L.attachment.matrix);
+    L.shard.matrixWorldNeedsUpdate = true;
+    L.shard.visible = L.attachment.propVisible;
+  }
+
+  private disposeLandingProps(): void {
+    for (const mesh of this.landingProps) {
+      mesh.removeFromParent();
+      mesh.geometry.dispose();
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) material.dispose();
+    }
+    this.landingProps.length = 0;
   }
 
   /**
@@ -1204,6 +1318,7 @@ export class Battle {
 
   dispose(): void {
     this.disposed = true;
+    this.disposeLandingProps();
     this.ambience?.stop();
     this.ctx.audio.onSpeak = null;
     this.kaelis.dispose();

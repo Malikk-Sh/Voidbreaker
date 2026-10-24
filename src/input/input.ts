@@ -39,6 +39,8 @@ export class Input {
   enabled = true;
   /** Обработчик пауз/меню (экраны DOM перехватывают Esc сами). */
   onPause: (() => void) | null = null;
+  /** Касание экрана где угодно или нажатие атаки (с): для действий в сценах, где кнопки боя скрыты. */
+  private sceneTapAt = -1;
 
   private keys = new Set<string>();
   private mouseX = 0; private mouseY = 0; private mouseSeen = false;
@@ -110,6 +112,16 @@ export class Input {
 
   private push(a: Action, dx = 0, dz = 0): void { this.buffer.push(a, this.now, dx, dz); }
 
+  /**
+   * Действие в сцене (план §4.3): касание экрана где угодно, клик или атака не раньше BUFFER назад. Забирает
+   * и атаку из буфера — после сцены она не станет случайным ударом.
+   */
+  consumeSceneTap(): boolean {
+    const touched = this.sceneTapAt >= 0 && this.now - this.sceneTapAt <= BUFFER;
+    this.sceneTapAt = -1;
+    return !!this.buffer.consume('attack', this.now) || touched;
+  }
+
   private pressAttack(): void {
     if (this.attackHeld) return;
     this.attackHeld = true;
@@ -145,6 +157,7 @@ export class Input {
     e.preventDefault();
     this.lastDevice = 'touch';
     this.touchUi = true;
+    this.sceneTapAt = this.now;
     const x = e.clientX, y = e.clientY;
     const btn = this.hitButton(x, y);
     if (btn) {
