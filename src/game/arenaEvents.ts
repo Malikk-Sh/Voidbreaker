@@ -149,7 +149,7 @@ export class ArenaEvents {
    */
   private buildAssembly(group: THREE.Group): Assembly {
     const holes = (this.w.arena.def.holes ?? []).filter((h) => h.kind === 'rect').map((h) => ({ x0: h.x - h.w / 2, x1: h.x + h.w / 2, z0: h.z - h.h / 2, z1: h.z + h.h / 2 }));
-    const mat = obsidianMaterial({ rim: ZONE1_LOOK.rim, rimStrength: 0.45, rimPower: 2.4, emissive: '#FFC872', emissive2: '#FFC872', emissiveStrength: ASSEMBLY.glow[0] });
+    const mat = obsidianMaterial({ rim: ZONE1_LOOK.rim, rimStrength: 0.25, rimPower: 2.4, emissive: '#FFC872', emissive2: '#FFC872', emissiveStrength: ASSEMBLY.glow[0] });
     const a = new Assembly(buildChoristerParts(), mat, holes, 89);
     a.group.position.x = this.cx;
     group.add(a.group);
