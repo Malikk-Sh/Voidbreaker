@@ -803,7 +803,7 @@ export class Hero implements Actor {
   private sceneWasScripted = false;
 
   /** Синхронная поза текущего момента сцены, до маркеров, реквизита и батчей. */
-  sampleSceneClip(id: string, time: number, reset = false): void {
+  sampleSceneClip(id: string, time: number, reset = false, blend = 0): void {
     const a = this.avatar, p = a.puppet, clip = p.clips.get(id);
     if (!clip) throw new Error(`Unknown scene clip: ${id}`);
     const entering = !this.sceneActive;
@@ -819,7 +819,7 @@ export class Hero implements Actor {
       a.hold = 0;
       p.springX = 0; p.springZ = 0; p.springVX = 0; p.springVZ = 0;
     }
-    p.anim.sampleScene(clip, time, reset);
+    p.anim.sampleScene(clip, time, reset, blend);
     a.lift = this.y;
     a.stretch = 1;
     a.glow = this.resonance / 100 * 1.2 + this.glowBoost;

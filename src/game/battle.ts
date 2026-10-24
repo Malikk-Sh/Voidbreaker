@@ -779,7 +779,7 @@ export class Battle {
       playClip: (who: string, clip: string) => { if (who === 'hero') w.hero.avatar.puppet.play(clip, 1, 0.08); },
       clipEvents: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.events ?? [] : [],
       clipDuration: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.dur ?? 0 : 0,
-      sampleClip: (who: string, clip: string, time: number, reset: boolean) => { if (who === 'hero') w.hero.sampleSceneClip(clip, time, reset); },
+      sampleClip: (who: string, clip: string, time: number, reset: boolean, blend?: number) => { if (who === 'hero') w.hero.sampleSceneClip(clip, time, reset, blend); },
       releaseClip: (who: string) => { if (who === 'hero') w.hero.releaseSceneClip(); },
       shatter: (who: string, dx: number, dz: number, power: number) => {
         const e = enemyActor(who) as Enemy | null;

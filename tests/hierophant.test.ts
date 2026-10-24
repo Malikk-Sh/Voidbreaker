@@ -39,7 +39,7 @@ function fakeHost(w: World, b: Hierophant, hold = () => false, tap = () => false
     actor: (who) => (who === 'hero' ? hero : who === 'boss' ? b : null),
     clipEvents: (_who, id) => w.hero.avatar.puppet.clips.get(id)?.events ?? [],
     clipDuration: (_who, id) => w.hero.avatar.puppet.clips.get(id)?.dur ?? 0,
-    sampleClip: (_who, id, time, reset) => w.hero.sampleSceneClip(id, time, reset),
+    sampleClip: (_who, id, time, reset, blend) => w.hero.sampleSceneClip(id, time, reset, blend),
     releaseClip: () => w.hero.releaseSceneClip(),
     call: (fn, arg) => { log.push(fn); calls[fn]?.(arg); },
     holding: hold, tapped: tap, seen, markSeen: () => {},
@@ -398,6 +398,31 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(b.dead).toBe(true);
     expect(log).toContain('finish');
     expect(log.some((l) => l.startsWith('star:'))).toBe(true);
+  });
+
+  it('казнь: стыки сценических клипов без скачка позы — смена клипа смешивается во времени сцены', () => {
+    const { w, b, ctrl, tick, director } = toPhase3();
+    b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
+    const rot = w.hero.avatar.puppet.skel.rot, n = w.hero.avatar.puppet.layout.n;
+    // начала клипов героя: lowerBlade, chainBrace, chainRun, chainApex, maskStrike, chainExit, lowerBlade
+    const starts = [0, EXEC_T.dash, EXEC_T.run, EXEC_T.jump, EXEC_T.strike, EXEC_T.land, EXEC_T.calm];
+    let prev = Float32Array.from(rot), worst = 0, worstSeam = 0, seamAt = -1;
+    tick(EXEC_T.end, () => {
+      const t = director.time;
+      let m = 0;
+      for (let i = 0; i < n; i++) {
+        const d = Math.abs(prev[i * 4] * rot[i * 4] + prev[i * 4 + 1] * rot[i * 4 + 1] + prev[i * 4 + 2] * rot[i * 4 + 2] + prev[i * 4 + 3] * rot[i * 4 + 3]);
+        m = Math.max(m, 2 * Math.acos(Math.min(1, d)));
+      }
+      prev.set(rot);
+      worst = Math.max(worst, m);
+      if (starts.some((s) => t >= s && t < s + 3 * DT) && m > worstSeam) { worstSeam = m; seamAt = t; }
+    });
+    // на стыке — не больше 20° за кадр (было 168° у плеча на прыжке: клинок за кадр оказывался над головой);
+    // быстрее всего — авторский удар в маску (inExpo, ~38°/кадр)
+    expect(worstSeam, `стык в ${seamAt.toFixed(3)} с`).toBeLessThan(0.35);
+    expect(worst).toBeLessThan(0.75);
+    w.hero.avatar.dispose();
   });
 
   it('казнь: пропуск каждого крупного плана не дублирует смерть/награду и освобождает героя', () => {

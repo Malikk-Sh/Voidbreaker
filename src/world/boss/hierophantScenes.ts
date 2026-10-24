@@ -177,6 +177,8 @@ export interface ExecSpots { bx: number; bz: number; hx: number; hz: number; cx:
 
 /** Договор постановки: контакт вычисляется из маркера специального клипа, а не отдельного таймера. */
 export const EXEC_T = { dash: 0.9, run: 2.1, jump: 3.7, tap: 4.0, strike: 4.5, contact: 4.5 + MASK_CONTACT, toll: 5.62, crack: 6.15, land: 6.7, cut: 8.35, beam: 9.3, calm: 11.3, say: 11.5, end: 12.3 };
+/** Замах в толчке с цепи: смешивание позы бега в верхнюю позу удара (с). */
+export const EXEC_APEX_BLEND = 0.3;
 /** Локальный акцент после контакта, без белого кадра. */
 export const EXEC_FLASH = 0.12;
 
@@ -222,8 +224,9 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.run, do: 'sfx', id: 'choir_rise', gain: 0.55 },
     { t: T.run, do: 'cam', path: [[(cx + top[0]) / 2 + sx * 6, ky * 0.5 + 1.5, (cz + top[2]) / 2 + sz * 6], [top[0] + sx * 5.8 - fx, ky + 1.0, top[2] + sz * 5.8 - fz]], look: [[cx, 1.1, cz], [top[0], top[1] + 0.9, top[2]]], dur: T.jump - T.run, fov: 48, ease: 'linear' },
     { t: T.jump, do: 'call', fn: 'flare' },
-    // Верхняя поза специального удара удерживается до пикирования.
-    { t: T.jump, do: 'clip', who: 'hero', clip: 'chainApex' },
+    // Верхняя поза специального удара удерживается до пикирования. Клинок идёт из-под руки над голову
+    // (плечо ~170°): замах в толчке за 0.3 с — не за 0.12 с общего смешивания, иначе снова почти скачок.
+    { t: T.jump, do: 'clip', who: 'hero', clip: 'chainApex', blend: EXEC_APEX_BLEND },
     { t: T.jump, do: 'actor', who: 'hero', moveTo: apex, dur: 0.42, ease: 'outQuad', lookAt: forward(apex) },
     { t: T.jump, do: 'time', scale: 0.2, dur: 1.0 },
     { t: T.jump, do: 'sfx', id: 'cast_inhale', gain: 0.5 },

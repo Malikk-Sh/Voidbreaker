@@ -16,8 +16,11 @@ export type CineStep =
   | { t: number; do: 'cam'; path: V3[]; look: V3[]; dur: number; ease?: EaseId; fov?: number; roll?: number }
   /** turn — разворот к lookAt за столько секунд (без него — сразу). */
   | { t: number; do: 'actor'; who: string; clip?: string; moveTo?: V3; dur?: number; lookAt?: V3; ease?: EaseId; turn?: number }
-  /** Абсолютное время позы и маркеры клипа; движение корня задаётся отдельным actor. */
-  | { t: number; do: 'clip'; who: string; clip: string; speed?: number; dur?: number; markers?: Record<string, string> }
+  /**
+   * Абсолютное время позы и маркеры клипа; движение корня задаётся отдельным actor. blend — смешивание
+   * с предыдущей позой при входе (с сцены; по умолчанию SCENE_BLEND, 0 — склейка).
+   */
+  | { t: number; do: 'clip'; who: string; clip: string; speed?: number; dur?: number; blend?: number; markers?: Record<string, string> }
   | { t: number; do: 'crack' | 'dissolve'; who: string; to: number; dur?: number }
   | { t: number; do: 'shatter'; who: string; dir?: V3; power?: number }
   | { t: number; do: 'time'; scale: number; dur: number }
@@ -54,7 +57,7 @@ export interface DirectorHost {
   playClip?(who: string, clip: string): void;
   clipEvents?(who: string, clip: string): readonly { t: number; name: string }[];
   clipDuration?(who: string, clip: string): number;
-  sampleClip?(who: string, clip: string, time: number, reset: boolean): void;
+  sampleClip?(who: string, clip: string, time: number, reset: boolean, blend?: number): void;
   releaseClip?(who: string): void;
   shatter?(who: string, dirX: number, dirZ: number, power: number): void;
   timeScale?(scale: number, dur: number): void;
@@ -79,6 +82,8 @@ export interface DirectorHost {
 
 /** Сколько держать атаку для пропуска (с). */
 export const SKIP_HOLD = 0.6;
+/** Смешивание позы при смене сценического клипа (с сцены): 7 кадров — без скачка, но и без «плавания». */
+export const SCENE_BLEND = 0.12;
 /** Пропуск доступен не раньше (с): случайное удержание с прошлой сцены не съедает новую. */
 const SKIP_FROM = 0.4;
 
@@ -217,7 +222,7 @@ export class Director {
     const reset = !l.started;
     l.started = true;
     this.bindings.add(s.who);
-    this.host.sampleClip?.(s.who, s.clip, Math.max(0, time - s.t) * (s.speed ?? 1), reset);
+    this.host.sampleClip?.(s.who, s.clip, Math.max(0, time - s.t) * (s.speed ?? 1), reset, s.blend ?? SCENE_BLEND);
   }
 
   /** Выполнить шаг (или довести до конца: fast — пропуск). */
