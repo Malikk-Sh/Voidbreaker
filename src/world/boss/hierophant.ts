@@ -901,6 +901,7 @@ export class HierophantController implements BossController {
         b.puppet.crack = 0.35;
         w.bus.emit('sfx', { id: 'shatter_cut', x: b.x, z: b.z });
         w.bus.emit('sfx', { id: 'hit_heavy', x: b.x, z: b.z });
+        w.bus.emit('finisherImpact', { x: mask[0], y: mask[1], z: mask[2], facing: Math.atan2(fx, fz) });
         // Контакт сначала виден геометрически; короткий локальный свет и слабый акцент идут вслед за ним.
         H.flash(EXEC_FLASH);
         H.light?.(mask[0], mask[1], mask[2], 'void', 2.4, 2.3, 0.3);

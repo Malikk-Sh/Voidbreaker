@@ -5,6 +5,8 @@ import { BLADE_LEN, HERO_RIG } from '../../gen/chars/hero';
 
 /** Контакт — событие специального клипа, в секундах времени сцены. */
 export const MASK_CONTACT = 0.72;
+/** Замедлен только замах. Последние 140 мс до контакта — быстрый разрез. */
+export const MASK_RELEASE = 0.58;
 
 /**
  * Клипы казни не содержат боевых hitOn/impact: перемещением по сцене ведёт Director,
@@ -38,10 +40,10 @@ export const EXECUTION_CLIPS: ClipDef[] = [
     id: 'maskStrike', dur: 1.2, mask: 'full',
     keys: [
       // Подтянутые ноги и клинок над плечом: силуэт перед пикированием.
-      { t: 0, pose: { pelvis: [-0.1, 0, 0], spine: [-0.15, 0, 0], chest: [-0.2, -0.12, 0], head: [0.3, 0, 0], shR: [-2.9, 0, -0.15], elbR: [-0.45, 0, 0], blade: [0.15, 0, 0], shL: [-2.4, 0, 0.25], elbL: [-0.8, 0, 0], hipL: [-1.2, 0, 0.08], kneeL: [1.7, 0, 0], hipR: [-0.65, 0, -0.08], kneeR: [1.4, 0, 0], footL: [-0.1, 0, 0], footR: [-0.1, 0, 0] } },
-      { t: 0.47, ease: 'inQuad', pose: { pelvis: [0.05, 0, 0], spine: [0.05, 0, 0], chest: [0.15, 0, 0], head: [0.2, 0, 0], shR: [-2.55, 0, -0.12], elbR: [-0.2, 0, 0], blade: [0.15, 0, 0], hipL: [-0.8, 0, 0.08], kneeL: [1.2, 0, 0], hipR: [0.1, 0, -0.08], kneeR: [0.9, 0, 0] } },
+      { t: 0, pose: { pelvis: [-0.1, 0, 0], spine: [-0.15, 0, 0], chest: [-0.2, -0.12, 0], head: [0.3, 0, 0], shR: [-2.9, 0, -0.15], elbR: [-0.45, 0, 0], blade: [0.7, 0, 0], shL: [-2.4, 0, 0.25], elbL: [-0.8, 0, 0], hipL: [-1.2, 0, 0.08], kneeL: [1.7, 0, 0], hipR: [-0.65, 0, -0.08], kneeR: [1.4, 0, 0], footL: [-0.1, 0, 0], footR: [-0.1, 0, 0] } },
+      { t: MASK_RELEASE, ease: 'inOutSine', pose: { pelvis: [-0.1, 0, 0], spine: [-0.12, 0, 0], chest: [-0.18, -0.12, 0], head: [0.3, 0, 0], shR: [-2.9, 0, -0.15], elbR: [-0.3, 0, 0], blade: [0.7, 0, 0], shL: [-2.4, 0, 0.25], hipL: [-1.0, 0, 0.08], kneeL: [1.45, 0, 0], hipR: [-0.35, 0, -0.08], kneeR: [1.2, 0, 0] } },
       // Точно эта поза используется для вычисления root-space bladeTip ниже.
-      { t: MASK_CONTACT, ease: 'inOutSine', pose: { pelvis: [0.05, 0, 0], spine: [0.08, 0, 0], chest: [0.37, 0, 0], head: [0.15, 0, 0], shR: [-0.55, 0, -0.08], elbR: [-0.08, 0, 0], blade: [0, 0, 0], shL: [-1.1, 0, 0.18], elbL: [-0.55, 0, 0], hipL: [-0.65, 0, 0.1], kneeL: [1.1, 0, 0], hipR: [0.25, 0, -0.1], kneeR: [0.7, 0, 0] } },
+      { t: MASK_CONTACT, ease: 'inCubic', pose: { pelvis: [0.05, 0, 0], spine: [0.08, 0, 0], chest: [0.37, 0, 0], head: [0.15, 0, 0], shR: [-0.55, 0, -0.08], elbR: [-0.08, 0, 0], blade: [0, 0, 0], shL: [-1.1, 0, 0.18], elbL: [-0.55, 0, 0], hipL: [-0.65, 0, 0.1], kneeL: [1.1, 0, 0], hipR: [0.25, 0, -0.1], kneeR: [0.7, 0, 0] } },
       { t: 1.2, ease: 'linear', pose: {} },
     ],
     events: [{ t: MASK_CONTACT, name: 'contact' }],

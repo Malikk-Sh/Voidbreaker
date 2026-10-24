@@ -386,6 +386,32 @@ export class FeelSystem {
           this.hud.flashText('В МАСКУ!', UI_GOLD, e.x, 6, e.z);
         }
       }),
+      b.on('choir', (e) => {
+        if (e.kind === 'mark') {
+          this.audio.play('choir_mark', { gain: 0.6, pitch: 1 + (e.note - 1) * 0.12, pan: this.pan(e.x), vary: 0 });
+          // Золотые ноты выходят из лица в северном провале к запомненной точке на полу.
+          for (let i = 0; i < 7; i++) { const u = i / 6; this.vfx.add.emit({ x: e.x * u, y: 0.3 + Math.sin(u * Math.PI) * 1.8, z: -3.6 + (e.z + 3.6) * u, vy: 0.3, life: 0.65, size: 0.11, size1: 0.02, color: C.gold, frame: 'spark', drag: 2 }); }
+          this.hud.flashText(`${e.note}/${e.total}`, '#FFD18C', e.x, 0.8, e.z);
+        } else if (e.kind === 'return') {
+          this.audio.play('choir_return', { gain: 0.8 });
+          this.vfx.rings.spawn(e.x, e.z, 0.4, e.radius, e.radius / 18, C.voidHot, 0.16, 0.8);
+          this.vfx.lights.flash(0, 0.3, -3.6, C.void, 3, 7, 0.6);
+          this.hud.flashText('ОТВЕТНЫЙ ПСАЛОМ', UI_GOLD, e.x, 2.3, e.z, true);
+          this.input.vibrate(35);
+        } else {
+          this.audio.play('choir_impact', { gain: 0.65, pan: this.pan(e.x) });
+          this.vfx.impact(e.x, e.z, e.radius, C.hungerHot, 0.6);
+          this.vfx.lights.flash(e.x, 0.5, e.z, C.gold, 2.3, 4, 0.25);
+        }
+      }),
+      b.on('finisherImpact', (e) => {
+        const dx = Math.sin(e.facing), dz = Math.cos(e.facing);
+        this.vfx.hitSparks(e.x, e.y, e.z, dx, dz, 1.2, true);
+        this.vfx.slashes.spawn([{ shape: 'vert', reach: 1.8, angle: 1.4, tilt: 0.15, heavy: true, y: -0.7 }], { x: e.x, y: e.y, z: e.z, facing: e.facing }, this.time.world);
+        this.cam.addTrauma(0.5); this.cam.zoomPunch += 0.045;
+        this.audio.play('sub_pulse', { gain: 0.85 });
+        this.input.vibrate(65);
+      }),
       b.on('helmetHit', (e) => {
         this.time.addHitstop(0.12);
         this.cam.addTrauma(0.5);

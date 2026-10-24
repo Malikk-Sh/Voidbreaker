@@ -12,7 +12,7 @@ import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, CONTACT_SHOT, DESCEND_FROM, 
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { InputBuffer, type Input } from '../src/input/input';
-import { EXECUTION_CLIPS, MASK_CONTACT, maskContactRoot } from '../src/anim/clips/execution';
+import { EXECUTION_CLIPS, MASK_CONTACT, MASK_RELEASE, maskContactRoot } from '../src/anim/clips/execution';
 
 const DT = 1 / 60;
 const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
@@ -415,8 +415,8 @@ describe('Иерофант 2.0 (план §8.3)', () => {
       expect(Math.abs(head.y - m.y) / 2).toBeGreaterThan(0.45);
       // оба — внутри кадра с леттербоксом (12–88 % высоты)
       for (const p of [head, m]) expect(Math.abs(p.y)).toBeLessThan(0.76);
-      // со стороны Пилота (z > маски), не сквозь тело босса; после контакта — наезд
-      expect(cam.path[0][2]).toBeGreaterThan(mask[2]);
+      // Передняя четверть Пилота (он смотрит к −Z): видны лицо, грудь и замах; затем наезд.
+      expect(cam.path[0][2]).toBeLessThan(mask[2]);
       const d = (p: number[]) => Math.hypot(p[0] - mask[0], p[1] - mask[1], p[2] - mask[2]);
       expect(d(cam.path.at(-1)!)).toBeLessThan(d(cam.path[0]));
     }
@@ -519,10 +519,11 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     }
   });
 
-  it('дорожка казни: 7–9 с, контакт задан специальным клипом, замедления имеют плавный вход', () => {
+  it('дорожка казни: быстрый разрез и пауза победы до эпилога; контакт задан клипом', () => {
     const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 6, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76] });
     expect(tr.dur).toBeGreaterThanOrEqual(7);
-    expect(tr.dur).toBeLessThanOrEqual(9);
+    expect(tr.dur).toBeLessThanOrEqual(11);
+    expect(EXEC_T.beam - EXEC_T.touchdown).toBeGreaterThanOrEqual(2);
     const actions = tr.steps.flatMap((s) => s.do === 'call' ? [{ t: s.t, fn: s.fn }]
       : s.do === 'clip' ? (EXECUTION_CLIPS.find((c) => c.id === s.clip)?.events ?? []).filter((e) => s.markers?.[e.name]).map((e) => ({ t: s.t + e.t / (s.speed ?? 1), fn: s.markers![e.name] })) : []);
     const order = actions.sort((a, b) => a.t - b.t).map((s) => s.fn).filter((fn) => fn !== 'brace' && fn !== 'chainStep');
@@ -551,9 +552,9 @@ describe('Иерофант 2.0 (план §8.3)', () => {
   it('казнь: корень учитывает настоящий вынос клинка к маске; вспышка принадлежит маркеру', () => {
     const mask: [number, number, number] = [0.2, 2.8, 0.85];
     const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 4, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76], mask });
-    const strike = tr.steps.find((s) => s.do === 'actor' && s.t === EXEC_T.strike);
+    const strike = tr.steps.find((s) => s.do === 'actor' && s.t === EXEC_T.strike + MASK_RELEASE);
     expect(strike && strike.do === 'actor' ? strike.moveTo : null).toEqual(maskContactRoot(mask, Math.PI));
-    expect(strike && strike.do === 'actor' ? strike.dur : null).toBe(MASK_CONTACT);
+    expect(strike && strike.do === 'actor' ? strike.dur : null).toBeCloseTo(0.14);
     const strikeClip = tr.steps.find((s) => s.do === 'clip' && s.t === EXEC_T.strike);
     expect(strikeClip && strikeClip.do === 'clip' ? strikeClip.markers?.contact : null).toBe('strike');
     const flashes = tr.steps.filter((s) => s.do === 'flash');

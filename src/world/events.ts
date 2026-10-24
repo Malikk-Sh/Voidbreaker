@@ -87,6 +87,10 @@ export interface GameEvents {
   /** Страж Врат: герой побежал по древку застрявшей алебарды; удар в шлем. */
   shaftRun: { x: number; z: number };
   helmetHit: { x: number; y: number; z: number };
+  /** Сценический разрез уже коснулся цели: короткий направленный след, искры и отдача. */
+  finisherImpact: { x: number; y: number; z: number; facing: number };
+  /** Псалом Хоров запомнил место Пилота, ударил по нему или был возвращён рывком. */
+  choir: { kind: 'mark' | 'impact' | 'return'; x: number; z: number; radius: number; note: number; total: number };
   /** Аффикс «Отдача» (план §7.6): заряды полны — гул и свечение; волна; идеальное уклонение сквозь неё. */
   recoilCharge: { x: number; z: number };
   recoilWave: { x: number; z: number; r: number };

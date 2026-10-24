@@ -36,6 +36,8 @@ jobs:
           SMOKE_SHOT: smoke.png
       - name: Cinematic finishers
         run: npm run finishers
+      - name: Choir psalm (touch, bait and return)
+        run: npm run choir
       - name: Scene studio (touch, storage, poses and replay)
         run: npm run studio-test
       - uses: actions/upload-artifact@v4
@@ -47,6 +49,8 @@ jobs:
             smoke.png
             work/finishers/report.json
             work/finishers/*.png
+            work/choir/report.json
+            work/choir/*.png
             work/studio/report.json
             work/studio/*.png
           if-no-files-found: ignore

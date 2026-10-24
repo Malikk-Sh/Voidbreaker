@@ -26,7 +26,7 @@ for (const viewport of sizes) for (const id of ids) for (const mode of modes) {
     await page.waitForFunction(() => !!window.__vb?.battle);
     await page.evaluate(({ id, mode }) => {
       const diag = window.__finisher, b = diag.battle = window.__vb.battle, h = b.world.hero;
-      diag.calls = []; diag.kills = []; diag.minScale = 1; diag.minY = 0; diag.flight = [];
+      diag.calls = []; diag.kills = []; diag.minScale = 1; diag.minY = 0; diag.flight = []; diag.strokeScales = []; diag.cameras = [];
       b.ctx.hud.canvas.style.visibility = 'hidden'; b.world.bus.on('kill', e => diag.kills.push({ kind: e.kind, time: b.director.time, y: h.y }));
       diag.capture = (name = '') => {
         const e = b.runner.boss ?? b.replay?.target, cam = b.ctx.renderer.camera, v = cam.position.clone();
@@ -41,9 +41,10 @@ for (const viewport of sizes) for (const id of ids) for (const mode of modes) {
           else if (e.kind === 'gateGuardian') target = sk.jointPoint(e.puppet.layout.idx('head'), 0, 0.18*s, 0.18*s, v.clone());
           else target = sk.jointPoint(e.puppet.layout.idx('chest'), 0, s, -1.2*s, v.clone());
         }
-        return { time: b.director.time, heroY: h.y, clip: h.avatar.puppet.anim.clip?.id, scale: b.ctx.time.worldScale, error: target ? tip.distanceTo(target) : null, screenHead: project(head), screenFeet: feet.map(project), screenTip: project(tip), screenHilt: project(h.avatar.sceneAnchor('hilt', v.clone())), screenTarget: target ? project(target) : null, feetY: feet.map(p => p.y) };
+        const dx = cam.position.x - h.x, dz = cam.position.z - h.z;
+        return { time: b.director.time, heroY: h.y, clip: h.avatar.puppet.anim.clip?.id, scale: b.ctx.time.worldScale, front: (dx*Math.sin(h.facing)+dz*Math.cos(h.facing))/(Math.hypot(dx,dz)||1), error: target ? tip.distanceTo(target) : null, screenHead: project(head), screenFeet: feet.map(project), screenTip: project(tip), screenHilt: project(h.avatar.sceneAnchor('hilt', v.clone())), screenTarget: target ? project(target) : null, feetY: feet.map(p => p.y) };
       };
-      const wrap = (name, fn) => (...args) => { diag.calls.push({ name, ...diag.capture(name) }); return fn(...args); };
+      const wrap = (name, fn) => (...args) => { diag.calls.push({ name, ...diag.capture(name) }); const value=fn(...args); if(name==='crumble') b.world.bus.emit('stageClear',{}); return value; };
       const set = b.sceneCalls.set;
       b.sceneCalls.set = function(name, fn) { return set.call(this, name, wrap(name,fn)); };
       for (const [name, fn] of b.sceneCalls) set.call(b.sceneCalls, name, wrap(name, fn));
@@ -51,6 +52,9 @@ for (const viewport of sizes) for (const id of ids) for (const mode of modes) {
         b.frame(1/60);
         if (b.director.id === id) {
           diag.started = true; diag.minScale = Math.min(diag.minScale, b.ctx.time.worldScale); diag.minY = Math.min(diag.minY, h.y);
+          if(b.cine.busy)diag.cameras.push(b.cine.busy);
+          const strike=b.director.track.steps.find(s=>s.do==='clip'&&s.clip==='maskStrike');
+          if(strike&&b.director.time>strike.t+0.6&&b.director.time<strike.t+0.7)diag.strokeScales.push(b.ctx.time.worldScale);
           if (h.avatar.puppet.anim.clip?.id === 'executionLand') diag.flight.push(diag.capture());
         }
       };
@@ -75,7 +79,7 @@ for (const viewport of sizes) for (const id of ids) for (const mode of modes) {
       await page.screenshot({path:`${out}/${stem}-${point.name}.png`});
     }
     await page.evaluate(() => { const d=window.__finisher; for(let i=0;i<900&&d.battle.director.active;i++)d.step(); });
-    result.final=await page.evaluate(()=>{const d=window.__finisher;return {calls:d.calls,kills:d.kills,minScale:d.minScale,minY:d.minY,flight:d.flight,active:d.battle.director.active,scripted:d.battle.world.hero.scripted};});
+    result.final=await page.evaluate(()=>{const d=window.__finisher;return {calls:d.calls,kills:d.kills,minScale:d.minScale,minY:d.minY,flight:d.flight,strokeScales:d.strokeScales,cameras:d.cameras,active:d.battle.director.active,scripted:d.battle.world.hero.scripted};});
     const f=result.final, contacts=f.calls.filter(c=>['knee','helmet','bell','strike'].includes(c.name));
     check(!f.active&&!f.scripted,`${stem}: сцена завершена, управление возвращено`);
     check(f.kills.filter(k=>k.kind===(id==='hierophantEnd'?'hierophant':id==='killGate'?'gateGuardian':'bellRinger')).length===1,`${stem}: одна смерть`);
@@ -84,6 +88,10 @@ for (const viewport of sizes) for (const id of ids) for (const mode of modes) {
       const inside=p=>p&&p.depth>-1&&p.depth<1&&p.x>0.02&&p.x<0.98&&p.y>0.12&&p.y<0.88;
       const hits=result.shots.filter(s=>['strike','helmet','bell'].includes(s.name));
       check(hits.length===1&&hits.every(s=>[s.screenHead,s.screenTip,s.screenHilt,s.screenTarget].every(inside)),`${stem}: голова, клинок и цель видны на контакте`);
+      const windup=result.shots.find(s=>s.name==='before-contact');
+      check(windup&&windup.front>0.05&&[windup.screenHead,windup.screenTip,windup.screenHilt].every(inside),`${stem}: замах целиком виден спереди`);
+      check(f.strokeScales.length>0&&Math.min(...f.strokeScales)>0.95,`${stem}: быстрый разрез идёт без slow motion`);
+      check(!f.cameras.includes('victory'),`${stem}: обычный облёт победы не перебивает добивание`);
       check(f.minScale<=0.25,`${stem}: slow motion включается у контакта`);
       if(id==='hierophantEnd')check(f.kills.find(k=>k.kind==='hierophant').y>0.3,`${stem}: взрыв происходит до приземления`);
       else check(f.calls.find(c=>c.name==='crumble').time-contacts.at(-1).time>1.2,`${stem}: результат удара виден до распада`);

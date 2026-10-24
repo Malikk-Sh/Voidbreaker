@@ -1,5 +1,5 @@
 import type { CineStep, CineTrack, V3 } from '../../game/director';
-import { MASK_CONTACT, maskContactRoot } from '../../anim/clips/execution';
+import { MASK_CONTACT, MASK_RELEASE, maskContactRoot } from '../../anim/clips/execution';
 
 /** Где стоят актёры сцены Иерофанта: герой и босс. */
 export interface HierophantSpots {
@@ -178,9 +178,9 @@ export function crackTrack(p: HierophantSpots, star: V3 = [0.42, -0.5, -0.76]): 
 export interface ExecSpots { bx: number; bz: number; hx: number; hz: number; cx?: number; cz?: number; bellY: number; lx: number; lz: number; star: V3; mask?: V3 }
 
 /** Вся казнь — один прыжок: маска → взрыв до касания пола → посадка → звезда. */
-export const EXEC_T = { jump: 0.55, strike: 1.9, contact: 1.9 + MASK_CONTACT, toll: 2.78, crack: 2.96, land: 3.05, cut: 3.28, touchdown: 4.1, beam: 4.9, calm: 6.5, say: 6.75, end: 7.8 };
-export const EXEC_SHORT_T = { jump: 0.3, strike: 1.15, contact: 1.15 + MASK_CONTACT, toll: 2.02, crack: 2.18, land: 2.3, cut: 2.55, touchdown: 3.35, beam: 3.7, calm: 4.55, say: 4.8, end: 5.65 };
-export const CONTACT_SHOT = { fov: 44, fill: 0.58, head: 1.9, below: 0.45, back: 0.62, side: 0.78, rise: 0.1, push: 0.94, headroom: 1.2, dive: { far: 1.4, raise: 1.2 } };
+export const EXEC_T = { jump: 0.55, strike: 1.9, contact: 1.9 + MASK_CONTACT, toll: 2.78, crack: 2.96, land: 3.05, cut: 3.28, touchdown: 4.1, beam: 6.2, calm: 8.4, say: 8.65, end: 10.1 };
+export const EXEC_SHORT_T = { jump: 0.3, strike: 1.15, contact: 1.15 + MASK_CONTACT, toll: 2.02, crack: 2.18, land: 2.3, cut: 2.55, touchdown: 3.35, beam: 4.95, calm: 6.5, say: 6.75, end: 7.65 };
+export const CONTACT_SHOT = { fov: 44, fill: 0.58, head: 1.9, below: 0.45, back: 0.62, side: 0.78, rise: 0.1, push: 0.94, headroom: 1.2, dive: { far: 1.9, raise: 2.1 } };
 export const EXEC_FLASH = 0.08;
 
 export function executionTrack(p: ExecSpots): CineTrack {
@@ -193,16 +193,17 @@ export function executionTrack(p: ExecSpots): CineTrack {
   const landed: V3 = [lx, 0, lz], forward = (r: V3): V3 => [r[0] + fx * 10, 0, r[2] + fz * 10];
   const C = CONTACT_SHOT, bottom = ky - C.below;
   const dist = (contact[1] + C.head - bottom) / (2 * Math.tan(C.fov * Math.PI / 360) * C.fill);
-  const vx = -fx * C.back + sx * C.side, vz = -fz * C.back + sz * C.side, vl = Math.hypot(vx, vz);
+  // Передняя четверть Пилота: видны лицо, грудь и поднятый клинок, а не спина.
+  const vx = fx * C.back + sx * C.side, vz = fz * C.back + sz * C.side, vl = Math.hypot(vx, vz);
   const shotOn = (root: V3, k = 1, raise = 0) => {
     const look: V3 = [(root[0] + kx) / 2, (root[1] + C.head + raise + bottom) / 2, (root[2] + kz) / 2];
     return { look, cam: [look[0] + vx / vl * dist * k, look[1] + dist * C.rise * k, look[2] + vz / vl * dist * k] as V3 };
   };
   const dive = shotOn(apex, C.dive.far, C.dive.raise), hit = shotOn(contact, 1, C.headroom), hitNear = shotOn(contact, C.push, C.headroom);
   const wide = Math.max(8.5, distance * 1.15);
-  const medium: V3 = [kx - fx * wide + sx * wide * 0.85, Math.max(4, ky + 1.6), kz - fz * wide + sz * wide * 0.85];
+  const medium: V3 = [hx + fx * wide * 0.6 + sx * wide, Math.max(4, ky + 1.6), hz + fz * wide * 0.6 + sz * wide];
   const establish: V3 = [(hx + kx) / 2, ky * 0.65, (hz + kz) / 2];
-  const exitCam: V3 = [kx - fx * 4.2 + sx * 5.2, ky + 0.8, kz - fz * 4.2 + sz * 5.2];
+  const exitCam: V3 = [kx + fx * 2.2 + sx * 6.5, ky + 0.8, kz + fz * 2.2 + sz * 6.5];
   const both: V3 = [(contact[0] + kx) / 2, ky + 1.35, (contact[2] + kz) / 2];
   const pushCam: V3 = [exitCam[0] + away[0] - contact[0], exitCam[1] + away[1] - contact[1], exitCam[2] + away[2] - contact[2]];
   const pushLook: V3 = [both[0] + away[0] - contact[0], both[1] + away[1] - contact[1], both[2] + away[2] - contact[2]];
@@ -219,12 +220,15 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.jump, do: 'actor', who: 'hero', moveTo: apex, dur: T.strike - T.jump, ease: 'outQuad', bends: [[0, 0.45, 0]], lookAt: forward(apex) },
     { t: T.jump, do: 'cam', path: [medium, dive.cam], look: [establish, dive.look], dur: T.strike - T.jump, ease: 'outQuad', fov: 48, blend: 0.28 },
     // Поза и корень замедляются самими траекториями; окружение и частицы — той же паузой перед ударом.
-    { t: T.strike - 0.45, do: 'time', scale: 0.16, dur: 0.7, rampIn: 0.12, rampOut: 0.22 },
+    { t: T.strike - 0.45, do: 'time', scale: 0.16, dur: 0.45 + MASK_RELEASE, rampIn: 0.12, rampOut: 0.18 },
     { t: T.strike - 0.4, do: 'sfx', id: 'cast_inhale', gain: 0.45 },
     { t: T.strike, do: 'clip', who: 'hero', clip: 'maskStrike', markers: { contact: 'strike' }, blend: 0.16 },
-    { t: T.strike, do: 'actor', who: 'hero', moveTo: contact, dur: MASK_CONTACT, ease: 'inQuad', lookAt: forward(contact) },
-    { t: T.strike, do: 'cam', path: [dive.cam, hit.cam], look: [dive.look, hit.look], dur: MASK_CONTACT, ease: 'inCubic', fov: C.fov, blend: 0.16 },
-    { t: T.contact, do: 'time', scale: 0.12, dur: 0.38, rampIn: 0.05, rampOut: 0.16 },
+    { t: T.strike, do: 'actor', who: 'hero', lookAt: forward(apex), dur: MASK_RELEASE },
+    { t: T.strike + MASK_RELEASE, do: 'sfx', id: 'swing_heavy', gain: 0.95 },
+    { t: T.strike + MASK_RELEASE, do: 'actor', who: 'hero', moveTo: contact, dur: MASK_CONTACT - MASK_RELEASE, ease: 'inQuad', lookAt: forward(contact) },
+    { t: T.strike, do: 'cam', path: [dive.cam], look: [dive.look], dur: MASK_RELEASE, fov: C.fov, blend: 0.16 },
+    { t: T.strike + MASK_RELEASE, do: 'cam', path: [dive.cam, hit.cam], look: [dive.look, hit.look], dur: MASK_CONTACT - MASK_RELEASE, ease: 'inOutSine', fov: C.fov, blend: 0 },
+    { t: T.contact, do: 'time', scale: 0.08, dur: 0.12, rampIn: 0, rampOut: 0.04 },
     { t: T.contact, do: 'cam', path: [hit.cam, hitNear.cam], look: [hit.look], dur: T.toll - T.contact, fov: C.fov, blend: 0 },
     { t: T.toll, do: 'call', fn: 'toll' },
     { t: T.toll, do: 'cam', path: [hitNear.cam, exitCam], look: [hit.look, both], dur: T.land - T.toll, fov: 48 },
@@ -249,5 +253,5 @@ export function executionTrack(p: ExecSpots): CineTrack {
     ...(!short ? [{ t: T.say, do: 'say' as const, line: 'Одна звезда. Осталось четыре.' }] : []),
     { t: T.end, do: 'call', fn: 'end' },
   ];
-  return { id: 'hierophantEnd', revision: 2, cameraBlend: 0.24, origin: [bx, 0, bz], heading: Math.atan2(fx, fz), steps: make(EXEC_T, false), short: make(EXEC_SHORT_T, true), dur: EXEC_T.end + 0.2, blendOut: 0.7 };
+  return { id: 'hierophantEnd', revision: 3, cameraBlend: 0.24, origin: [bx, 0, bz], heading: Math.atan2(fx, fz), steps: make(EXEC_T, false), short: make(EXEC_SHORT_T, true), dur: EXEC_T.end + 0.2, blendOut: 0.7 };
 }

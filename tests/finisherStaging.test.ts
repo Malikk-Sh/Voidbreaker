@@ -13,9 +13,23 @@ import { killGateTrack, killBellTrack, GATE_KILL_T, BELL_KILL_T } from '../src/w
 import { CameraRig } from '../src/world/camera';
 import { emptyProject, resolveScene } from '../src/game/sceneEdits';
 import { executionTrack } from '../src/world/boss/hierophantScenes';
+import { Cinematics } from '../src/game/cinematics';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('читаемая постановка добиваний', () => {
+  it('победа над Стражем без казни тоже не ставит второй облёт в очередь', () => {
+    const w = new World(new Arena(ARENAS.gate), 'outro'), cam = new CameraRig(), banners: string[] = [];
+    const e = new GateGuardian({ zone: 0, stage: 2 });
+    const c = new Cinematics({ world: w, letterbox: () => {}, slow: () => {}, banner: text => banners.push(text), say: () => {}, flash: () => {}, musicPhase: () => {}, stinger: () => {}, skipRequested: () => false, once: () => false });
+    c.guardianDown(e); c.victory();
+    for (let i = 0; i < 180; i++) c.update(1 / 60, cam);
+    expect(c.busy).toBe('down');
+    for (let i = 0; i < 180; i++) c.update(1 / 60, cam);
+    expect(c.busy).toBeNull(); expect(w.hero.locked).toBe(false);
+    expect(banners).toEqual(['СТРАЖ ПОВЕРЖЕН']);
+    c.victory(); expect(c.busy).toBe('victory'); c.clear(cam);
+    w.hero.avatar.dispose();
+  });
   it('slow motion плавно входит и выходит, не меняя обычное боевое замедление', () => {
     const t = new Time(); t.cinematicSmooth(1, 0.15, 0.2, 0.25);
     const scales: number[] = [1];
@@ -61,7 +75,7 @@ describe('читаемая постановка добиваний', () => {
       }, holding: () => false, tapped: () => false, seen: () => 0, markSeen: () => {},
     });
     d.play(track);
-    for (let i = 0; i < 360; i++) { e.step(w, 1 / 60); d.update(1 / 60, cam); }
+    for (let i = 0; i < Math.ceil((track.dur! + 1) * 60); i++) { e.step(w, 1 / 60); d.update(1 / 60, cam); }
     expect(contacts.map((c) => c.name)).toEqual(bell ? ['bell'] : ['knee', 'helmet']);
     for (const c of contacts) expect(c.error, `${c.name}: ${c.error.toFixed(4)} м`).toBeLessThan(0.01);
     const T = bell ? BELL_KILL_T : GATE_KILL_T;

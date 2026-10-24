@@ -259,6 +259,7 @@ export class App {
         } }, label);
         choices.append(link);
       }
+      choices.append(h('a', { href: '?stage=1-9', style: { display: 'inline-flex', alignItems: 'center', minHeight: '44px', padding: '9px 13px', color: '#ffd9a3', background: '#30231fed', border: '1px solid #a27e53', borderRadius: '10px', fontSize: '12px', textDecoration: 'none' } }, 'Играть: Хоры'));
       document.body.append(choices);
     }
     (window as unknown as { __app: App }).__app = this;

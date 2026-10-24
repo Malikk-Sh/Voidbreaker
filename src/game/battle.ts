@@ -160,6 +160,8 @@ export class Battle {
   private acc = 0;
   private endT = -1;
   outcome: 'playing' | 'won' | 'lost' = 'playing';
+  /** У постановочного добивания уже есть финальный план; общий облёт победы ему не нужен. */
+  private finisherVictory = false;
   onEnd: ((o: BattleOutcome) => void) | null = null;
   boss: BossController | null = null;
   private fpsAcc = 0; private fpsN = 0; fps = 60;
@@ -324,6 +326,11 @@ export class Battle {
 
   private bindEvents(): void {
     const b = this.world.bus, hud = this.ctx.hud, S = this.ctx;
+    let choirTaught = false;
+    b.on('choir', e => {
+      if (e.kind === 'mark' && !choirTaught) { choirTaught = true; hud.showHint('Хор бьёт по старым меткам. Уведи их во врагов. Рывок в такт вернёт волну!', 12); }
+      if (e.kind === 'return') hud.showHint('Хор умолк на 9 с. Ответная волна оглушает врагов!', 12);
+    });
     b.on('waveStart', (e) => {
       if (!this.stage.boss) hud.waveBanner(e.index, e.total);
       if (e.index > 0) S.music.stinger('stinger');
@@ -354,6 +361,7 @@ export class Battle {
       this.outcome = 'won';
       // казнь (план §8.3.2): экран наград — только когда сцена досмотрена
       if (this.stage.boss) { this.endT = this.director.active ? -1 : 1.8; return; }
+      if (this.finisherVictory) { S.music.stop(1.5); this.endT = this.director.active ? -1 : 0.35; return; }
       // послебоевая тишина (план §8.8): музыка стихает, обломки ещё падают, Пилот опускает клинок — потом награды
       S.music.stop(POST_SILENCE * 0.8);
       this.endT = this.cine.busy === 'down' ? 4.6 : Math.max(2.9, POST_SILENCE + 0.4);
@@ -491,6 +499,7 @@ export class Battle {
     this.events.update(realDt, dtW, this.ctx.renderer.camera.position.y);
     // тихий фон арены: между волнами слышен, в бою уходит под музыку
     this.ambience?.set(this.runner.phase === 'wave' ? AMB_LEVEL.fight : AMB_LEVEL.calm);
+    this.ambience?.setChoirMuted(!!this.events.choir?.silenced);
     this.ambience?.update(realDt);
     this.ash.follow(this.cam.focus.x, this.cam.focus.z);
     const out = Math.max(this.world.candlesOut, this.events.fieldOut);
@@ -872,6 +881,7 @@ export class Battle {
    */
   private playKillcam(e: Enemy): void {
     const w = this.world, h = w.hero, ctx = this.ctx;
+    this.finisherVictory = true;
     for (const tele of w.telegraphs) tele.alive = false;
     const anchors = guardianTargets(e.puppet.layout, e.x, e.z, e.facing, e.kind === 'gateGuardian' ? 1.65 : 1.45);
     const angle = e.kind === 'bellRinger' ? e.facing : Math.atan2(e.x - h.x, e.z - h.z), fx = Math.sin(angle), fz = Math.cos(angle);
@@ -894,6 +904,7 @@ export class Battle {
     };
     this.sceneCalls.set('crumble', crumble);
     this.sceneCalls.set('guardianTitle', () => ctx.hud.bigBanner('СТРАЖ ПОВЕРЖЕН', e.def.name, 'gold', 2.0, 50));
+    const finish = () => { crumble(); if (this.outcome === 'won') this.endT = 0.35; };
     if (e.kind === 'gateGuardian') {
       this.sceneCalls.set('knee', () => {
         if (e instanceof GateGuardian) e.setKillcamStage('kneel');
@@ -909,8 +920,9 @@ export class Battle {
         // свет из трещин шлема
         this.vfx.lights.flash(...anchors.head, [1.6, 1.4, 1.0], 3, 5, 0.9);
         this.vfx.burst(24, { x: anchors.head[0], y: anchors.head[1], z: anchors.head[2], life: 0.6, size: 0.12, size1: 0.02, color: C.core, drag: 2, frame: 'spark', stretch: 1.5 }, { v: 6, vy: 3 });
+        w.bus.emit('finisherImpact', { x: anchors.head[0], y: anchors.head[1], z: anchors.head[2], facing: angle });
       });
-      this.playScene(killGateTrack(spots), crumble, { letterbox: false, hud: false });
+      this.playScene(killGateTrack(spots), finish, { letterbox: false, hud: false });
     } else {
       this.sceneCalls.set('bell', () => {
         if (e instanceof BellRinger) { e.bellFlash = 1.5; e.setKillcamStage('hit'); }
@@ -918,8 +930,9 @@ export class Battle {
         w.bus.emit('sfx', { id: 'boss_bell', x: e.x, z: e.z });
         // фиолетовое кольцо проходит сквозь Звонаря
         w.bus.emit('shockwave', { x: anchors.bell[0], z: anchors.bell[2], y: anchors.bell[1], r: 7, color: 'void', strength: 0.65 });
+        w.bus.emit('finisherImpact', { x: anchors.bell[0], y: anchors.bell[1], z: anchors.bell[2], facing: angle });
       });
-      this.playScene(killBellTrack(spots), crumble, { letterbox: false, hud: false });
+      this.playScene(killBellTrack(spots), finish, { letterbox: false, hud: false });
     }
   }
 

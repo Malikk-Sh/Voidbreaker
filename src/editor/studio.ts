@@ -435,11 +435,15 @@ class Studio {
     const contact = def.events?.find((ev) => ev.name === 'contact'); if (!contact) return;
     const localTime = contact.t / (d.speed ?? s.speed ?? 1), t = (d.t ?? s.t) + localTime;
     this.seek(t / this.rate());
-    const entry = this.entries().find((e) => !e.added && e.s.do === 'actor' && e.s.who === s.who && Math.abs(e.s.t - s.t) < 0.001 && e.s.moveTo);
+    const sourceContact = this.clipDefinition(s, {})?.events?.find(ev => ev.name === 'contact')?.t ?? contact.t;
+    const originalContactAt = s.t + sourceContact / (s.speed ?? 1);
+    // Замах и разрез могут быть разными движениями: совмещаем последнее движение к маркеру.
+    const entry = this.entries().filter(e => !e.added && e.s.do === 'actor' && e.s.who === s.who && e.s.moveTo && e.s.t >= s.t - 0.001 && e.s.t <= originalContactAt + 0.001).sort((a, b) => b.s.t - a.s.t)[0];
     if (!entry || entry.s.do !== 'actor' || !entry.s.moveTo) { this.toast('Не найдено движение удара'); return; }
     const h = this.preview.actors.hero, delta = this.preview.contactDelta(), original = entry.s.moveTo;
     const moveOffset = offsetWorld([h.x + delta[0] - original[0], h.y + delta[1] - original[1], h.z + delta[2] - original[2]], -(this.spec.track.heading ?? 0));
-    this.change(() => { const e = this.currentEdit(true); e.steps[entry.key] = { ...e.steps[entry.key], moveOffset, lookOffset: moveOffset, t: d.t ?? s.t, dur: localTime }; });
+    const windup = clamp((entry.s.t - s.t) / Math.max(0.001, originalContactAt - s.t), 0, 0.99), start = (d.t ?? s.t) + localTime * windup;
+    this.change(() => { const e = this.currentEdit(true); e.steps[entry.key] = { ...e.steps[entry.key], moveOffset, lookOffset: moveOffset, t: start, dur: t - start }; });
     this.seek(t / this.rate()); this.toast(`Контакт совмещён · ошибка ${(this.preview.contactError * 100).toFixed(1)} см`);
   }
   private export(): void {

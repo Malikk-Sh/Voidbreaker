@@ -33,7 +33,8 @@ export const AMB_LEVEL = { calm: 1, fight: 0.3 };
 const LOOP_GAIN = 0.7;
 
 export class Ambience {
-  private loops: { h: LoopHandle; base: number }[] | null = null;
+  private loops: { h: LoopHandle; base: number; choir?: boolean }[] | null = null;
+  private choirMuted = false;
   level = 0;
   private target = 0;
   private applied = -1;
@@ -48,25 +49,26 @@ export class Ambience {
 
   /** Целевой уровень 0..1 (между волнами — AMB_LEVEL.calm, в бою — AMB_LEVEL.fight). */
   set(level: number): void { this.target = level; }
+  setChoirMuted(muted: boolean): void { if (muted !== this.choirMuted) { this.choirMuted = muted; this.applied = -1; } }
 
   update(dt: number): void {
     if (this.stopped) return;
     // петли запускаются, как только звуки запечены и контекст разблокирован
     if (!this.loops) {
-      const l: { h: LoopHandle; base: number }[] = [];
+      const l: { h: LoopHandle; base: number; choir?: boolean }[] = [];
       const wind = this.def.wind > 0 ? this.audio.startLoop('amb_wind', 0.1) : null;
       const choir = this.def.choir > 0 ? this.audio.startLoop('amb_choir', 0.5) : null;
       if ((this.def.wind > 0 && !wind) || (this.def.choir > 0 && !choir)) { wind?.stop(); choir?.stop(); }
       else {
         if (wind) l.push({ h: wind, base: this.def.wind });
-        if (choir) l.push({ h: choir, base: this.def.choir });
+        if (choir) l.push({ h: choir, base: this.def.choir, choir: true });
         this.loops = l;
       }
     }
     this.level += (this.target - this.level) * Math.min(1, dt * 0.8);
     if (this.loops && Math.abs(this.level - this.applied) > 0.01) {
       this.applied = this.level;
-      for (const l of this.loops) l.h.gain.gain.setTargetAtTime(l.base * this.level * LOOP_GAIN, this.audio.time, 0.25);
+      for (const l of this.loops) l.h.gain.gain.setTargetAtTime(l.base * this.level * LOOP_GAIN * (l.choir && this.choirMuted ? 0.06 : 1), this.audio.time, 0.25);
     }
     // одиночные звуки: случайные интервалы (в среднем 60 / частота с), тише в бою
     this.nextBell -= dt;

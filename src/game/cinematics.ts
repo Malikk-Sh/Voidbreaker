@@ -59,7 +59,7 @@ const STAGE_INTRO: Record<string, { sub: string; line: string }> = {
   '1-6': { sub: 'Колокол звонит по спасению', line: 'Слышишь звон? Звонарь знает, что мы идём.' },
   '1-7': { sub: 'Сад, где больше ничего не растёт', line: 'Клуатр. На месте сада — провал: сбрасывай их туда.' },
   '1-8': { sub: 'Здесь спят те, кто молился первым', line: 'Крипта. Коридоры узкие — не дай зажать себя с двух сторон.' },
-  '1-9': { sub: 'Хор поёт последнюю песнь', line: 'Хоры. За ними — Иерофант. Держись мостика.' },
+  '1-9': { sub: 'Хор запоминает твои шаги', line: 'Уведи метки Хора во врагов. Рывок в такт вернёт псалом певцу.' },
 };
 
 /**
@@ -217,14 +217,14 @@ export class Cinematics {
     });
   }
 
-  /** Страж повержен: глубокое замедление, облёт, вспышка. */
+  /** Страж повержен без отдельной казни: распад и выдержанный финальный план. */
   guardianDown(e: Enemy): void {
     const g = GUARDIAN[e.kind];
     const x = e.x, z = e.z, hgt = e.height;
     this.host.slow(0.18, 1.3);
     this.host.flash(0.5);
     this.play({
-      id: 'down', editorId: `guardianDown:${e.kind}`, dur: 2.3, fadeIn: 0.3, fadeOut: 0.7, letterbox: true, lock: true, skippable: true,
+      id: 'down', editorId: `guardianDown:${e.kind}`, dur: 3.4, fadeIn: 0.3, fadeOut: 0.7, letterbox: true, lock: true, skippable: true,
       cam: (u, pos, look) => {
         const a = 0.6 + u * 1.1;
         pos.set(x + Math.sin(a) * 9.5, 3.4 + u * 1.5, z + Math.cos(a) * 9.5);
@@ -240,8 +240,8 @@ export class Cinematics {
 
   /** Победа: медленный облёт Пилота в победной стойке. */
   victory(): void {
-    // падение Стража доигрывается до конца, облёт — следом
-    if (this.shot?.id === 'down') { this.shot.onEnd = () => this.victory(); return; }
+    // У победы над Стражем уже есть заключительный план — второй облёт отвлекал от распада.
+    if (this.shot?.id === 'down') return;
     const h = this.host.world.hero;
     const line = VICTORY[(Math.random() * VICTORY.length) | 0];
     this.play({
