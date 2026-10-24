@@ -34,6 +34,8 @@ jobs:
         run: npm run smoke
         env:
           SMOKE_SHOT: smoke.png
+      - name: Scene studio (touch, storage, poses and replay)
+        run: npm run studio-test
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -41,4 +43,6 @@ jobs:
           path: |
             dist
             smoke.png
+            work/studio/report.json
+            work/studio/*.png
           if-no-files-found: ignore

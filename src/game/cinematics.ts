@@ -4,15 +4,18 @@ import { clamp } from '../core/math';
 import { CAM_FOV } from '../render/renderer';
 import type { StageDef } from '../data/stages';
 import { AFFIX_NAMES } from '../data/enemies';
-import type { CameraRig } from '../world/camera';
+import { CameraRig } from '../world/camera';
 import type { Enemy } from '../world/enemy';
 import type { World } from '../world/world';
+import { Director, type CineTrack, type DirectorHost, type V3 } from './director';
+import { offsetWorld, readProject, resolveScene } from './sceneEdits';
 
 type BannerColor = 'gold' | 'void' | 'hunger' | 'white' | 'ether' | 'steel';
 
 /** Что режиссёру нужно от боя: мир, летербокс, замедление, баннеры, реплики, музыка. */
 export interface CineHost {
   world: World;
+  sceneHost?(): DirectorHost;
   letterbox(v: number): void;
   slow(scale: number, sec: number): void;
   banner(text: string, sub: string | undefined, color: BannerColor, dur: number, size: number): void;
@@ -29,6 +32,8 @@ export interface CineHost {
 
 interface Shot {
   id: string;
+  editorId?: string;
+  roll?: number;
   t: number;
   dur: number;
   /** Плавный вход/выход веса кинокамеры (с). */
@@ -92,6 +97,10 @@ export const STAGE_VISTA_T = { hold: 1.5, crane: 2.6, end: 4.7, from: 0.3 };
 const _sp = new THREE.Vector3(), _sl = new THREE.Vector3();
 
 export class Cinematics {
+  /** Каталог редактора снимает исходную постановку без локальных правок. */
+  studio = false;
+  private motionDirector: Director | null = null;
+  private motionCam = new CameraRig();
   private shot: Shot | null = null;
   private hadCam = false;
   private w = 0;
@@ -120,7 +129,7 @@ export class Cinematics {
     const V = vista ? STAGE_VISTA_T : null;
     const dur = V ? V.end : 3.1;
     this.play({
-      id: 'intro', dur, fadeIn: 0, fadeOut: 0.9, letterbox: true, lock: true, skippable: true,
+      id: 'intro', editorId: `arenaIntro:${stage.id}`, dur, fadeIn: 0, fadeOut: 0.9, letterbox: true, lock: true, skippable: true,
       cam: (u, pos, look) => {
         if (!V || !vista) { sweep(Ease.inOutSine(u), pos, look); return; }
         const t = u * dur;
@@ -162,7 +171,7 @@ export class Cinematics {
     this.host.slow(0.4, 1.6);
     h.invulnUntil = Math.max(h.invulnUntil, h.clock + 2.2);
     this.play({
-      id: 'guardian', dur: 2.6, fadeIn: 0.45, fadeOut: 0.7, letterbox: true, lock: true, skippable: true,
+      id: 'guardian', editorId: `guardianIntro:${e.kind}`, dur: 2.6, fadeIn: 0.45, fadeOut: 0.7, letterbox: true, lock: true, skippable: true,
       cam: (u, pos, look) => {
         const a = (u - 0.5) * 0.5;
         const ca = Math.cos(a), sa = Math.sin(a);
@@ -190,7 +199,7 @@ export class Cinematics {
     this.host.musicPhase(1);
     this.host.stinger();
     this.play({
-      id: 'rage', dur: 1.5, fadeIn: 0.25, fadeOut: 0.5, letterbox: true, lock: false, skippable: false,
+      id: 'rage', editorId: `guardianRage:${e.kind}`, dur: 1.5, fadeIn: 0.25, fadeOut: 0.5, letterbox: true, lock: false, skippable: false,
       cam: (u, pos, look) => {
         // взгляд вверх: камера отходит и чуть поднимается — колокол в профиль, а не раструбом в объектив
         const up = overhead ? Ease.inOutSine(clamp((u - 0.3) / 0.45, 0, 1)) : 0;
@@ -215,7 +224,7 @@ export class Cinematics {
     this.host.slow(0.18, 1.3);
     this.host.flash(0.5);
     this.play({
-      id: 'down', dur: 2.3, fadeIn: 0.3, fadeOut: 0.7, letterbox: true, lock: true, skippable: true,
+      id: 'down', editorId: `guardianDown:${e.kind}`, dur: 2.3, fadeIn: 0.3, fadeOut: 0.7, letterbox: true, lock: true, skippable: true,
       cam: (u, pos, look) => {
         const a = 0.6 + u * 1.1;
         pos.set(x + Math.sin(a) * 9.5, 3.4 + u * 1.5, z + Math.cos(a) * 9.5);
@@ -236,7 +245,7 @@ export class Cinematics {
     const h = this.host.world.hero;
     const line = VICTORY[(Math.random() * VICTORY.length) | 0];
     this.play({
-      id: 'victory', dur: 2.6, fadeIn: 0.6, fadeOut: 0.01, letterbox: true, lock: true, skippable: false,
+      id: 'victory', editorId: 'arenaVictory', dur: 2.6, fadeIn: 0.6, fadeOut: 0.01, letterbox: true, lock: true, skippable: false,
       cam: (u, pos, look) => {
         const a = -0.5 + Ease.inOutSine(u) * 0.9;
         const r = 7 - u;
@@ -263,6 +272,7 @@ export class Cinematics {
   private play(s: Omit<Shot, 't'>): void {
     this.end(false);
     this.shot = { ...s, t: 0 };
+    if (!this.studio) this.applyStudio();
     if (s.letterbox) this.host.letterbox(1);
     if (s.lock) { this.host.world.hero.locked = true; this.host.hud?.(false); }
   }
@@ -273,11 +283,15 @@ export class Cinematics {
     if (s.letterbox) this.host.letterbox(0);
     if (s.lock) { this.host.world.hero.locked = false; this.host.hud?.(true); }
     this.shot = null;
+    // Движения и позы редактора отпускаются вместе с вставкой.
+    this.motionDirector?.clear(this.motionCam);
+    this.motionDirector = null;
     if (callEnd) s.onEnd?.();
   }
 
   /** Кадр: таймлайн, вес кинокамеры, пропуск. Вызывать после боевой камеры. */
   update(realDt: number, cam: CameraRig): void {
+    this.motionDirector?.update(realDt, this.motionCam);
     const s = this.shot;
     if (s) {
       s.t += realDt;
@@ -297,7 +311,7 @@ export class Cinematics {
       this.w += (target - this.w) * Math.min(1, realDt * 6);
     }
     if (this.w > 0.002 && (cur?.cam || this.hadCam)) {
-      cam.cine = { pos: this.pos, look: this.look, w: this.w, fov: cur?.fov?.(clamp(cur.t / cur.dur, 0, 1)) };
+      cam.cine = { pos: this.pos, look: this.look, w: this.w, fov: cur?.fov?.(clamp(cur.t / cur.dur, 0, 1)), roll: cur?.roll };
       this.hadCam = true;
     } else if (this.hadCam) {
       cam.cine = null;
@@ -310,5 +324,38 @@ export class Cinematics {
     this.end(false);
     this.w = 0;
     if (this.hadCam) { cam.cine = null; this.hadCam = false; }
+  }
+
+  /** Исходный план для каталога: позиции камеры сняты по равным долям времени. */
+  describe(): CineTrack | null {
+    const s = this.shot; if (!s?.cam) return null;
+    const path: V3[] = [], look: V3[] = [], p = new THREE.Vector3(), q = new THREE.Vector3();
+    for (let i = 0; i <= 24; i++) { s.cam(i / 24, p, q); path.push([p.x, p.y, p.z]); look.push([q.x, q.y, q.z]); }
+    const h = this.host.world.hero;
+    return { id: s.editorId ?? `battle:${s.id}`, origin: [h.x, 0, h.z], heading: h.facing, dur: s.dur,
+      steps: [{ t: 0, do: 'cam', path, look, dur: s.dur, ease: 'linear', fov: s.fov?.(0) ?? CAM_FOV }] };
+  }
+
+  private applyStudio(): void {
+    const source = this.describe(), s = this.shot, project = readProject();
+    if (!source || !s || !project.enabled) return;
+    const edit = project.scenes[source.id]?.full; if (!edit) return;
+    const d = edit.steps['cam:0'], original = s.cam!, rate = edit.rate ?? 1;
+    const oldDur = s.dur, newDur = Math.max(0.01, d?.dur ?? oldDur), delay = d?.t ?? 0;
+    s.dur = (delay + newDur) / rate; s.fadeIn /= rate; s.fadeOut /= rate;
+    s.cues = s.cues.map((c) => ({ ...c, at: (delay + c.at * newDur / oldDur) / rate }));
+    const offsets = (arr: V3[] | undefined) => arr?.length ? arr.map((v) => offsetWorld(v, source.heading)) : [[0, 0, 0] as V3];
+    const p = offsets(d?.pathOffsets), q = offsets(d?.lookOffsets), delta = new THREE.Vector3();
+    s.cam = (u, pos, look) => {
+      const progress = clamp((u * s.dur * rate - delay) / newDur, 0, 1), k = d?.ease ? Ease[d.ease](progress) : progress;
+      original(k, pos, look); if (d?.pathOffsets) pos.add(Director.sample(p, k, delta)); if (d?.lookOffsets) look.add(Director.sample(q, k, delta));
+    };
+    if (d?.fov !== undefined) s.fov = () => d.fov;
+    s.roll = d?.roll;
+    const host = this.host.sceneHost?.();
+    if (host && (edit.added?.length || Object.keys(edit.placements ?? {}).length)) {
+      const track = resolveScene(source, project, 'full'); track.steps = track.steps.filter((step) => step.do !== 'cam');
+      this.motionDirector = new Director({ ...host, markSeen: () => {}, overlay: () => {} }); this.motionDirector.studio = true; this.motionDirector.play(track);
+    }
   }
 }

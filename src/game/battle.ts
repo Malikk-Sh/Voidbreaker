@@ -28,6 +28,8 @@ import { RISER_LEN } from '../audio/sfx';
 import { AshFall, BeamDust } from '../vfx/atmosphere';
 import { KaelisDrone } from '../vfx/kaelis';
 import { killBellTrack, killGateTrack } from '../world/boss/guardianScenes';
+import { Clip } from '../anim/clip';
+import type { ClipDef } from '../anim/clip';
 import { Director, type CineTrack, type DirectorActor, type SkyParam, type V3 } from './director';
 import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
@@ -64,7 +66,7 @@ const DEBUG_NAV = typeof location !== 'undefined' && new URLSearchParams(locatio
 export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef }
 /** prologue — бой 1-1 начинается приземлением Пилота (план §8.2, планы 6–8), а не пролётом над ареной. */
 /** Сцены Кинозала, которые пересматриваются в бою (план §8.1): kill-cam стражей и интро Иерофанта. */
-export type ReplayId = 'killGate' | 'killBell' | 'hierophantIntro' | 'hierophantEnd';
+export type ReplayId = 'killGate' | 'killBell' | 'hierophantIntro' | 'hierophantEnd' | 'hierophantCollapse' | 'hierophantCrack' | 'prologueLanding';
 /** Этап, на котором играет сцена, и для kill-cam — кто Страж. */
 export const REPLAY: Record<ReplayId, { stage: string; guardian?: EnemyKind }> = {
   killGate: { stage: '1-3', guardian: 'gateGuardian' },
@@ -72,12 +74,15 @@ export const REPLAY: Record<ReplayId, { stage: string; guardian?: EnemyKind }> =
   hierophantIntro: { stage: 'boss1' },
   // казнь: интро пропускается, босс сразу в фазе III — на звёздном мосту, оглушён, на краю смерти
   hierophantEnd: { stage: 'boss1' },
+  hierophantCollapse: { stage: 'boss1' },
+  hierophantCrack: { stage: 'boss1' },
+  prologueLanding: { stage: '1-1' },
 };
 /** Пауза после сцены перед возвратом в Святилище (с): осыпание Стража доигрывает. */
 const REPLAY_TAIL = { kill: 1.6, intro: 0.5, execDelay: 0.4 };
 
 /** prologue — бой 1-1 начинается приземлением; replay — пересмотр сцены: без волн и наград, по концу — onReplayEnd. */
-export interface BattleOpts { prologue?: boolean; replay?: ReplayId }
+export interface BattleOpts { prologue?: boolean; replay?: ReplayId; previewShort?: boolean }
 
 /** Кратер от падения Пилота в центре 1-1 (план §8.5). */
 const CRATER = { x: 0, z: 0.5 };
@@ -261,6 +266,7 @@ export class Battle {
       Battle.feelSettings(ctx.settings), r.camera);
     this.cine = new Cinematics({
       world: this.world,
+      sceneHost: () => this.directorHost(),
       letterbox: (v) => this.feel.setLetterbox(v),
       slow: (scale, sec) => ctx.time.cinematic(sec, scale),
       banner: (text, sub, color, dur, size) => ctx.hud.bigBanner(text, sub, color, dur, size),
@@ -281,7 +287,10 @@ export class Battle {
     this.skyCine.starLit = lit > 0 ? 1 : 0;
     this.skyCine.star2 = lit >= 2 ? 1 : 0;
     this.replay = opts.replay ? { id: opts.replay, target: null, seen: false, t: 0, done: false } : null;
-    if (this.replay) this.director.full = true;
+    if (this.replay) {
+      this.director.full = !opts.previewShort;
+      if (opts.previewShort) ctx.save.cine[this.replay.id] = Math.max(2, ctx.save.cine[this.replay.id] ?? 0);
+    }
     this.bindEvents();
     // шейдеры всей сцены — сейчас, на загрузке, а не фризом посреди боя (оптимизация)
     void ctx.renderer.warmAll(this.group, () => !this.disposed);
@@ -809,11 +818,20 @@ export class Battle {
     };
     return {
       actor: (who: string) => (who === 'hero' ? heroActor : this.props.get(who) ?? enemyActor(who)),
+      defineClip: (who: string, id: string, def: ClipDef) => {
+        const p = who === 'hero' ? w.hero.avatar.puppet : (enemyActor(who) as Enemy | null)?.puppet;
+        if (p) p.clips.set(id, new Clip({ ...def, id }, p.layout));
+      },
       playClip: (who: string, clip: string) => { if (who === 'hero') w.hero.avatar.puppet.play(clip, 1, 0.08); },
-      clipEvents: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.events ?? [] : [],
-      clipDuration: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.dur ?? 0 : 0,
-      sampleClip: (who: string, clip: string, time: number, reset: boolean, blend?: number) => { if (who === 'hero') w.hero.sampleSceneClip(clip, time, reset, blend); },
-      releaseClip: (who: string) => { if (who === 'hero') w.hero.releaseSceneClip(); },
+      clipEvents: (who: string, clip: string) => (who === 'hero' ? w.hero.avatar.puppet : (enemyActor(who) as Enemy | null)?.puppet)?.clips.get(clip)?.events ?? [],
+      clipDuration: (who: string, clip: string) => (who === 'hero' ? w.hero.avatar.puppet : (enemyActor(who) as Enemy | null)?.puppet)?.clips.get(clip)?.dur ?? 0,
+      sampleClip: (who: string, clip: string, time: number, reset: boolean, blend?: number) => {
+        if (who === 'hero') w.hero.sampleSceneClip(clip, time, reset, blend);
+        else { const p = (enemyActor(who) as Enemy | null)?.puppet, c = p?.clips.get(clip);
+          if (p && c) { if (reset && !p.anim.sceneDriven) { p.anim.out.set(p.skel.rot); p.base.set(p.skel.rot); } p.anim.sampleScene(c, time, reset, blend); p.anim.compose(p.base); p.skel.rot.set(p.anim.out); p.skel.off[p.layout.idx('root') * 3 + 1] = p.anim.root.y; p.skel.update(); }
+        }
+      },
+      releaseClip: (who: string) => { if (who === 'hero') w.hero.releaseSceneClip(); else { const p = (enemyActor(who) as Enemy | null)?.puppet; if (p) { p.anim.releaseScene(); p.skel.off[p.layout.idx('root') * 3 + 1] = 0; } } },
       shatter: (who: string, dx: number, dz: number, power: number) => {
         const e = enemyActor(who) as Enemy | null;
         if (e) w.killEnemy(e, dx, dz, power);
@@ -1136,6 +1154,13 @@ export class Battle {
     const R = this.replay!, w = this.world;
     this.ctx.hud.visible = false;
     const e = R.target;
+    if ((R.id === 'hierophantCollapse' || R.id === 'hierophantCrack') && !R.setup && this.boss instanceof HierophantController) {
+      R.setup = true;
+      this.director.skip();
+      this.boss.replayTransition(R.id === 'hierophantCollapse' ? 2 : 3);
+      R.seen = true;
+      return;
+    }
     // Страж проявился — добивающий удар по оглушённому: дальше kill-cam как в бою
     if (e && !R.seen && !this.director.active && e.state !== 'spawn' && !e.killcam) {
       e.hp = Math.min(e.hp, 5);

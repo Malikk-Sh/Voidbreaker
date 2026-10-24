@@ -9,6 +9,7 @@ export default defineConfig({
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
+      input: { game: 'index.html', studio: 'editor.html' },
       output: {
         manualChunks: (id: string) => (id.includes('node_modules/three') ? 'three' : undefined),
       },

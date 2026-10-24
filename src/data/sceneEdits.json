@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "enabled": true,
+  "scenes": {
+    "hierophantEnd": {
+      "full": {
+        "steps": {
+          "actor:hero:0": { "ease": "outCubic", "turn": 0.24, "bends": [[0.12, 0, 0]] },
+          "actor:hero:1": { "ease": "inOutSine", "turn": 0.3, "bends": [[0.07, 0.06, 0]] },
+          "actor:hero:2": { "ease": "outCubic", "bends": [[0, 0.18, 0]] },
+          "actor:hero:4": { "ease": "outCubic", "bends": [[0.1, 0.12, 0]] },
+          "clip:hero:0": { "blend": 0.18 },
+          "clip:hero:1": { "blend": 0.18 },
+          "clip:hero:2": { "blend": 0.18 },
+          "clip:hero:5": { "blend": 0.18 },
+          "clip:hero:6": { "blend": 0.18 }
+        }
+      }
+    }
+  }
+}

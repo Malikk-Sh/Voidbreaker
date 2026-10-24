@@ -14,6 +14,7 @@ import { settingsScreen } from '../ui/screens/settings';
 import { REPLAY, type BattleOpts, type BattleOutcome, type ReplayId } from './battle';
 import { Prologue } from './prologue';
 import { LORE } from '../data/lore';
+import { replayContext } from './context';
 
 export type ScreenId = 'title' | 'hub' | 'map' | 'settings' | 'prologue';
 
@@ -55,7 +56,7 @@ export class App {
     this.game.onFrame = (dt) => { this.showcase?.update(dt); this.prologue?.update(dt); };
     this.cinemaPlayers.set('prologue', () => wipe(this.layer, () => this.playPrologue(true)));
     // kill-cam стражей и интро Иерофанта — в бою без волн; по концу сцены — назад в Архив
-    for (const id of Object.keys(REPLAY) as ReplayId[]) this.cinemaPlayers.set(id, () => this.startStage(REPLAY[id].stage, { replay: id }));
+    for (const id of Object.keys(REPLAY) as ReplayId[]) this.cinemaPlayers.set(id, () => this.startStage(REPLAY[id].stage, { replay: id, prologue: id === 'prologueLanding' }));
     this.game.onBattleEnd = (o) => this.onBattleEnd(o);
     this.game.onPauseRequest = () => { if (this.current === 'battle' && !this.overlayEl) this.showPause(); };
     this.game.ctx.input.onPause = () => { if (this.current === 'battle') this.togglePause(); };
@@ -68,7 +69,11 @@ export class App {
   /** Проигрыватели сцен Кинозала (регистрируют пролог, босс, kill-cam). */
   readonly cinemaPlayers = new Map<string, () => void>();
   canWatch(id: string): boolean { return this.cinemaPlayers.has(id); }
-  watchScene(id: string): void { this.cinemaPlayers.get(id)?.(); }
+  watchScene(id: string, short = false): void {
+    const r = REPLAY[id as ReplayId];
+    if (short && r) this.startStage(r.stage, { replay: id as ReplayId, prologue: id === 'prologueLanding', previewShort: true });
+    else this.cinemaPlayers.get(id)?.();
+  }
   save(): void { writeSave(this.ctx.save); }
   /** Свободная от панелей область экрана Святилища — туда ставится Пилот. */
   setHubFrame(f: ScreenFrame): void { if (this.showcase) this.showcase.frame = f; }
@@ -141,7 +146,7 @@ export class App {
     if (this.showcase) { this.showcase.dispose(); this.showcase = null; }
     this.stopPrologue();
     this.current = 'prologue';
-    this.prologue = new Prologue(this.ctx, this.layer, () => {
+    this.prologue = new Prologue(replay ? replayContext(this.ctx) : this.ctx, this.layer, () => {
       this.stopPrologue();
       if (replay) { this.go('hub', false); return; }
       this.ctx.setFlag('prologue');
@@ -235,6 +240,12 @@ export class App {
       addEventListener('keydown', () => this.ctx.audio.unlock(), { once: true });
     }
     if (p.has('screen')) this.go(p.get('screen') as ScreenId, false);
+    if (p.has('studioPreview')) {
+      const id = p.get('scene');
+      if (id) this.watchScene(id, p.get('variant') === 'short');
+      const back = h('a', { href: `editor.html?scene=${encodeURIComponent(id ?? 'hierophantEnd')}`, style: { position: 'fixed', zIndex: '100', left: '12px', top: '12px', color: '#ddd2ff', background: '#161320df', border: '1px solid #786493', borderRadius: '10px', padding: '12px 16px', fontSize: '13px', textDecoration: 'none', pointerEvents: 'auto' } }, '← Студия сцен');
+      document.body.append(back);
+    }
     (window as unknown as { __app: App }).__app = this;
   }
 }

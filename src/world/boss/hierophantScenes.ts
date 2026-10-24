@@ -78,7 +78,7 @@ export function hierophantIntroTrack(p: HierophantSpots): CineTrack {
     { t: 1.3, do: 'banner', text: 'ИЕРОФАНТ СКОРБИ', sub: 'Слепой понтифик', color: 'hunger', dur: 2.6, size: 50 },
     { t: 2.6, do: 'call', fn: 'begin' },
   ];
-  return { id: 'hierophantIntro', steps, short, dur: T.begin + 0.2, blendOut: 0.8 };
+  return { id: 'hierophantIntro', origin: [p.bx, 0, p.bz], heading: Math.atan2(p.bx - p.hx, p.bz - p.hz), steps, short, dur: T.begin + 0.2, blendOut: 0.8 };
 }
 
 /**
@@ -127,7 +127,7 @@ export function collapseTrack(p: HierophantSpots): CineTrack {
     { t: 1.4, do: 'banner', text: 'НАБАТ', sub: 'Вторая фаза', color: 'hunger', dur: 1.8, size: 52 },
     { t: 2.0, do: 'call', fn: 'phase' },
   ];
-  return { id: 'hierophantCollapse', steps, short, dur: T.phase + 0.2, blendOut: COLLAPSE_BLEND };
+  return { id: 'hierophantCollapse', origin: [p.bx, 0, p.bz], heading: Math.atan2(p.bx - p.hx, p.bz - p.hz), steps, short, dur: T.phase + 0.2, blendOut: COLLAPSE_BLEND };
 }
 /** Камера возвращается в бой после перехода (с). */
 export const COLLAPSE_BLEND = 0.7;
@@ -166,7 +166,7 @@ export function crackTrack(p: HierophantSpots, star: V3 = [0.42, -0.5, -0.76]): 
     { t: 0.3, do: 'banner', text: 'ПОСЛЕДНИЙ ЗВОН', sub: 'Третья фаза', color: 'hunger', dur: 1.8, size: 50 },
     { t: 1.4, do: 'call', fn: 'phase' },
   ];
-  return { id: 'hierophantCrack', steps, short, dur: T.phase + 0.2, blendOut: 0.6 };
+  return { id: 'hierophantCrack', origin: [p.bx, 0, p.bz], heading: Math.atan2(p.bx - p.hx, p.bz - p.hz), steps, short, dur: T.phase + 0.2, blendOut: 0.6 };
 }
 
 /**
@@ -324,5 +324,5 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: 3.6, do: 'sfx', id: 'exhale', gain: 0.6 },
     { t: 4.1, do: 'call', fn: 'end' },
   ];
-  return { id: 'hierophantEnd', steps, short, dur: T.end + 0.2, blendOut: 0.7 };
+  return { id: 'hierophantEnd', origin: [p.bx, 0, p.bz], heading: Math.atan2(p.bx - p.hx, p.bz - p.hz), steps, short, dur: T.end + 0.2, blendOut: 0.7 };
 }

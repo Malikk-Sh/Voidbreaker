@@ -128,7 +128,7 @@ export function prologueTrack(b: SpaceBasis): CineTrack {
     { t: T.end - 0.1, do: 'flash', v: 1 },
     { t: T.end, do: 'call', fn: 'end' },
   ];
-  return { id: 'prologue', steps, dur: T.end + 0.25 };
+  return { id: 'prologue', origin: [0, 0, 0], heading: 0, steps, dur: T.end + 0.25 };
 }
 
 /** Где стоят актёры приземления: кратер, обломок обшивки, откуда выползает Шелуха. */
@@ -218,5 +218,5 @@ export function landingTrack(p: LandingSpots): CineTrack {
     { t: L.end - 0.3, do: 'clip', who: 'hero', clip: 'lowerBlade' },
     { t: L.end, do: 'call', fn: 'end' },
   ];
-  return { id: 'prologueLanding', steps, dur: L.end + 0.2, blendOut: 0.9 };
+  return { id: 'prologueLanding', origin: [x, 0, z], heading: Math.atan2(Fx, Fz), steps, dur: L.end + 0.2, blendOut: 0.9 };
 }

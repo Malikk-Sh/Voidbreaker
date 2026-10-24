@@ -234,6 +234,7 @@ function cinemaSection(app: App): HTMLElement {
   const open = CINEMA.filter((c) => (s.cine[c.id] ?? 0) > 0 || (c.id === 'prologue' && !!s.flags.prologue));
   return h('div', { class: 'vb-card' },
     h('div', { class: 'vb-name', style: { color: UI.goldHi, fontSize: '14px' } }, 'Кинозал'),
+    h('a', { href: 'editor.html', class: 'vb-btn small', style: { display: 'inline-flex', marginTop: '10px', textDecoration: 'none', minHeight: '44px', alignItems: 'center' } }, 'Студия сцен'),
     open.length
       ? h('div', { class: 'vb-col', style: { gap: '6px', marginTop: '8px' } }, ...open.map((c) => h('div', { class: 'vb-row', style: { justifyContent: 'space-between', gap: '10px' } },
         h('div', {}, h('div', { style: { fontSize: '13px', color: UI.text } }, c.title), h('div', { style: { fontSize: '11px', color: UI.dim } }, c.sub)),

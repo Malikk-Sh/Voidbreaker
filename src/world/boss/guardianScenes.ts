@@ -31,7 +31,7 @@ export function killGateTrack(p: KillSpots): CineTrack {
     { t: 2.2, do: 'cam', path: [[gx - fx * 10 + sx * 4, 3.0, gz - fz * 10 + sz * 4]], look: [[gx, 2.2, gz]], dur: 1.4, fov: KILL_FOV },
     { t: 2.4, do: 'call', fn: 'crumble' },
   ];
-  return { id: 'killGate', steps, dur: 3.6, blendOut: 0.6 };
+  return { id: 'killGate', origin: [gx, 0, gz], heading: Math.atan2(fx, fz), steps, dur: 3.6, blendOut: 0.6 };
 }
 
 /**
@@ -56,5 +56,5 @@ export function killBellTrack(p: KillSpots): CineTrack {
     { t: 1.95, do: 'sfx', id: 'bell_strike', gain: 0.7 },
     { t: 2.1, do: 'sfx', id: 'stun_hum', gain: 0.6 },
   ];
-  return { id: 'killBell', steps, dur: 3.4, blendOut: 0.6 };
+  return { id: 'killBell', origin: [gx, 0, gz], heading: Math.atan2(fx, fz), steps, dur: 3.4, blendOut: 0.6 };
 }
