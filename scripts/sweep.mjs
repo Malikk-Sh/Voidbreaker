@@ -10,7 +10,7 @@
  */
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { preview } from 'vite';
-import { chromium } from 'playwright';
+import { launchChromium } from './browser.mjs';
 
 const ALL = ['1-1', '1-2', '1-3', '1-4', '1-5', '1-6', '1-7', '1-8', '1-9', 'boss1'];
 const stages = process.argv.slice(2).length ? process.argv.slice(2) : ALL;
@@ -26,10 +26,11 @@ const BUDGET = { calls: 160, tris: 260_000 };
 mkdirSync(OUT, { recursive: true });
 
 const server = await preview({ preview: { port: 4175, strictPort: true }, logLevel: 'warn' });
-const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+let browser;
 let failed = false;
 
 try {
+  browser = await launchChromium();
   for (const id of stages) {
     rmSync(`${OUT}/${id}.png`, { force: true });
     const page = await browser.newPage({ viewport: { width: 844, height: 390 } });
@@ -89,7 +90,7 @@ try {
     await page.close();
   }
 } finally {
-  await browser.close();
+  await browser?.close();
   await new Promise((res) => server.httpServer.close(res));
 }
 console.log(`кадры читаемости: ${OUT}/<этап>.png`);

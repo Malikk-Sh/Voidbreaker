@@ -3,23 +3,25 @@
  * мир идёт, враги появляются, удары по ним проходят; пересмотр в Кинозале не трогает сохранение. Запуск: npm run build && npm run smoke.
  */
 import { preview } from 'vite';
-import { chromium } from 'playwright';
+import { launchChromium } from './browser.mjs';
 
 const server = await preview({ preview: { port: 4174, strictPort: true }, logLevel: 'warn' });
 const base = 'http://localhost:4174/';
-const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+let browser;
+let page;
 const errors = [];
 let failed = false;
 const check = (ok, msg) => { console.log(`${ok ? '✓' : '✗'} ${msg}`); if (!ok) failed = true; };
 
 try {
-  const page = await browser.newPage({ viewport: { width: 844, height: 390 } });
+  browser = await launchChromium();
+  page = await browser.newPage({ viewport: { width: 844, height: 390 } });
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
   await page.goto(`${base}?q=low`);
   await page.waitForSelector('canvas', { timeout: 15000 });
-  await page.waitForTimeout(2000);
+  await page.waitForSelector('.vb-screen', { timeout: 15000 });
   check(await page.evaluate(() => !!document.querySelector('.vb-screen')), 'титульный экран отрисован');
 
   await page.goto(`${base}?q=low&stage=1-1&god`);
@@ -63,36 +65,53 @@ try {
   await page.evaluate(() => window.__app.watchScene('hierophantEnd'));
   await page.waitForFunction(() => window.__app.current === 'battle', null, { timeout: 15000 });
   await page.waitForFunction(() => window.__app.current === 'hub', null, { timeout: 90000 });
-  await page.waitForTimeout(1500);
   check(await readSave() === saveBefore, 'пересмотр казни в Кинозале не меняет сохранение');
 
   // тренировочный зал: Жнец-спарринг встаёт, упражнение засчитывается настоящим приёмом
   await page.goto(`${base}?q=low&stage=training`);
   await page.waitForFunction(() => !!window.__vb?.battle, null, { timeout: 15000 });
-  await page.waitForFunction(() => window.__vb.world.enemies.some((e) => e.kind === 'reaper' && !e.dead), null, { timeout: 15000 });
+  await page.waitForFunction(() => {
+    const w = window.__vb.world;
+    return w.enemies.some((e) => e.kind === 'reaper' && e.targetable)
+      && w.enemies.some((e) => e.kind === 'husk' && e.targetable);
+  }, null, { timeout: 30000 });
   // взмах в пустоту — не зачёт; Разлом по манекену — зачёт
-  const air = await page.evaluate(() => {
+  const airAt = await page.evaluate(() => {
     const bt = window.__vb.battle, h = bt.world.hero;
-    h.x += 0; h.z += 6; h.facing = 0;
+    // Упражнение проверяет попадание: удар спарринг-партнёра не должен прервать диагностический приём.
+    h.invulnUntil = 1e9;
+    const safe = { x: h.x, z: h.z };
+    bt.world.arena.nearestWalkable(h.x, h.z + 6, safe);
+    h.x = safe.x; h.z = safe.z; h.facing = 0;
     h.beginMove(h.weapon.combo[3], 0, 0.02);
-    return bt.drills.tracker.state.get('rift');
+    return bt.world.time;
   });
-  await page.waitForTimeout(900);
+  await page.waitForFunction((at) => {
+    const w = window.__vb.world;
+    return w.time > at + 0.8 && w.hero.state === 'move' && !w.hero.move;
+  }, airAt, { timeout: 30000 });
+  const air = await page.evaluate(() => window.__vb.battle.drills.tracker.state.get('rift'));
   const hit = await page.evaluate(() => {
-    const bt = window.__vb.battle, h = bt.world.hero, e = bt.world.enemies.find((x) => x.kind === 'husk' && !x.dead);
+    const bt = window.__vb.battle, h = bt.world.hero, e = bt.world.enemies.find((x) => x.kind === 'husk' && x.targetable);
     if (!e) return 'нет манекена';
     h.x = e.x; h.z = e.z + 1.2; h.facing = Math.PI;
     h.beginMove(h.weapon.combo[3], 0, 0.02);
     return 'ok';
   });
-  await page.waitForTimeout(900);
+  await page.waitForFunction(() => window.__vb.battle.drills.tracker.state.get('rift') === 'done', null, { timeout: 30000 });
   const rift = await page.evaluate(() => window.__vb.battle.drills.tracker.state.get('rift'));
-  check(air !== 'done' && hit === 'ok' && rift === 'done', `тренировка: Жнец на месте, взмах мимо не засчитан, Разлом по манекену — засчитан (${air} → ${rift})`);
+  check(air === 'performed' && hit === 'ok' && rift === 'done', `тренировка: Жнец на месте, взмах мимо не засчитан, Разлом по манекену — засчитан (${air} → ${rift})`);
   check(errors.length === 0, `без ошибок в консоли${errors.length ? `: ${errors.join(' | ')}` : ''}`);
 } catch (e) {
   check(false, String(e));
+  if (page) console.log('Состояние при сбое:', await page.evaluate(() => {
+    const b = window.__vb?.battle, w = b?.world, h = w?.hero;
+    return { screen: window.__app?.current, time: w?.time, cine: b?.cine.busy, director: b?.director.id,
+      hero: h && { state: h.state, move: h.move?.id, stateT: h.stateT, clip: h.avatar.puppet.anim.clip?.id, clipTime: h.avatar.puppet.anim.t, scene: h.avatar.puppet.anim.sceneDriven },
+      drill: b?.drills?.tracker.state.get('rift'), enemies: w?.enemies.map((x) => ({ kind: x.kind, state: x.state, dead: x.dead, targetable: x.targetable })) };
+  }).catch(() => null));
 } finally {
-  await browser.close();
+  await browser?.close();
   await new Promise((r) => server.httpServer.close(r));
 }
 process.exit(failed ? 1 : 0);

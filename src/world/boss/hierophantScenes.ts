@@ -199,7 +199,8 @@ export function executionTrack(p: ExecSpots): CineTrack {
   const forward = (v: V3): V3 => [v[0] + fx * 10, v[1], v[2] + fz * 10];
   const faceCam: V3 = [kx - fx * 4.2 + sx * 5.2, ky + 1.3, kz - fz * 4.2 + sz * 5.2];
   const both: V3 = [(contact[0] + kx) / 2, ky + 1.35, (contact[2] + kz) / 2];
-  const medium: V3 = [kx - fx * 5.4 + sx * 4.8, Math.max(1.5, ky + 0.4), kz - fz * 5.4 + sz * 4.8];
+  const wide = Math.max(8.5, dl * 1.15);
+  const medium: V3 = [kx - fx * wide + sx * wide * 0.85, Math.max(4, ky + 1.6), kz - fz * wide + sz * wide * 0.85];
   const landed: V3 = [lx, 0, lz];
   const steps: CineStep[] = [
     { t: 0, do: 'call', fn: 'freeze' },
