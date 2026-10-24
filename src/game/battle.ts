@@ -28,7 +28,7 @@ import { RISER_LEN } from '../audio/sfx';
 import { AshFall, BeamDust } from '../vfx/atmosphere';
 import { KaelisDrone } from '../vfx/kaelis';
 import { killBellTrack, killGateTrack } from '../world/boss/guardianScenes';
-import { Director, type CineTrack, type DirectorActor, type SkyParam } from './director';
+import { Director, type CineTrack, type DirectorActor, type SkyParam, type V3 } from './director';
 import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
 import '../world/boss/guardians';
@@ -179,6 +179,8 @@ export class Battle {
   private landing: { t: number; visorT: number; igniteT: number; releaseT: number; shard: THREE.Mesh; socket: THREE.Mesh; attachment: ExtractionAttachment; music: boolean; call: number } | null = null;
   private readonly landingWeaponMatrix = new THREE.Matrix4();
   private readonly landingProps: THREE.Mesh[] = [];
+  /** Положение луны до плана «на фоне луны» (сцена возвращает его). */
+  private moonSaved: THREE.Vector3 | null = null;
 
   constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout, readonly opts: BattleOpts = {}) {
     this.scars = new FloorScars(stage.boss ? BOSS_SCAR_LIFE : SCAR_LIFE);
@@ -788,6 +790,11 @@ export class Battle {
       timeScale: (scale: number, dur: number) => ctx.time.cinematic(dur, scale),
       sky: (p: SkyParam, v: number) => { this.skyCine[p] = v; },
       skyValue: (p: SkyParam) => this.skyCine[p],
+      moonBehind: (d: V3 | null) => {
+        const u = ctx.renderer.sky.u.uMoonDir.value;
+        if (d) { this.moonSaved ??= u.clone(); u.set(d[0], d[1], d[2]).normalize(); }
+        else if (this.moonSaved) { u.copy(this.moonSaved); this.moonSaved = null; }
+      },
       music: (cue: MusicCue) => this.feel.musicCue(cue),
       sfx: (id: string, gain: number) => ctx.audio.play(id, { gain }),
       say: (line: string, sp: 'kaelis' | 'boss') => this.feel.voice(line, 0, sp),

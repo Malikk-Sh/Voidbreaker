@@ -423,6 +423,27 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     }
   });
 
+  it('казнь: толчок с цепи — силуэт на фоне луны; луна возвращается следующим планом, пропуском и концом', () => {
+    const mask: [number, number, number] = [0, 3.1, 0.9];
+    const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, cx: 0, cz: 3, bellY: mask[1], lx: 3, lz: 5, star: [0.42, -0.5, -0.76], mask });
+    const shot = tr.steps.find((s) => s.do === 'cam' && s.t === EXEC_T.jump);
+    if (!shot || shot.do !== 'cam' || !shot.moon) throw new Error('нет плана на фоне луны');
+    // снизу вверх: за Пилотом — небо, не стена собора (≥ 45° над горизонтом)
+    const [p, m] = [shot.path[0], shot.moon];
+    expect(Math.atan2(m[1] - p[1], Math.hypot(m[0] - p[0], m[2] - p[2]))).toBeGreaterThan(Math.PI / 4);
+    for (const skipAt of [null, EXEC_T.jump + 0.3]) {
+      const moon: (number[] | null)[] = [];
+      const host = { actor: () => ({ x: 0, z: 8, facing: Math.PI }), holding: () => false, tapped: () => false, seen: () => 0, markSeen: () => {}, moonBehind: (d: number[] | null) => moon.push(d) };
+      const d = new Director(host as never), cam = new CameraRig();
+      d.play(tr);
+      for (let t = 0; d.active && t < 20; t += DT) { d.update(DT, cam); if (skipAt !== null && t >= skipAt && d.active) d.skip(); }
+      // ровно одна перестановка и один возврат (следующим планом или пропуском)
+      expect(moon.filter((x) => x)).toHaveLength(1);
+      expect(moon.at(-1)).toBeNull();
+      expect(moon.filter((x) => x === null)).toHaveLength(1);
+    }
+  });
+
   it('казнь: стыки сценических клипов без скачка позы — смена клипа смешивается во времени сцены', () => {
     const { w, b, ctrl, tick, director } = toPhase3();
     b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();

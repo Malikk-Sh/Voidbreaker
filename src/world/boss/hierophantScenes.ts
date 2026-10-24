@@ -186,6 +186,14 @@ export const EXEC_T = { dash: 0.9, run: 2.1, jump: 3.7, tap: 4.0, strike: 4.5, c
  * Было: неподвижная камера в ~6.8 м при fov 50 — связка занимала 37 % высоты кадра, трещина маски не читалась.
  */
 export const CONTACT_SHOT = { fov: 44, fill: 0.58, head: 1.9, below: 0.45, back: 0.62, side: 0.78, rise: 0.1, push: 0.9, headroom: 1.2, dive: { far: 1.4, raise: 1.2 } };
+/**
+ * Толчок с цепи (ТЗ §5, 3.7–4.5 с): краткий силуэт Пилота на фоне луны, маска — целью ниже него. Настоящая луна
+ * стоит ниже горизонта и с разных сторон подхода закрыта стеной собора или самим Понтификом, поэтому — киноприём:
+ * камера снизу со стороны Пилота (back/side от вершины, на below ниже маски) смотрит на него вверх под ~57°, где
+ * за ним только небо, и на этот план диск луны встаёт ровно за ним (свет сцены от луны в небе не зависит).
+ * За план камера чуть опускается (drift) — Пилот «зависает» в вершине.
+ */
+export const MOON_SHOT = { back: 2.0, side: 1.5, below: 1.0, fov: 50, drift: 0.25, toMask: 0.12 };
 /** Замах в толчке с цепи: смешивание позы бега в верхнюю позу удара (с). */
 export const EXEC_APEX_BLEND = 0.3;
 /** Локальный акцент после контакта, без белого кадра. */
@@ -221,6 +229,11 @@ export function executionTrack(p: ExecSpots): CineTrack {
     const look: V3 = [(root[0] + kx) / 2, (root[1] + C.head + raise + bottom) / 2, (root[2] + kz) / 2];
     return { look, cam: [look[0] + (vx / vl) * dist * k, look[1] + dist * C.rise * k, look[2] + (vz / vl) * dist * k] };
   };
+  const M = MOON_SHOT;
+  const moonCam: V3 = [apex[0] - fx * M.back + sx * M.side, ky - M.below, apex[2] - fz * M.back + sz * M.side];
+  // луна — за грудью Пилота; взгляд чуть ниже, к маске: она в кадре под ним, целью удара
+  const moonAt: V3 = [apex[0], apex[1] + 0.9, apex[2]];
+  const moonLook: V3 = [moonAt[0] + (kx - moonAt[0]) * M.toMask, moonAt[1] + (ky - moonAt[1]) * M.toMask, moonAt[2] + (kz - moonAt[2]) * M.toMask];
   // начало пикирования: шире и выше — замах клинком над головой в кадре; к контакту сходится в крупный план
   // headroom: клинок опускается к маске в последний миг (inExpo) — до того он над шлемом и тоже в кадре
   const dive = shotOn(apex, C.dive.far, C.dive.raise), hit = shotOn(contact, 1, C.headroom), hitNear = shotOn(contact, C.push, C.headroom).cam;
@@ -253,7 +266,8 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.jump, do: 'actor', who: 'hero', moveTo: apex, dur: 0.42, ease: 'outQuad', lookAt: forward(apex) },
     { t: T.jump, do: 'time', scale: 0.2, dur: 1.0 },
     { t: T.jump, do: 'sfx', id: 'cast_inhale', gain: 0.5 },
-    { t: T.jump, do: 'cam', path: [[top[0] + sx * 5.8 - fx, ky + 1.0, top[2] + sz * 5.8 - fz], dive.cam], look: [[kx, ky + 1, kz], dive.look], dur: T.strike - T.jump, fov: C.fov },
+    // силуэт на фоне луны: снизу вверх на вершину прыжка, луна — за Пилотом, маска — ниже, цель удара
+    { t: T.jump, do: 'cam', path: [moonCam, [moonCam[0], moonCam[1] - MOON_SHOT.drift, moonCam[2]]], look: [moonLook], dur: T.strike - T.jump, ease: 'linear', fov: MOON_SHOT.fov, moon: moonAt },
     { t: T.tap, do: 'tap', dur: 0.4, onHit: 'perfect' },
     { t: T.strike, do: 'clip', who: 'hero', clip: 'maskStrike', markers: { contact: 'strike' } },
     { t: T.strike, do: 'actor', who: 'hero', moveTo: contact, dur: MASK_CONTACT, ease: 'inQuad', lookAt: forward(contact) },

@@ -13,7 +13,8 @@ export type MusicCue = 'silence' | 'stinger' | 'leitmotif' | 'major' | 'resolve'
  * Камера — сплайн Катмулла–Рома по точкам позиции и взгляда.
  */
 export type CineStep =
-  | { t: number; do: 'cam'; path: V3[]; look: V3[]; dur: number; ease?: EaseId; fov?: number; roll?: number }
+  /** moon — план «на фоне луны»: на время плана диск луны в небе стоит за этой точкой с начала плана (киноприём). */
+  | { t: number; do: 'cam'; path: V3[]; look: V3[]; dur: number; ease?: EaseId; fov?: number; roll?: number; moon?: V3 }
   /** turn — разворот к lookAt за столько секунд (без него — сразу). */
   | { t: number; do: 'actor'; who: string; clip?: string; moveTo?: V3; dur?: number; lookAt?: V3; ease?: EaseId; turn?: number }
   /**
@@ -68,6 +69,8 @@ export interface DirectorHost {
   shatter?(who: string, dirX: number, dirZ: number, power: number): void;
   timeScale?(scale: number, dur: number): void;
   sky?(param: SkyParam, value: number): void;
+  /** Диск луны в небе — в направлении dir (план «на фоне луны»); null — вернуть прежнее положение. */
+  moonBehind?(dir: V3 | null): void;
   skyValue?(param: SkyParam): number;
   music?(cue: MusicCue): void;
   sfx?(id: string, gain: number): void;
@@ -138,6 +141,8 @@ export class Director {
   private tap: { from: number; to: number; id: string; hit: boolean } | null = null;
   /** Сколько (реальных с) сцена стоит у текущего шага ожидания. */
   private waitT = 0;
+  /** Луна переставлена планом «на фоне луны» — вернуть её следующим планом или концом сцены. */
+  private moonMoved = false;
   /** Флаги касаний, попавших в окно. */
   readonly hits = new Set<string>();
   /** Сцена играет укороченной. */
@@ -268,7 +273,15 @@ export class Director {
     switch (s.do) {
       case 'cam': {
         if (fast) { l.done = true; return; }
-        if (start) { l.curve = curveOf(s.path); l.lookCurve = curveOf(s.look); }
+        if (start) {
+          l.curve = curveOf(s.path); l.lookCurve = curveOf(s.look);
+          // план на фоне луны: диск — по направлению взгляда в начале плана; любой следующий план возвращает его
+          if (s.moon) {
+            const p = s.path[0], q = s.moon;
+            h.moonBehind?.([q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
+            this.moonMoved = true;
+          } else this.restoreMoon();
+        }
         // последняя начавшаяся камера ведёт кадр
         const e = Ease[s.ease ?? 'inOutSine'](u);
         l.curve!.getPoint(e, this.pos);
@@ -358,6 +371,12 @@ export class Director {
     this.finish(true);
   }
 
+  private restoreMoon(): void {
+    if (!this.moonMoved) return;
+    this.moonMoved = false;
+    this.host.moonBehind?.(null);
+  }
+
   private releaseClips(): void {
     for (const who of this.bindings) this.host.releaseClip?.(who);
     this.bindings.clear();
@@ -370,6 +389,7 @@ export class Director {
     this.live = [];
     this.markers = [];
     this.releaseClips();
+    this.restoreMoon();
     this.tap = null; this.waitT = 0;
     this.host.letterbox?.(0);
     this.host.overlay?.(0, null);
@@ -396,7 +416,7 @@ export class Director {
   static sample(path: V3[], u: number, out = _p): THREE.Vector3 { return curveOf(path).getPoint(u, out); }
 
   clear(cam: CameraRig): void {
-    this.track = null; this.live = []; this.markers = []; this.releaseClips(); this.w = 0; this.tap = null; this.waitT = 0; this.onEnd = null;
+    this.track = null; this.live = []; this.markers = []; this.releaseClips(); this.restoreMoon(); this.w = 0; this.tap = null; this.waitT = 0; this.onEnd = null;
     if (this.hadCam) { cam.cine = null; this.hadCam = false; }
   }
 }

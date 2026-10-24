@@ -236,7 +236,7 @@ async function runCase(viewport, scene, mode) {
       }
       if (scene === 'execution' && mode === 'full') {
         times.push({ name: 'establishing', time: 0.5 });
-        for (const [clip, name, offset] of [['chainBrace', 'brace', 0.7], ['chainRun', 'climb', 0.8]]) {
+        for (const [clip, name, offset] of [['chainBrace', 'brace', 0.7], ['chainRun', 'climb', 0.8], ['chainApex', 'moon', 0.45]]) {
           const step = plan.clips.find((s) => s.clip === clip);
           if (step) times.push({ name, time: step.time + offset });
         }
