@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { G } from '../render/materials';
-import { makeParticleAtlas, ATLAS_FRAMES, type AtlasFrame } from '../gen/tex/textures';
+import { makeParticleAtlas, ATLAS_COLS, ATLAS_FRAMES, type AtlasFrame } from '../gen/tex/textures';
 
 let atlas: THREE.Texture | null = null;
 
@@ -93,12 +93,18 @@ export class Particles {
           } else {
             float r = aM.z + aM.w * t;
             float c = cos(r), s = sin(r);
+            // Бумага медленно переворачивается и парит; каменные осколки сохраняют прежнюю форму.
+            if (aM.x == ${ATLAS_FRAMES.page.toFixed(1)}) {
+              corner.x *= 0.2 + 0.8 * abs(cos(t * 5.0 + aM.z));
+              corner.y *= 1.35;
+              mv.xy += vec2(sin(t * 3.2 + aM.z) * 0.15, sin(t * 4.5 + aM.z) * 0.07);
+            }
             corner = vec2(c * corner.x - s * corner.y, s * corner.x + c * corner.y) * size;
           }
           mv.xy += corner;
           gl_Position = projectionMatrix * mv;
           float frame = aM.x;
-          vUv = vec2((uv.x + frame) / 8.0, uv.y);
+          vUv = vec2((uv.x + frame) / ${ATLAS_COLS.toFixed(1)}, uv.y);
           float fadeIn = smoothstep(0.0, 0.06, f);
           vCol = vec4(aC.rgb, aC.a * fadeIn * pow(1.0 - f, 1.4));
         #ifdef DIM_NEAR_HERO

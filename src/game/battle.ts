@@ -573,7 +573,7 @@ export class Battle {
       pages: (x, y, z) => {
         // обсидиан и страницы молитвенников осыпаются в бездну
         this.vfx.debris.burst(x, y, z, 0, 0, 18, 9, 0.24);
-        for (let i = 0; i < 70; i++) this.vfx.norm.emit({ x: x + fxRng.spread(1.5), y: y + fxRng.spread(2), z: z + fxRng.spread(1.5), vx: fxRng.spread(3), vz: fxRng.spread(3), vy: fxRng.range(-1, 3), gravity: -3.5, drag: 1.2, life: fxRng.range(2.5, 4), size: fxRng.range(0.1, 0.2), size1: 0.08, color: [0.86, 0.82, 0.72], frame: 'shard', spin: fxRng.spread(6) });
+        for (let i = 0; i < 42; i++) this.vfx.norm.emit({ x: x + fxRng.spread(1.3), y: y + fxRng.spread(1.5), z: z + fxRng.spread(1.3), vx: fxRng.spread(1.6), vz: fxRng.spread(1.6), vy: fxRng.range(-0.3, 1.2), gravity: -0.9, drag: 0.6, life: fxRng.range(3, 4.5), size: fxRng.range(0.18, 0.28), size1: 0.12, color: [0.86, 0.82, 0.72], frame: 'page', spin: fxRng.spread(2.2) });
       },
       beam: (x, z) => { this.beamAt = { x, z, t: 0 }; this.feel.whiteFlash(0.45); },
       // в пересмотре ctx.save — копия (replayContext): награда остаётся в ней

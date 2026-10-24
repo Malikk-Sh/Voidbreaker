@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
 import { World } from '../src/world/world';
 import { Arena } from '../src/world/arena';
 import { ARENAS } from '../src/data/arenas';
@@ -11,6 +12,7 @@ import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, DESCEND_FROM, EXEC_FLASH, EX
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { InputBuffer, type Input } from '../src/input/input';
+import { EXECUTION_CLIPS, MASK_CONTACT, maskContactRoot } from '../src/anim/clips/execution';
 
 const DT = 1 / 60;
 const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
@@ -32,9 +34,13 @@ function fakeHost(w: World, b: Hierophant, hold = () => false, tap = () => false
   const log: string[] = [];
   let calls: Record<string, (arg?: number) => void> = {};
   let onEnd: ((s: boolean) => void) | null = null;
-  const hero: DirectorActor = { get x() { return w.hero.x; }, set x(v) { w.hero.x = v; }, get z() { return w.hero.z; }, set z(v) { w.hero.z = v; }, get facing() { return w.hero.facing; }, set facing(v) { w.hero.facing = v; } };
+  const hero: DirectorActor = { get x() { return w.hero.x; }, set x(v) { w.hero.x = v; }, get y() { return w.hero.y; }, set y(v) { w.hero.y = v; }, get z() { return w.hero.z; }, set z(v) { w.hero.z = v; }, get facing() { return w.hero.facing; }, set facing(v) { w.hero.facing = v; } };
   const director = new Director({
     actor: (who) => (who === 'hero' ? hero : who === 'boss' ? b : null),
+    clipEvents: (_who, id) => w.hero.avatar.puppet.clips.get(id)?.events ?? [],
+    clipDuration: (_who, id) => w.hero.avatar.puppet.clips.get(id)?.dur ?? 0,
+    sampleClip: (_who, id, time, reset) => w.hero.sampleSceneClip(id, time, reset),
+    releaseClip: () => w.hero.releaseSceneClip(),
     call: (fn, arg) => { log.push(fn); calls[fn]?.(arg); },
     holding: hold, tapped: tap, seen, markSeen: () => {},
   });
@@ -187,7 +193,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     };
     held = true; tick(1.2); held = false;
     expect(ctrl.phase).toBe(1);
-    return { w, b, ctrl, tick, log: fh.log, director: fh.director, hold: (v: boolean) => { held = v; }, tap: () => { tapNow = true; } };
+    return { w, b, ctrl, tick, host: fh.host, log: fh.log, director: fh.director, hold: (v: boolean) => { held = v; }, tap: () => { tapNow = true; } };
   }
   const full = (w: World, b: Hierophant) => w.damageEnemy(b, { mult: 4.5, stun: 30, stunKind: 'charged', knockback: 3, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade', finisher: true });
   const light = (w: World, b: Hierophant) => w.damageEnemy(b, { mult: 1, stun: 4, knockback: 1, feel: 'light', dirX: 0, dirZ: -1, source: 'blade' });
@@ -333,8 +339,8 @@ describe('Иерофант 2.0 (план §8.3)', () => {
   });
 
   /** До фазы III через сцены переходов. */
-  function toPhase3() {
-    const f = fight();
+  function toPhase3(seen = 0) {
+    const f = fight(0, 8, seen);
     const { w, b, tick } = f;
     b.hp = b.maxHp * PHASE2_AT + 1; light(w, b);
     tick(INTERCEPT_WINDOW + 5);
@@ -394,12 +400,62 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(log.some((l) => l.startsWith('star:'))).toBe(true);
   });
 
-  it('дорожка казни: 12–15 с, планы по порядку, касание — в замедленном прыжке', () => {
+  it('казнь: пропуск каждого крупного плана не дублирует смерть/награду и освобождает героя', () => {
+    for (const skipAt of [0.2, EXEC_T.run + 0.1, EXEC_T.jump + 0.1, EXEC_T.contact + 0.1, EXEC_T.land + 0.1, EXEC_T.cut + 0.1, EXEC_T.beam + 0.1]) {
+      const { w, b, ctrl, tick, log, director } = toPhase3();
+      let kills = 0;
+      w.bus.on('kill', (e) => { if (e.kind === 'hierophant') kills++; });
+      b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
+      tick(skipAt); director.skip(); tick(0.3); director.skip();
+      expect(kills).toBe(1);
+      expect(log.filter((s) => s.startsWith('star:'))).toHaveLength(1);
+      expect(log.filter((s) => s === 'finish')).toHaveLength(1);
+      expect(w.hero.scripted).toBe(false);
+      expect(w.hero.avatar.puppet.anim.sceneDriven).toBe(false);
+      w.hero.avatar.dispose();
+    }
+  });
+
+  it('короткая казнь сохраняет точный контакт и тот же финал без второй сцены победы', () => {
+    const { w, b, ctrl, tick, log, director } = toPhase3(2);
+    b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
+    expect(director.short).toBe(true);
+    tick(5);
+    expect(b.dead).toBe(true);
+    expect(director.active).toBe(false);
+    expect(log.filter((s) => s === 'strike')).toHaveLength(1);
+    expect(log.filter((s) => s === 'finish')).toHaveLength(1);
+    expect(w.hero.scripted).toBe(false);
+    w.hero.avatar.dispose();
+  });
+
+  it('контакт привязан к маске и действительному кончику оружия при разных сторонах подхода', () => {
+    for (const facing of [0, 0.8, Math.PI, -1.2]) {
+      const { w, b, ctrl, tick, host } = toPhase3();
+      w.hero.x = b.x - Math.sin(facing) * 5; w.hero.z = b.z - Math.cos(facing) * 5;
+      b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b);
+      let distance = Infinity;
+      host.flash = (v) => {
+        if (v !== EXEC_FLASH) return;
+        const tip = w.hero.avatar.sceneAnchor('bladeTip', new THREE.Vector3());
+        distance = tip.distanceTo(b.bellPos(new THREE.Vector3()));
+      };
+      ctrl.execute(); tick(EXEC_T.contact + 0.1);
+      expect(distance).toBeLessThan(0.001);
+      w.hero.avatar.dispose();
+    }
+  });
+
+  it('дорожка казни: 11–13 с, контакт задан специальным клипом, касание — в замедленном прыжке', () => {
     const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 6, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76] });
-    expect(tr.dur).toBeGreaterThanOrEqual(12);
-    expect(tr.dur).toBeLessThanOrEqual(15);
-    const order = tr.steps.filter((s) => s.do === 'call').sort((a, b) => a.t - b.t).map((s) => (s.do === 'call' ? s.fn : ''));
-    expect(order).toEqual(['freeze', 'dash', 'ghostsOff', 'flare', 'strike', 'toll', 'cut', 'beam', 'star2', 'calm', 'end']);
+    expect(tr.dur).toBeGreaterThanOrEqual(11);
+    expect(tr.dur).toBeLessThanOrEqual(13);
+    const actions = tr.steps.flatMap((s) => s.do === 'call' ? [{ t: s.t, fn: s.fn }]
+      : s.do === 'clip' ? (EXECUTION_CLIPS.find((c) => c.id === s.clip)?.events ?? []).filter((e) => s.markers?.[e.name]).map((e) => ({ t: s.t + e.t / (s.speed ?? 1), fn: s.markers![e.name] })) : []);
+    const order = actions.sort((a, b) => a.t - b.t).map((s) => s.fn).filter((fn) => fn !== 'brace' && fn !== 'chainStep');
+    expect(order).toEqual(['freeze', 'dash', 'ghostsOff', 'flare', 'strike', 'toll', 'fracture', 'cut', 'beam', 'star2', 'calm', 'end']);
+    expect(actions.find((s) => s.fn === 'strike')!.t).toBeCloseTo(EXEC_T.strike + MASK_CONTACT);
+    expect(tr.steps.some((s) => (s.do === 'actor' || s.do === 'clip') && (s.clip === 'dash' || s.clip === 'skyfall'))).toBe(false);
     const tapStep = tr.steps.find((s) => s.do === 'tap')!;
     const slow = tr.steps.find((s) => s.do === 'time' && s.t === EXEC_T.jump)!;
     expect(tapStep.t).toBeGreaterThanOrEqual(slow.t);
@@ -422,21 +478,16 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(say.t).toBeLessThan(INTRO_T.slam);
   });
 
-  it('ревью: казнь — клинок и крупные планы на настоящей маске склонённого, вспышка без белого кадра', () => {
+  it('казнь: корень учитывает настоящий вынос клинка к маске; вспышка принадлежит маркеру', () => {
     const mask: [number, number, number] = [0.2, 2.8, 0.85];
     const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 4, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76], mask });
     const strike = tr.steps.find((s) => s.do === 'actor' && s.t === EXEC_T.strike);
-    expect(strike && strike.do === 'actor' ? strike.moveTo : null).toEqual([mask[0], mask[1] + 0.3, mask[2]]);
-    // крупно в начале и на трещинах: камера ближе 3.5 м к маске, взгляд — на маску
-    for (const t of [0, EXEC_T.crack]) {
-      const c = tr.steps.find((s) => s.do === 'cam' && s.t === t);
-      if (!c || c.do !== 'cam') throw new Error(`нет плана в ${t}`);
-      for (const p of c.path) expect(Math.hypot(p[0] - mask[0], p[1] - mask[1], p[2] - mask[2])).toBeLessThan(3.5);
-      for (const l of c.look) expect(Math.hypot(l[0] - mask[0], l[1] - mask[1], l[2] - mask[2])).toBeLessThan(0.3);
-    }
+    expect(strike && strike.do === 'actor' ? strike.moveTo : null).toEqual(maskContactRoot(mask, Math.PI));
+    expect(strike && strike.do === 'actor' ? strike.dur : null).toBe(MASK_CONTACT);
+    const strikeClip = tr.steps.find((s) => s.do === 'clip' && s.t === EXEC_T.strike);
+    expect(strikeClip && strikeClip.do === 'clip' ? strikeClip.markers?.contact : null).toBe('strike');
     const flashes = tr.steps.filter((s) => s.do === 'flash');
-    expect(flashes.length).toBe(1);
-    for (const f of flashes) expect(f.do === 'flash' && f.v).toBeLessThanOrEqual(EXEC_FLASH);
-    expect(EXEC_FLASH).toBeLessThanOrEqual(0.5);
+    expect(flashes).toHaveLength(0);
+    expect(EXEC_FLASH).toBeLessThanOrEqual(0.15);
   });
 });

@@ -78,11 +78,12 @@ export function makeNoiseTexture(size = 256): THREE.DataTexture {
 }
 
 /** Атлас спрайтов частиц 6 × 64² (Tech §6.1): мягкая точка, искра, кольцо, звезда, дым, осколок. */
-export const ATLAS_FRAMES = { dot: 0, spark: 1, ring: 2, star: 3, smoke: 4, shard: 5, glyph: 6, flare: 7 } as const;
+export const ATLAS_COLS = 16;
+export const ATLAS_FRAMES = { dot: 0, spark: 1, ring: 2, star: 3, smoke: 4, shard: 5, glyph: 6, flare: 7, page: 8 } as const;
 export type AtlasFrame = keyof typeof ATLAS_FRAMES;
 
 export function makeParticleAtlas(): THREE.CanvasTexture {
-  const S = 64, N = 8;
+  const S = 64, N = ATLAS_COLS;
   const cv = document.createElement('canvas'); cv.width = S * N; cv.height = S;
   const g = cv.getContext('2d')!;
   const c = S / 2;
@@ -137,6 +138,15 @@ export function makeParticleAtlas(): THREE.CanvasTexture {
     g.fillStyle = gr; g.fillRect(0, 0, S, S);
     g.fillStyle = 'rgba(255,255,255,0.8)';
     g.fillRect(0, c - 1, S, 2); g.fillRect(c - 1, 0, 2, S);
+  });
+  // 8 лист молитвенника: прямоугольник с отогнутым углом и строками.
+  cell(8, () => {
+    g.fillStyle = '#fff';
+    g.beginPath(); g.moveTo(14, 7); g.lineTo(42, 7); g.lineTo(51, 17); g.lineTo(49, 57); g.lineTo(13, 55); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.45)';
+    g.beginPath(); g.moveTo(42, 7); g.lineTo(42, 18); g.lineTo(51, 17); g.closePath(); g.fill();
+    g.clearRect(41, 8, 2, 8);
+    for (let i = 0; i < 5; i++) g.clearRect(20, 23 + i * 5, i % 2 ? 21 : 16, 1.5);
   });
   const t = new THREE.CanvasTexture(cv);
   t.colorSpace = THREE.SRGBColorSpace;

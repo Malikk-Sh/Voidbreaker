@@ -15,7 +15,7 @@ import type { BossController } from './bossBase';
 import { ScriptedEnemy, type PoseLib } from './scripted';
 import type { Pattern, Step } from './timeline';
 import type { CineTrack, MusicCue, V3 } from '../../game/director';
-import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, crackTrack, DESCEND_FROM, executionTrack, hierophantIntroTrack } from './hierophantScenes';
+import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, crackTrack, DESCEND_FROM, EXEC_FLASH, executionTrack, hierophantIntroTrack } from './hierophantScenes';
 import type { StrikeParams } from '../world';
 
 /** Фазы (план §8.3): I «Литургия» 100–60 %, II «Набат» 60–25 %, III «Последний звон» 25–0 %. */
@@ -68,6 +68,10 @@ const POSES: PoseLib = {
   // корпус откинут — «скорбь»; держится всё окно перехвата и первый крупный план сцены
   grief: { chest: [-0.45, 0, 0.1], shUL: [-2.45, 0, 0.42], shUR: [-2.45, 0, -0.42], elbUL: [-1.45, 0, 0], elbUR: [-1.45, 0, 0], shLL: [0.25, 0, 1.15], shLR: [0.25, 0, -1.15], elbLL: [-0.1, 0, 0], elbLR: [-0.1, 0, 0] },
   broken: { chest: [1.1, 0, 0.15], shUL: [0.3, 0, 1.2], shUR: [0.3, 0, -1.2], shLL: [0.6, 0, 1.0], shLR: [0.6, 0, -1.0], elbUL: [-0.2, 0, 0], elbUR: [-0.2, 0, 0] },
+  // Маска склонена к Пилоту, руки удерживают её по бокам, оставляя центральную трещину свободной.
+  executionBrace: { chest: [0.92, 0, 0], bell: [-0.55, 0, 0], shUL: [-2.2, 0, 0.28], shUR: [-2.2, 0, -0.28], elbUL: [-1.4, 0, 0], elbUR: [-1.4, 0, 0], shLL: [0.35, 0, 0.75], shLR: [0.35, 0, -0.75], elbLL: [-0.3, 0, 0], elbLR: [-0.3, 0, 0] },
+  executionHit: { chest: [0.98, 0, 0], bell: [-0.6, 0, 0], shUL: [-2.4, 0, 0.65], shUR: [-2.4, 0, -0.65], elbUL: [-0.95, 0, 0], elbUR: [-0.95, 0, 0], shLL: [-0.4, 0, 0.9], shLR: [-0.4, 0, -0.9], elbLL: [-0.8, 0, 0], elbLR: [-0.8, 0, 0] },
+  executionBreak: { chest: [1.12, 0, 0], bell: [-0.62, 0, 0], shUL: [-2.6, 0, 0.9], shUR: [-2.6, 0, -0.9], elbUL: [-0.55, 0, 0], elbUR: [-0.55, 0, 0], shLL: [-1.1, 0, 0.65], shLR: [-1.1, 0, -0.65], elbLL: [-1.1, 0, 0], elbLR: [-1.1, 0, 0] },
 };
 
 /**
@@ -91,6 +95,36 @@ export class Hierophant extends ScriptedEnemy {
   homeX = 0; homeZ = -2;
   /** Скорость «качания» колокола (звон). */
   private sway = 0;
+  /** Сценические позы фиксированы режиссёром, боевая дрожь оглушения не сдвигает цель удара. */
+  executionStage: 'brace' | 'hit' | 'break' | null = null;
+  private executionFracture = 0;
+
+  /** Обновить сценическую позу и её якоря в том же вызове — до создания дорожки/кадра контакта. */
+  setExecutionPose(stage: 'brace' | 'hit' | 'break'): void {
+    if (stage === 'brace' && this.landFrom) {
+      this.x = this.landFrom.tx; this.z = this.landFrom.tz;
+    }
+    this.executionStage = stage;
+    this.executionFracture = stage === 'brace' ? 0 : stage === 'hit' ? 0.35 : 0.85;
+    this.landFrom = null; this.y = 0; this.cur = null; this.move = null;
+    this.vx = this.vz = this.kbX = this.kbZ = this.twistV = this.freeze = 0;
+    this.puppet.springX = this.puppet.springZ = this.puppet.springVX = this.puppet.springVZ = 0;
+    this.poseCur.clear();
+    const id = `execution${stage[0].toUpperCase()}${stage.slice(1)}`;
+    this.setPose(id, 0.01);
+    for (const [name, angles] of Object.entries(POSES[id])) this.poseCur.set(this.puppet.layout.idx(name), [...angles]);
+    this.animate(0);
+  }
+
+  override step(w: World, dt: number): void {
+    if (this.executionStage && !this.dead) {
+      // Не запускать Enemy.applyBodyFx: там оглушение качает весь риг и уводит маску от клинка.
+      this.puppet.flash = Math.max(0, this.puppet.flash - dt * 6);
+      this.animate(0);
+      return;
+    }
+    super.step(w, dt);
+  }
 
   patterns: Pattern[] = [
     // Звон: колокол раскачивается 0.9 с → 3 расходящихся кольца с разрывами
@@ -457,7 +491,7 @@ export class Hierophant extends ScriptedEnemy {
     const pose = this.blendPose(dt);
     for (const [j, e] of pose) setJoint(out, L, j, e[0], e[1], e[2]);
     // звон: раскачивание колокола
-    if (this.sway > 0) {
+    if (this.sway > 0 && !this.executionStage) {
       this.sway -= dt;
       const k = Math.sin(this.bob * 9) * 0.35 * Math.min(1, this.sway * 2);
       setJoint(out, L, L.idx('bell'), k, 0, k * 0.5);
@@ -470,15 +504,31 @@ export class Hierophant extends ScriptedEnemy {
     // кадила на цепях: маятники
     for (let i = 0; i < 4; i++) {
       const a = ARMS[i];
-      const ph = this.bob * 2.2 + i * 1.3;
+      const ph = this.executionStage ? i * 1.3 : this.bob * 2.2 + i * 1.3;
       setJoint(out, L, L.idx(`c1${a}`), Math.sin(ph) * 0.35 + this.puppet.springZ * 0.5, 0, Math.cos(ph * 0.8) * 0.3);
       setJoint(out, L, L.idx(`c2${a}`), Math.sin(ph - 0.6) * 0.25, 0, Math.cos(ph * 0.8 - 0.5) * 0.2);
     }
-    setJoint(out, L, L.idx('clapper'), Math.sin(this.bob * 3) * 0.2, 0, Math.cos(this.bob * 2.6) * 0.2);
-    const float = this.state === 'stunned' ? -1.6 : Math.sin(this.bob * 1.3) * 0.25;
+    setJoint(out, L, L.idx('clapper'), this.executionStage ? 0 : Math.sin(this.bob * 3) * 0.2, 0, this.executionStage ? 0 : Math.cos(this.bob * 2.6) * 0.2);
+    const fracture = this.executionFracture;
+    for (const [part, side] of [['maskL', 1], ['maskR', -1]] as const) {
+      const j = L.idx(part);
+      s.off[j * 3] = side * fracture * 0.5;
+      s.off[j * 3 + 1] = fracture * (side > 0 ? 0.04 : -0.14);
+      s.off[j * 3 + 2] = fracture * 0.15;
+      setJoint(out, L, j, -fracture * 0.18, side * fracture * 0.35, side * fracture * 0.3);
+    }
+    for (let i = 0; i < 3; i++) {
+      const j = L.idx(`halo${i}`), a = (i + 0.5) * Math.PI * 2 / 3;
+      s.off[j * 3] = Math.cos(a) * fracture * 0.7;
+      s.off[j * 3 + 1] = Math.sin(a) * fracture * 0.7;
+      s.off[j * 3 + 2] = -fracture * (0.15 + i * 0.08);
+      setJoint(out, L, j, fracture * (i - 1) * 0.18, fracture * 0.2, fracture * (i - 1) * 0.15);
+    }
+    const float = this.executionStage || this.state === 'stunned' ? -1.6 : Math.sin(this.bob * 1.3) * 0.25;
     s.off[L.idx('body') * 3 + 1] = float;
     s.x = this.x; s.z = this.z; s.y = this.y; s.facing = this.facing;
-    s.tiltX = this.puppet.springZ * 0.05; s.tiltZ = -this.puppet.springX * 0.05;
+    s.tiltX = this.executionStage ? 0 : this.puppet.springZ * 0.05; s.tiltZ = this.executionStage ? 0 : -this.puppet.springX * 0.05;
+    if (this.executionStage) s.sx = s.sy = s.sz = 1;
     s.update();
     // окно перехвата: ядро бьётся бело-фиолетовым светом
     const open = this.ctrl?.interceptOpen ? 1 : 0;
@@ -830,11 +880,14 @@ export class HierophantController implements BossController {
     this.executing = true;
     // всё вокруг замирает: снаряды, кольца, метки, спутники
     if (b.stun) { b.stun.stunned = 99; b.stun.total = 99; }
-    w.projectiles.length = 0; w.ringWaves.length = 0;
-    for (const t of w.telegraphs) t.alive = false;
     for (const e of w.enemies) if (e !== b && !e.dead) w.killEnemy(e, 0, 1, 3);
+    // Убийство взрывной элиты тоже создаёт снаряды: очищать угрозы после зачистки окружения.
+    w.projectiles.length = 0; w.ringWaves.length = 0; w.hazards.length = 0;
+    for (const t of w.telegraphs) t.alive = false;
     for (const s of b.sats) { s.tele = false; s.t = 0; }
     h.scripted = true;
+    b.inScene = true;
+    b.setExecutionPose('brace');
     const dx = b.x - h.x, dz = b.z - h.z, dl = Math.hypot(dx, dz) || 1;
     const fx = dx / dl, fz = dz / dl;
     const c = { x: 0, z: 0 }, l = { x: 0, z: 0 };
@@ -843,24 +896,34 @@ export class HierophantController implements BossController {
     // маска оглушённого — где она на самом деле (склонился: ~2.8 м, ближе к герою); было max(4, …) — планы и удар
     // клинка шли на 1.2–1.5 м выше маски
     b.bellPos(this.tmp);
-    const mask: [number, number, number] = [this.tmp.x, Math.max(2.2, this.tmp.y), this.tmp.z];
+    const mask: [number, number, number] = [this.tmp.x, this.tmp.y, this.tmp.z];
     const bellY = mask[1];
     // цепь от маски к полу — по ней Пилот взбегает
-    const chain = { x: c.x, z: c.z, y0: 0, len: 0, to: { x: mask[0] - fx * 0.5, y: bellY + 0.4, z: mask[2] - fz * 0.5 } };
+    const chain = { x: c.x, z: c.z, y0: 0, len: 0, to: { x: mask[0] - fx * 0.65, y: bellY + 0.12, z: mask[2] - fz * 0.65 } };
     this.chainsOn = false;
+    let contactDone = false;
     H.scene(executionTrack({ bx: b.x, bz: b.z, hx: h.x, hz: h.z, cx: c.x, cz: c.z, bellY, lx: l.x, lz: l.z, star: H.starDir(), mask }), {
-      freeze: () => { H.slow(0.05, 0.5); H.duck(0, 30); w.bus.emit('sfx', { id: 'choir_note', x: b.x, z: b.z }); b.inScene = true; this.faceLight('gold', 1.3); },
+      freeze: () => { H.slow(0.05, 0.5); H.duck(0, 30); H.chains([chain]); w.bus.emit('sfx', { id: 'choir_note', x: b.x, z: b.z }); this.faceLight('gold', 1.3); },
       // цепь — с рывком: на крупном плане маски она шла поперёк лица
       dash: () => { H.chains([chain]); h.sceneGhosts = true; w.bus.emit('sfx', { id: 'dash', x: h.x, z: h.z }); },
+      brace: () => { h.sceneGhosts = false; w.bus.emit('sfx', { id: 'chain_drop', x: c.x, z: c.z }); },
+      chainStep: () => { w.bus.emit('sfx', { id: 'step_heavy', x: h.x, z: h.z }); },
       ghostsOff: () => { h.sceneGhosts = false; },
       flare: () => { h.glowBoost = 2.2; },
       strike: () => {
+        if (contactDone) return;
+        contactDone = true;
         this.flawless = H.sceneHit('perfect') || !this.p3Hurt;
+        b.puppet.crack = 0.35;
         w.bus.emit('sfx', { id: 'shatter_cut', x: b.x, z: b.z });
         w.bus.emit('sfx', { id: 'hit_heavy', x: b.x, z: b.z });
-        w.bus.emit('shockwave', { x: b.x, z: b.z, r: this.flawless ? 15 : 7, color: 'void', strength: this.flawless ? 1.6 : 1 });
+        // Контакт сначала виден геометрически; короткий локальный свет и слабый акцент идут вслед за ним.
+        H.flash(EXEC_FLASH);
+        H.light?.(mask[0], mask[1], mask[2], 'void', 2.4, 2.3, 0.3);
+        w.bus.emit('shockwave', { x: mask[0], z: mask[2], y: mask[1], r: 1.2, color: 'void', strength: 0.25 });
       },
       toll: () => {
+        b.setExecutionPose('hit'); b.puppet.crack = 0.75;
         // огонь нимба на треснувшей маске — свет держится до крупного плана трещин (через 1.5 с)
         this.faceLight('gold', 3.4, 1.5);
         H.chains([]);
@@ -869,10 +932,11 @@ export class HierophantController implements BossController {
         w.bus.emit('sfx', { id: 'ear_ring', x: b.x, z: b.z });
         w.bus.emit('shake', { trauma: 0.3 });
       },
+      fracture: () => { b.setExecutionPose('break'); b.puppet.crack = 1; },
       cut: () => this.cut(),
       beam: () => { H.beam(b.x, b.z); w.bus.emit('sfx', { id: 'beam_up', x: b.x, z: b.z }); },
       star2: () => { if (this.flawless) H.sky('star2', 1); },
-      calm: () => { h.glowBoost = 0; h.sceneGhosts = false; h.avatar.puppet.anim.stop(0.8); },
+      calm: () => { h.glowBoost = 0; h.sceneGhosts = false; },
       end: () => this.finish(),
     }, () => { this.cut(); this.finish(); });
   }

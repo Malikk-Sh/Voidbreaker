@@ -25,7 +25,13 @@ export function hierophantRig(): RigDef {
     { name: 'robe', parent: 'body', pos: [0, 0, 0] },
     { name: 'chest', parent: 'body', pos: [0, 1.75, 0] },
     { name: 'bell', parent: 'chest', pos: [0, 0.7, 0.05] },
+    // Крупные узнаваемые части остаются в общем риговом батче, а при казни расходятся отдельно.
+    { name: 'maskL', parent: 'bell', pos: [0, 0, 0] },
+    { name: 'maskR', parent: 'bell', pos: [0, 0, 0] },
     { name: 'clapper', parent: 'bell', pos: [0, 0.45, -0.38] },
+    { name: 'halo0', parent: 'clapper', pos: [0, 0, 0] },
+    { name: 'halo1', parent: 'clapper', pos: [0, 0, 0] },
+    { name: 'halo2', parent: 'clapper', pos: [0, 0, 0] },
     // посох у правого бока, чуть впереди: держится корпусом, рука лежит на нём
     { name: 'staff', parent: 'chest', pos: [-0.72, -0.15, 0.42] },
   ];
@@ -47,6 +53,20 @@ const ROBE2 = hexToLinear('#55141e');
 // ревью: в темноте и красном ободе маска читалась бурой — золото светлее
 const MASK = hexToLinear('#c99a48');
 const GLASS = [hexToLinear('#7a1420'), hexToLinear('#a8461a'), hexToLinear('#5c0f1c'), hexToLinear('#9a6a22')];
+
+/** У овала восемь долей: плоскость x=0 идёт по границам граней и не меняет силуэт целой маски. */
+function maskHalf(side: number): THREE.BufferGeometry {
+  const g = lathe([[0.0, -0.02], [0.13, 0.02], [0.19, 0.18], [0.18, 0.38], [0.12, 0.52], [0.0, 0.56]], 8);
+  const raw = g.index ? g.toNonIndexed() : g, p = raw.attributes.position;
+  const out: number[] = [];
+  for (let i = 0; i < p.count; i += 3) {
+    if ((p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) * side <= 0) continue;
+    for (let k = 0; k < 3; k++) out.push(p.getX(i + k), p.getY(i + k), p.getZ(i + k));
+  }
+  if (raw !== g) raw.dispose();
+  g.dispose();
+  return new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+}
 
 export function buildHierophant(seed = 31): RigBuild {
   const rig = hierophantRig();
@@ -96,16 +116,23 @@ export function buildHierophant(seed = 31): RigBuild {
   b.joint = J('bell');
   b.add(prism(8, 0.12, 0.1, 0.22), { matrix: mat(0, -0.12, 0), color: ROBE2, surface: C });
   // маска: выпуклая золотая пластина-овал, лоб и скулы — грани
-  const mask = lathe([[0.0, -0.02], [0.13, 0.02], [0.19, 0.18], [0.18, 0.38], [0.12, 0.52], [0.0, 0.56]], 8, Math.PI / 8);
-  b.add(mask, { matrix: mat(0, 0.0, 0.0, 0, 0, 0, 1, 1, 0.8), color: MASK, surface: M });
+  for (const side of [-1, 1]) {
+    b.joint = J(side > 0 ? 'maskL' : 'maskR');
+    b.add(maskHalf(side), { matrix: mat(0, 0.0, 0.0, 0, 0, 0, 1, 1, 0.8), color: MASK, surface: M });
+    b.add(box(0.035, 0.01, 0.02), { matrix: mat(side * 0.0175, 0.12, 0.155), color: OBS });
+  }
   // зашитые глаза: тёмные швы-прорези и багровые стежки поперёк
   for (const sx of [-1, 1]) {
+    b.joint = J(sx > 0 ? 'maskL' : 'maskR');
     b.add(box(0.12, 0.016, 0.03), { matrix: mat(sx * 0.075, 0.3, 0.15, 0, sx * 0.25, sx * 0.08), color: OBS });
     for (let k = 0; k < 5; k++) b.add(box(0.008, 0.05, 0.02), { matrix: mat(sx * (0.03 + k * 0.022), 0.3, 0.157, 0, sx * 0.25, sx * 0.08), emissive: 0.9, color: OBS });
   }
   // рот — тонкая щель, нос — ребро
-  b.add(box(0.07, 0.01, 0.02), { matrix: mat(0, 0.12, 0.155), color: OBS });
+  b.joint = J('maskR');
   b.add(prism(3, 0.02, 0.0, 0.12), { matrix: mat(0, 0.2, 0.16, 0, 0, 0), color: MASK, surface: M });
+  // Неровная тёмная трещина проходит через точку будущего контакта, свет приходит только после удара.
+  for (let i = 0; i < 5; i++) b.add(box(0.006, 0.1, 0.006), { matrix: mat(i % 2 ? 0.006 : 0, 0.08 + i * 0.095, 0.16, 0, 0, i % 2 ? 0.1 : -0.1), color: OBS, shade: 0 });
+  b.joint = J('bell');
   // митра: две высокие заострённые пластины (перед и зад) с золотой каймой и багровыми полями
   const MITRE = hexToLinear('#6e1826');
   for (const z of [0.07, -0.07]) {
@@ -127,11 +154,15 @@ export function buildHierophant(seed = 31): RigBuild {
   for (const sx of [-0.1, 0.1]) b.add(box(0.06, 0.7, 0.015), { matrix: mat(sx, 0.2, -0.17, 0.18, 0, sx), color: ROBE2, surface: C });
 
   // ---------- нимб: кольцо витражных осколков за головой, золотая оправа
-  b.joint = J('clapper');
-  b.add(new THREE.TorusGeometry(1.0, 0.03, 3, 36), { color: MASK, surface: M });
-  b.add(new THREE.TorusGeometry(0.62, 0.02, 3, 28), { color: MASK, surface: M });
+  for (let i = 0; i < 3; i++) {
+    b.joint = J(`halo${i}`);
+    b.add(new THREE.TorusGeometry(1.0, 0.03, 3, 12, Math.PI * 2 / 3), { matrix: mat(0, 0, 0, 0, 0, i * Math.PI * 2 / 3), color: MASK, surface: M });
+    b.add(new THREE.TorusGeometry(0.62, 0.02, 3, 10, Math.PI * 2 / 3), { matrix: mat(0, 0, 0, 0, 0, i * Math.PI * 2 / 3), color: MASK, surface: M });
+  }
   for (let i = 0; i < 14; i++) {
     const a = (i / 14) * Math.PI * 2 + rng.spread(0.05);
+    const sector = Math.floor((((Math.PI / 2 - a) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2 / 3));
+    b.joint = J(`halo${sector}`);
     const r = rng.range(0.66, 0.96), len = rng.range(0.22, 0.42);
     // пластина-осколок, повёрнута по радиусу; стекло светится (эмиссия), рама тёмная
     plate(b, [[-0.06, 0], [0.07, 0.02], [0.05, len], [-0.04, len * 0.9]], 0.02, mat(Math.sin(a) * r, Math.cos(a) * r, 0, 0, 0, -a), 0.65 + rng.next() * 0.35, GLASS[i % GLASS.length]);
