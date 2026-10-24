@@ -254,6 +254,8 @@ async function runCase(viewport, scene, mode) {
       const key = result.shots.find((s) => s.file === `${stem}-${scene === 'execution' ? 'contact' : 'weaponAwake'}.png`);
       check(key && [key.screenHead, key.blade.screenBase, key.blade.screenTip, ...(scene === 'execution' ? [key.screenMask] : [])].every(inside), `${stem}: шлем, рукоять, клинок и цель внутри кадра с леттербоксом`);
       if (scene === 'execution') check(result.shots.filter((s) => /-(before-contact|contact|after-contact)\.png$/.test(s.file)).every((s) => [s.screenHead, s.blade.screenBase, s.blade.screenTip, s.screenMask].every(inside)), `${stem}: замах и результат удара также остаются в кадре`);
+      // крупный план контакта (ТЗ §5, R05): от шлема до маски — не меньше 45 % высоты кадра (было 37 %)
+      if (scene === 'execution' && key) check(Math.abs(key.screenMask.y - key.screenHead.y) >= 0.45, `${stem}: контакт крупно — шлем и маска на ${(Math.abs(key.screenMask.y - key.screenHead.y) * 100).toFixed(0)} % высоты`);
       const establishing = result.shots.find((s) => s.file.endsWith('-establishing.png'));
       if (establishing) check([establishing.screenHead, establishing.screenMask, ...establishing.screenFeet].every(inside), `${stem}: общий план показывает героя целиком, маску и начало цепи`);
       const landing = result.shots.find((s) => s.file.endsWith('-landing.png'));

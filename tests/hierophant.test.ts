@@ -8,7 +8,7 @@ import { EXEC_HP, Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHA
 import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
 import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
 import { VOID_BLADE } from '../src/data/weapons';
-import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, DESCEND_FROM, EXEC_FLASH, EXEC_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
+import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, CONTACT_SHOT, DESCEND_FROM, EXEC_FLASH, EXEC_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { InputBuffer, type Input } from '../src/input/input';
@@ -398,6 +398,29 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(b.dead).toBe(true);
     expect(log).toContain('finish');
     expect(log.some((l) => l.startsWith('star:'))).toBe(true);
+  });
+
+  it('казнь: контакт снят крупно — шлем и маска на ≥ 45 % высоты кадра, камера со стороны Пилота', () => {
+    const mask: [number, number, number] = [0, 3.1, 0.9];
+    const root = maskContactRoot(mask, Math.PI);
+    for (const short of [false, true]) {
+      const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, cx: 0, cz: 3, bellY: mask[1], lx: 3, lz: 5, star: [0.42, -0.5, -0.76], mask });
+      const steps = short ? tr.short! : tr.steps;
+      const cam = steps.find((s) => s.do === 'cam' && Math.abs(s.t - (short ? MASK_CONTACT : EXEC_T.contact)) < 1e-9);
+      if (!cam || cam.do !== 'cam') throw new Error('нет плана контакта');
+      const c = new THREE.PerspectiveCamera(cam.fov, 844 / 390, 0.1, 200);
+      c.position.set(...cam.path[0]); c.lookAt(...cam.look[0]); c.updateMatrixWorld();
+      const head = new THREE.Vector3(root[0], root[1] + CONTACT_SHOT.head, root[2]).project(c);
+      const m = new THREE.Vector3(...mask).project(c);
+      // было 37 % (неподвижная камера в ~6.8 м, fov 50)
+      expect(Math.abs(head.y - m.y) / 2).toBeGreaterThan(0.45);
+      // оба — внутри кадра с леттербоксом (12–88 % высоты)
+      for (const p of [head, m]) expect(Math.abs(p.y)).toBeLessThan(0.76);
+      // со стороны Пилота (z > маски), не сквозь тело босса; после контакта — наезд
+      expect(cam.path[0][2]).toBeGreaterThan(mask[2]);
+      const d = (p: number[]) => Math.hypot(p[0] - mask[0], p[1] - mask[1], p[2] - mask[2]);
+      expect(d(cam.path.at(-1)!)).toBeLessThan(d(cam.path[0]));
+    }
   });
 
   it('казнь: стыки сценических клипов без скачка позы — смена клипа смешивается во времени сцены', () => {

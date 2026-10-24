@@ -177,6 +177,15 @@ export interface ExecSpots { bx: number; bz: number; hx: number; hz: number; cx:
 
 /** Договор постановки: контакт вычисляется из маркера специального клипа, а не отдельного таймера. */
 export const EXEC_T = { dash: 0.9, run: 2.1, jump: 3.7, tap: 4.0, strike: 4.5, contact: 4.5 + MASK_CONTACT, toll: 5.62, crack: 6.15, land: 6.7, cut: 8.35, beam: 9.3, calm: 11.3, say: 11.5, end: 12.3 };
+/**
+ * Крупный план контакта (ТЗ §5, R05): шлем Пилота, клинок и маска крупно в одном кадре. Дистанция — по высоте
+ * этой связки в момент контакта (шлем на head над корнем, below под маской): она занимает fill вертикали при fov.
+ * Ракурс в три четверти со стороны Пилота (back/side), чуть сверху (rise). Пока Пилот пикирует, камера идёт
+ * за ним от плана dive (шире, выше — замах над головой) к контакту (иначе шлем и клинок выходят за кадр);
+ * headroom — запас над шлемом и в контакте; после контакта — наезд до push.
+ * Было: неподвижная камера в ~6.8 м при fov 50 — связка занимала 37 % высоты кадра, трещина маски не читалась.
+ */
+export const CONTACT_SHOT = { fov: 44, fill: 0.58, head: 1.9, below: 0.45, back: 0.62, side: 0.78, rise: 0.1, push: 0.9, headroom: 1.2, dive: { far: 1.4, raise: 1.2 } };
 /** Замах в толчке с цепи: смешивание позы бега в верхнюю позу удара (с). */
 export const EXEC_APEX_BLEND = 0.3;
 /** Локальный акцент после контакта, без белого кадра. */
@@ -199,8 +208,22 @@ export function executionTrack(p: ExecSpots): CineTrack {
   const apex: V3 = [contact[0] - fx * 0.6, ky + 1.2, contact[2] - fz * 0.6];
   const away: V3 = [contact[0] + sx * 1.8 - fx * 0.5, contact[1] + 0.4, contact[2] + sz * 1.8 - fz * 0.5];
   const forward = (v: V3): V3 => [v[0] + fx * 10, v[1], v[2] + fz * 10];
-  const faceCam: V3 = [kx - fx * 4.2 + sx * 5.2, ky + 1.3, kz - fz * 4.2 + sz * 5.2];
   const both: V3 = [(contact[0] + kx) / 2, ky + 1.35, (contact[2] + kz) / 2];
+  // крупный план контакта: в кадре по высоте — от шлема Пилота до маски под клинком
+  const C = CONTACT_SHOT, bottom = ky - C.below;
+  const dist = (contact[1] + C.head - bottom) / (2 * Math.tan((C.fov * Math.PI) / 360) * C.fill);
+  const vx = -fx * C.back + sx * C.side, vz = -fz * C.back + sz * C.side, vl = Math.hypot(vx, vz);
+  /**
+   * План на Пилота с корнем в root и маску: взгляд — середина связки, камера — на dist·k в три четверти.
+   * raise — запас над шлемом (клинок над головой в начале пикирования).
+   */
+  const shotOn = (root: V3, k = 1, raise = 0): { cam: V3; look: V3 } => {
+    const look: V3 = [(root[0] + kx) / 2, (root[1] + C.head + raise + bottom) / 2, (root[2] + kz) / 2];
+    return { look, cam: [look[0] + (vx / vl) * dist * k, look[1] + dist * C.rise * k, look[2] + (vz / vl) * dist * k] };
+  };
+  // начало пикирования: шире и выше — замах клинком над головой в кадре; к контакту сходится в крупный план
+  // headroom: клинок опускается к маске в последний миг (inExpo) — до того он над шлемом и тоже в кадре
+  const dive = shotOn(apex, C.dive.far, C.dive.raise), hit = shotOn(contact, 1, C.headroom), hitNear = shotOn(contact, C.push, C.headroom).cam;
   const wide = Math.max(8.5, dl * 1.15);
   const medium: V3 = [kx - fx * wide + sx * wide * 0.85, Math.max(4, ky + 1.6), kz - fz * wide + sz * wide * 0.85];
   const landed: V3 = [lx, 0, lz];
@@ -230,13 +253,16 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.jump, do: 'actor', who: 'hero', moveTo: apex, dur: 0.42, ease: 'outQuad', lookAt: forward(apex) },
     { t: T.jump, do: 'time', scale: 0.2, dur: 1.0 },
     { t: T.jump, do: 'sfx', id: 'cast_inhale', gain: 0.5 },
-    { t: T.jump, do: 'cam', path: [[top[0] + sx * 5.8 - fx, ky + 1.0, top[2] + sz * 5.8 - fz], faceCam], look: [[kx, ky + 1, kz], both], dur: T.strike - T.jump, fov: 50 },
+    { t: T.jump, do: 'cam', path: [[top[0] + sx * 5.8 - fx, ky + 1.0, top[2] + sz * 5.8 - fz], dive.cam], look: [[kx, ky + 1, kz], dive.look], dur: T.strike - T.jump, fov: C.fov },
     { t: T.tap, do: 'tap', dur: 0.4, onHit: 'perfect' },
     { t: T.strike, do: 'clip', who: 'hero', clip: 'maskStrike', markers: { contact: 'strike' } },
     { t: T.strike, do: 'actor', who: 'hero', moveTo: contact, dur: MASK_CONTACT, ease: 'inQuad', lookAt: forward(contact) },
-    { t: T.strike, do: 'cam', path: [faceCam], look: [both], dur: T.toll - T.strike, fov: 50 },
+    // клинок входит в заранее видимую трещину маски: крупно; камера идёт за пикированием чуть позже корня
+    // (inCubic против inQuad): клинок опускается в последний миг и до того над шлемом; после контакта — наезд
+    { t: T.strike, do: 'cam', path: [dive.cam, hit.cam], look: [dive.look, hit.look], dur: MASK_CONTACT, ease: 'inCubic', fov: C.fov },
+    { t: T.contact, do: 'cam', path: [hit.cam, hitNear], look: [hit.look], dur: T.toll - T.contact, fov: C.fov },
     { t: T.toll, do: 'call', fn: 'toll' },
-    { t: T.toll, do: 'cam', path: [faceCam, exitCam], look: [both], dur: T.land - T.toll, fov: 48 },
+    { t: T.toll, do: 'cam', path: [hitNear, exitCam], look: [hit.look, both], dur: T.land - T.toll, fov: 48 },
     { t: T.crack, do: 'call', fn: 'fracture' },
     { t: T.land, do: 'clip', who: 'hero', clip: 'chainExit' },
     { t: T.land, do: 'actor', who: 'hero', moveTo: away, dur: 0.3, ease: 'outQuad', lookAt: forward(away) },
@@ -261,13 +287,16 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: 0, do: 'actor', who: 'hero', moveTo: apex, lookAt: forward(apex) },
     { t: 0, do: 'clip', who: 'hero', clip: 'maskStrike', markers: { contact: 'strike' } },
     { t: 0, do: 'actor', who: 'hero', moveTo: contact, dur: MASK_CONTACT, ease: 'inQuad', lookAt: forward(contact) },
-    { t: 0, do: 'cam', path: [faceCam], look: [both], dur: 1.05, fov: 50 },
+    { t: 0, do: 'cam', path: [dive.cam, hit.cam], look: [dive.look, hit.look], dur: MASK_CONTACT, ease: 'inCubic', fov: C.fov },
+    { t: MASK_CONTACT, do: 'cam', path: [hit.cam, hitNear], look: [hit.look], dur: 1.05 - MASK_CONTACT, fov: C.fov },
+    // перед отталкиванием — назад к среднему плану: полёт и приземление целиком в кадре
+    { t: 1.05, do: 'cam', path: [hitNear, exitCam], look: [hit.look, both], dur: 0.2, ease: 'outQuad', fov: 48 },
     { t: 1.05, do: 'call', fn: 'toll' },
     { t: 1.25, do: 'call', fn: 'fracture' },
     { t: 1.25, do: 'clip', who: 'hero', clip: 'chainExit' },
     { t: 1.25, do: 'actor', who: 'hero', moveTo: away, dur: 0.3, ease: 'outQuad', lookAt: forward(away) },
     { t: 1.55, do: 'actor', who: 'hero', moveTo: landed, dur: 0.6, ease: 'inQuad', lookAt: forward(landed) },
-    { t: 1.25, do: 'cam', path: [faceCam, pushCam], look: [both, pushLook], dur: 0.3, ease: 'outQuad', fov: 48 },
+    { t: 1.25, do: 'cam', path: [exitCam, pushCam], look: [both, pushLook], dur: 0.3, ease: 'outQuad', fov: 48 },
     { t: 1.55, do: 'cam', path: [pushCam, landingCam], look: [pushLook, landingLook], dur: 0.6, ease: 'inQuad', fov: 48 },
     { t: 2.3, do: 'call', fn: 'cut' },
     { t: 2.6, do: 'call', fn: 'beam' },
