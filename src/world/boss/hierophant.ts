@@ -92,6 +92,8 @@ export class Hierophant extends ScriptedEnemy {
     this.landFrom = null; this.y = 0; this.cur = null; this.move = null;
     this.vx = this.vz = this.kbX = this.kbZ = this.twistV = this.freeze = 0;
     this.puppet.springX = this.puppet.springZ = this.puppet.springVX = this.puppet.springVZ = 0;
+    // После старта казни кости сэмплирует дорожка реакции; callback меняет только состояние материала.
+    if (this.puppet.anim.sceneDriven) { this.animate(0); return; }
     this.poseCur.clear();
     const id = `execution${stage[0].toUpperCase()}${stage.slice(1)}`;
     this.setPose(id, 0.01);
@@ -512,6 +514,8 @@ export class Hierophant extends ScriptedEnemy {
     s.x = this.x; s.z = this.z; s.y = this.y; s.facing = this.facing;
     s.tiltX = this.executionStage ? 0 : this.puppet.springZ * 0.05; s.tiltZ = this.executionStage ? 0 : -this.puppet.springX * 0.05;
     if (this.executionStage) s.sx = s.sy = s.sz = 1;
+    // Дорожка задаёт корпус/руки, а раскрытие маски и ореола сохраняет текущую процедурную анимацию.
+    if (this.puppet.anim.sceneDriven) this.puppet.base.set(out);
     s.update();
     // окно перехвата: ядро бьётся бело-фиолетовым светом
     const open = this.ctrl?.interceptOpen ? 1 : 0;

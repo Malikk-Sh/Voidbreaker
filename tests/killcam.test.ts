@@ -52,10 +52,14 @@ describe('kill-cam Стражей (план §8.4)', () => {
     for (const tr of [killGateTrack({ gx: 0, gz: 0, hx: 0, hz: 5 }), killBellTrack({ gx: 0, gz: 0, hx: 0, hz: 5 })]) {
       expect(tr.dur).toBeGreaterThanOrEqual(4.5);
       expect(tr.dur).toBeLessThanOrEqual(6.5);
-      const crumble = tr.steps.find(s => s.do === 'call' && s.fn === 'crumble')!;
-      expect(tr.dur! - crumble.t).toBeGreaterThanOrEqual(2);
+      const crumbleClip = tr.steps.find(s => s.do === 'clip' && s.markers?.crumble === 'crumble');
+      if (!crumbleClip || crumbleClip.do !== 'clip') throw new Error('нет маркера распада');
+      const event = crumbleClip.definition?.events?.find(e => e.name === 'crumble');
+      expect(event).toBeDefined();
+      const crumble = crumbleClip.t + event!.t / (crumbleClip.speed ?? 1);
+      expect(tr.dur! - crumble).toBeGreaterThanOrEqual(2);
       expect(tr.steps.some((s) => s.do === 'letterbox')).toBe(false);
-      expect(tr.steps.some((s) => s.do === 'call' && s.fn === 'crumble')).toBe(true);
+      expect(crumbleClip.who).not.toBe('hero');
       expect(tr.skippable).not.toBe(false);
     }
   });

@@ -1,5 +1,7 @@
 import type { CineStep, CineTrack, V3 } from '../../game/director';
-import { MASK_CONTACT, MASK_RELEASE, maskContactRoot } from '../../anim/clips/execution';
+import { MASK_CONTACT, MASK_RELEASE, bladeEdgeRoot } from '../../anim/clips/execution';
+import { along, attackFraming, ballisticPoint, ballisticVelocity } from '../../game/finisherMotion';
+import { HIEROPHANT_POSES } from './hierophantPoses';
 
 /** Где стоят актёры сцены Иерофанта: герой и босс. */
 export interface HierophantSpots {
@@ -180,67 +182,69 @@ export interface ExecSpots { bx: number; bz: number; hx: number; hz: number; cx?
 /** Вся казнь — один прыжок: маска → взрыв до касания пола → посадка → звезда. */
 export const EXEC_T = { jump: 0.55, strike: 1.9, contact: 1.9 + MASK_CONTACT, toll: 2.78, crack: 2.96, land: 3.05, cut: 3.28, touchdown: 4.1, beam: 6.2, calm: 8.4, say: 8.65, end: 10.1 };
 export const EXEC_SHORT_T = { jump: 0.3, strike: 1.15, contact: 1.15 + MASK_CONTACT, toll: 2.02, crack: 2.18, land: 2.3, cut: 2.55, touchdown: 3.35, beam: 4.95, calm: 6.5, say: 6.75, end: 7.65 };
-export const CONTACT_SHOT = { fov: 44, fill: 0.58, head: 1.9, below: 0.45, back: 0.62, side: 0.78, rise: 0.1, push: 0.94, headroom: 1.2, dive: { far: 1.9, raise: 2.1 } };
+export const CONTACT_SHOT = { fov: 44 };
 export const EXEC_FLASH = 0.08;
 
 export function executionTrack(p: ExecSpots): CineTrack {
   const { bx, bz, hx, hz, lx, lz, star } = p;
   const distance = Math.hypot(bx - hx, bz - hz) || 1, fx = (bx - hx) / distance, fz = (bz - hz) / distance, sx = -fz, sz = fx;
   const mask: V3 = p.mask ?? [bx, p.bellY, bz], [kx, ky, kz] = mask;
-  const contact = maskContactRoot(mask, Math.atan2(fx, fz));
-  const apex: V3 = [contact[0] - fx * 0.65, ky + 1.2, contact[2] - fz * 0.65];
-  const away: V3 = [contact[0] + sx * 1.8 - fx * 0.5, contact[1] + 0.4, contact[2] + sz * 1.8 - fz * 0.5];
+  const facing = Math.atan2(fx, fz), contact = bladeEdgeRoot('maskStrike', MASK_CONTACT, mask, facing);
   const landed: V3 = [lx, 0, lz], forward = (r: V3): V3 => [r[0] + fx * 10, 0, r[2] + fz * 10];
-  const C = CONTACT_SHOT, bottom = ky - C.below;
-  const dist = (contact[1] + C.head - bottom) / (2 * Math.tan(C.fov * Math.PI / 360) * C.fill);
-  // Передняя четверть Пилота: видны лицо, грудь и поднятый клинок, а не спина.
-  const vx = fx * C.back + sx * C.side, vz = fz * C.back + sz * C.side, vl = Math.hypot(vx, vz);
-  const shotOn = (root: V3, k = 1, raise = 0) => {
-    const look: V3 = [(root[0] + kx) / 2, (root[1] + C.head + raise + bottom) / 2, (root[2] + kz) / 2];
-    return { look, cam: [look[0] + vx / vl * dist * k, look[1] + dist * C.rise * k, look[2] + vz / vl * dist * k] as V3 };
-  };
-  const dive = shotOn(apex, C.dive.far, C.dive.raise), hit = shotOn(contact, 1, C.headroom), hitNear = shotOn(contact, C.push, C.headroom);
+  const C = CONTACT_SHOT;
   const wide = Math.max(8.5, distance * 1.15);
   const medium: V3 = [hx + fx * wide * 0.6 + sx * wide, Math.max(4, ky + 1.6), hz + fz * wide * 0.6 + sz * wide];
   const establish: V3 = [(hx + kx) / 2, ky * 0.65, (hz + kz) / 2];
-  const exitCam: V3 = [kx + fx * 2.2 + sx * 6.5, ky + 0.8, kz + fz * 2.2 + sz * 6.5];
-  const both: V3 = [(contact[0] + kx) / 2, ky + 1.35, (contact[2] + kz) / 2];
-  const pushCam: V3 = [exitCam[0] + away[0] - contact[0], exitCam[1] + away[1] - contact[1], exitCam[2] + away[2] - contact[2]];
-  const pushLook: V3 = [both[0] + away[0] - contact[0], both[1] + away[1] - contact[1], both[2] + away[2] - contact[2]];
   const landingCam: V3 = [lx + sx * 5.5 + fx * 3.5, 2.3, lz + sz * 5.5 + fz * 3.5];
   const landingLook: V3 = [(lx + bx) / 2, 1.6, (lz + bz) / 2];
-  const make = (T: typeof EXEC_T, short: boolean): CineStep[] => [
+  const make = (T: typeof EXEC_T, short: boolean): CineStep[] => {
+    const takeoff: V3 = [hx, 0, hz], flightDur = T.contact - T.jump;
+    const flight = ballisticVelocity(takeoff, contact, flightDur, 2.4);
+    const softened: V3 = [flight.velocityTo[0] * 0.25, -0.25, flight.velocityTo[2] * 0.25];
+    const compression = contact.map((v, i) => v + (flight.velocityTo[i] + softened[i]) * 0.025) as V3;
+    const driven = along(contact, facing, 0.15, 0.2, 0.04);
+    const kick = along(driven, Math.atan2(lx - driven[0], lz - driven[2]), 0.18, -0.06), kickAt = T.land + 0.12;
+    const retreat = ballisticVelocity(kick, landed, T.touchdown - kickAt, 2 * kick[1] / (T.touchdown - kickAt) + 1);
+    const hit = attackFraming('maskStrike', facing, [0, 0.3, 0.44, MASK_RELEASE, MASK_CONTACT].map(time => ({ time, root: ballisticPoint(takeoff, contact, flightDur, T.strike + time - T.jump, 2.4) })).concat([{ time: MASK_CONTACT + 0.05, root: compression }, { time: MASK_CONTACT + 0.2, root: driven }]), mask, C.fov);
+    const P = HIEROPHANT_POSES;
+    return [
     { t: 0, do: 'call', fn: 'freeze' },
     { t: 0, do: 'time', scale: 0.35, dur: T.jump, rampIn: 0.1, rampOut: 0.16 },
     { t: 0, do: 'clip', who: 'hero', clip: 'executionLeap', speed: short ? 1.9 / T.strike : 1, blend: 0.2 },
+    // Удар сначала сдвигает маску, затем сгибает тяжёлый корпус. Все кости живут по часам режиссёра.
+    { t: 0, do: 'clip', who: 'boss', clip: 'hierophantReaction', blend: 0, markers: { cut: 'cut' }, definition: { id: 'hierophantReaction', dur: T.cut, mask: 'full', events: [{ t: T.cut, name: 'cut' }], keys: [
+      { t: 0, pose: P.executionBrace },
+      { t: T.contact, pose: P.executionBrace },
+      { t: T.contact + 0.05, ease: 'outQuad', pose: { ...P.executionBrace, chest: [0.925, 0, 0], bell: [-0.565, 0, 0.012] } },
+      { t: T.contact + 0.16, ease: 'inOutSine', pose: P.executionHit },
+      { t: T.crack, ease: 'outCubic', pose: P.executionBreak },
+      { t: T.cut, pose: P.executionBreak },
+    ] } },
     { t: 0, do: 'actor', who: 'hero', lookAt: forward([hx, 0, hz]), turn: T.jump * 0.8, dur: T.jump },
     { t: 0, do: 'cam', path: [medium], look: [establish], dur: T.jump, fov: 48 },
     { t: T.jump, do: 'call', fn: 'flare' },
     { t: T.jump, do: 'sfx', id: 'dash', gain: 0.65 },
-    { t: T.jump, do: 'actor', who: 'hero', moveTo: apex, dur: T.strike - T.jump, ease: 'outQuad', bends: [[0, 0.45, 0]], lookAt: forward(apex) },
-    { t: T.jump, do: 'cam', path: [medium, dive.cam], look: [establish, dive.look], dur: T.strike - T.jump, ease: 'outQuad', fov: 48, blend: 0.28 },
+    { t: T.jump, do: 'actor', who: 'hero', moveTo: contact, dur: flightDur, ...flight, lookAt: forward(contact) },
+    { t: T.jump, do: 'cam', path: [medium, hit.cam], look: [establish, hit.look], dur: T.strike - T.jump, ease: 'inOutSine', fov: C.fov, blend: 0.28 },
     // Поза и корень замедляются самими траекториями; окружение и частицы — той же паузой перед ударом.
     { t: T.strike - 0.45, do: 'time', scale: 0.16, dur: 0.45 + MASK_RELEASE, rampIn: 0.12, rampOut: 0.18 },
     { t: T.strike - 0.4, do: 'sfx', id: 'cast_inhale', gain: 0.45 },
     { t: T.strike, do: 'clip', who: 'hero', clip: 'maskStrike', markers: { contact: 'strike' }, blend: 0.16 },
-    { t: T.strike, do: 'actor', who: 'hero', lookAt: forward(apex), dur: MASK_RELEASE },
     { t: T.strike + MASK_RELEASE, do: 'sfx', id: 'swing_heavy', gain: 0.95 },
-    { t: T.strike + MASK_RELEASE, do: 'actor', who: 'hero', moveTo: contact, dur: MASK_CONTACT - MASK_RELEASE, ease: 'inQuad', lookAt: forward(contact) },
-    { t: T.strike, do: 'cam', path: [dive.cam], look: [dive.look], dur: MASK_RELEASE, fov: C.fov, blend: 0.16 },
-    { t: T.strike + MASK_RELEASE, do: 'cam', path: [dive.cam, hit.cam], look: [dive.look, hit.look], dur: MASK_CONTACT - MASK_RELEASE, ease: 'inOutSine', fov: C.fov, blend: 0 },
-    { t: T.contact, do: 'time', scale: 0.08, dur: 0.12, rampIn: 0, rampOut: 0.04 },
-    { t: T.contact, do: 'cam', path: [hit.cam, hitNear.cam], look: [hit.look], dur: T.toll - T.contact, fov: C.fov, blend: 0 },
+    { t: T.strike, do: 'cam', path: [hit.cam], look: [hit.look], dur: T.land - T.strike, fov: C.fov, blend: 0 },
+    { t: T.contact, do: 'time', scale: 0.08, dur: 0.16, rampIn: 0, rampOut: 0.06 },
+    { t: T.contact + 0.035, do: 'hold', dur: 0.055 },
+    { t: T.contact, do: 'actor', who: 'hero', moveTo: compression, dur: 0.05, velocityFrom: flight.velocityTo, velocityTo: softened },
+    { t: T.contact + 0.05, do: 'actor', who: 'hero', moveTo: driven, dur: T.land - T.contact - 0.05, velocityFrom: softened, velocityTo: [0, 0, 0] },
     { t: T.toll, do: 'call', fn: 'toll' },
-    { t: T.toll, do: 'cam', path: [hitNear.cam, exitCam], look: [hit.look, both], dur: T.land - T.toll, fov: 48 },
     { t: T.land, do: 'clip', who: 'hero', clip: 'executionLand', blend: 0.22 },
-    { t: T.land, do: 'actor', who: 'hero', moveTo: away, dur: 0.35, ease: 'outQuad', lookAt: forward(away) },
-    { t: T.land, do: 'cam', path: [exitCam, pushCam], look: [both, pushLook], dur: 0.35, ease: 'outQuad', fov: 48, blend: 0 },
+    { t: T.land, do: 'actor', who: 'hero', moveTo: kick, dur: 0.12, velocityFrom: [0, 0, 0], velocityTo: retreat.velocityFrom },
+    { t: T.land, do: 'cam', path: [hit.cam, landingCam], look: [hit.look, landingLook], dur: T.touchdown - T.land, ease: 'inOutSine', fov: 48, blend: 0.22 },
     { t: T.crack, do: 'call', fn: 'fracture' },
     // Маска раскрывается, и сразу виден взрыв всего тела — пока Пилот ещё в воздухе.
-    { t: T.cut, do: 'call', fn: 'cut' },
     { t: T.cut, do: 'time', scale: 0.18, dur: 0.9, rampIn: 0.06, rampOut: 0.3 },
-    { t: T.land + 0.35, do: 'actor', who: 'hero', moveTo: landed, dur: 0.7, ease: 'inQuad', lookAt: forward(landed) },
-    { t: T.land + 0.35, do: 'cam', path: [pushCam, landingCam], look: [pushLook, landingLook], dur: 0.7, ease: 'inQuad', fov: 48, blend: 0 },
+    { t: kickAt, do: 'actor', who: 'hero', moveTo: landed, dur: T.touchdown - kickAt, ...retreat },
+    { t: T.touchdown, do: 'sfx', id: 'land_impact', gain: 0.65 },
     { t: T.beam, do: 'call', fn: 'beam' },
     { t: T.beam, do: 'sky', param: 'starLit', to: 1, dur: T.calm - T.beam },
     { t: T.beam + 0.1, do: 'music', cue: 'major' },
@@ -253,5 +257,6 @@ export function executionTrack(p: ExecSpots): CineTrack {
     ...(!short ? [{ t: T.say, do: 'say' as const, line: 'Одна звезда. Осталось четыре.' }] : []),
     { t: T.end, do: 'call', fn: 'end' },
   ];
-  return { id: 'hierophantEnd', revision: 3, cameraBlend: 0.24, origin: [bx, 0, bz], heading: Math.atan2(fx, fz), steps: make(EXEC_T, false), short: make(EXEC_SHORT_T, true), dur: EXEC_T.end + 0.2, blendOut: 0.7 };
+  };
+  return { id: 'hierophantEnd', revision: 4, cameraBlend: 0.24, origin: [bx, 0, bz], heading: facing, steps: make(EXEC_T, false), short: make(EXEC_SHORT_T, true), dur: EXEC_T.end + 0.2, blendOut: 0.7 };
 }

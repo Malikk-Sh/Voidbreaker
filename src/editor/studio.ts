@@ -15,13 +15,13 @@ const button = (label: string, fn: () => void, cls = '') => { const b = $('butto
 const line = (label: string, content: HTMLElement) => { const div = $('div', 'form-row'); div.append($('label', 'form-label', label), content); return div; };
 const fmt = (v: number) => v.toFixed(2);
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-const easeNames: Record<EaseId, string> = { linear: 'Равномерно', inOutSine: 'Мягкий разгон и остановка', inOutQuad: 'Разгон и торможение', inCubic: 'Нарастающее ускорение', inOutCubic: 'Плавно с акцентом', outCubic: 'Быстро → мягкая остановка', outQuad: 'Мягкое торможение', inQuad: 'Ускорение / падение', outQuart: 'Сильное торможение', inQuart: 'Сильное ускорение', outExpo: 'Резкий рывок', inExpo: 'Резкое ускорение', inBack: 'С предварительным замахом', outBack: 'С инерцией в конце', outElastic: 'Пружинящий выход' };
+const easeNames: Record<EaseId, string> = { linear: 'Равномерно', inOutSine: 'Мягкий разгон и остановка', inSine: 'Мягкий разгон', outSine: 'Мягкая остановка', inOutQuad: 'Разгон и торможение', inCubic: 'Нарастающее ускорение', inOutCubic: 'Плавно с акцентом', outCubic: 'Быстро → мягкая остановка', outQuad: 'Мягкое торможение', inQuad: 'Ускорение / падение', outQuart: 'Сильное торможение', inQuart: 'Сильное ускорение', outExpo: 'Резкий рывок', inExpo: 'Резкое ускорение', inBack: 'С предварительным замахом', outBack: 'С инерцией в конце', outElastic: 'Пружинящий выход' };
 const names = (s: CineStep) => {
   if (s.do === 'actor') return `${ACTOR_NAMES[s.who] ?? s.who} · ${s.clip ? CLIP_NAMES[s.clip] ?? s.clip : s.moveTo ? 'Движение' : 'Разворот'}`;
   if (s.do === 'clip') return CLIP_NAMES[s.clip] ?? (s.definition ? `Своя поза · ${ACTOR_NAMES[s.who] ?? s.who}` : s.clip);
   if (s.do === 'cam') return 'Камера';
-  if (s.do === 'call') return ({ strike: 'Контакт', cut: 'Разрез', beam: 'Луч к звезде', freeze: 'Замирание', end: 'Конец', flare: 'Толчок', fracture: 'Раскол маски', calm: 'Тишина', grip: 'Хват', releaseFromGround: 'Клинок из пола', weaponAwake: 'Пробуждение клинка', quiet: 'Тишина', silence: 'Тишина', runes: 'Руны', douse: 'Свечи гаснут', descend: 'Спуск', ignite: 'Пробуждение', mask: 'Маска', slam: 'Удар посоха', begin: 'Начало боя', land: 'На мост', collapse: 'Обрушение', braam: 'Акцент', tocsin: 'Набат', phase: 'Смена фазы', crack: 'Трещина', raise: 'Подъём', dash: 'Рывок', ghostsOff: 'След гаснет', brace: 'Опора', chainStep: 'Шаг по цепи', star2: 'Вторая звезда', toll: 'Последний звон', dark: 'Тьма', space: 'Полёт', beams: 'Лучи', hit: 'Попадание', blackout: 'Затемнение', fall: 'Падение', hint: 'Подсказка', dome: 'Купол', landStart: 'Приземление', impact: 'Касание пола', visor: 'Визор', idle: 'Стойка', title: 'Титр', music: 'Музыка', husk: 'Шелуха', knee: 'Подсечка', helmet: 'Удар в шлем', crumble: 'Распад', bell: 'Удар в колокол' } as Record<string, string>)[s.fn] ?? s.fn;
-  return ({ say: 'Реплика', sfx: 'Звук', time: 'Замедление', tap: 'Касание', wait: 'Ожидание', sky: 'Небо', crack: 'Трещины', dissolve: 'Исчезновение', music: 'Музыка', flash: 'Вспышка', letterbox: 'Рамка', banner: 'Титр' } as Record<string, string>)[s.do] ?? s.do;
+  if (s.do === 'call') return ({ strike: 'Контакт', cut: 'Разрез', beam: 'Луч к звезде', freeze: 'Замирание', end: 'Конец', flare: 'Толчок', fracture: 'Раскол маски', calm: 'Тишина', grip: 'Хват', releaseFromGround: 'Клинок из пола', weaponAwake: 'Пробуждение клинка', quiet: 'Тишина', silence: 'Тишина', runes: 'Руны', douse: 'Свечи гаснут', descend: 'Спуск', ignite: 'Пробуждение', mask: 'Маска', slam: 'Удар посоха', begin: 'Начало боя', land: 'На мост', collapse: 'Обрушение', braam: 'Акцент', tocsin: 'Набат', phase: 'Смена фазы', crack: 'Трещина', raise: 'Подъём', dash: 'Рывок', ghostsOff: 'След гаснет', brace: 'Опора', chainStep: 'Шаг по цепи', star2: 'Вторая звезда', toll: 'Последний звон', dark: 'Тьма', space: 'Полёт', beams: 'Лучи', hit: 'Попадание', blackout: 'Затемнение', fall: 'Падение', hint: 'Подсказка', dome: 'Купол', landStart: 'Приземление', impact: 'Касание пола', visor: 'Визор', idle: 'Стойка', title: 'Титр', music: 'Музыка', husk: 'Шелуха', knee: 'Подсечка', helmet: 'Удар в шлем', crumble: 'Распад', bell: 'Удар в колокол', bellRing: 'Ответный звон' } as Record<string, string>)[s.fn] ?? s.fn;
+  return ({ say: 'Реплика', sfx: 'Звук', time: 'Замедление', hold: 'Остановка на контакте', tap: 'Касание', wait: 'Ожидание', sky: 'Небо', crack: 'Трещины', dissolve: 'Исчезновение', music: 'Музыка', flash: 'Вспышка', letterbox: 'Рамка', banner: 'Титр' } as Record<string, string>)[s.do] ?? s.do;
 };
 
 class Studio {
@@ -437,12 +437,12 @@ class Studio {
     this.seek(t / this.rate());
     const sourceContact = this.clipDefinition(s, {})?.events?.find(ev => ev.name === 'contact')?.t ?? contact.t;
     const originalContactAt = s.t + sourceContact / (s.speed ?? 1);
-    // Замах и разрез могут быть разными движениями: совмещаем последнее движение к маркеру.
-    const entry = this.entries().filter(e => !e.added && e.s.do === 'actor' && e.s.who === s.who && e.s.moveTo && e.s.t >= s.t - 0.001 && e.s.t <= originalContactAt + 0.001).sort((a, b) => b.s.t - a.s.t)[0];
+    // Один прыжок может начаться раньше клипа замаха. Ищем движение, заканчивающееся контактом.
+    const entry = this.entries().filter(e => !e.added && e.s.do === 'actor' && e.s.who === s.who && e.s.moveTo && e.s.t < originalContactAt - 0.001 && e.s.t + (e.s.dur ?? 0) >= originalContactAt - 0.001).sort((a, b) => Math.abs(a.s.t + ('dur' in a.s ? a.s.dur ?? 0 : 0) - originalContactAt) - Math.abs(b.s.t + ('dur' in b.s ? b.s.dur ?? 0 : 0) - originalContactAt))[0];
     if (!entry || entry.s.do !== 'actor' || !entry.s.moveTo) { this.toast('Не найдено движение удара'); return; }
     const h = this.preview.actors.hero, delta = this.preview.contactDelta(), original = entry.s.moveTo;
     const moveOffset = offsetWorld([h.x + delta[0] - original[0], h.y + delta[1] - original[1], h.z + delta[2] - original[2]], -(this.spec.track.heading ?? 0));
-    const windup = clamp((entry.s.t - s.t) / Math.max(0.001, originalContactAt - s.t), 0, 0.99), start = (d.t ?? s.t) + localTime * windup;
+    const start = Math.min(this.currentEdit().steps[entry.key]?.t ?? entry.s.t, t - 0.001);
     this.change(() => { const e = this.currentEdit(true); e.steps[entry.key] = { ...e.steps[entry.key], moveOffset, lookOffset: moveOffset, t: start, dur: t - start }; });
     this.seek(t / this.rate()); this.toast(`Контакт совмещён · ошибка ${(this.preview.contactError * 100).toFixed(1)} см`);
   }

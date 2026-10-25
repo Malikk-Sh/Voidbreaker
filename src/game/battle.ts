@@ -925,12 +925,17 @@ export class Battle {
       this.playScene(killGateTrack(spots), finish, { letterbox: false, hud: false });
     } else {
       this.sceneCalls.set('bell', () => {
-        if (e instanceof BellRinger) { e.bellFlash = 1.5; e.setKillcamStage('hit'); }
-        this.vfx.lights.flash(...anchors.bell, C.void, 2.2, 5, 0.9);
-        w.bus.emit('sfx', { id: 'boss_bell', x: e.x, z: e.z });
-        // фиолетовое кольцо проходит сквозь Звонаря
-        w.bus.emit('shockwave', { x: anchors.bell[0], z: anchors.bell[2], y: anchors.bell[1], r: 7, color: 'void', strength: 0.65 });
+        if (e instanceof BellRinger) { e.bellFlash = 0.65; e.setKillcamStage('hit'); }
+        this.vfx.lights.flash(...anchors.bell, C.void, 1.2, 3, 0.22);
+        w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
         w.bus.emit('finisherImpact', { x: anchors.bell[0], y: anchors.bell[1], z: anchors.bell[2], facing: angle });
+      });
+      this.sceneCalls.set('bellRing', () => {
+        const at = new THREE.Vector3(...anchors.bell);
+        if (e instanceof BellRinger) e.bellPoint(at);
+        w.bus.emit('sfx', { id: 'boss_bell', x: at.x, z: at.z });
+        // Резонанс приходит после отклонения подвешенного колокола, из его текущего положения.
+        w.bus.emit('shockwave', { x: at.x, z: at.z, y: at.y, r: 7, color: 'void', strength: 0.65 });
       });
       this.playScene(killBellTrack(spots), finish, { letterbox: false, hud: false });
     }

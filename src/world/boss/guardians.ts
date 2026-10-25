@@ -3,7 +3,7 @@ import { angleOf } from '../../core/math';
 import { BipedGait, bipedJoints, setJoint, type BipedJoints } from '../../anim/locomotion';
 import { layoutOf } from '../../anim/puppet';
 import { ENEMIES } from '../../data/enemies';
-import { bruteRig } from '../../gen/chars/enemies';
+import { BELL_CONTACT, bruteRig } from '../../gen/chars/enemies';
 import type { SpawnOpts } from '../enemy';
 import { resetStunHabit } from '../actor';
 import type { StunKind } from '../../data/weapons';
@@ -541,7 +541,7 @@ export class BellRinger extends BruteGuardian {
   /** Центр колокола на спине. */
   bellPoint(out: { x: number; y: number; z: number }): void {
     const L = this.puppet.layout, s = 1.45;
-    this.puppet.skel.jointPoint(L.idx('chest'), 0, 1.0 * s, -1.2 * s, _p);
+    this.puppet.skel.jointPoint(L.idx('bell'), BELL_CONTACT[0] * s, BELL_CONTACT[1] * s, BELL_CONTACT[2] * s, _p);
     out.x = _p.x; out.y = _p.y; out.z = _p.z;
   }
 

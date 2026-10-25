@@ -120,7 +120,7 @@ export class StudioPreview {
     if (this.bossBatch) { this.renderer.scene.remove(this.bossBatch.mesh); this.bossBatch.dispose(); this.bossBatch = null; }
     this.bossPuppet = null;
     if (['hierophant', 'gate', 'bell'].includes(spec.model)) {
-      const b = spec.model === 'hierophant' ? buildHierophant() : buildBrute(5, spec.model === 'gate' ? 1.65 : 1.4, { halberd: spec.model === 'gate', bell: spec.model === 'bell' });
+      const b = spec.model === 'hierophant' ? buildHierophant() : buildBrute(5, spec.model === 'gate' ? 1.65 : 1.45, { halberd: spec.model === 'gate', bell: spec.model === 'bell' });
       this.bossPuppet = new Puppet(layoutOf(b.rig), spec.model === 'hierophant' ? BOSS_CLIPS : []);
       this.bossBatch = new RigBatch(b.geometry, this.bossPuppet.layout.n, 1, { rim: '#d59a7d', rimStrength: 0.65, emissive: '#ff534b', emissiveStrength: 1.4 });
       this.renderer.scene.add(this.bossBatch.mesh);
@@ -179,7 +179,7 @@ export class StudioPreview {
   }
 
   advance(dt: number): void {
-    this.director.update(dt, this.rig); this.advanceLegacy(); this.time = Math.min(this.duration, this.time + dt); this.draw(dt);
+    this.director.update(dt, this.rig); this.advanceLegacy(); this.time = Math.min(this.duration, this.director.time); this.draw(dt);
   }
 
   private advanceLegacy(): void {
@@ -220,6 +220,9 @@ export class StudioPreview {
       const who = this.spec.model === 'gate' ? 'gateGuardian' : this.spec.model === 'bell' ? 'bellRinger' : 'boss';
       const a = this.actors[who], p = this.bossPuppet, s = p.skel;
       s.rot.set(p.anim.sceneDriven ? p.anim.out : p.base);
+      // В игре Guardian держит базовую высоту −0.7 в skel.y; на площадке она находится в root.
+      const rootY = p.layout.idx('root') * 3 + 1;
+      s.off[rootY] = (['gate', 'bell'].includes(this.spec.model) ? -0.7 : 0) + (p.anim.sceneDriven ? p.anim.root.y : 0);
       Object.assign(s, { x: a.x, y: a.y, z: a.z, facing: a.facing }); s.update();
       this.bossBatch.begin(); this.bossBatch.push(s.world, 0, p.dissolve, 0, p.crack); this.bossBatch.end();
     }
@@ -229,8 +232,8 @@ export class StudioPreview {
       else this.target.position.set(...MASK);
       this.chain.geometry.dispose();
       this.chain.geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 2.6), new THREE.Vector3(MASK[0], MASK[1] + 0.12, MASK[2] + 0.65)]);
-      const tip = this.hero.sceneAnchor('bladeTip', new THREE.Vector3());
-      this.contactError = tip.distanceTo(this.target.position);
+      const edge = this.hero.sceneAnchor('edgeContact', new THREE.Vector3());
+      this.contactError = edge.distanceTo(this.target.position);
     }
     this.shard.visible = this.spec.model === 'landing';
     this.guides.visible = this.showGuides;
@@ -261,8 +264,8 @@ export class StudioPreview {
   }
   joints(who: string): string[] { return this.puppets.get(who)?.layout.names ?? []; }
   contactDelta(): V3 {
-    const tip = this.hero.sceneAnchor('bladeTip', new THREE.Vector3());
-    return [this.target.position.x - tip.x, this.target.position.y - tip.y, this.target.position.z - tip.z];
+    const edge = this.hero.sceneAnchor('edgeContact', new THREE.Vector3());
+    return [this.target.position.x - edge.x, this.target.position.y - edge.y, this.target.position.z - edge.z];
   }
   dispose(): void { this.sizeObserver.disconnect(); this.controls.dispose(); this.hero.dispose(); this.bossBatch?.dispose(); this.shipBatch.dispose(); this.renderer.gl.dispose(); }
 }

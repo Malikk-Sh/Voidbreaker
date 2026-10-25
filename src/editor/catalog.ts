@@ -67,7 +67,7 @@ for (const kind of ['gateGuardian', 'bellRinger'] as const) {
 cine.clear({ cine: null } as never); cine.victory(); append('Арена · Победа', 'landing', { hero });
 
 export const CLIP_NAMES: Record<string, string> = {
-  executionLeap: 'Прыжок', executionLand: 'Приземление после удара', guardianSweep: 'Подсечка', guardianApproach: 'Обход за спину', lowerBlade: 'Опустить клинок', chainBrace: 'Опора у цепи', chainRun: 'Бег по цепи', chainApex: 'Замах в прыжке', maskStrike: 'Удар в маску', chainExit: 'Отталкивание и посадка',
+  executionLeap: 'Прыжок', executionLand: 'Приземление после удара', guardianSweep: 'Подсечка', guardianApproach: 'Обход за спину', lowerBlade: 'Опустить клинок', chainBrace: 'Опора у цепи', chainRun: 'Бег по цепи', chainApex: 'Замах в прыжке', maskStrike: 'Двуручный разрез маски', gateCrush: 'Двуручный удар в шлем', bellBreak: 'Двуручный косой удар', chainExit: 'Отталкивание и посадка',
   pullBlade: 'Извлечь клинок', extractBlade: 'Извлечь клинок', extraction: 'Извлечь клинок', shaftRun: 'Бег по древку', land: 'Приземление', dash: 'Рывок', atk1: 'Первый удар', atk2: 'Второй удар',
 };
 export const ACTOR_NAMES: Record<string, string> = { hero: 'Пилот', boss: 'Иерофант', gateGuardian: 'Страж Врат', bellRinger: 'Звонарь', shard: 'Клинок в полу', ship: 'Иней' };

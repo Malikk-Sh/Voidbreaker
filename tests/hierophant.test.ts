@@ -8,11 +8,13 @@ import { EXEC_HP, Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHA
 import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
 import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
 import { VOID_BLADE } from '../src/data/weapons';
-import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, CONTACT_SHOT, DESCEND_FROM, EXEC_FLASH, EXEC_T, EXEC_SHORT_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
+import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, DESCEND_FROM, EXEC_FLASH, EXEC_T, EXEC_SHORT_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { InputBuffer, type Input } from '../src/input/input';
-import { EXECUTION_CLIPS, MASK_CONTACT, MASK_RELEASE, maskContactRoot } from '../src/anim/clips/execution';
+import { EXECUTION_CLIPS, MASK_CONTACT, bladeEdgeRoot } from '../src/anim/clips/execution';
+import { Clip } from '../src/anim/clip';
+import { Skeleton } from '../src/anim/skeleton';
 
 const DT = 1 / 60;
 const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
@@ -37,10 +39,17 @@ function fakeHost(w: World, b: Hierophant, hold = () => false, tap = () => false
   const hero: DirectorActor = { get x() { return w.hero.x; }, set x(v) { w.hero.x = v; }, get y() { return w.hero.y; }, set y(v) { w.hero.y = v; }, get z() { return w.hero.z; }, set z(v) { w.hero.z = v; }, get facing() { return w.hero.facing; }, set facing(v) { w.hero.facing = v; } };
   const director = new Director({
     actor: (who) => (who === 'hero' ? hero : who === 'boss' ? b : null),
-    clipEvents: (_who, id) => w.hero.avatar.puppet.clips.get(id)?.events ?? [],
-    clipDuration: (_who, id) => w.hero.avatar.puppet.clips.get(id)?.dur ?? 0,
-    sampleClip: (_who, id, time, reset, blend) => w.hero.sampleSceneClip(id, time, reset, blend),
-    releaseClip: () => w.hero.releaseSceneClip(),
+    defineClip: (who, id, def) => { const p = who === 'hero' ? w.hero.avatar.puppet : b.puppet; p.clips.set(id, new Clip({ ...def, id }, p.layout)); },
+    clipEvents: (who, id) => (who === 'hero' ? w.hero.avatar.puppet : b.puppet).clips.get(id)?.events ?? [],
+    clipDuration: (who, id) => (who === 'hero' ? w.hero.avatar.puppet : b.puppet).clips.get(id)?.dur ?? 0,
+    sampleClip: (who, id, time, reset, blend) => {
+      if (who === 'hero') { w.hero.sampleSceneClip(id, time, reset, blend); return; }
+      const p = b.puppet, c = p.clips.get(id); if (!c) throw new Error(`Unknown boss scene clip: ${id}`);
+      if (reset && !p.anim.sceneDriven) { p.anim.out.set(p.skel.rot); p.base.set(p.skel.rot); }
+      p.anim.sampleScene(c, time, reset, blend); p.anim.compose(p.base); p.skel.rot.set(p.anim.out);
+      p.skel.off[p.layout.idx('root') * 3 + 1] = p.anim.root.y; p.skel.update();
+    },
+    releaseClip: who => { if (who === 'hero') w.hero.releaseSceneClip(); else { b.puppet.anim.releaseScene(); b.puppet.skel.off[b.puppet.layout.idx('root') * 3 + 1] = 0; } },
     call: (fn, arg) => { log.push(fn); calls[fn]?.(arg); },
     holding: hold, tapped: tap, seen, markSeen: () => {},
   });
@@ -387,6 +396,55 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(log[log.length - 1]).toBe('finish');
   });
 
+  it('распад наследует реакционную позу, раскрытая маска и ореол сохраняют вращение после compose', () => {
+    for (const short of [false, true]) {
+      const { w, b, ctrl, director } = toPhase3(short ? 2 : 0), T = short ? EXEC_SHORT_T : EXEC_T;
+      b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
+      const p = b.puppet, layout = p.layout, cam = new CameraRig(), input = idle();
+      const track = executionTrack({ bx: b.x, bz: b.z, hx: w.hero.x, hz: w.hero.z, bellY: 3, lx: 0, lz: 0, star: [0.42, -0.5, -0.76] });
+      const reaction = (short ? track.short! : track.steps).find(s => s.do === 'clip' && s.who === 'boss')!;
+      if (reaction.do !== 'clip' || !reaction.definition) throw new Error('нет реакции');
+      const clip = new Clip(reaction.definition, layout), root = { x: 0, y: 0, z: 0, stretch: 1, spin: 0 };
+      let deaths = 0, rotatingFrames = 0, snapshotError = Infinity;
+      const fractureAngles = (name: string, f: number): [number, number, number] => {
+        if (name.startsWith('mask')) { const side = name === 'maskL' ? 1 : -1; return [-f * 0.18, side * f * 0.35, side * f * 0.3]; }
+        const i = Number(name.at(-1)); return [f * (i - 1) * 0.18, f * 0.2, f * (i - 1) * 0.15];
+      };
+      const fragments = ['maskL', 'maskR', 'halo0', 'halo1', 'halo2'];
+      w.bus.on('kill', event => {
+        if (event.target !== b) return;
+        deaths++;
+        // Enemy.kill уже снял мировые матрицы в debris, но физика обломков ещё не сделала ни шага.
+        const expected = new Skeleton(layout);
+        clip.sample(T.cut, expected.rot, root);
+        expected.off.set(p.skel.off); expected.x = b.x; expected.y = b.y; expected.z = b.z; expected.facing = b.facing;
+        for (const name of fragments) new THREE.Quaternion().setFromEuler(new THREE.Euler(...fractureAngles(name, 0.85), 'XYZ')).toArray(expected.rot, layout.idx(name) * 4);
+        expected.update(); snapshotError = 0;
+        for (const name of ['chest', 'bell', ...fragments]) {
+          const i = layout.idx(name), actualMatrix = new THREE.Matrix4().fromArray(p.skel.world, i * 16), expectedMatrix = new THREE.Matrix4().fromArray(expected.world, i * 16);
+          const actualPosition = new THREE.Vector3(), expectedPosition = new THREE.Vector3(), actualRotation = new THREE.Quaternion(), expectedRotation = new THREE.Quaternion(), scale = new THREE.Vector3();
+          actualMatrix.decompose(actualPosition, actualRotation, scale); expectedMatrix.decompose(expectedPosition, expectedRotation, scale);
+          snapshotError = Math.max(snapshotError, actualPosition.distanceTo(expectedPosition), actualRotation.angleTo(expectedRotation));
+        }
+      });
+      for (let i = 0; i < Math.ceil((T.cut + 0.2) / DT); i++) {
+        // Порядок кадра как в Battle: процедурный риг мира, затем точная сценическая поза/маркер.
+        w.step(DT, DT, input, DT); director.update(DT, cam); ctrl.step(DT);
+        if (director.time < T.toll + 0.03 || director.time > T.cut - 0.03) continue;
+        const f = director.time >= T.crack ? 0.85 : 0.35;
+        for (const name of fragments) {
+          const actual = new THREE.Quaternion().fromArray(p.skel.rot, layout.idx(name) * 4), expected = new THREE.Quaternion().setFromEuler(new THREE.Euler(...fractureAngles(name, f)));
+          expect(actual.angleTo(expected), `${name}: compose не возвращает закрытую маску/ореол`).toBeLessThan(0.001);
+          expect(actual.angleTo(new THREE.Quaternion()), `${name}: материал действительно повёрнут`).toBeGreaterThan(0.05);
+        }
+        rotatingFrames++;
+      }
+      expect(rotatingFrames).toBeGreaterThan(12); expect(deaths).toBe(1);
+      expect(snapshotError, 'осколки начинают полёт из позы разлома, а не из исходной позы').toBeLessThan(0.001);
+      w.hero.avatar.dispose();
+    }
+  });
+
   it('пропуск казни удержанием: логика и звезда применяются сразу', () => {
     const { w, b, ctrl, tick, log, hold } = toPhase3();
     w.hero.receiveAttack(10, 0, 1, 'test', 0);
@@ -399,26 +457,34 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(log.some((l) => l.startsWith('star:'))).toBe(true);
   });
 
-  it('казнь: контакт снят крупно — шлем и маска на ≥ 45 % высоты кадра, камера со стороны Пилота', () => {
+  it('казнь: передний устойчивый план вмещает обе кисти, полный клинок и цель от замаха до дожима', () => {
     const mask: [number, number, number] = [0, 3.1, 0.9];
-    const root = maskContactRoot(mask, Math.PI);
     for (const short of [false, true]) {
+      const { w, b } = setup(0, 8), fh = fakeHost(w, b, () => false, () => false, () => short ? 2 : 0), rig = new CameraRig();
       const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, cx: 0, cz: 3, bellY: mask[1], lx: 3, lz: 5, star: [0.42, -0.5, -0.76], mask });
-      const steps = short ? tr.short! : tr.steps;
-      const cam = steps.find((s) => s.do === 'cam' && Math.abs(s.t - (short ? EXEC_SHORT_T.contact : EXEC_T.contact)) < 1e-9);
-      if (!cam || cam.do !== 'cam') throw new Error('нет плана контакта');
-      const c = new THREE.PerspectiveCamera(cam.fov, 844 / 390, 0.1, 200);
-      c.position.set(...cam.path[0]); c.lookAt(...cam.look[0]); c.updateMatrixWorld();
-      const head = new THREE.Vector3(root[0], root[1] + CONTACT_SHOT.head, root[2]).project(c);
-      const m = new THREE.Vector3(...mask).project(c);
-      // было 37 % (неподвижная камера в ~6.8 м, fov 50)
-      expect(Math.abs(head.y - m.y) / 2).toBeGreaterThan(0.45);
-      // оба — внутри кадра с леттербоксом (12–88 % высоты)
-      for (const p of [head, m]) expect(Math.abs(p.y)).toBeLessThan(0.76);
-      // Передняя четверть Пилота (он смотрит к −Z): видны лицо, грудь и замах; затем наезд.
-      expect(cam.path[0][2]).toBeLessThan(mask[2]);
-      const d = (p: number[]) => Math.hypot(p[0] - mask[0], p[1] - mask[1], p[2] - mask[2]);
-      expect(d(cam.path.at(-1)!)).toBeLessThan(d(cam.path[0]));
+      const T = short ? EXEC_SHORT_T : EXEC_T, camera = new THREE.PerspectiveCamera(44, 640 / 360, 0.05, 200);
+      let first: THREE.Vector3 | undefined, sampleCount = 0;
+      fh.director.play(tr);
+      for (let real = 0; real < T.contact + 0.4; real += 1 / 120) {
+        fh.director.update(1 / 120, rig);
+        if (fh.director.time < T.strike || fh.director.time > T.contact + 0.18) continue;
+        const cam = fh.director.cameraSample!;
+        camera.fov = cam.fov ?? 44; camera.updateProjectionMatrix(); camera.position.copy(cam.pos); camera.lookAt(cam.look); camera.updateMatrixWorld();
+        const anchors = ['head', 'handL', 'handR', 'bladeTip', 'edgeContact'] as const;
+        const points = [new THREE.Vector3(...mask), ...anchors.map(a => w.hero.avatar.sceneAnchor(a, new THREE.Vector3()))];
+        for (const p of points) {
+          const q = p.project(camera);
+          expect(Math.abs(q.x), `${short ? 'short' : 'full'}: ${fh.director.time.toFixed(3)} c, граница по X`).toBeLessThan(0.9);
+          expect(Math.abs(q.y), 'леттербокс не закрывает замах и рабочий край').toBeLessThan(0.76);
+          expect(q.z).toBeGreaterThan(-1); expect(q.z).toBeLessThan(1);
+        }
+        const front = (cam.pos.x - w.hero.x) * Math.sin(w.hero.facing) + (cam.pos.z - w.hero.z) * Math.cos(w.hero.facing);
+        expect(front, 'камера видит переднюю четверть, включая хват и грудь').toBeGreaterThan(0.5);
+        if (first) expect(cam.pos.distanceTo(first), 'контакт не подменяется наездом камеры').toBeLessThan(0.01);
+        else first = cam.pos.clone();
+        sampleCount++;
+      }
+      expect(sampleCount).toBeGreaterThan(70); w.hero.avatar.dispose();
     }
   });
 
@@ -502,7 +568,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     w.hero.avatar.dispose();
   });
 
-  it('контакт привязан к маске и действительному кончику оружия при разных сторонах подхода', () => {
+  it('контакт привязан к маске и рабочему краю оружия при разных сторонах подхода', () => {
     for (const facing of [0, 0.8, Math.PI, -1.2]) {
       const { w, b, ctrl, tick, host } = toPhase3();
       w.hero.x = b.x - Math.sin(facing) * 5; w.hero.z = b.z - Math.cos(facing) * 5;
@@ -510,8 +576,8 @@ describe('Иерофант 2.0 (план §8.3)', () => {
       let distance = Infinity;
       host.flash = (v) => {
         if (v !== EXEC_FLASH) return;
-        const tip = w.hero.avatar.sceneAnchor('bladeTip', new THREE.Vector3());
-        distance = tip.distanceTo(b.bellPos(new THREE.Vector3()));
+        const edge = w.hero.avatar.sceneAnchor('edgeContact', new THREE.Vector3());
+        distance = edge.distanceTo(b.bellPos(new THREE.Vector3()));
       };
       ctrl.execute(); tick(EXEC_T.contact + 0.1);
       expect(distance).toBeLessThan(0.001);
@@ -525,7 +591,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(tr.dur).toBeLessThanOrEqual(11);
     expect(EXEC_T.beam - EXEC_T.touchdown).toBeGreaterThanOrEqual(2);
     const actions = tr.steps.flatMap((s) => s.do === 'call' ? [{ t: s.t, fn: s.fn }]
-      : s.do === 'clip' ? (EXECUTION_CLIPS.find((c) => c.id === s.clip)?.events ?? []).filter((e) => s.markers?.[e.name]).map((e) => ({ t: s.t + e.t / (s.speed ?? 1), fn: s.markers![e.name] })) : []);
+      : s.do === 'clip' ? ((s.definition ?? EXECUTION_CLIPS.find((c) => c.id === s.clip))?.events ?? []).filter((e) => s.markers?.[e.name]).map((e) => ({ t: s.t + e.t / (s.speed ?? 1), fn: s.markers![e.name] })) : []);
     const order = actions.sort((a, b) => a.t - b.t).map((s) => s.fn).filter((fn) => fn !== 'brace' && fn !== 'chainStep');
     expect(order).toEqual(['freeze', 'flare', 'strike', 'toll', 'fracture', 'cut', 'beam', 'star2', 'calm', 'end']);
     expect(actions.find((s) => s.fn === 'strike')!.t).toBeCloseTo(EXEC_T.strike + MASK_CONTACT);
@@ -552,9 +618,9 @@ describe('Иерофант 2.0 (план §8.3)', () => {
   it('казнь: корень учитывает настоящий вынос клинка к маске; вспышка принадлежит маркеру', () => {
     const mask: [number, number, number] = [0.2, 2.8, 0.85];
     const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 4, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76], mask });
-    const strike = tr.steps.find((s) => s.do === 'actor' && s.t === EXEC_T.strike + MASK_RELEASE);
-    expect(strike && strike.do === 'actor' ? strike.moveTo : null).toEqual(maskContactRoot(mask, Math.PI));
-    expect(strike && strike.do === 'actor' ? strike.dur : null).toBeCloseTo(0.14);
+    const strike = tr.steps.find((s) => s.do === 'actor' && s.who === 'hero' && Math.abs(s.t + (s.dur ?? 0) - EXEC_T.contact) < 1e-8);
+    expect(strike && strike.do === 'actor' ? strike.moveTo : null).toEqual(bladeEdgeRoot('maskStrike', MASK_CONTACT, mask, Math.PI));
+    expect(strike && strike.do === 'actor' ? strike.velocityTo?.[1] : null).toBeLessThan(-1);
     const strikeClip = tr.steps.find((s) => s.do === 'clip' && s.t === EXEC_T.strike);
     expect(strikeClip && strikeClip.do === 'clip' ? strikeClip.markers?.contact : null).toBe('strike');
     const flashes = tr.steps.filter((s) => s.do === 'flash');

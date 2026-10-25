@@ -180,6 +180,10 @@ export function resolveScene(source: CineTrack, project: SceneProject, variant: 
     if ('dur' in s && s.dur !== undefined) s.dur /= rate;
     if (s.do === 'clip') { s.speed = (s.speed ?? 1) * rate; if (s.blend) s.blend /= rate; }
     if (s.do === 'actor' && s.turn) s.turn /= rate;
+    if (s.do === 'actor') {
+      if (s.velocityFrom) s.velocityFrom = s.velocityFrom.map(v => v * rate) as V3;
+      if (s.velocityTo) s.velocityTo = s.velocityTo.map(v => v * rate) as V3;
+    }
   }
   if (variant === 'short') track.short = steps; else track.steps = steps;
   if (track.dur) track.dur /= rate;

@@ -89,7 +89,10 @@ async function prepare(page, scene, mode) {
       const boss = bt.runner.boss;
       const mask = boss?.bellPos ? boss.bellPos(cam.position.clone()) : null;
       const tip = b.clone();
-      if (h.avatar.sceneAnchor) h.avatar.sceneAnchor('bladeTip', tip);
+      h.avatar.sceneAnchor('edgeContact', tip);
+      const hands = ['handL', 'handR'].map(n => h.avatar.sceneAnchor(n, cam.position.clone()));
+      const rig = h.avatar.puppet, palm = rig.skel.jointPoint(rig.layout.idx('handL'), 0, -0.07, 0.03, cam.position.clone());
+      const lowerGrip = cam.position.clone().set(0, 0.09, 0).applyMatrix4(h.avatar.weaponMatrix(cam.matrix.clone()));
       const head = h.avatar.sceneAnchor('head', cam.position.clone());
       const footL = h.avatar.sceneAnchor('footL', cam.position.clone()), footR = h.avatar.sceneAnchor('footR', cam.position.clone());
       const matrices = h.avatar.puppet.skel.world, bones = h.avatar.batch.bones;
@@ -108,7 +111,7 @@ async function prepare(page, scene, mode) {
         clipTime: h.avatar.puppet.anim.t, hero: { x: h.x, y: h.y, z: h.z, scripted: h.scripted },
         blade: { visible: h.avatar.bladeVisible, scale: h.avatar.bladeScale, base: a.toArray(), tip: b.toArray(), screenBase: project(a), screenTip: project(b) },
         mask: mask?.toArray(), screenMask: mask ? project(mask) : null,
-        screenHead: project(head), screenFeet: [project(footL), project(footR)], batchGap,
+        screenHead: project(head), screenHands: hands.map(project), camera: cam.position.toArray(), gripError: palm.distanceTo(lowerGrip), screenEdge: project(tip), screenFeet: [project(footL), project(footR)], batchGap,
         contactDistance: mask && tip ? tip.distanceTo(mask) : null,
         landing: landing ? { shardVisible: landing.shard?.visible, igniteT: landing.igniteT, phase: landing.attachment?.phase, released: landing.attachment?.released, weaponGap } : null,
         executionStage: boss?.executionStage,
@@ -175,17 +178,20 @@ async function markerPlan(page, scene) {
   const plan = await page.evaluate((wanted) => {
     const bt = window.__vb.battle, d = bt.director;
     const steps = (d.short ? d.track?.short : d.track?.steps) ?? [];
-    const markers = [];
+    const markers = [], calls = steps.filter(s => s.do === 'call').map(s => ({ name: s.fn, time: s.t }));
     for (const s of steps) {
-      if (s.do !== 'clip' || s.who !== 'hero') continue;
-      const clip = bt.world.hero.avatar.puppet.clips.get(s.clip);
-      for (const e of clip?.events ?? []) {
-        if (wanted.includes(e.name) && s.markers?.[e.name]) markers.push({ name: e.name, clip: s.clip, time: s.t + e.t / (s.speed ?? 1), callback: s.markers[e.name] });
+      if (s.do !== 'clip') continue;
+      const events = s.definition?.events ?? (s.who === 'hero' ? bt.world.hero.avatar.puppet.clips.get(s.clip)?.events : []) ?? [];
+      for (const e of events) {
+        const callback = s.markers?.[e.name], time = s.t + e.t / (s.speed ?? 1);
+        if (!callback) continue;
+        calls.push({ name: callback, time });
+        if (s.who === 'hero' && wanted.includes(e.name)) markers.push({ name: e.name, clip: s.clip, time, callback });
       }
     }
     return { id: d.id, duration: d.dur, short: d.short, markers,
       clips: steps.filter((s) => s.do === 'clip').map((s) => ({ clip: s.clip, time: s.t })),
-      calls: steps.filter((s) => s.do === 'call').map((s) => ({ name: s.fn, time: s.t })) };
+      calls };
   }, SCENES[scene].markers);
   for (const name of SCENES[scene].markers) if (!plan.markers.some((m) => m.name === name)) throw new Error(`${scene}: missing clip marker ${name}.`);
   return plan;
@@ -220,7 +226,7 @@ async function runCase(viewport, scene, mode) {
     const plan = result.plan = await markerPlan(page, scene);
     if (mode === 'full' || mode === 'short') {
       const times = scene === 'execution'
-        ? [{ name: 'before-contact', time: plan.markers[0].time - 0.12 }, { name: 'contact', time: plan.markers[0].time }, { name: 'after-contact', time: plan.markers[0].time + 0.16 }]
+        ? [{ name: 'windup', time: plan.markers[0].time - 0.28 }, { name: 'before-contact', time: plan.markers[0].time - 0.12 }, { name: 'contact', time: plan.markers[0].time }, { name: 'after-contact', time: plan.markers[0].time + 0.16 }]
         : plan.markers.map((m) => ({ name: m.name, time: m.time }));
       if (scene === 'execution') {
         const exit = plan.clips.find((s) => s.clip === 'executionLand');
@@ -242,7 +248,8 @@ async function runCase(viewport, scene, mode) {
         }
         for (const [call, name, offset] of [['fracture', 'mask-fragments', 0.15], ['cut', 'body-cut', 0.3], ['beam', 'star', 1.7], ['calm', 'calm', 0.3]]) {
           const step = plan.calls.find((s) => s.name === call);
-          if (step) times.push({ name, time: step.time + offset });
+          if (!step) throw new Error(`execution: missing scene callback ${call}`);
+          times.push({ name, time: step.time + offset });
         }
       }
       times.sort((a, b) => a.time - b.time);
@@ -253,9 +260,13 @@ async function runCase(viewport, scene, mode) {
       const inside = (p) => p && p.depth > -1 && p.depth < 1 && p.x > 0.02 && p.x < 0.98 && p.y > 0.12 && p.y < 0.88;
       const key = result.shots.find((s) => s.file === `${stem}-${scene === 'execution' ? 'contact' : 'weaponAwake'}.png`);
       check(key && [key.screenHead, key.blade.screenBase, key.blade.screenTip, ...(scene === 'execution' ? [key.screenMask] : [])].every(inside), `${stem}: шлем, рукоять, клинок и цель внутри кадра с леттербоксом`);
-      if (scene === 'execution') check(result.shots.filter((s) => /-(before-contact|contact|after-contact)\.png$/.test(s.file)).every((s) => [s.screenHead, s.blade.screenBase, s.blade.screenTip, s.screenMask].every(inside)), `${stem}: замах и результат удара также остаются в кадре`);
-      // крупный план контакта (ТЗ §5, R05): от шлема до маски — не меньше 45 % высоты кадра (было 37 %)
-      if (scene === 'execution' && key) check(Math.abs(key.screenMask.y - key.screenHead.y) >= 0.45, `${stem}: контакт крупно — шлем и маска на ${(Math.abs(key.screenMask.y - key.screenHead.y) * 100).toFixed(0)} % высоты`);
+      if (scene === 'execution') check(result.shots.filter((s) => /-(windup|before-contact|contact|after-contact)\.png$/.test(s.file)).every((s) => [s.screenHead, ...s.screenHands, s.blade.screenBase, s.blade.screenTip, s.screenEdge, s.screenMask].every(inside)), `${stem}: замах и результат удара также остаются в кадре`);
+      // Поднятый двуручный клинок входит в композицию целиком: проверяем хват и неподвижность камеры.
+      if (scene === 'execution') {
+        const attack = result.shots.filter(s => /-(windup|before-contact|contact|after-contact)\.png$/.test(s.file));
+        check(attack.length === 4 && attack.every(s => s.gripError < 0.005), `${stem}: две руки держат рукоять весь удар (≤5мм)`);
+        check(attack.length === 4 && attack.every(s => Math.hypot(...s.camera.map((v,i) => v - attack[0].camera[i])) < 0.025), `${stem}: камера сохраняет ракурс от замаха до результата удара`);
+      }
       const establishing = result.shots.find((s) => s.file.endsWith('-establishing.png'));
       if (establishing) check([establishing.screenHead, establishing.screenMask, ...establishing.screenFeet].every(inside), `${stem}: общий план показывает героя целиком, маску и дистанцию прыжка`);
       const landing = result.shots.find((s) => s.file.endsWith('-landing.png'));
@@ -280,7 +291,7 @@ async function runCase(viewport, scene, mode) {
       const strikes = result.final.calls.filter((c) => c.name === 'strike');
       const kills = result.final.kills.filter((k) => k.kind === 'hierophant');
       check(strikes.length === 1 && kills.length === 1, `${stem}: один контакт и одна смерть (${strikes.length}/${kills.length})`);
-      if (mode !== 'skip-early') check(strikes[0]?.contactDistance <= 0.25, `${stem}: кончик клинка у маски (${strikes[0]?.contactDistance?.toFixed(4)} м)`);
+      if (mode !== 'skip-early') check(typeof strikes[0]?.contactDistance === 'number' && Number.isFinite(strikes[0].contactDistance) && strikes[0].contactDistance <= 0.01, `${stem}: режущая часть клинка у маски (${strikes[0]?.contactDistance?.toFixed(4)} м)`);
       // Досмотреть хвост пересмотра и реальный возврат в Святилище.
       for (let n = 0; n < 15 && await page.evaluate(() => window.__app.current !== 'hub'); n++) {
         await page.evaluate(() => { for (let i = 0; i < 60 && window.__vb?.battle === window.__spectacle.battle; i++) window.__spectacle.step(); });
