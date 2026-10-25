@@ -104,6 +104,8 @@ for (const viewport of sizes) for (const id of ids) for (const mode of modes) {
       for(let i=0;i<12;i++)d.step();
       let maxQuaternionDelta=0;
       for(let i=0;i<held.length;i+=4) {
+        // Каэлис — отдельный парящий спутник, его вращение продолжается рядом с неподвижным Пилотом.
+        if(p.layout.names[i/4]==='kaelis') continue;
         let dot=0, a=0, b=0;
         for(let j=0;j<4;j++){const x=held[i+j], y=p.skel.rot[i+j]; dot+=x*y; a+=x*x; b+=y*y;}
         const angle=a>0&&b>0 ? 2*Math.acos(Math.min(1,Math.abs(dot)/Math.sqrt(a*b))) : Infinity;
