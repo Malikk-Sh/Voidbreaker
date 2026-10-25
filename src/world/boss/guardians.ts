@@ -3,7 +3,7 @@ import { angleOf } from '../../core/math';
 import { BipedGait, bipedJoints, setJoint, type BipedJoints } from '../../anim/locomotion';
 import { layoutOf } from '../../anim/puppet';
 import { ENEMIES } from '../../data/enemies';
-import { bruteRig } from '../../gen/chars/enemies';
+import { BELL_CONTACT, bruteRig } from '../../gen/chars/enemies';
 import type { SpawnOpts } from '../enemy';
 import { resetStunHabit } from '../actor';
 import type { StunKind } from '../../data/weapons';
@@ -12,6 +12,7 @@ import { registerEnemy } from '../enemies/factory';
 import type { World } from '../world';
 import { ScriptedEnemy, type PoseLib } from './scripted';
 import type { Pattern, Step } from './timeline';
+import { GUARDIAN_KILL_POSES } from './guardianStaging';
 
 const _p = new THREE.Vector3();
 const _b = { x: 0, y: 0, z: 0 };
@@ -36,6 +37,7 @@ const RAGE_AT = 0.5;
 
 /** Общие позы тяжёлого двуногого стража (Эйлер, рад). */
 const BRUTE_POSES: PoseLib = {
+  ...GUARDIAN_KILL_POSES,
   idle: { shR: [-0.45, 0, -0.25], elbR: [-0.7, 0, 0], shL: [-0.3, 0, 0.3], elbL: [-0.5, 0, 0] },
   sweepWind: { chest: [0.1, -0.95, 0], spine: [0, -0.3, 0], shR: [-1.25, 0, -1.0], elbR: [-0.25, 0, 0], shL: [-0.6, 0, 0.6], hipL: [-0.3, 0, 0.1], kneeL: [0.5, 0, 0], hipR: [0.2, 0, -0.1], kneeR: [0.4, 0, 0] },
   sweep: { chest: [0.15, 1.05, 0], spine: [0, 0.35, 0], shR: [-1.35, 0, 0.7], elbR: [-0.05, 0, 0], shL: [0.3, 0, 0.6], hipL: [0.1, 0, 0.1], kneeL: [0.3, 0, 0], hipR: [-0.4, 0, -0.1], kneeR: [0.6, 0, 0] },
@@ -130,7 +132,7 @@ abstract class BruteGuardian extends ScriptedEnemy {
       this.killcam = true;
       this.cur = null; this.move = null; this.y = 0;
       this.vulnerableT = 0;
-      this.setPose('broken', 0.12);
+      this.setKillcamStage(this.kind === 'gateGuardian' ? 'stagger' : 'kneel');
       w.bus.emit('killcam', { target: this, kind: this.kind, x: this.x, z: this.z });
     }
     return false;
@@ -148,6 +150,16 @@ abstract class BruteGuardian extends ScriptedEnemy {
 
   private rageQueued = false;
 
+  setKillcamStage(stage: 'stagger' | 'kneel' | 'hit'): void {
+    this.puppet.springX = this.puppet.springZ = this.puppet.springVX = this.puppet.springVZ = 0;
+    this.setPose(stage === 'stagger' ? 'killcamStagger' : stage === 'kneel' ? 'killcamKneel' : 'killcamHit', stage === 'stagger' ? 0.18 : 0.28);
+  }
+
+  override step(w: World, dt: number): void {
+    if (this.killcam && !this.dead) { this.vx = this.vz = 0; this.puppet.flash = Math.max(0, this.puppet.flash - dt * 9); this.animate(dt, w); return; }
+    super.step(w, dt);
+  }
+
   protected override think(w: World, dt: number, tick: boolean): void {
     if (this.killcam) { this.vx = this.vz = 0; return; }
     // ярость ждёт конца оглушения — рёв не обрывает окно наказания (и заменяет рёв пробуждения)
@@ -163,15 +175,15 @@ abstract class BruteGuardian extends ScriptedEnemy {
   protected animate(dt: number, w: World): void {
     const s = this.puppet.skel, L = s.layout, out = s.rot;
     const sp = Math.hypot(this.vx, this.vz);
-    const walking = !this.cur && this.state !== 'stunned';
+    const walking = !this.killcam && !this.cur && this.state !== 'stunned';
     this.gait.update(sp * dt, walking ? sp : 0, 0, dt);
-    this.gait.write(out, L, this.J, false);
+    if (this.killcam) out.set(L.restRot); else this.gait.write(out, L, this.J, false);
     const st = Math.floor(this.gait.phase * 2);
     if (st !== this.lastStep && walking && sp > 0.4) { this.lastStep = st; w.bus.emit('impact', { x: this.x, z: this.z, r: 1.6, kind: 'land' }); }
     const pose = this.blendPose(dt);
     for (const [j, e] of pose) setJoint(out, L, j, e[0], e[1], e[2]);
     s.x = this.x; s.z = this.z; s.facing = this.facing;
-    s.y = this.y + this.gait.bob * 1.4 - (this.state === 'stunned' || this.killcam ? 0.7 : 0);
+    s.y = this.y + (this.killcam ? 0 : this.gait.bob * 1.4) - (this.state === 'stunned' || this.killcam ? 0.7 : 0);
     s.tiltX = this.puppet.springZ * 0.06; s.tiltZ = -this.puppet.springX * 0.06;
     s.update();
     this.puppet.boost = this.coreGlow * 1.2 + (this.vulnerableT > 0 ? 0.5 : 0);
@@ -529,7 +541,7 @@ export class BellRinger extends BruteGuardian {
   /** Центр колокола на спине. */
   bellPoint(out: { x: number; y: number; z: number }): void {
     const L = this.puppet.layout, s = 1.45;
-    this.puppet.skel.jointPoint(L.idx('chest'), 0, 1.0 * s, -1.2 * s, _p);
+    this.puppet.skel.jointPoint(L.idx('bell'), BELL_CONTACT[0] * s, BELL_CONTACT[1] * s, BELL_CONTACT[2] * s, _p);
     out.x = _p.x; out.y = _p.y; out.z = _p.z;
   }
 

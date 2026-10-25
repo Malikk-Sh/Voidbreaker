@@ -5,6 +5,7 @@ import { VerletCloth } from '../anim/verlet';
 import { HERO_CLIPS } from '../anim/clips/hero';
 import { Clip } from '../anim/clip';
 import { buildHeroGeometry, HERO_RIG, BLADE_LEN } from '../gen/chars/hero';
+import { FINISHER_EDGE_Y } from '../anim/clips/execution';
 import { RigBatch } from '../render/rigbatch';
 import { ClothMesh } from '../render/cloth';
 
@@ -15,7 +16,7 @@ const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _tb = new THREE.Vector
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
 const _weaponLocal = new THREE.Matrix4(), _weaponWorld = new THREE.Matrix4(), _weaponOffset = new THREE.Vector3(), _weaponScale = new THREE.Vector3();
 
-export type HeroAnchor = 'handR' | 'hilt' | 'bladeTip' | 'head' | 'footL' | 'footR';
+export type HeroAnchor = 'handR' | 'handL' | 'hilt' | 'bladeTip' | 'edgeContact' | 'head' | 'footL' | 'footR';
 
 /** Шаг-выпад под удары серии (план §5.8, п. 5): передняя нога вперёд, таз ниже. L — левая нога впереди. */
 const LUNGE_POSE = {
@@ -170,7 +171,8 @@ export class HeroAvatar {
     s.facing = facing + r.spin;
     s.x = x + r.z * sf + r.x * cf;
     s.z = z + r.z * cf - r.x * sf;
-    s.y = this.lift + (scene ? 0 : this.gait.bob) + r.y - this.lungeW * 0.11;
+    const heldVictory = !scene && p.anim.clip?.id === 'victory' && p.anim.speed === 0;
+    s.y = this.lift + (scene || heldVictory ? 0 : this.gait.bob) + r.y - this.lungeW * 0.11;
     // видимый Пилот (этап 4.5, A2): высота с подъёмом клипа (прыжки Небесного разреза и Звездопада поднимают
     // корень до 1.7 м, физический y при этом 0); по горизонтали — физическая точка: на ней хитбокс
     this.visual.x = x; this.visual.z = z; this.visual.facing = facing;
@@ -347,9 +349,9 @@ export class HeroAvatar {
   /** Именованные опоры для постановки и проверки контакта. */
   sceneAnchor(name: HeroAnchor, out: THREE.Vector3): THREE.Vector3 {
     const p = this.puppet;
-    if (name === 'hilt' || name === 'bladeTip') {
+    if (name === 'hilt' || name === 'bladeTip' || name === 'edgeContact') {
       this.weaponMatrix(_weaponWorld);
-      return out.set(0, name === 'bladeTip' ? -BLADE_LEN - 0.02 : 0, 0).applyMatrix4(_weaponWorld);
+      return out.set(0, name === 'edgeContact' ? FINISHER_EDGE_Y : name === 'bladeTip' ? -BLADE_LEN - 0.02 : 0, 0).applyMatrix4(_weaponWorld);
     }
     return p.skel.jointPoint(p.layout.idx(name), 0, name === 'head' ? 0.36 : 0, 0, out);
   }

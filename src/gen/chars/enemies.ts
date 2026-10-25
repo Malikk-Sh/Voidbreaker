@@ -486,6 +486,11 @@ export function buildPsalmist(seed = 8): RigBuild {
 }
 
 // ------------------------------------------------------------------ Тяжёлый двуногий (Голем)
+/** Подвес в короне чаши Звонаря, в локальных координатах груди до умножения на масштаб. */
+export const BELL_PIVOT: [number, number, number] = [0, 2, -0.3];
+/** Тот же участок колокола, что прежний chest-point (0, 1, -1.2), теперь относительно подвеса. */
+export const BELL_CONTACT: [number, number, number] = [0, -1, -0.9];
+
 export function bruteRig(id = 'brute', scale = 1): RigDef {
   const s = scale;
   return {
@@ -508,6 +513,8 @@ export function bruteRig(id = 'brute', scale = 1): RigDef {
       { name: 'hipR', parent: 'pelvis', pos: [-0.32 * s, -0.1 * s, 0] },
       { name: 'kneeR', parent: 'hipR', pos: [0, -0.55 * s, 0] },
       { name: 'footR', parent: 'kneeR', pos: [0, -0.55 * s, 0] },
+      // Добавляем в конец: номера существующих суставов и остальных тяжёлых врагов не меняются.
+      ...(id === 'bellRinger' ? [{ name: 'bell', parent: 'chest', pos: BELL_PIVOT.map(v => v * s) as [number, number, number] }] : []),
     ],
   };
 }
@@ -616,12 +623,17 @@ export function buildBrute(seed = 5, s = 1, opts: { halberd?: boolean; bell?: bo
   }
   if (opts.bell) {
     // Звонарь: бронзовый колокол на спине на цепях, капюшон, молот-язык в руке
-    b.joint = J('chest');
+    b.joint = J('bell');
+    const beforeBell = b.matrix.clone();
+    // Старые координаты геометрии — в груди. Перебазируем их, сохраняя исходное положение чаши.
+    b.matrix.multiply(mat(-BELL_PIVOT[0] * s, -BELL_PIVOT[1] * s, -BELL_PIVOT[2] * s));
     const bell = lathe([[0.05, 0], [0.9, 0.12], [0.8, 0.5], [0.55, 1.2], [0.5, 1.55], [0.25, 1.75], [0, 1.8]], 12);
     bell.scale(s, s, s);
     b.add(bell, { matrix: mat(0, 0.3 * s, -0.9 * s, 0.35, 0, 0), color: BRONZE });
     b.add(prism(12, 0.85 * s, 0.85 * s, 0.05 * s), { matrix: mat(0, 0.36 * s, -0.95 * s, 0.35, 0, 0), emissive: 0.8 });
     for (const y of [0.55, 1.0]) b.add(prism(12, (0.83 - y * 0.25) * s, (0.83 - y * 0.25) * s, 0.06 * s, true), { matrix: mat(0, (0.3 + y * 0.94) * s, (-0.9 - y * 0.34) * s, 0.35, 0, 0), color: OBS2 });
+    b.matrix.copy(beforeBell);
+    b.joint = J('chest');
     for (const sx of [1, -1]) for (let k = 0; k < 6; k++) {
       const u = k / 5;
       b.add(new THREE.TorusGeometry(0.07 * s, 0.02 * s, 3, 6), { matrix: mat(sx * (0.6 - u * 0.25) * s, (0.9 - u * 0.1) * s, (0.35 - u * 0.95) * s, 0, k % 2 ? Math.PI / 2 : 0, 0), color: BRONZE });

@@ -145,11 +145,12 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   if (req.mode === 'navigate') {
+    const page = new URL(req.url).pathname.endsWith('/editor.html') ? './editor.html' : './';
     e.respondWith(fetch(req).then((res) => {
       const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put('./', copy));
+      caches.open(CACHE).then((c) => c.put(page, copy));
       return res;
-    }).catch(() => caches.match('./')));
+    }).catch(() => caches.match(page)));
     return;
   }
   e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => {

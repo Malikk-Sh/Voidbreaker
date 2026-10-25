@@ -784,11 +784,13 @@ export class Hero implements Actor {
   }
 
   victory(): void {
-    if (this.dead) return;
+    if (this.dead || this.state === 'victory') return;
     this.state = 'victory'; this.stateT = 0;
+    this.move = null; this.lungeLeft = 0; this.chargeLevel = 0;
+    this.vx = this.vz = this.kbX = this.kbZ = 0;
     this.hitActive = false; this.trailOn = false;
-    // послебоевая тишина (план §8.8): Пилот медленно опускает клинок
-    this.avatar.puppet.play('lowerBlade', 1, 0.25);
+    // В казни позу уже ведёт Director: смена состояния не перезапускает сценический клип.
+    if (!this.avatar.puppet.anim.sceneDriven) this.avatar.puppet.play('victory', 1, 0.25);
   }
 
   /** Скриптовое движение (пробежка по древку): герой не расталкивается с врагами, позицию ведёт сценарий. */
@@ -815,6 +817,8 @@ export class Hero implements Actor {
     const dt = entering ? 0 : Math.min(0.1, Math.max(0, reset ? time : time - this.sceneT));
     this.sceneT = time;
     if (entering) {
+      // В бою к Animator добавляются ноги, выпад и отдача. Вход сцены начинается с видимой позы, включая их.
+      p.anim.out.set(p.skel.rot);
       this.sceneActive = true;
       this.sceneWasScripted = this.scripted;
       this.scripted = true;
@@ -836,7 +840,14 @@ export class Hero implements Actor {
   releaseSceneClip(): void {
     if (!this.sceneActive) return;
     this.sceneActive = false;
-    this.avatar.puppet.anim.releaseScene();
+    const anim = this.avatar.puppet.anim, clip = anim.clip;
+    // Победная стойка продолжается до итогов: выход из Director не возвращает тело к походке.
+    if (this.state === 'victory' && clip?.id === 'victory') {
+      anim.play(clip, 0, 0, clip.dur);
+      // При пропуске входное смешивание могло ещё держать старую позу: фиксируем FK в этом же кадре.
+      this.avatar.lift = this.y;
+      this.avatar.update(0, this.x, this.z, this.facing, 0, 0, 0, false);
+    } else anim.releaseScene();
     // Конечное действие сцены могло уже явно вернуть управление.
     if (this.scripted) this.scripted = this.sceneWasScripted;
     if (this.state === 'frozen') this.toMove();

@@ -128,7 +128,7 @@ export function prologueTrack(b: SpaceBasis): CineTrack {
     { t: T.end - 0.1, do: 'flash', v: 1 },
     { t: T.end, do: 'call', fn: 'end' },
   ];
-  return { id: 'prologue', steps, dur: T.end + 0.25 };
+  return { id: 'prologue', origin: [0, 0, 0], heading: 0, steps, dur: T.end + 0.25 };
 }
 
 /** Где стоят актёры приземления: кратер, обломок обшивки, откуда выползает Шелуха. */
@@ -196,6 +196,7 @@ export function landingTrack(p: LandingSpots): CineTrack {
     { t: L.say, do: 'say', line: 'Системы… живы. Пилот?' },
     // план 7: идёт к обломку — на камеру, обломок в переднем плане
     { t: L.walk - 0.1, do: 'call', fn: 'idle' },
+    { t: L.walk, do: 'clip', who: 'hero', clip: 'cinematicWalk', speed: 2.2 / 0.95, blend: 0.25 },
     { t: L.walk, do: 'actor', who: 'hero', moveTo: stand, dur: 0.95, lookAt: [sx + Fx * 3, 0, sz + Fz * 3] },
     { t: L.walk, do: 'cam', path: [at(x, z, 2.9, 0.7, 1.45), at(p.shardX, p.shardZ, 2.9, 1.2, 1.5)], look: [[x, 1.55, z], [p.shardX * 0.5 + sx * 0.5, 1.15, p.shardZ * 0.5 + sz * 0.5]], dur: L.reach - L.walk, ease: 'inOutSine', fov: 42 },
     // план сбоку: весь клинок, рукоять и место хвата — пока сцена ждёт действия игрока, кадр стоит на нём
@@ -218,5 +219,5 @@ export function landingTrack(p: LandingSpots): CineTrack {
     { t: L.end - 0.3, do: 'clip', who: 'hero', clip: 'lowerBlade' },
     { t: L.end, do: 'call', fn: 'end' },
   ];
-  return { id: 'prologueLanding', steps, dur: L.end + 0.2, blendOut: 0.9 };
+  return { id: 'prologueLanding', revision: 2, cameraBlend: 0.32, origin: [x, 0, z], heading: Math.atan2(Fx, Fz), steps, dur: L.end + 0.2, blendOut: 0.9 };
 }

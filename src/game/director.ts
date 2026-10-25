@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Ease, type EaseId } from '../core/ease';
 import { clamp } from '../core/math';
 import type { CameraRig } from '../world/camera';
+import type { ClipDef } from '../anim/clip';
+import { readProject, resolveScene } from './sceneEdits';
 
 export type V3 = [number, number, number];
 export type BannerColor = 'gold' | 'void' | 'hunger' | 'white' | 'ether' | 'steel';
@@ -14,17 +16,19 @@ export type MusicCue = 'silence' | 'stinger' | 'leitmotif' | 'major' | 'resolve'
  */
 export type CineStep =
   /** moon — план «на фоне луны»: на время плана диск луны в небе стоит за этой точкой с начала плана (киноприём). */
-  | { t: number; do: 'cam'; path: V3[]; look: V3[]; dur: number; ease?: EaseId; fov?: number; roll?: number; moon?: V3 }
+  | { t: number; do: 'cam'; path: V3[]; look: V3[]; dur: number; ease?: EaseId; fov?: number; roll?: number; moon?: V3; blend?: number }
   /** turn — разворот к lookAt за столько секунд (без него — сразу). */
-  | { t: number; do: 'actor'; who: string; clip?: string; moveTo?: V3; dur?: number; lookAt?: V3; ease?: EaseId; turn?: number }
+  | { t: number; do: 'actor'; who: string; clip?: string; moveTo?: V3; dur?: number; lookAt?: V3; ease?: EaseId; turn?: number; bends?: V3[]; velocityFrom?: V3; velocityTo?: V3 }
   /**
    * Абсолютное время позы и маркеры клипа; движение корня задаётся отдельным actor. blend — смешивание
    * с предыдущей позой при входе (с сцены; по умолчанию SCENE_BLEND, 0 — склейка).
    */
-  | { t: number; do: 'clip'; who: string; clip: string; speed?: number; dur?: number; blend?: number; markers?: Record<string, string> }
+  | { t: number; do: 'clip'; who: string; clip: string; speed?: number; dur?: number; blend?: number; markers?: Record<string, string>; definition?: ClipDef }
   | { t: number; do: 'crack' | 'dissolve'; who: string; to: number; dur?: number }
   | { t: number; do: 'shatter'; who: string; dir?: V3; power?: number }
-  | { t: number; do: 'time'; scale: number; dur: number }
+  | { t: number; do: 'time'; scale: number; dur: number; rampIn?: number; rampOut?: number }
+  /** Короткая контактная остановка: позы, корни и камера разделяют одно время; интерфейс не появляется. */
+  | { t: number; do: 'hold'; dur: number }
   | { t: number; do: 'sky'; param: SkyParam; to: number; dur: number }
   | { t: number; do: 'music'; cue: MusicCue }
   | { t: number; do: 'sfx'; id: string; gain?: number }
@@ -45,6 +49,14 @@ export type CineStep =
 
 export interface CineTrack {
   id: string;
+  revision?: number;
+  cameraBlend?: number;
+  /** Начало и оси постановки: правки редактора переносятся на живую арену. */
+  origin?: V3;
+  heading?: number;
+  /** Множитель процедурной части пролога после общего изменения темпа. */
+  playbackRate?: number;
+  placements?: Record<string, { offset: V3; yaw: number }>;
   steps: CineStep[];
   /** Укороченная версия — играет, если сцену уже видели дважды. */
   short?: CineStep[];
@@ -61,13 +73,14 @@ export interface DirectorActor { x: number; z: number; y?: number; facing: numbe
 /** Что режиссёру нужно от игры. Всё необязательное, кроме актёров и ввода, — сцена работает и без звука. */
 export interface DirectorHost {
   actor(who: string): DirectorActor | null;
+  defineClip?(who: string, id: string, definition: ClipDef): void;
   playClip?(who: string, clip: string): void;
   clipEvents?(who: string, clip: string): readonly { t: number; name: string }[];
   clipDuration?(who: string, clip: string): number;
   sampleClip?(who: string, clip: string, time: number, reset: boolean, blend?: number): void;
   releaseClip?(who: string): void;
   shatter?(who: string, dirX: number, dirZ: number, power: number): void;
-  timeScale?(scale: number, dur: number): void;
+  timeScale?(scale: number, dur: number, rampIn?: number, rampOut?: number): void;
   sky?(param: SkyParam, value: number): void;
   /** Диск луны в небе — в направлении dir (план «на фоне луны»); null — вернуть прежнее положение. */
   moonBehind?(dir: V3 | null): void;
@@ -102,7 +115,7 @@ const WAIT_EPS = 1e-6;
 /** Пропуск доступен не раньше (с): случайное удержание с прошлой сцены не съедает новую. */
 const SKIP_FROM = 0.4;
 
-interface Live { s: CineStep; started: boolean; done: boolean; until?: number; from?: number; fromX?: number; fromZ?: number; fromY?: number; fromF?: number; curve?: THREE.CatmullRomCurve3; lookCurve?: THREE.CatmullRomCurve3 }
+interface Live { s: CineStep; started: boolean; done: boolean; until?: number; from?: number; fromX?: number; fromZ?: number; fromY?: number; fromF?: number; curve?: THREE.CatmullRomCurve3; lookCurve?: THREE.CatmullRomCurve3; camFrom?: THREE.Vector3; lookFrom?: THREE.Vector3; fovFrom?: number; rollFrom?: number }
 interface SceneMarker { t: number; fn: string; source: Live; done: boolean }
 
 const _p = new THREE.Vector3();
@@ -114,7 +127,7 @@ function curveOf(pts: V3[]): THREE.CatmullRomCurve3 {
 }
 
 function stepEnd(s: CineStep): number {
-  return s.t + ('dur' in s && typeof s.dur === 'number' ? s.dur : 0);
+  return s.t + (s.do !== 'hold' && 'dur' in s && typeof s.dur === 'number' ? s.dur : 0);
 }
 
 /**
@@ -149,12 +162,19 @@ export class Director {
   short = false;
   /** Всегда полная версия (пересмотр в Кинозале). */
   full = false;
+  /** Редактор передаёт уже подготовленную дорожку и отключает повторное применение проекта. */
+  studio = false;
 
   constructor(private host: DirectorHost) {}
 
   get active(): boolean { return !!this.track; }
   get id(): string | null { return this.track?.id ?? null; }
   get time(): number { return this.t; }
+  get rate(): number { return this.track?.playbackRate ?? 1; }
+  /** Монтажный кадр без веса перехода к игровой камере. */
+  get cameraSample(): { pos: THREE.Vector3; look: THREE.Vector3; fov?: number; roll: number } | null {
+    return this.live.some((l) => l.s.do === 'cam' && l.started) ? { pos: this.pos, look: this.look, fov: this.fov, roll: this.roll } : null;
+  }
   /** Сцена стоит у шага ожидания и ждёт действия игрока. */
   get waiting(): boolean { return !!this.pendingWait() && this.waitT > 0; }
 
@@ -162,12 +182,37 @@ export class Director {
     return this.live.find((l) => l.s.do === 'wait' && !l.done && l.s.t <= target + WAIT_EPS) ?? null;
   }
 
+  /** Расходуем только реальную длительность остановки; остаток кадра сохраняется при любом FPS. */
+  private heldTarget(realDt: number): number {
+    let cursor = this.t, left = realDt;
+    const waitAt = this.pendingWait(this.t + realDt)?.s.t ?? Infinity;
+    for (const l of this.live.filter(l => l.s.do === 'hold' && !l.done).sort((a, b) => a.s.t - b.s.t)) {
+      const s = l.s; if (s.do !== 'hold' || s.t >= waitAt || s.t > cursor + left + 1e-9) break;
+      const travel = Math.max(0, s.t - cursor); cursor += travel; left = Math.max(0, left - travel);
+      l.started = true;
+      const spent = Math.min(left, Math.max(0, s.dur - (l.from ?? 0)));
+      l.from = (l.from ?? 0) + spent; left -= spent;
+      if (l.from < s.dur - 1e-9) return cursor;
+      l.done = true;
+    }
+    return cursor + left;
+  }
+
   play(track: CineTrack, onEnd?: (skipped: boolean) => void): void {
     if (this.track) this.finish(false);
     this.short = !this.full && !!track.short && this.host.seen(track.id) >= 2;
+    if (!this.studio) {
+      const project = readProject();
+      if (project.enabled) track = resolveScene(track, project, this.short ? 'short' : 'full');
+    }
     const steps = (this.short ? track.short! : track.steps).slice().sort((a, b) => a.t - b.t);
+    for (const s of steps) if (s.do === 'clip' && s.definition) this.host.defineClip?.(s.who, s.clip, s.definition);
+    for (const [who, p] of Object.entries(track.placements ?? {})) {
+      const a = this.host.actor(who);
+      if (a) { a.x += p.offset[0]; a.z += p.offset[2]; if (a.y !== undefined) a.y += p.offset[1]; a.facing += p.yaw; }
+    }
     this.track = track;
-    this.live = steps.map((s) => ({ s, started: false, done: false }));
+    this.live = steps.map((s) => ({ s, started: false, done: this.studio && s.do === 'wait' }));
     this.t = 0; this.hold = 0; this.waitT = 0;
     this.dur = track.dur ?? Math.max(0, ...steps.map(stepEnd)) + 0.3;
     if (this.short && track.dur) this.dur = Math.max(0, ...steps.map(stepEnd)) + 0.3;
@@ -191,13 +236,15 @@ export class Director {
     this.hits.clear();
     this.tap = null;
     this.onEnd = onEnd ?? null;
+    // Захватываем видимую боевую позу до следующего шага мира: иначе ещё один кадр атаки попадал на стык сцены.
+    for (const l of this.live) if (l.s.do === 'clip' && l.s.t === 0 && !l.done) this.samplePose(l, 0);
   }
 
   /** Кадр: шаги, пропуск, камера. realDt — реальное время (сцена не зависит от замедления мира). */
   update(realDt: number, cam: CameraRig): void {
     const tr = this.track;
     if (tr) {
-      let target = this.t + realDt;
+      let target = this.heldTarget(realDt);
       // необязательное действие: время сцены стоит у шага ожидания, пока игрок не ответит
       const wait = this.pendingWait(target);
       let prompt: { text: string; t: number } | null = null;
@@ -274,6 +321,9 @@ export class Director {
       case 'cam': {
         if (fast) { l.done = true; return; }
         if (start) {
+          if (this.live.some((o) => o !== l && o.s.do === 'cam' && o.started)) {
+            l.camFrom = this.pos.clone(); l.lookFrom = this.look.clone(); l.fovFrom = this.fov ?? 30; l.rollFrom = this.roll;
+          }
           l.curve = curveOf(s.path); l.lookCurve = curveOf(s.look);
           // план на фоне луны: диск — по направлению взгляда в начале плана; любой следующий план возвращает его
           if (s.moon) {
@@ -283,10 +333,25 @@ export class Director {
           } else this.restoreMoon();
         }
         // последняя начавшаяся камера ведёт кадр
-        const e = Ease[s.ease ?? 'inOutSine'](u);
+        const e = clamp(Ease[s.ease ?? 'inOutSine'](u), 0, 1);
         l.curve!.getPoint(e, this.pos);
         l.lookCurve!.getPoint(e, this.look);
         this.fov = s.fov; this.roll = s.roll ?? 0;
+        const blend = s.blend ?? this.track?.cameraBlend ?? 0.24;
+        if (l.camFrom && blend > 0) {
+          const k = clamp((this.t - s.t) / blend, 0, 1), w = k * k * (3 - 2 * k);
+          // Переход на другую сторону персонажа идёт вокруг него: прямая между камерами проходила сквозь тело.
+          const a = Math.atan2(l.camFrom.x - l.lookFrom!.x, l.camFrom.z - l.lookFrom!.z);
+          const b = Math.atan2(this.pos.x - this.look.x, this.pos.z - this.look.z);
+          const angle = a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * w;
+          const r0 = Math.hypot(l.camFrom.x - l.lookFrom!.x, l.camFrom.z - l.lookFrom!.z);
+          const r1 = Math.hypot(this.pos.x - this.look.x, this.pos.z - this.look.z);
+          const r = r0 + (r1 - r0) * w, y = l.camFrom.y + (this.pos.y - l.camFrom.y) * w;
+          this.look.lerpVectors(l.lookFrom!, this.look, w);
+          this.pos.set(this.look.x + Math.sin(angle) * r, y, this.look.z + Math.cos(angle) * r);
+          this.fov = l.fovFrom! + ((s.fov ?? 30) - l.fovFrom!) * w;
+          this.roll = l.rollFrom! + ((s.roll ?? 0) - l.rollFrom!) * w;
+        }
         if (u >= 1 && this.live.some((o) => o !== l && o.s.do === 'cam' && o.s.t > s.t && this.t >= o.s.t)) l.done = true;
         return;
       }
@@ -301,15 +366,38 @@ export class Director {
           }
         }
         if (!a) { l.done = true; return; }
-        if (start) { l.fromX = a.x; l.fromZ = a.z; l.fromY = a.y ?? 0; l.fromF = a.facing; }
+        if (start) {
+          l.fromX = a.x; l.fromZ = a.z; l.fromY = a.y ?? 0; l.fromF = a.facing;
+          if (s.moveTo && s.bends?.length) {
+            const from: V3 = [a.x, a.y ?? 0, a.z], to = s.moveTo, n = s.bends.length;
+            const points: V3[] = [from, ...s.bends.map((v, i): V3 => {
+              const k = (i + 1) / (n + 1);
+              return [from[0] + (to[0] - from[0]) * k + v[0], from[1] + (to[1] - from[1]) * k + v[1], from[2] + (to[2] - from[2]) * k + v[2]];
+            }), to];
+            l.curve = curveOf(points);
+          }
+        }
         const e = Ease[s.ease ?? 'inOutQuad'](u);
-        if (s.moveTo) {
-          a.x = l.fromX! + (s.moveTo[0] - l.fromX!) * e;
-          a.z = l.fromZ! + (s.moveTo[2] - l.fromZ!) * e;
-          if (a.y !== undefined) a.y = l.fromY! + (s.moveTo[1] - l.fromY!) * e;
+        const newer = (channel: 'moveTo' | 'lookAt') => this.live.some((o, i) => o !== l && o.started && o.s.do === 'actor' && o.s.who === s.who && (o.s.t > s.t || (o.s.t === s.t && i > this.live.indexOf(l))) && !!o.s[channel]);
+        if (s.moveTo && !newer('moveTo')) {
+          if ((s.velocityFrom || s.velocityTo) && s.dur && s.dur > 0 && !fast) {
+            // Эрмит: скорости в метрах/с времени сцены. Ease здесь не нужен — форма задаётся импульсом.
+            const k = u, k2 = k * k, k3 = k2 * k;
+            const h00 = 2 * k3 - 3 * k2 + 1, h10 = k3 - 2 * k2 + k, h01 = -2 * k3 + 3 * k2, h11 = k3 - k2;
+            const from = [l.fromX!, l.fromY!, l.fromZ!], to = s.moveTo;
+            const point = (axis: number) => h00 * from[axis] + h01 * to[axis] + h10 * s.dur! * (s.velocityFrom?.[axis] ?? (to[axis] - from[axis]) / s.dur!) + h11 * s.dur! * (s.velocityTo?.[axis] ?? (to[axis] - from[axis]) / s.dur!);
+            a.x = point(0); a.z = point(2); if (a.y !== undefined) a.y = point(1);
+          } else if (l.curve && !fast) {
+            l.curve.getPoint(clamp(e, 0, 1), _p);
+            a.x = _p.x; a.z = _p.z; if (a.y !== undefined) a.y = _p.y;
+          } else {
+            a.x = l.fromX! + (s.moveTo[0] - l.fromX!) * e;
+            a.z = l.fromZ! + (s.moveTo[2] - l.fromZ!) * e;
+            if (a.y !== undefined) a.y = l.fromY! + (s.moveTo[1] - l.fromY!) * e;
+          }
         }
         let turned = 1;
-        if (s.lookAt) {
+        if (s.lookAt && !newer('lookAt')) {
           const to = Math.atan2(s.lookAt[0] - a.x, s.lookAt[2] - a.z);
           turned = fast || !s.turn ? 1 : clamp((this.t - s.t) / s.turn, 0, 1);
           // кратчайшим путём от разворота на старте шага
@@ -340,8 +428,9 @@ export class Director {
         break;
       }
       case 'call': h.call?.(s.fn, s.arg); break;
+      case 'hold': if (fast) l.done = true; return;
       // ниже — только подача: при пропуске не нужна
-      case 'time': if (!fast) h.timeScale?.(s.scale, s.dur); break;
+      case 'time': if (!fast) h.timeScale?.(s.scale, s.dur, s.rampIn, s.rampOut); break;
       case 'music': if (!fast) h.music?.(s.cue); break;
       case 'sfx': if (!fast) h.sfx?.(s.id, s.gain ?? 1); break;
       case 'say': if (!fast) h.say?.(s.line, s.speaker ?? 'kaelis'); break;
@@ -420,7 +509,7 @@ export class Director {
   }
 
   /** Точка на сплайне камеры (тесты, предпросмотр). */
-  static sample(path: V3[], u: number, out = _p): THREE.Vector3 { return curveOf(path).getPoint(u, out); }
+  static sample(path: V3[], u: number, out = _p): THREE.Vector3 { return curveOf(path).getPoint(clamp(u, 0, 1), out); }
 
   clear(cam: CameraRig): void {
     this.track = null; this.live = []; this.markers = []; this.releaseClips(); this.restoreMoon(); this.w = 0; this.tap = null; this.waitT = 0; this.onEnd = null;

@@ -1,3 +1,4 @@
+import { Clip, type ClipDef } from '../anim/clip';
 import * as THREE from 'three';
 import { RigLayout, Skeleton } from '../anim/skeleton';
 import { clamp, hexToLinear } from '../core/math';
@@ -42,6 +43,7 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3
 export class Prologue {
   readonly group = new THREE.Group();
   private readonly director: Director;
+  private studioActors = { hero: { x: 0, y: 0, z: 0, facing: 0 }, ship: { x: 0, y: 0, z: 0, facing: 0 } };
   private readonly cam = new CameraRig();
   private readonly basis: SpaceBasis;
   private seg: Seg = 'dark';
@@ -198,8 +200,13 @@ export class Prologue {
   private host(): DirectorHost {
     const ctx = this.ctx;
     return {
-      actor: () => null,
-      timeScale: (scale, dur) => ctx.time.cinematic(dur, scale),
+      actor: (who) => this.studioActors[who as keyof typeof this.studioActors] ?? null,
+      defineClip: (who: string, id: string, def: ClipDef) => { if (who === 'hero') this.hero.puppet.clips.set(id, new Clip({ ...def, id }, this.hero.puppet.layout)); },
+      sampleClip: (who, id, time, reset, blend) => { const p = this.hero.puppet, c = p.clips.get(id); if (who === 'hero' && c) { p.anim.sampleScene(c, time, reset, blend); p.anim.compose(p.base); } },
+      clipEvents: (who, id) => who === 'hero' ? this.hero.puppet.clips.get(id)?.events ?? [] : [],
+      clipDuration: (who, id) => who === 'hero' ? this.hero.puppet.clips.get(id)?.dur ?? 0 : 0,
+      releaseClip: (who) => { if (who === 'hero') this.hero.puppet.anim.releaseScene(); },
+      timeScale: (scale, dur, rampIn, rampOut) => { if (rampIn !== undefined || rampOut !== undefined) ctx.time.cinematicSmooth(dur, scale, rampIn, rampOut); else ctx.time.cinematic(dur, scale); },
       sfx: (id, gain) => ctx.audio.play(id, { gain }),
       say: (line, sp) => { if (sp === 'boss' || KAELIS_LINES) { ctx.hud.subtitle(line, sp); ctx.audio.speak(line, 1, sp); } },
       banner: (text, sub, color, dur, size) => ctx.hud.bigBanner(text, sub, color, dur, size),
@@ -270,7 +277,7 @@ export class Prologue {
   update(realDt: number): void {
     if (this.disposed) return;
     const ctx = this.ctx, T = ctx.time;
-    const dt = realDt * T.worldScale;
+    const dt = realDt * T.worldScale * this.director.rate;
     this.realT += realDt;
     this.director.update(realDt, this.cam);
     if (this.disposed) return;
@@ -333,8 +340,8 @@ export class Prologue {
         this.norm.emit({ x: pos.x, y: pos.y, z: pos.z, vx: -head.x * 3, vy: -head.y * 3, vz: -head.z * 3, life: 2.4, size: 1.0, size1: 3.2, color: [0.05, 0.05, 0.07], alpha: 0.55, drag: 0.5, frame: 'smoke' });
       }
     }
-    s.x = pos.x; s.y = pos.y; s.z = pos.z;
-    s.facing = Math.atan2(head.x, head.z);
+    s.x = pos.x + this.studioActors.ship.x; s.y = pos.y + this.studioActors.ship.y; s.z = pos.z + this.studioActors.ship.z;
+    s.facing = Math.atan2(head.x, head.z) + this.studioActors.ship.facing;
     s.tiltX = -Math.asin(clamp(head.y, -1, 1));
     s.update();
     this.ship.begin();
@@ -387,8 +394,8 @@ export class Prologue {
     const sk = H.puppet.skel;
     sk.tiltX = 1.35 - f.vz * 0.025;
     sk.tiltZ = -f.vx * 0.05;
-    H.lift = -0.3;
-    H.update(dt, f.hx, f.hz + 1.4, Math.PI, 0, 0, 0, true);
+    H.lift = -0.3 + this.studioActors.hero.y;
+    H.update(dt, f.hx + this.studioActors.hero.x, f.hz + 1.4 + this.studioActors.hero.z, Math.PI + this.studioActors.hero.facing, 0, 0, 0, true);
     H.render(true, false);
     H.chestPos(_a);
     this.lights.add(_a.x, _a.y + 0.6, _a.z, VOID, 0.6 + H.glow * 0.6, 5);

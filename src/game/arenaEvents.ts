@@ -11,6 +11,7 @@ import type { Enemy } from '../world/enemy';
 import type { World } from '../world/world';
 import type { BattleVfx } from '../vfx/battleVfx';
 import type { StageVista } from './cinematics';
+import { ChoirPsalm } from '../world/choir';
 
 /** 1-2: колонна падает за столько (с), давит полосой длиной/шириной (м). */
 export const COLUMN_FALL = { dur: 0.65, len: 3.8, w: 1.5, reach: 2.6, dmg: 6 };
@@ -56,6 +57,7 @@ export class ArenaEvents {
   private readonly stageId: string;
   /** Сборная декорация (этап 4.5, C3): 1-9 — хорист из бездны; потом — Клуатр и Крипта. */
   readonly assembly: Assembly | null = null;
+  readonly choir: ChoirPsalm | null = null;
 
   constructor(private readonly w: World, view: ArenaView, group: THREE.Group, private readonly vfx: BattleVfx, stage: StageDef) {
     const b = w.arena.bounds, id = stage.id;
@@ -91,7 +93,7 @@ export class ArenaEvents {
     }
     if (id === '1-2') view.coverMeshes.forEach((m, i) => { const c = w.arena.covers[i]; if (c) this.standing.push({ m, cover: c }); });
     // TODO(design): Клуатр (1-7) и Крипта — свои части и ступени тем же Assembly; что там собирается, решает дизайн
-    if (id === '1-9') this.assembly = this.buildAssembly(group);
+    if (id === '1-9') { this.assembly = this.buildAssembly(group); this.choir = new ChoirPsalm(w); }
 
     // молящиеся по краю арены (план §8.6): между колоннами, на ободе за краем пола, лицом к центру
     if (w.arena.def.edge === 'wall') {
@@ -168,7 +170,7 @@ export class ArenaEvents {
   }
 
   /** Свои геометрии и материал сборной декорации (остальной декор уходит вместе с группой арены). */
-  dispose(): void { this.assembly?.dispose(); }
+  dispose(): void { this.assembly?.dispose(); this.choir?.dispose(); }
 
   /**
    * Низкий план на декорацию для интро этапа (из боевой камеры сверху её не видно): из-за плеча Пилота
@@ -201,6 +203,7 @@ export class ArenaEvents {
     this.updateBell(dtW);
     this.updateColumns(dtW);
     this.assembly?.update(dtW);
+    if (this.assembly && this.choir?.silenced) this.assembly.material.uniforms.uEmissiveStrength.value *= 0.15;
   }
 
   // ------------------------------------------------------------------ молящиеся

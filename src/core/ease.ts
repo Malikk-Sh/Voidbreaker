@@ -19,6 +19,8 @@ export const Ease = {
   outBack: (t: number) => 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2),
   outElastic: (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * ((2 * Math.PI) / 3)) + 1),
   inOutSine: (t: number) => -(Math.cos(Math.PI * t) - 1) / 2,
+  inSine: (t: number) => 1 - Math.cos(t * Math.PI / 2),
+  outSine: (t: number) => Math.sin(t * Math.PI / 2),
 } satisfies Record<string, EaseFn>;
 
 export type EaseId = keyof typeof Ease;

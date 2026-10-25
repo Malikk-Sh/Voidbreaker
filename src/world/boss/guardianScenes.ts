@@ -1,60 +1,109 @@
-import type { CineStep, CineTrack } from '../../game/director';
+import type { CineStep, CineTrack, V3 } from '../../game/director';
+import { MASK_CONTACT, MASK_RELEASE, bladeContactRoot, bladeEdgeRoot } from '../../anim/clips/execution';
+import { RigLayout } from '../../anim/skeleton';
+import { bruteRig } from '../../gen/chars/enemies';
+import { guardianTargets, guardianSupport, GUARDIAN_KILL_POSES } from './guardianStaging';
+import { along, attackFraming, ballisticPoint, ballisticVelocity, bossImpactFraming, FINISHER_CUT_LEAD } from '../../game/finisherMotion';
+import { VICTORY_SHOT, victoryFrame } from '../../game/victoryShot';
 
-/** Угол обзора kill-cam (°): шире игрового — Страж и Пилот на древке в одном кадре. */
-export const KILL_FOV = 42;
+export const KILL_FOV = 44;
+export interface KillSpots { gx: number; gz: number; hx: number; hz: number; facing?: number; knee?: V3; head?: V3; bell?: V3; landing?: V3 }
+export const GATE_KILL_T = { knee: 0.62, leap: 1.18, jump: 1.45, strike: 1.95, contact: 1.95 + MASK_CONTACT, exit: 2.95, land: 4.0, crumble: 4.25, victory: 5.25, end: 5.25 + VICTORY_SHOT.dur };
+export const BELL_KILL_T = { knee: 0.62, leap: 1.15, jump: 1.42, strike: 1.92, contact: 1.92 + MASK_CONTACT, exit: 2.92, land: 3.97, crumble: 4.22, victory: 5.22, end: 5.22 + VICTORY_SHOT.dur };
 
-/** Где стоят Страж и Пилот в момент добивания. */
-export interface KillSpots { gx: number; gz: number; hx: number; hz: number }
-
-/**
- * Kill-cam Стража Врат (план §8.4), 3–4 с, без летербокса: Пилот проскальзывает под алебардой, подрубает
- * колено — Страж падает на колено; взлетает по древку и бьёт в шлем; по шлему бежит разлом, из трещин — свет;
- * Страж осыпается. Логика: knee, helmet, crumble.
- */
-export function killGateTrack(p: KillSpots): CineTrack {
+function killTrack(p: KillSpots, bell: boolean): CineTrack {
+  const T = bell ? BELL_KILL_T : GATE_KILL_T, who = bell ? 'bellRinger' : 'gateGuardian';
   const { gx, gz, hx, hz } = p;
-  const dx = gx - hx, dz = gz - hz, dl = Math.hypot(dx, dz) || 1;
-  const fx = dx / dl, fz = dz / dl, sx = -fz, sz = fx;
+  const initial = Math.atan2(gx - hx, gz - hz), facing = p.facing ?? Math.atan2(hx - gx, hz - gz);
+  const size = bell ? 1.45 : 1.65;
+  const layout = new RigLayout(bruteRig(who, size)), anchors = guardianTargets(layout, gx, gz, facing, size);
+  const support = (name: string): V3 => [0, guardianSupport(layout, name), 0];
+  const target = (bell ? p.bell : p.head) ?? (bell ? anchors.bell : anchors.head);
+  const attackFacing = bell ? facing : initial, fx = Math.sin(attackFacing), fz = Math.cos(attackFacing), sx = -fz, sz = fx;
+  const attack = bell ? 'bellBreak' : 'gateCrush', contact = bladeEdgeRoot(attack, MASK_CONTACT, target, attackFacing);
+  const knee = p.knee ?? anchors.knee, sweep = bladeContactRoot('guardianSweep', T.knee, knee, initial);
+  const approach: V3 = bell ? [contact[0] - fx * 0.8, 0, contact[2] - fz * 0.8] : sweep;
+  const landing: V3 = p.landing ?? [gx - fx * 3.8 + sx * 1.5, 0, gz - fz * 3.8 + sz * 1.5];
+  const takeoff: V3 = [approach[0], 0, approach[2]], flightDur = T.contact - T.jump;
+  const flight = ballisticVelocity(takeoff, contact, flightDur, bell ? 2.0 : 2.4);
+  const softened: V3 = [flight.velocityTo[0] * 0.25, -0.25, flight.velocityTo[2] * 0.25];
+  const compression: V3 = contact.map((v, i) => v + (flight.velocityTo[i] + softened[i]) * 0.025) as V3;
+  const driven = along(contact, attackFacing, bell ? 0.1 : 0.14, bell ? 0.16 : 0.19, bell ? 0.08 : 0.02);
+  const kickDirection = Math.atan2(landing[0] - driven[0], landing[2] - driven[2]);
+  const kick = along(driven, kickDirection, 0.18, -0.06), kickAt = T.exit + 0.12;
+  const retreat = ballisticVelocity(kick, landing, T.land - kickAt, 2 * kick[1] / (T.land - kickAt) + 1.0);
+  const forward = (r: V3): V3 => [r[0] + fx * 10, 0, r[2] + fz * 10];
+  // Держим одну сторону оси боя: обход, клинок и цель не меняются местами при склейке.
+  const wide: V3 = [gx - fx * 8 + sx * 9, 3.3, gz - fz * 8 + sz * 9];
+  const lowLook: V3 = [(approach[0] + gx) / 2, bell ? 2.1 : 1.6, (approach[2] + gz) / 2];
+  const cutAt = T.contact - FINISHER_CUT_LEAD;
+  const motion = (time: number) => ({ time, root: ballisticPoint(takeoff, contact, flightDur, T.strike + time - T.jump, bell ? 2 : 2.4) });
+  const launch = attackFraming('executionLeap', attackFacing, [0, 0.25, 0.5, 0.75, 1].map(k => ({ time: (T.jump + (T.strike - T.jump) * k - T.leap) * 1.9 / (T.strike - T.leap), root: ballisticPoint(takeoff, contact, flightDur, (T.strike - T.jump) * k, bell ? 2 : 2.4) })), target, 48, [[gx, 0, gz], [gx, bell ? 4.0 : 4.8, gz]]);
+  const windup = attackFraming(attack, attackFacing, [0, 0.3, 0.44, MASK_CONTACT - FINISHER_CUT_LEAD].map(motion), target, KILL_FOV);
+  const hit = bossImpactFraming(attack, attackFacing, [MASK_CONTACT - FINISHER_CUT_LEAD, MASK_RELEASE, MASK_CONTACT].map(motion).concat([{ time: MASK_CONTACT + 0.05, root: compression }, { time: MASK_CONTACT + 0.18, root: driven }]), target, bell ? 1.3 : 0.8, bell ? 1.05 : 0.8);
+  const landingCam: V3 = [landing[0] - fx * 5 + sx * 6.5, 2.7, landing[2] - fz * 5 + sz * 6.5];
+  const landingLook: V3 = [(landing[0] + gx) / 2, 1.5, (landing[2] + gz) / 2];
+  const victory = [0, 0.5, 1].map(u => victoryFrame(landing, attackFacing, u));
   const steps: CineStep[] = [
-    { t: 0, do: 'actor', who: 'hero', clip: 'dash', moveTo: [gx + sx * 1.4 - fx * 0.3, 0, gz + sz * 1.4 - fz * 0.3], dur: 0.35, ease: 'outExpo', lookAt: [gx, 0, gz] },
-    { t: 0, do: 'sfx', id: 'dash', gain: 0.8 },
-    { t: 0, do: 'cam', path: [[gx + sx * 9 - fx * 4, 1.2, gz + sz * 9 - fz * 4], [gx + sx * 8.5 - fx * 3, 1.5, gz + sz * 8.5 - fz * 3]], look: [[gx, 1.6, gz]], dur: 1.0, ease: 'outCubic', fov: KILL_FOV },
-    { t: 0.4, do: 'actor', who: 'hero', clip: 'atk1', lookAt: [gx, 0, gz] },
-    { t: 0.45, do: 'call', fn: 'knee' },
-    // по древку — в шлем
-    { t: 0.9, do: 'actor', who: 'hero', clip: 'shaftRun', moveTo: [gx - fx * 0.6, 2.7, gz - fz * 0.6], dur: 0.45, ease: 'inOutQuad', lookAt: [gx, 0, gz] },
-    { t: 0.9, do: 'cam', path: [[gx + sx * 10.5, 2.6, gz + sz * 10.5], [gx + sx * 10 - fx, 3.1, gz + sz * 10 - fz]], look: [[gx, 2.9, gz], [gx, 3.4, gz]], dur: 1.3, fov: KILL_FOV },
-    { t: 1.32, do: 'call', fn: 'helmet' },
-    { t: 1.32, do: 'flash', v: 0.35 },
-    { t: 1.35, do: 'crack', who: 'gateGuardian', to: 1, dur: 0.9 },
-    { t: 1.6, do: 'actor', who: 'hero', moveTo: [gx - fx * 2.8, 0, gz - fz * 2.8], dur: 0.4, ease: 'inQuad', lookAt: [gx, 0, gz] },
-    { t: 2.2, do: 'cam', path: [[gx - fx * 10 + sx * 4, 3.0, gz - fz * 10 + sz * 4]], look: [[gx, 2.2, gz]], dur: 1.4, fov: KILL_FOV },
-    { t: 2.4, do: 'call', fn: 'crumble' },
+    { t: 0, do: 'clip', who: 'hero', clip: bell ? 'guardianApproach' : 'guardianSweep', blend: 0.18 },
+    // Реакция врага тоже идёт по времени сцены: замедление мира не уводит шлем от маркера клинка.
+    { t: 0, do: 'clip', who, clip: `${who}Reaction`, blend: 0.2, markers: { crumble: 'crumble', ...(bell ? { ring: 'bellRing' } : {}) }, definition: { id: `${who}Reaction`, dur: T.end, mask: 'full', events: [{ t: T.crumble, name: 'crumble' }, ...(bell ? [{ t: T.contact + 0.09, name: 'ring' }] : [])], keys: [
+      { t: 0, pose: GUARDIAN_KILL_POSES[bell ? 'killcamKneel' : 'killcamStagger'], rootOffset: support(bell ? 'killcamKneel' : 'killcamStagger') },
+      { t: T.knee, pose: GUARDIAN_KILL_POSES[bell ? 'killcamKneel' : 'killcamStagger'], rootOffset: support(bell ? 'killcamKneel' : 'killcamStagger') },
+      ...(!bell ? [{ t: (T.knee + T.leap) / 2, ease: 'inSine' as const, pose: GUARDIAN_KILL_POSES.gateKneeling, rootOffset: support('gateKneeling') }] : []),
+      { t: T.leap, ease: bell ? 'inOutSine' : 'outSine', pose: GUARDIAN_KILL_POSES.killcamKneel, rootOffset: support('killcamKneel') },
+      { t: T.contact, pose: GUARDIAN_KILL_POSES.killcamKneel },
+      { t: T.contact + 0.05, ease: 'outQuad', pose: GUARDIAN_KILL_POSES[bell ? 'bellImpulse' : 'gateImpulse'], rootOffset: support(bell ? 'bellImpulse' : 'gateImpulse') },
+      { t: T.contact + (bell ? 0.12 : 0.18), ease: 'inOutSine', pose: GUARDIAN_KILL_POSES[bell ? 'bellCompression' : 'gateCompression'], rootOffset: support(bell ? 'bellCompression' : 'gateCompression') },
+      { t: T.contact + (bell ? 0.24 : 0.3), ease: 'outCubic', pose: GUARDIAN_KILL_POSES[bell ? 'bellBody' : 'gateCollapse'], rootOffset: support(bell ? 'bellBody' : 'gateCollapse') },
+      { t: T.contact + 0.48, ease: 'inOutSine', pose: GUARDIAN_KILL_POSES[bell ? 'bellRebound' : 'gateCompression'], rootOffset: support(bell ? 'bellRebound' : 'gateCompression') },
+      ...(bell ? [
+        { t: T.contact + 0.74, ease: 'inOutSine' as const, pose: GUARDIAN_KILL_POSES.bellSettle, rootOffset: support('bellSettle') },
+        { t: T.contact + 1.04, ease: 'inOutSine' as const, pose: { ...GUARDIAN_KILL_POSES.bellSettle, bell: [0.035, 0, -0.01] as V3 }, rootOffset: support('bellSettle') },
+      ] : []),
+      { t: T.end, pose: GUARDIAN_KILL_POSES[bell ? 'bellSettle' : 'gateCompression'], rootOffset: support(bell ? 'bellSettle' : 'gateCompression') },
+    ] } },
+    { t: 0, do: 'actor', who: 'hero', moveTo: approach, dur: bell ? T.leap : T.knee, ease: 'inOutSine', ...(bell ? { bends: [[sx * 3.3, 0, sz * 3.3] as V3] } : {}), lookAt: forward(approach), turn: 0.35 },
+    { t: 0, do: 'cam', path: [wide, [wide[0] - sx * 0.3, wide[1], wide[2] - sz * 0.3]], look: [lowLook], dur: T.leap, ease: 'inOutSine', fov: KILL_FOV },
+    ...(!bell ? [
+      // Контакт подсечки — маркер клипа; падение Стража начинается только после него.
+      { t: T.knee, do: 'call' as const, fn: 'knee' },
+      { t: T.knee, do: 'time' as const, scale: 0.3, dur: 0.55, rampIn: 0.06, rampOut: 0.2 },
+    ] : []),
+    { t: T.leap, do: 'clip', who: 'hero', clip: 'executionLeap', speed: 1.9 / (T.strike - T.leap), blend: 0.2 },
+    { t: T.leap, do: 'actor', who: 'hero', moveTo: [approach[0], 0, approach[2]], dur: T.jump - T.leap, ease: 'inOutSine', lookAt: forward(approach), turn: 0.18 },
+    { t: T.jump, do: 'actor', who: 'hero', moveTo: contact, dur: flightDur, ...flight, lookAt: forward(contact) },
+    { t: T.jump, do: 'cam', path: [launch.cam], look: [launch.look], dur: T.strike - T.jump, fov: 48, blend: 0 },
+    { t: T.strike, do: 'cam', path: [windup.cam], look: [windup.look], dur: cutAt - T.strike, fov: KILL_FOV, blend: 0 },
+    { t: T.strike, do: 'clip', who: 'hero', clip: attack, markers: { contact: bell ? 'bell' : 'helmet' }, blend: 0.12 },
+    { t: T.strike + MASK_RELEASE, do: 'sfx', id: 'swing_heavy', gain: 0.9 },
+    { t: T.strike, do: 'time', scale: 0.2, dur: MASK_RELEASE, rampIn: 0.1, rampOut: 0.18 },
+    { t: T.contact, do: 'time', scale: 0.08, dur: 0.16, rampIn: 0, rampOut: 0.06 },
+    { t: T.contact + 0.035, do: 'hold', dur: bell ? 0.045 : 0.065 },
+    { t: cutAt, do: 'cam', path: [hit.cam], look: [hit.look], dur: T.exit - cutAt, fov: 40, blend: 0 },
+    { t: T.contact, do: 'actor', who: 'hero', moveTo: compression, dur: 0.05, velocityFrom: flight.velocityTo, velocityTo: softened },
+    { t: T.contact + 0.05, do: 'actor', who: 'hero', moveTo: driven, dur: T.exit - T.contact - 0.05, velocityFrom: softened, velocityTo: [0, 0, 0] },
+    ...(!bell ? [{ t: T.contact + 0.1, do: 'sfx' as const, id: 'shatter_stone', gain: 0.45 }] : []),
+    // После удара остаётся отдельный читаемый кадр трещины/кольца, до распада.
+    { t: T.contact, do: 'crack', who, to: 1, dur: 0.3 },
+    { t: T.exit, do: 'clip', who: 'hero', clip: 'executionLand', blend: 0.22 },
+    { t: T.exit, do: 'actor', who: 'hero', moveTo: kick, dur: 0.12, velocityFrom: [0, 0, 0], velocityTo: retreat.velocityFrom },
+    { t: kickAt, do: 'actor', who: 'hero', moveTo: landing, dur: T.land - kickAt, ...retreat },
+    { t: T.exit, do: 'cam', path: [hit.cam, landingCam], look: [hit.look, landingLook], dur: T.land - T.exit, fov: KILL_FOV, ease: 'inOutSine', blend: 0.22 },
+    { t: T.land, do: 'sfx', id: 'land_impact', gain: 0.65 },
+    { t: T.crumble + 0.35, do: 'call', fn: 'guardianTitle' },
+    { t: T.crumble, do: 'time', scale: 0.32, dur: 0.7, rampIn: 0.08, rampOut: 0.25 },
+    { t: T.land, do: 'cam', path: [landingCam], look: [landingLook], dur: T.victory - T.land, fov: KILL_FOV },
+    { t: T.victory, do: 'clip', who: 'hero', clip: 'victory', dur: VICTORY_SHOT.dur, blend: 0.25 },
+    { t: T.victory, do: 'cam', path: victory.map(s => s.cam), look: victory.map(s => s.look), dur: VICTORY_SHOT.dur, fov: VICTORY_SHOT.fov, ease: 'inOutSine', blend: 0 },
+    { t: T.victory + VICTORY_SHOT.accentAt, do: 'call', fn: 'bossVictory' },
   ];
-  return { id: 'killGate', steps, dur: 3.6, blendOut: 0.6 };
+  // Подсечка также проходит после сэмплирования позы — как основной удар.
+  if (!bell) {
+    const clip = steps[0]; if (clip.do === 'clip') clip.markers = { contact: 'knee' };
+    const i = steps.findIndex((s) => s.do === 'call' && s.fn === 'knee'); steps.splice(i, 1);
+  }
+  return { id: bell ? 'killBell' : 'killGate', revision: 5, cameraBlend: 0.25, origin: [gx, 0, gz], heading: attackFacing, steps, dur: T.end, blendOut: 0.65 };
 }
-
-/**
- * Kill-cam Звонаря (план §8.4): удар по колоколу на спине — колокол выпускает фиолетовое кольцо; кольцо
- * проходит сквозь Звонаря, он рассыпается, колокол падает и гудит. Логика: bell, crumble.
- */
-export function killBellTrack(p: KillSpots): CineTrack {
-  const { gx, gz, hx, hz } = p;
-  const dx = gx - hx, dz = gz - hz, dl = Math.hypot(dx, dz) || 1;
-  const fx = dx / dl, fz = dz / dl, sx = -fz, sz = fx;
-  const steps: CineStep[] = [
-    // за спину — к колоколу
-    { t: 0, do: 'actor', who: 'hero', clip: 'dash', moveTo: [gx + fx * 1.9, 0, gz + fz * 1.9], dur: 0.4, ease: 'outExpo', lookAt: [gx, 0, gz] },
-    { t: 0, do: 'sfx', id: 'dash', gain: 0.8 },
-    { t: 0, do: 'cam', path: [[gx + sx * 8, 1.5, gz + sz * 8], [gx + sx * 7.5 + fx * 1.5, 1.8, gz + sz * 7.5 + fz * 1.5]], look: [[gx, 2.2, gz]], dur: 1.2, ease: 'outCubic', fov: KILL_FOV },
-    { t: 0.45, do: 'actor', who: 'hero', clip: 'atk2', lookAt: [gx, 0, gz] },
-    { t: 0.5, do: 'call', fn: 'bell' },
-    { t: 0.5, do: 'flash', v: 0.3 },
-    { t: 0.65, do: 'crack', who: 'bellRinger', to: 1, dur: 0.9 },
-    { t: 1.2, do: 'cam', path: [[gx - fx * 6 + sx * 2.5, 1.8, gz - fz * 6 + sz * 2.5], [gx - fx * 7 + sx * 3, 2.2, gz - fz * 7 + sz * 3]], look: [[gx, 1.5, gz]], dur: 2.2, fov: KILL_FOV },
-    { t: 1.6, do: 'call', fn: 'crumble' },
-    { t: 1.95, do: 'sfx', id: 'bell_strike', gain: 0.7 },
-    { t: 2.1, do: 'sfx', id: 'stun_hum', gain: 0.6 },
-  ];
-  return { id: 'killBell', steps, dur: 3.4, blendOut: 0.6 };
-}
+export function killGateTrack(p: KillSpots): CineTrack { return killTrack(p, false); }
+export function killBellTrack(p: KillSpots): CineTrack { return killTrack(p, true); }

@@ -278,6 +278,7 @@ export class Input {
   }
 
   vibrate(ms: number): void {
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
     if (this.lastDevice === 'touch' && this.vibration) navigator.vibrate?.(ms);
   }
   vibration = true;

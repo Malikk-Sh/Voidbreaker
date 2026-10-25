@@ -84,7 +84,7 @@ export class Hud {
   private runeLit = [9, 9, 9, 9, 9];
   private lastRes = 0;
   private sub: { text: string; t: number; speaker: string } | null = null;
-  private hint: { text: string; t: number } | null = null;
+  private hint: { text: string; t: number; minFont: number } | null = null;
   /** Поверх сцены режиссёра: заполнение пропуска и кольцо касания-тайминга. */
   private cine: { skip: number; tap: { k: number; hit: boolean } | null; prompt: ScenePrompt | null } = { skip: 0, tap: null, prompt: null };
   private hpTrail = 1; private hpTrailDelay = 0; private lastHp = 1;
@@ -133,7 +133,7 @@ export class Hud {
     if (this.worldTexts.length > 6) this.worldTexts.shift();
   }
   subtitle(text: string, speaker: string): void { this.sub = { text, t: 0, speaker }; }
-  showHint(text: string): void { this.hint = { text, t: 0 }; }
+  showHint(text: string, minFont = 0): void { this.hint = { text, t: 0, minFont }; }
   cineOverlay(skip: number, tap: { k: number; hit: boolean } | null, prompt: ScenePrompt | null = null): void { this.cine.skip = skip; this.cine.tap = tap; this.cine.prompt = prompt; }
   pulseUlt(): void { this.ultPulse = 1; this.readyT.r = 0; }
   /** Способность снова готова: вокруг иконки за 0.25 с замыкается кольцо. */
@@ -968,19 +968,20 @@ export class Hud {
       if (this.hint.t > 4.5) this.hint = null;
       else {
         const a = this.hint.t < 0.3 ? this.hint.t / 0.3 : this.hint.t > 4 ? (4.5 - this.hint.t) / 0.5 : 1;
+        const hs = Math.max(s, this.hint.minFont / 13);
         g.save();
         g.globalAlpha = a;
-        g.font = `700 ${Math.round(13 * s)}px ${FONT_BODY}`;
-        const lines = this.wrap(this.hint.text, Math.min(this.w * 0.4, 400 * s));
+        g.font = `700 ${Math.round(13 * hs)}px ${FONT_BODY}`;
+        const lines = this.wrap(this.hint.text, Math.min(this.w * 0.4, 400 * hs));
         let tw = 0;
         for (const l of lines) tw = Math.max(tw, g.measureText(l).width);
-        const lh = 17 * s, x0 = L, y1 = this.h - 150 * s - this.safe.b, y0 = y1 - 12 * s - lines.length * lh;
-        const x1 = x0 + tw + 34 * s;
+        const lh = 17 * hs, x0 = L, y1 = this.h - Math.max(150 * s, this.hint.minFont > 0 ? 130 : 0) - this.safe.b, y0 = y1 - 12 * hs - lines.length * lh;
+        const x1 = x0 + tw + 34 * hs;
         g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y0); g.lineTo(x1 - 10 * s, y1); g.lineTo(x0, y1); g.closePath();
         g.fillStyle = 'rgba(8,11,16,0.82)'; g.fill();
         g.strokeStyle = UI.gold; g.lineWidth = 1; g.stroke();
-        this.diamond(x0 + 9 * s, y0 + (y1 - y0) / 2, 3 * s, UI.goldHi);
-        lines.forEach((l, i) => this.text(l, x0 + 18 * s, y0 + 6 * s + (i + 0.85) * lh, 13 * s, UI.goldHi, 'bodyBold', 'left'));
+        this.diamond(x0 + 9 * hs, y0 + (y1 - y0) / 2, 3 * hs, UI.goldHi);
+        lines.forEach((l, i) => this.text(l, x0 + 18 * hs, y0 + 6 * hs + (i + 0.85) * lh, 13 * hs, UI.goldHi, 'bodyBold', 'left'));
         g.restore();
       }
     }

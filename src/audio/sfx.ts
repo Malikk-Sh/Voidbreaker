@@ -325,6 +325,9 @@ export const SFX: Record<string, SfxRecipe> = {
   } },
   // казнь Иерофанта (план §8.3.2): музыка обрывается в одну хоровую ноту, нарастание хора, звон в ушах, луч в небо
   choir_note: { len: 3.4, reverb: 0.35, render: (c, o, t) => choir(c, o, t, [62], 2.8, 0.1, 'o', 'u') },
+  choir_mark: { len: 1.4, reverb: 0.3, render: (c, o, t) => { choir(c, o, t, [62, 69], 1.0, 0.06, 'o', 'a'); bell(c, o, t, mtof(74), 0.08, 1.2); } },
+  choir_impact: { len: 1.4, reverb: 0.2, render: (c, o, t) => { kick(c, o, t, 0.65, 45); choir(c, o, t, [38, 45, 50], 0.6, 0.065, 'a', 'u'); } },
+  choir_return: { len: 2.1, reverb: 0.3, render: (c, o, t) => { bell(c, o, t, mtof(74), 0.2, 1.8); choir(c, o, t, [62, 66, 69, 74], 1.5, 0.075, 'a', 'o'); } },
   choir_rise: { len: 3, reverb: 0.3, render: (c, o, t) => { choir(c, o, t, [50, 57], 2.2, 0.06, 'u', 'a'); choir(c, o, t + 0.9, [62, 66, 69], 1.6, 0.07, 'a', 'o'); } },
   ear_ring: { len: 3.2, reverb: 0, render: (c, o, t) => { osc(c, 'sine', 6200, t + 0.2, 2.8, o, 0.035, 0.05, 2.7); osc(c, 'sine', 6260, t + 0.2, 2.8, o, 0.02, 0.05, 2.7); } },
   beam_up: { len: 4, reverb: 0.35, render: (c, o, t) => {

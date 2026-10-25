@@ -2,7 +2,7 @@
  * Три шкалы времени (Tech §11): real — UI и тряска, world — замедления и hitstop,
  * hero — в «Мгновении Пустоты» герой замедлен меньше мира.
  */
-interface Slowmo { scale: number; hero: number; left: number }
+interface Slowmo { scale: number; hero: number; left: number; total?: number; rampIn?: number; rampOut?: number }
 
 const HITSTOP_SCALE = 0.08;          // не 0: частицы «дышат»
 const HITSTOP_CAP = 0.14;            // одно замирание не длиннее 140 мс
@@ -27,7 +27,10 @@ export class Time {
       const s = this.slowmos[i];
       s.left -= realDt;
       if (s.left <= 0) { this.slowmos.splice(i, 1); continue; }
-      if (s.scale < scale) { scale = s.scale; hero = s.hero; }
+      const weight = s.total === undefined ? 1 : Math.min(1, (s.total - s.left) / Math.max(0.001, s.rampIn ?? 0), s.left / Math.max(0.001, s.rampOut ?? 0));
+      const w = weight * weight * (3 - 2 * weight);
+      const current = w >= 1 ? s.scale : 1 + (s.scale - 1) * w;
+      if (current < scale) { scale = current; hero = w >= 1 ? s.hero : 1 + (s.hero - 1) * w; }
     }
     if (this.hitstop > 0) { this.worldScale = HITSTOP_SCALE; this.heroScale = HITSTOP_SCALE; }
     else { this.worldScale = scale; this.heroScale = hero; }
@@ -54,6 +57,11 @@ export class Time {
 
   /** Длинные замирания (казнь, смерть босса) — без лимита hitstop. */
   cinematic(sec: number, scale: number): void { this.slow(scale, sec, scale); }
+
+  /** Плавное замедление постановочного контакта: разгон мира не обрывается одним кадром. */
+  cinematicSmooth(sec: number, scale: number, rampIn = 0.1, rampOut = 0.2): void {
+    this.slowmos.push({ scale, hero: scale, left: sec, total: sec, rampIn: Math.min(rampIn, sec / 2), rampOut: Math.min(rampOut, sec / 2) });
+  }
 
   /** Снять все замедления (пропуск Раскола). */
   endSlow(): void { this.slowmos.length = 0; }

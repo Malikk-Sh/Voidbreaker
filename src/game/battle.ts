@@ -28,10 +28,13 @@ import { RISER_LEN } from '../audio/sfx';
 import { AshFall, BeamDust } from '../vfx/atmosphere';
 import { KaelisDrone } from '../vfx/kaelis';
 import { killBellTrack, killGateTrack } from '../world/boss/guardianScenes';
+import { Clip } from '../anim/clip';
+import type { ClipDef } from '../anim/clip';
 import { Director, type CineTrack, type DirectorActor, type SkyParam, type V3 } from './director';
 import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
-import '../world/boss/guardians';
+import { BellRinger, GateGuardian } from '../world/boss/guardians';
+import { guardianTargets } from '../world/boss/guardianStaging';
 import { EXEC_HP, Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
@@ -46,6 +49,7 @@ import type { TrainingCard } from '../ui/hud';
 import { DrillTracker, type DrillState } from './drills';
 import { IGNITE, LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
 import { ExtractionAttachment, extractionGripMatrix, extractionStand } from './extraction';
+import { VICTORY_SHOT } from './victoryShot';
 
 
 const _top = new THREE.Vector3();
@@ -64,7 +68,7 @@ const DEBUG_NAV = typeof location !== 'undefined' && new URLSearchParams(locatio
 export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef }
 /** prologue — бой 1-1 начинается приземлением Пилота (план §8.2, планы 6–8), а не пролётом над ареной. */
 /** Сцены Кинозала, которые пересматриваются в бою (план §8.1): kill-cam стражей и интро Иерофанта. */
-export type ReplayId = 'killGate' | 'killBell' | 'hierophantIntro' | 'hierophantEnd';
+export type ReplayId = 'killGate' | 'killBell' | 'hierophantIntro' | 'hierophantEnd' | 'hierophantCollapse' | 'hierophantCrack' | 'prologueLanding';
 /** Этап, на котором играет сцена, и для kill-cam — кто Страж. */
 export const REPLAY: Record<ReplayId, { stage: string; guardian?: EnemyKind }> = {
   killGate: { stage: '1-3', guardian: 'gateGuardian' },
@@ -72,12 +76,15 @@ export const REPLAY: Record<ReplayId, { stage: string; guardian?: EnemyKind }> =
   hierophantIntro: { stage: 'boss1' },
   // казнь: интро пропускается, босс сразу в фазе III — на звёздном мосту, оглушён, на краю смерти
   hierophantEnd: { stage: 'boss1' },
+  hierophantCollapse: { stage: 'boss1' },
+  hierophantCrack: { stage: 'boss1' },
+  prologueLanding: { stage: '1-1' },
 };
 /** Пауза после сцены перед возвратом в Святилище (с): осыпание Стража доигрывает. */
 const REPLAY_TAIL = { kill: 1.6, intro: 0.5, execDelay: 0.4 };
 
 /** prologue — бой 1-1 начинается приземлением; replay — пересмотр сцены: без волн и наград, по концу — onReplayEnd. */
-export interface BattleOpts { prologue?: boolean; replay?: ReplayId }
+export interface BattleOpts { prologue?: boolean; replay?: ReplayId; previewShort?: boolean }
 
 /** Кратер от падения Пилота в центре 1-1 (план §8.5). */
 const CRATER = { x: 0, z: 0.5 };
@@ -154,6 +161,8 @@ export class Battle {
   private acc = 0;
   private endT = -1;
   outcome: 'playing' | 'won' | 'lost' = 'playing';
+  /** У постановочного добивания уже есть финальный план; общий облёт победы ему не нужен. */
+  private finisherVictory = false;
   onEnd: ((o: BattleOutcome) => void) | null = null;
   boss: BossController | null = null;
   private fpsAcc = 0; private fpsN = 0; fps = 60;
@@ -261,8 +270,9 @@ export class Battle {
       Battle.feelSettings(ctx.settings), r.camera);
     this.cine = new Cinematics({
       world: this.world,
+      sceneHost: () => this.directorHost(),
       letterbox: (v) => this.feel.setLetterbox(v),
-      slow: (scale, sec) => ctx.time.cinematic(sec, scale),
+      slow: (scale, sec) => ctx.time.cinematicSmooth(sec, scale),
       banner: (text, sub, color, dur, size) => ctx.hud.bigBanner(text, sub, color, dur, size),
       say: (line, sp) => this.feel.voice(line, 0, sp),
       flash: (v) => this.feel.whiteFlash(v),
@@ -281,7 +291,10 @@ export class Battle {
     this.skyCine.starLit = lit > 0 ? 1 : 0;
     this.skyCine.star2 = lit >= 2 ? 1 : 0;
     this.replay = opts.replay ? { id: opts.replay, target: null, seen: false, t: 0, done: false } : null;
-    if (this.replay) this.director.full = true;
+    if (this.replay) {
+      this.director.full = !opts.previewShort;
+      if (opts.previewShort) ctx.save.cine[this.replay.id] = Math.max(2, ctx.save.cine[this.replay.id] ?? 0);
+    }
     this.bindEvents();
     // шейдеры всей сцены — сейчас, на загрузке, а не фризом посреди боя (оптимизация)
     void ctx.renderer.warmAll(this.group, () => !this.disposed);
@@ -314,6 +327,11 @@ export class Battle {
 
   private bindEvents(): void {
     const b = this.world.bus, hud = this.ctx.hud, S = this.ctx;
+    let choirTaught = false;
+    b.on('choir', e => {
+      if (e.kind === 'mark' && !choirTaught) { choirTaught = true; hud.showHint('Хор бьёт по старым меткам. Уведи их во врагов. Рывок в такт вернёт волну!', 12); }
+      if (e.kind === 'return') hud.showHint('Хор умолк на 9 с. Ответная волна оглушает врагов!', 12);
+    });
     b.on('waveStart', (e) => {
       if (!this.stage.boss) hud.waveBanner(e.index, e.total);
       if (e.index > 0) S.music.stinger('stinger');
@@ -344,9 +362,10 @@ export class Battle {
       this.outcome = 'won';
       // казнь (план §8.3.2): экран наград — только когда сцена досмотрена
       if (this.stage.boss) { this.endT = this.director.active ? -1 : 1.8; return; }
+      if (this.finisherVictory) { S.music.stop(1.5); this.endT = this.director.active ? -1 : 0.35; return; }
       // послебоевая тишина (план §8.8): музыка стихает, обломки ещё падают, Пилот опускает клинок — потом награды
       S.music.stop(POST_SILENCE * 0.8);
-      this.endT = this.cine.busy === 'down' ? 4.6 : Math.max(2.9, POST_SILENCE + 0.4);
+      this.endT = this.cine.busy === 'down' ? 4.6 : Math.max(VICTORY_SHOT.dur + 0.4, POST_SILENCE + 0.4);
       this.cine.victory();
     });
     b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian, this.events.overhead()); });
@@ -481,6 +500,7 @@ export class Battle {
     this.events.update(realDt, dtW, this.ctx.renderer.camera.position.y);
     // тихий фон арены: между волнами слышен, в бою уходит под музыку
     this.ambience?.set(this.runner.phase === 'wave' ? AMB_LEVEL.fight : AMB_LEVEL.calm);
+    this.ambience?.setChoirMuted(!!this.events.choir?.silenced);
     this.ambience?.update(realDt);
     this.ash.follow(this.cam.focus.x, this.cam.focus.z);
     const out = Math.max(this.world.candlesOut, this.events.fieldOut);
@@ -809,16 +829,28 @@ export class Battle {
     };
     return {
       actor: (who: string) => (who === 'hero' ? heroActor : this.props.get(who) ?? enemyActor(who)),
+      defineClip: (who: string, id: string, def: ClipDef) => {
+        const p = who === 'hero' ? w.hero.avatar.puppet : (enemyActor(who) as Enemy | null)?.puppet;
+        if (p) p.clips.set(id, new Clip({ ...def, id }, p.layout));
+      },
       playClip: (who: string, clip: string) => { if (who === 'hero') w.hero.avatar.puppet.play(clip, 1, 0.08); },
-      clipEvents: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.events ?? [] : [],
-      clipDuration: (who: string, clip: string) => who === 'hero' ? w.hero.avatar.puppet.clips.get(clip)?.dur ?? 0 : 0,
-      sampleClip: (who: string, clip: string, time: number, reset: boolean, blend?: number) => { if (who === 'hero') w.hero.sampleSceneClip(clip, time, reset, blend); },
-      releaseClip: (who: string) => { if (who === 'hero') w.hero.releaseSceneClip(); },
+      clipEvents: (who: string, clip: string) => (who === 'hero' ? w.hero.avatar.puppet : (enemyActor(who) as Enemy | null)?.puppet)?.clips.get(clip)?.events ?? [],
+      clipDuration: (who: string, clip: string) => (who === 'hero' ? w.hero.avatar.puppet : (enemyActor(who) as Enemy | null)?.puppet)?.clips.get(clip)?.dur ?? 0,
+      sampleClip: (who: string, clip: string, time: number, reset: boolean, blend?: number) => {
+        if (who === 'hero') w.hero.sampleSceneClip(clip, time, reset, blend);
+        else { const p = (enemyActor(who) as Enemy | null)?.puppet, c = p?.clips.get(clip);
+          if (p && c) { if (reset && !p.anim.sceneDriven) { p.anim.out.set(p.skel.rot); p.base.set(p.skel.rot); } p.anim.sampleScene(c, time, reset, blend); p.anim.compose(p.base); p.skel.rot.set(p.anim.out); p.skel.off[p.layout.idx('root') * 3 + 1] = p.anim.root.y; p.skel.update(); }
+        }
+      },
+      releaseClip: (who: string) => { if (who === 'hero') w.hero.releaseSceneClip(); else { const p = (enemyActor(who) as Enemy | null)?.puppet; if (p) { p.anim.releaseScene(); p.skel.off[p.layout.idx('root') * 3 + 1] = 0; } } },
       shatter: (who: string, dx: number, dz: number, power: number) => {
         const e = enemyActor(who) as Enemy | null;
         if (e) w.killEnemy(e, dx, dz, power);
       },
-      timeScale: (scale: number, dur: number) => ctx.time.cinematic(dur, scale),
+      timeScale: (scale: number, dur: number, rampIn?: number, rampOut?: number) => {
+        if (rampIn !== undefined || rampOut !== undefined) ctx.time.cinematicSmooth(dur, scale, rampIn, rampOut);
+        else ctx.time.cinematic(dur, scale);
+      },
       sky: (p: SkyParam, v: number) => { this.skyCine[p] = v; },
       skyValue: (p: SkyParam) => this.skyCine[p],
       moonBehind: (d: V3 | null) => {
@@ -850,8 +882,13 @@ export class Battle {
    */
   private playKillcam(e: Enemy): void {
     const w = this.world, h = w.hero, ctx = this.ctx;
-    const spots = { gx: e.x, gz: e.z, hx: h.x, hz: h.z };
-    const dirX = e.x - h.x, dirZ = e.z - h.z;
+    this.finisherVictory = true;
+    for (const tele of w.telegraphs) tele.alive = false;
+    const anchors = guardianTargets(e.puppet.layout, e.x, e.z, e.facing, e.kind === 'gateGuardian' ? 1.65 : 1.45);
+    const angle = e.kind === 'bellRinger' ? e.facing : Math.atan2(e.x - h.x, e.z - h.z), fx = Math.sin(angle), fz = Math.cos(angle);
+    const safe = { x: 0, z: 0 }; this.arena.nearestWalkable(e.x - fx * 3.8 - fz * 1.5, e.z - fz * 3.8 + fx * 1.5, safe);
+    const spots = { gx: e.x, gz: e.z, hx: h.x, hz: h.z, facing: e.facing, ...anchors, landing: [safe.x, 0, safe.z] as V3 };
+    const dl = Math.hypot(e.x - h.x, e.z - h.z) || 1, dirX = (e.x - h.x) / dl, dirZ = (e.z - h.z) / dl;
     this.cine.clear(this.cam);
     let done = false;
     const crumble = () => {
@@ -859,36 +896,54 @@ export class Battle {
       done = true;
       e.killcamDone = true;
       e.killcam = false;
-      w.killEnemy(e, dirX, dirZ, 7);
+      w.killEnemy(e, dirX, dirZ, 4.5);
       w.bus.emit('sfx', { id: 'shatter_big', x: e.x, z: e.z });
       w.bus.emit('shake', { trauma: 0.5 });
-      ctx.hud.bigBanner('СТРАЖ ПОВЕРЖЕН', e.def.name, 'gold', 2.0, 50);
+
       const g = GUARDIAN[e.kind];
       if (g) setTimeout(() => this.feel.voice(g.down, 0), 700);
     };
     this.sceneCalls.set('crumble', crumble);
+    this.sceneCalls.set('guardianTitle', () => ctx.hud.bigBanner('СТРАЖ ПОВЕРЖЕН', e.def.name, 'gold', 2.0, 50));
+    let victoryDone = false;
+    this.sceneCalls.set('bossVictory', () => {
+      if (victoryDone) return;
+      victoryDone = true; h.victory();
+      w.bus.emit('bossVictory', { x: h.x, y: h.y, z: h.z, facing: h.facing, tone: 'gold' });
+    });
+    const finish = () => { crumble(); if (this.outcome === 'won') this.endT = 0.35; };
     if (e.kind === 'gateGuardian') {
       this.sceneCalls.set('knee', () => {
+        if (e instanceof GateGuardian) e.setKillcamStage('kneel');
         w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
         w.bus.emit('sfx', { id: 'blade_scrape', x: e.x, z: e.z });
         w.bus.emit('shake', { trauma: 0.3 });
-        this.vfx.hitSparks(e.x, 0.9, e.z, -dirX, -dirZ, 1, true);
+        this.vfx.hitSparks(anchors.knee[0], anchors.knee[1], anchors.knee[2], -dirX, -dirZ, 0.6, true);
       });
       this.sceneCalls.set('helmet', () => {
+        if (e instanceof GateGuardian) e.setKillcamStage('hit');
         w.bus.emit('sfx', { id: 'bell_crack', x: e.x, z: e.z });
         w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
         // свет из трещин шлема
-        this.vfx.lights.flash(e.x, e.height, e.z, [1.6, 1.4, 1.0], 6, 7, 1.2);
-        this.vfx.burst(24, { x: e.x, y: e.height * 0.95, z: e.z, life: 0.6, size: 0.12, size1: 0.02, color: C.core, drag: 2, frame: 'spark', stretch: 1.5 }, { v: 6, vy: 3 });
+        this.vfx.lights.flash(...anchors.head, [1.6, 1.4, 1.0], 1.4, 2.2, 0.18);
+        w.bus.emit('finisherImpact', { x: anchors.head[0], y: anchors.head[1], z: anchors.head[2], facing: angle, material: 'stone' });
       });
-      this.playScene(killGateTrack(spots), crumble, { letterbox: false, hud: false });
+      this.playScene(killGateTrack(spots), finish, { letterbox: false, hud: false });
     } else {
       this.sceneCalls.set('bell', () => {
-        w.bus.emit('sfx', { id: 'boss_bell', x: e.x, z: e.z });
-        // фиолетовое кольцо проходит сквозь Звонаря
-        w.bus.emit('shockwave', { x: e.x, z: e.z, r: 9, color: 'void', strength: 1.1 });
+        if (e instanceof BellRinger) { e.bellFlash = 0.65; e.setKillcamStage('hit'); }
+        this.vfx.lights.flash(...anchors.bell, C.void, 1.2, 3, 0.22);
+        w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
+        w.bus.emit('finisherImpact', { x: anchors.bell[0], y: anchors.bell[1], z: anchors.bell[2], facing: angle, material: 'bronze' });
       });
-      this.playScene(killBellTrack(spots), crumble, { letterbox: false, hud: false });
+      this.sceneCalls.set('bellRing', () => {
+        const at = new THREE.Vector3(...anchors.bell);
+        if (e instanceof BellRinger) e.bellPoint(at);
+        w.bus.emit('sfx', { id: 'boss_bell', x: at.x, z: at.z });
+        // Резонанс приходит после отклонения подвешенного колокола, из его текущего положения.
+        w.bus.emit('shockwave', { x: at.x, z: at.z, y: at.y, r: 7, color: 'void', strength: 0.65 });
+      });
+      this.playScene(killBellTrack(spots), finish, { letterbox: false, hud: false });
     }
   }
 
@@ -1136,6 +1191,13 @@ export class Battle {
     const R = this.replay!, w = this.world;
     this.ctx.hud.visible = false;
     const e = R.target;
+    if ((R.id === 'hierophantCollapse' || R.id === 'hierophantCrack') && !R.setup && this.boss instanceof HierophantController) {
+      R.setup = true;
+      this.director.skip();
+      this.boss.replayTransition(R.id === 'hierophantCollapse' ? 2 : 3);
+      R.seen = true;
+      return;
+    }
     // Страж проявился — добивающий удар по оглушённому: дальше kill-cam как в бою
     if (e && !R.seen && !this.director.active && e.state !== 'spawn' && !e.killcam) {
       e.hp = Math.min(e.hp, 5);

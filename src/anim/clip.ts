@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Ease, type EaseId } from '../core/ease';
 import type { RigLayout, V3 } from './skeleton';
+import { gripWeight, TwoHandGrip, type TwoHandWindow } from './twoHandGrip';
 
 /** Ключевая поза: углы суставов (Эйлер, рад), эйзинг сегмента, смещение корня, растяжение (Tech §8.1). */
 export interface Key {
@@ -25,6 +26,8 @@ export interface ClipDef {
    * и клинок догоняют — вес и захлёст без новых ключей.
    */
   lag?: Record<string, number>;
+  /** Окно двуручного хвата: нижняя кисть решается по реальной рукояти после выборки позы. */
+  twoHanded?: TwoHandWindow;
 }
 
 /** Скомпилированный клип: полные кватернионы суставов клипа на каждом ключе. */
@@ -44,12 +47,16 @@ export class Clip {
   /** Сдвиг времени по суставам клипа (null — без сдвигов). */
   readonly lags: Float32Array | null;
   private si = 0; private su = 0;
+  private readonly twoHanded?: TwoHandWindow;
+  private readonly grip?: TwoHandGrip;
 
   constructor(def: ClipDef, layout: RigLayout) {
     this.id = def.id;
     this.dur = def.dur;
     this.mask = def.mask ?? 'upper';
     this.loop = !!def.loop;
+    this.twoHanded = def.twoHanded;
+    if (def.twoHanded && layout.has('blade') && layout.has('handL')) this.grip = new TwoHandGrip(layout);
     this.events = (def.events ?? []).slice().sort((a, b) => a.t - b.t);
     const names = new Set<string>();
     for (const k of def.keys) for (const n of Object.keys(k.pose)) if (layout.has(n)) names.add(n);
@@ -108,6 +115,7 @@ export class Clip {
       for (let j = 0; j < this.joints.length; j++) out.set(a.subarray(j * 4, j * 4 + 4), this.joints[j] * 4);
       const r = this.roots[0];
       root.x = r[0]; root.y = r[1]; root.z = r[2]; root.stretch = this.stretch[0]; root.spin = this.spin[0];
+      this.constrain(out, t);
       return;
     }
     const lags = this.lags;
@@ -128,6 +136,12 @@ export class Clip {
     root.z = ra[2] + (rb[2] - ra[2]) * u;
     root.stretch = this.stretch[i] + (this.stretch[i + 1] - this.stretch[i]) * u;
     root.spin = this.spin[i] + (this.spin[i + 1] - this.spin[i]) * u;
+    this.constrain(out, t);
+  }
+
+  /** После смешивания поз хват решается заново: slerp двух замкнутых рук сам по себе не замыкает цепь. */
+  constrain(out: Float32Array, t: number): void {
+    if (this.grip && this.twoHanded) this.grip.apply(out, gripWeight(t, this.twoHanded));
   }
 }
 
@@ -267,5 +281,6 @@ export class Animator {
       _qa.slerp(_qb, w);
       this.out[i * 4] = _qa.x; this.out[i * 4 + 1] = _qa.y; this.out[i * 4 + 2] = _qa.z; this.out[i * 4 + 3] = _qa.w;
     }
+    if (this.clip) this.clip.constrain(this.out, Math.min(this.t, this.clip.dur));
   }
 }

@@ -8,11 +8,15 @@ import { EXEC_HP, Hierophant, HierophantController, INTERCEPT_WINDOW, ORBIT, PHA
 import { Obelisk, OBELISK_HITS } from '../src/world/enemies/obelisk';
 import { CENSER_RETURN_STUN, type StrikeParams } from '../src/world/world';
 import { VOID_BLADE } from '../src/data/weapons';
-import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, CONTACT_SHOT, DESCEND_FROM, EXEC_FLASH, EXEC_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
+import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, DESCEND_FROM, EXEC_FLASH, EXEC_T, EXEC_SHORT_T, MASK_Y, executionTrack, hierophantIntroTrack, INTRO_T } from '../src/world/boss/hierophantScenes';
 import { Director, type CineTrack, type DirectorActor } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { InputBuffer, type Input } from '../src/input/input';
-import { EXECUTION_CLIPS, MASK_CONTACT, maskContactRoot } from '../src/anim/clips/execution';
+import { EXECUTION_CLIPS, MASK_CONTACT, bladeEdgeRoot } from '../src/anim/clips/execution';
+import { Clip } from '../src/anim/clip';
+import { Skeleton } from '../src/anim/skeleton';
+import { FINISHER_CUT_LEAD } from '../src/game/finisherMotion';
+import { VICTORY_SHOT } from '../src/game/victoryShot';
 
 const DT = 1 / 60;
 const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
@@ -37,10 +41,17 @@ function fakeHost(w: World, b: Hierophant, hold = () => false, tap = () => false
   const hero: DirectorActor = { get x() { return w.hero.x; }, set x(v) { w.hero.x = v; }, get y() { return w.hero.y; }, set y(v) { w.hero.y = v; }, get z() { return w.hero.z; }, set z(v) { w.hero.z = v; }, get facing() { return w.hero.facing; }, set facing(v) { w.hero.facing = v; } };
   const director = new Director({
     actor: (who) => (who === 'hero' ? hero : who === 'boss' ? b : null),
-    clipEvents: (_who, id) => w.hero.avatar.puppet.clips.get(id)?.events ?? [],
-    clipDuration: (_who, id) => w.hero.avatar.puppet.clips.get(id)?.dur ?? 0,
-    sampleClip: (_who, id, time, reset, blend) => w.hero.sampleSceneClip(id, time, reset, blend),
-    releaseClip: () => w.hero.releaseSceneClip(),
+    defineClip: (who, id, def) => { const p = who === 'hero' ? w.hero.avatar.puppet : b.puppet; p.clips.set(id, new Clip({ ...def, id }, p.layout)); },
+    clipEvents: (who, id) => (who === 'hero' ? w.hero.avatar.puppet : b.puppet).clips.get(id)?.events ?? [],
+    clipDuration: (who, id) => (who === 'hero' ? w.hero.avatar.puppet : b.puppet).clips.get(id)?.dur ?? 0,
+    sampleClip: (who, id, time, reset, blend) => {
+      if (who === 'hero') { w.hero.sampleSceneClip(id, time, reset, blend); return; }
+      const p = b.puppet, c = p.clips.get(id); if (!c) throw new Error(`Unknown boss scene clip: ${id}`);
+      if (reset && !p.anim.sceneDriven) { p.anim.out.set(p.skel.rot); p.base.set(p.skel.rot); }
+      p.anim.sampleScene(c, time, reset, blend); p.anim.compose(p.base); p.skel.rot.set(p.anim.out);
+      p.skel.off[p.layout.idx('root') * 3 + 1] = p.anim.root.y; p.skel.update();
+    },
+    releaseClip: who => { if (who === 'hero') w.hero.releaseSceneClip(); else { b.puppet.anim.releaseScene(); b.puppet.skel.off[b.puppet.layout.idx('root') * 3 + 1] = 0; } },
     call: (fn, arg) => { log.push(fn); calls[fn]?.(arg); },
     holding: hold, tapped: tap, seen, markSeen: () => {},
   });
@@ -367,17 +378,16 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(ctrl.executable).toBe(false);
   });
 
-  it('казнь целиком: касание по кольцу — безупречная (вторая звезда), босс осыпается, бой закрывается в конце', () => {
-    const { w, b, ctrl, tick, log, director, tap } = toPhase3();
+  it('казнь целиком: босс взрывается до посадки, безупречность берётся из боя', () => {
+    const { w, b, ctrl, tick, log, director } = toPhase3();
     b.hp = b.maxHp * EXEC_HP - 1;
     w.stunEnemy(b);
     ctrl.execute();
     expect(ctrl.executing).toBe(true);
     expect(director.id).toBe('hierophantEnd');
-    let t = 0, tapped = false, diedAt = -1;
+    let t = 0, diedAt = -1;
     tick(EXEC_T.end + 1, () => {
       t += DT;
-      if (!tapped && t > EXEC_T.tap + 0.3) { tapped = true; tap(); }
       if (diedAt < 0 && b.dead) diedAt = t;
     });
     // умирает отложенным разрезом, а не раньше; бой закрывается после сцены
@@ -386,6 +396,55 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(log).toContain('star:true');
     expect(log).toContain('sky:star2:1');
     expect(log[log.length - 1]).toBe('finish');
+  });
+
+  it('распад наследует реакционную позу, раскрытая маска и ореол сохраняют вращение после compose', () => {
+    for (const short of [false, true]) {
+      const { w, b, ctrl, director } = toPhase3(short ? 2 : 0), T = short ? EXEC_SHORT_T : EXEC_T;
+      b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
+      const p = b.puppet, layout = p.layout, cam = new CameraRig(), input = idle();
+      const track = executionTrack({ bx: b.x, bz: b.z, hx: w.hero.x, hz: w.hero.z, bellY: 3, lx: 0, lz: 0, star: [0.42, -0.5, -0.76] });
+      const reaction = (short ? track.short! : track.steps).find(s => s.do === 'clip' && s.who === 'boss')!;
+      if (reaction.do !== 'clip' || !reaction.definition) throw new Error('нет реакции');
+      const clip = new Clip(reaction.definition, layout), root = { x: 0, y: 0, z: 0, stretch: 1, spin: 0 };
+      let deaths = 0, rotatingFrames = 0, snapshotError = Infinity;
+      const fractureAngles = (name: string, f: number): [number, number, number] => {
+        if (name.startsWith('mask')) { const side = name === 'maskL' ? 1 : -1; return [-f * 0.18, side * f * 0.35, side * f * 0.3]; }
+        const i = Number(name.at(-1)); return [f * (i - 1) * 0.18, f * 0.2, f * (i - 1) * 0.15];
+      };
+      const fragments = ['maskL', 'maskR', 'halo0', 'halo1', 'halo2'];
+      w.bus.on('kill', event => {
+        if (event.target !== b) return;
+        deaths++;
+        // Enemy.kill уже снял мировые матрицы в debris, но физика обломков ещё не сделала ни шага.
+        const expected = new Skeleton(layout);
+        clip.sample(T.cut, expected.rot, root);
+        expected.off.set(p.skel.off); expected.x = b.x; expected.y = b.y; expected.z = b.z; expected.facing = b.facing;
+        for (const name of fragments) new THREE.Quaternion().setFromEuler(new THREE.Euler(...fractureAngles(name, 0.85), 'XYZ')).toArray(expected.rot, layout.idx(name) * 4);
+        expected.update(); snapshotError = 0;
+        for (const name of ['chest', 'bell', ...fragments]) {
+          const i = layout.idx(name), actualMatrix = new THREE.Matrix4().fromArray(p.skel.world, i * 16), expectedMatrix = new THREE.Matrix4().fromArray(expected.world, i * 16);
+          const actualPosition = new THREE.Vector3(), expectedPosition = new THREE.Vector3(), actualRotation = new THREE.Quaternion(), expectedRotation = new THREE.Quaternion(), scale = new THREE.Vector3();
+          actualMatrix.decompose(actualPosition, actualRotation, scale); expectedMatrix.decompose(expectedPosition, expectedRotation, scale);
+          snapshotError = Math.max(snapshotError, actualPosition.distanceTo(expectedPosition), actualRotation.angleTo(expectedRotation));
+        }
+      });
+      for (let i = 0; i < Math.ceil((T.cut + 0.2) / DT); i++) {
+        // Порядок кадра как в Battle: процедурный риг мира, затем точная сценическая поза/маркер.
+        w.step(DT, DT, input, DT); director.update(DT, cam); ctrl.step(DT);
+        if (director.time < T.toll + 0.03 || director.time > T.cut - 0.03) continue;
+        const f = director.time >= T.crack ? 0.85 : 0.35;
+        for (const name of fragments) {
+          const actual = new THREE.Quaternion().fromArray(p.skel.rot, layout.idx(name) * 4), expected = new THREE.Quaternion().setFromEuler(new THREE.Euler(...fractureAngles(name, f)));
+          expect(actual.angleTo(expected), `${name}: compose не возвращает закрытую маску/ореол`).toBeLessThan(0.001);
+          expect(actual.angleTo(new THREE.Quaternion()), `${name}: материал действительно повёрнут`).toBeGreaterThan(0.05);
+        }
+        rotatingFrames++;
+      }
+      expect(rotatingFrames).toBeGreaterThan(12); expect(deaths).toBe(1);
+      expect(snapshotError, 'осколки начинают полёт из позы разлома, а не из исходной позы').toBeLessThan(0.001);
+      w.hero.avatar.dispose();
+    }
   });
 
   it('пропуск казни удержанием: логика и звезда применяются сразу', () => {
@@ -400,48 +459,67 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(log.some((l) => l.startsWith('star:'))).toBe(true);
   });
 
-  it('казнь: контакт снят крупно — шлем и маска на ≥ 45 % высоты кадра, камера со стороны Пилота', () => {
+  it('казнь: прыжок показан общим планом, замах спереди, затем крупный устойчивый контрплан на маску', () => {
     const mask: [number, number, number] = [0, 3.1, 0.9];
-    const root = maskContactRoot(mask, Math.PI);
     for (const short of [false, true]) {
+      const { w, b } = setup(0, 8), fh = fakeHost(w, b, () => false, () => false, () => short ? 2 : 0), rig = new CameraRig();
       const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, cx: 0, cz: 3, bellY: mask[1], lx: 3, lz: 5, star: [0.42, -0.5, -0.76], mask });
-      const steps = short ? tr.short! : tr.steps;
-      const cam = steps.find((s) => s.do === 'cam' && Math.abs(s.t - (short ? MASK_CONTACT : EXEC_T.contact)) < 1e-9);
-      if (!cam || cam.do !== 'cam') throw new Error('нет плана контакта');
-      const c = new THREE.PerspectiveCamera(cam.fov, 844 / 390, 0.1, 200);
-      c.position.set(...cam.path[0]); c.lookAt(...cam.look[0]); c.updateMatrixWorld();
-      const head = new THREE.Vector3(root[0], root[1] + CONTACT_SHOT.head, root[2]).project(c);
-      const m = new THREE.Vector3(...mask).project(c);
-      // было 37 % (неподвижная камера в ~6.8 м, fov 50)
-      expect(Math.abs(head.y - m.y) / 2).toBeGreaterThan(0.45);
-      // оба — внутри кадра с леттербоксом (12–88 % высоты)
-      for (const p of [head, m]) expect(Math.abs(p.y)).toBeLessThan(0.76);
-      // со стороны Пилота (z > маски), не сквозь тело босса; после контакта — наезд
-      expect(cam.path[0][2]).toBeGreaterThan(mask[2]);
-      const d = (p: number[]) => Math.hypot(p[0] - mask[0], p[1] - mask[1], p[2] - mask[2]);
-      expect(d(cam.path.at(-1)!)).toBeLessThan(d(cam.path[0]));
+      const T = short ? EXEC_SHORT_T : EXEC_T, camera = new THREE.PerspectiveCamera(44, 640 / 360, 0.05, 200);
+      const samples = { jump: 0, windup: 0, impact: 0 };
+      let stable: THREE.Vector3 | undefined, windupCam: THREE.Vector3 | undefined, impactCam: THREE.Vector3 | undefined;
+      let jumpScale = 0, impactScale = Infinity;
+      fh.director.play(tr);
+      for (let real = 0; real < T.contact + 0.4; real += 1 / 120) {
+        fh.director.update(1 / 120, rig);
+        const t = fh.director.time;
+        const phase = t >= T.jump + 0.04 && t <= Math.min(T.strike - 0.02, T.jump + 0.32) ? 'jump'
+          : t >= T.strike + 0.1 && t <= T.contact - FINISHER_CUT_LEAD - 0.01 ? 'windup'
+          : t >= T.contact - FINISHER_CUT_LEAD + 0.01 && t <= T.contact + 0.18 ? 'impact' : null;
+        if (!phase) continue;
+        const cam = fh.director.cameraSample!;
+        camera.fov = cam.fov ?? 44; camera.updateProjectionMatrix(); camera.position.copy(cam.pos); camera.lookAt(cam.look); camera.updateMatrixWorld();
+        // Крупный план принимает кромку сверху в конце разгона; поднятый меч показан целиком предыдущим планом.
+        const anchors = phase === 'jump' ? ['head', 'footL', 'footR'] as const
+          : phase === 'windup' ? ['head', 'handL', 'handR', 'bladeTip', 'edgeContact'] as const
+          : t >= T.contact - 0.012 ? ['handL', 'handR', 'edgeContact'] as const : ['handL', 'handR'] as const;
+        for (const [index, p] of [new THREE.Vector3(...mask), ...anchors.map(a => w.hero.avatar.sceneAnchor(a, new THREE.Vector3()))].entries()) {
+          const q = p.project(camera), at = `${short ? 'short' : 'full'} ${phase} ${index ? anchors[index - 1] : 'target'}: ${t.toFixed(3)} c`;
+          expect(Math.abs(q.x), `${at}, граница по X`).toBeLessThan(0.9);
+          expect(Math.abs(q.y), `${at}, леттербокс`).toBeLessThan(0.76);
+          expect(q.z, at).toBeGreaterThan(-1); expect(q.z, at).toBeLessThan(1);
+        }
+        const top = new THREE.Vector3(...mask).add(new THREE.Vector3(0, 0.4, 0)).project(camera);
+        const bottom = new THREE.Vector3(...mask).add(new THREE.Vector3(0, -0.4, 0)).project(camera);
+        const scale = Math.abs(top.y - bottom.y);
+        if (phase === 'jump') jumpScale = Math.max(jumpScale, scale);
+        if (phase === 'windup') {
+          const front = (cam.pos.x - w.hero.x) * Math.sin(w.hero.facing) + (cam.pos.z - w.hero.z) * Math.cos(w.hero.facing);
+          expect(front, 'замах виден с передней четверти').toBeGreaterThan(0.5); windupCam = cam.pos.clone();
+        }
+        if (phase === 'impact') { impactScale = Math.min(impactScale, scale); impactCam ??= cam.pos.clone(); }
+        if (t >= T.contact - 0.1 && t <= T.contact + 0.12) {
+          if (stable) expect(cam.pos.distanceTo(stable), 'контакт не подменяется наездом камеры').toBeLessThan(0.025);
+          else stable = cam.pos.clone();
+        }
+        samples[phase]++;
+      }
+      for (const phase of ['jump', 'windup', 'impact'] as const) expect(samples[phase], `${phase}: достаточно кадров`).toBeGreaterThan(20);
+      expect(impactScale / jumpScale, 'маска крупнее в момент удара').toBeGreaterThanOrEqual(1.25);
+      expect(impactCam!.distanceTo(windupCam!), 'перед контактом есть монтажная склейка на босса').toBeGreaterThan(0.5);
+      w.hero.avatar.dispose();
     }
   });
 
-  it('казнь: толчок с цепи — силуэт на фоне луны; луна возвращается следующим планом, пропуском и концом', () => {
-    const mask: [number, number, number] = [0, 3.1, 0.9];
-    const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, cx: 0, cz: 3, bellY: mask[1], lx: 3, lz: 5, star: [0.42, -0.5, -0.76], mask });
-    const shot = tr.steps.find((s) => s.do === 'cam' && s.t === EXEC_T.jump);
-    if (!shot || shot.do !== 'cam' || !shot.moon) throw new Error('нет плана на фоне луны');
-    // снизу вверх: за Пилотом — небо, не стена собора (≥ 45° над горизонтом)
-    const [p, m] = [shot.path[0], shot.moon];
-    expect(Math.atan2(m[1] - p[1], Math.hypot(m[0] - p[0], m[2] - p[2]))).toBeGreaterThan(Math.PI / 4);
-    for (const skipAt of [null, EXEC_T.jump + 0.3]) {
-      const moon: (number[] | null)[] = [];
-      const host = { actor: () => ({ x: 0, z: 8, facing: Math.PI }), holding: () => false, tapped: () => false, seen: () => 0, markSeen: () => {}, moonBehind: (d: number[] | null) => moon.push(d) };
-      const d = new Director(host as never), cam = new CameraRig();
-      d.play(tr);
-      for (let t = 0; d.active && t < 20; t += DT) { d.update(DT, cam); if (skipAt !== null && t >= skipAt && d.active) d.skip(); }
-      // ровно одна перестановка и один возврат (следующим планом или пропуском)
-      expect(moon.filter((x) => x)).toHaveLength(1);
-      expect(moon.at(-1)).toBeNull();
-      expect(moon.filter((x) => x === null)).toHaveLength(1);
+  it('казнь — прямой прыжок: ни бега по цепи, ни дополнительного касания; взрыв раньше посадки', () => {
+    const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, bellY: 3, lx: 0, lz: -3, star: [0.42, -0.5, -0.76] });
+    for (const steps of [tr.steps, tr.short!]) {
+      expect(steps.some((s) => s.do === 'tap' || s.do === 'wait')).toBe(false);
+      expect(steps.some((s) => (s.do === 'clip' || s.do === 'actor') && s.clip?.startsWith('chain'))).toBe(false);
+      expect(steps.some((s) => s.do === 'clip' && s.clip === 'executionLeap')).toBe(true);
     }
+    expect(EXEC_T.cut).toBeLessThan(EXEC_T.touchdown);
+    expect(EXEC_SHORT_T.cut).toBeLessThan(EXEC_SHORT_T.touchdown);
+    expect(tr.steps.filter((s) => s.do === 'time' && s.scale <= 0.2).length).toBeGreaterThanOrEqual(2);
   });
 
   it('казнь: в финале свет звезды доходит до Пилота — один раз, со стороны звезды, и при пропуске', () => {
@@ -462,8 +540,8 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     const { w, b, ctrl, tick, director } = toPhase3();
     b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
     const rot = w.hero.avatar.puppet.skel.rot, n = w.hero.avatar.puppet.layout.n;
-    // начала клипов героя: lowerBlade, chainBrace, chainRun, chainApex, maskStrike, chainExit, lowerBlade
-    const starts = [0, EXEC_T.dash, EXEC_T.run, EXEC_T.jump, EXEC_T.strike, EXEC_T.land, EXEC_T.calm];
+    // Стыки подготовки прыжка, удара, полёта после контакта и восстановления.
+    const starts = [0, EXEC_T.strike, EXEC_T.land, EXEC_T.calm];
     let prev = Float32Array.from(rot), worst = 0, worstSeam = 0, seamAt = -1;
     tick(EXEC_T.end, () => {
       const t = director.time;
@@ -484,7 +562,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
   });
 
   it('казнь: пропуск каждого крупного плана не дублирует смерть/награду и освобождает героя', () => {
-    for (const skipAt of [0.2, EXEC_T.run + 0.1, EXEC_T.jump + 0.1, EXEC_T.contact + 0.1, EXEC_T.land + 0.1, EXEC_T.cut + 0.1, EXEC_T.beam + 0.1]) {
+    for (const skipAt of [0.2, EXEC_T.jump + 0.1, EXEC_T.contact + 0.1, EXEC_T.land + 0.1, EXEC_T.cut + 0.1, EXEC_T.beam + 0.1]) {
       const { w, b, ctrl, tick, log, director } = toPhase3();
       let kills = 0;
       w.bus.on('kill', (e) => { if (e.kind === 'hierophant') kills++; });
@@ -503,7 +581,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     const { w, b, ctrl, tick, log, director } = toPhase3(2);
     b.hp = b.maxHp * EXEC_HP - 1; w.stunEnemy(b); ctrl.execute();
     expect(director.short).toBe(true);
-    tick(5);
+    tick(EXEC_SHORT_T.end + 0.5);
     expect(b.dead).toBe(true);
     expect(director.active).toBe(false);
     expect(log.filter((s) => s === 'strike')).toHaveLength(1);
@@ -512,7 +590,7 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     w.hero.avatar.dispose();
   });
 
-  it('контакт привязан к маске и действительному кончику оружия при разных сторонах подхода', () => {
+  it('контакт привязан к маске и рабочему краю оружия при разных сторонах подхода', () => {
     for (const facing of [0, 0.8, Math.PI, -1.2]) {
       const { w, b, ctrl, tick, host } = toPhase3();
       w.hero.x = b.x - Math.sin(facing) * 5; w.hero.z = b.z - Math.cos(facing) * 5;
@@ -520,8 +598,8 @@ describe('Иерофант 2.0 (план §8.3)', () => {
       let distance = Infinity;
       host.flash = (v) => {
         if (v !== EXEC_FLASH) return;
-        const tip = w.hero.avatar.sceneAnchor('bladeTip', new THREE.Vector3());
-        distance = tip.distanceTo(b.bellPos(new THREE.Vector3()));
+        const edge = w.hero.avatar.sceneAnchor('edgeContact', new THREE.Vector3());
+        distance = edge.distanceTo(b.bellPos(new THREE.Vector3()));
       };
       ctrl.execute(); tick(EXEC_T.contact + 0.1);
       expect(distance).toBeLessThan(0.001);
@@ -529,20 +607,22 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     }
   });
 
-  it('дорожка казни: 11–13 с, контакт задан специальным клипом, касание — в замедленном прыжке', () => {
+  it('дорожка казни: быстрый разрез и пауза победы до эпилога; контакт задан клипом', () => {
     const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 6, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76] });
-    expect(tr.dur).toBeGreaterThanOrEqual(11);
-    expect(tr.dur).toBeLessThanOrEqual(13);
+    expect(tr.dur).toBeGreaterThanOrEqual(7);
+    expect(tr.dur).toBeLessThanOrEqual(12);
+    expect(EXEC_T.beam - EXEC_T.touchdown).toBeGreaterThanOrEqual(2);
+    const victory = tr.steps.find(s => s.do === 'clip' && s.who === 'hero' && s.clip === 'victory');
+    expect(victory?.t).toBe(EXEC_T.calm);
+    expect(victory && victory.do === 'clip' ? victory.dur : 0).toBe(VICTORY_SHOT.dur);
+    expect(EXEC_T.end - EXEC_T.calm).toBe(VICTORY_SHOT.dur);
     const actions = tr.steps.flatMap((s) => s.do === 'call' ? [{ t: s.t, fn: s.fn }]
-      : s.do === 'clip' ? (EXECUTION_CLIPS.find((c) => c.id === s.clip)?.events ?? []).filter((e) => s.markers?.[e.name]).map((e) => ({ t: s.t + e.t / (s.speed ?? 1), fn: s.markers![e.name] })) : []);
+      : s.do === 'clip' ? ((s.definition ?? EXECUTION_CLIPS.find((c) => c.id === s.clip))?.events ?? []).filter((e) => s.markers?.[e.name]).map((e) => ({ t: s.t + e.t / (s.speed ?? 1), fn: s.markers![e.name] })) : []);
     const order = actions.sort((a, b) => a.t - b.t).map((s) => s.fn).filter((fn) => fn !== 'brace' && fn !== 'chainStep');
-    expect(order).toEqual(['freeze', 'dash', 'ghostsOff', 'flare', 'strike', 'toll', 'fracture', 'cut', 'beam', 'star2', 'calm', 'end']);
+    expect(order).toEqual(['freeze', 'flare', 'strike', 'toll', 'fracture', 'cut', 'beam', 'star2', 'calm', 'bossVictory', 'end']);
     expect(actions.find((s) => s.fn === 'strike')!.t).toBeCloseTo(EXEC_T.strike + MASK_CONTACT);
     expect(tr.steps.some((s) => (s.do === 'actor' || s.do === 'clip') && (s.clip === 'dash' || s.clip === 'skyfall'))).toBe(false);
-    const tapStep = tr.steps.find((s) => s.do === 'tap')!;
-    const slow = tr.steps.find((s) => s.do === 'time' && s.t === EXEC_T.jump)!;
-    expect(tapStep.t).toBeGreaterThanOrEqual(slow.t);
-    expect(tapStep.t).toBeLessThan(EXEC_T.strike);
+    expect(tr.steps.filter((s) => s.do === 'time').every((s) => s.do === 'time' && s.rampIn !== undefined && s.rampOut !== undefined)).toBe(true);
     expect(tr.steps.some((s) => s.do === 'say' && s.line === 'Одна звезда. Осталось четыре.')).toBe(true);
     expect(tr.steps.some((s) => s.do === 'sky' && s.param === 'starLit' && s.to === 1)).toBe(true);
   });
@@ -564,9 +644,9 @@ describe('Иерофант 2.0 (план §8.3)', () => {
   it('казнь: корень учитывает настоящий вынос клинка к маске; вспышка принадлежит маркеру', () => {
     const mask: [number, number, number] = [0.2, 2.8, 0.85];
     const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 4, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76], mask });
-    const strike = tr.steps.find((s) => s.do === 'actor' && s.t === EXEC_T.strike);
-    expect(strike && strike.do === 'actor' ? strike.moveTo : null).toEqual(maskContactRoot(mask, Math.PI));
-    expect(strike && strike.do === 'actor' ? strike.dur : null).toBe(MASK_CONTACT);
+    const strike = tr.steps.find((s) => s.do === 'actor' && s.who === 'hero' && Math.abs(s.t + (s.dur ?? 0) - EXEC_T.contact) < 1e-8);
+    expect(strike && strike.do === 'actor' ? strike.moveTo : null).toEqual(bladeEdgeRoot('maskStrike', MASK_CONTACT, mask, Math.PI));
+    expect(strike && strike.do === 'actor' ? strike.velocityTo?.[1] : null).toBeLessThan(-1);
     const strikeClip = tr.steps.find((s) => s.do === 'clip' && s.t === EXEC_T.strike);
     expect(strikeClip && strikeClip.do === 'clip' ? strikeClip.markers?.contact : null).toBe('strike');
     const flashes = tr.steps.filter((s) => s.do === 'flash');

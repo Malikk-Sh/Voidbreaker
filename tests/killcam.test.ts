@@ -48,12 +48,24 @@ describe('kill-cam Стражей (план §8.4)', () => {
     });
   }
 
-  it('сцены 3–4 с, без летербокса, кончаются добиванием', () => {
+  it('после распада выдержана пауза, затем идёт одна длинная победная поза внутри самой сцены', () => {
     for (const tr of [killGateTrack({ gx: 0, gz: 0, hx: 0, hz: 5 }), killBellTrack({ gx: 0, gz: 0, hx: 0, hz: 5 })]) {
-      expect(tr.dur).toBeGreaterThanOrEqual(3);
-      expect(tr.dur).toBeLessThanOrEqual(4);
+      expect(tr.dur).toBeGreaterThanOrEqual(8);
+      expect(tr.dur).toBeLessThanOrEqual(9);
+      const crumbleClip = tr.steps.find(s => s.do === 'clip' && s.markers?.crumble === 'crumble');
+      if (!crumbleClip || crumbleClip.do !== 'clip') throw new Error('нет маркера распада');
+      const event = crumbleClip.definition?.events?.find(e => e.name === 'crumble');
+      expect(event).toBeDefined();
+      const crumble = crumbleClip.t + event!.t / (crumbleClip.speed ?? 1);
+      expect(tr.dur! - crumble).toBeGreaterThanOrEqual(2);
+      const victory = tr.steps.find(s => s.do === 'clip' && s.who === 'hero' && s.clip === 'victory');
+      if (!victory || victory.do !== 'clip') throw new Error('нет победной позы');
+      expect(victory.t - crumble, 'результат удара виден перед сменой вида').toBeGreaterThanOrEqual(0.8);
+      expect(victory.dur).toBeGreaterThanOrEqual(3);
+      expect(tr.dur! - victory.t).toBeCloseTo(victory.dur!, 6);
+      expect(tr.steps.filter(s => s.do === 'call' && s.fn === 'bossVictory')).toHaveLength(1);
       expect(tr.steps.some((s) => s.do === 'letterbox')).toBe(false);
-      expect(tr.steps.some((s) => s.do === 'call' && s.fn === 'crumble')).toBe(true);
+      expect(crumbleClip.who).not.toBe('hero');
       expect(tr.skippable).not.toBe(false);
     }
   });
