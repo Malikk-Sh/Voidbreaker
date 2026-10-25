@@ -171,7 +171,8 @@ export class HeroAvatar {
     s.facing = facing + r.spin;
     s.x = x + r.z * sf + r.x * cf;
     s.z = z + r.z * cf - r.x * sf;
-    s.y = this.lift + (scene ? 0 : this.gait.bob) + r.y - this.lungeW * 0.11;
+    const heldVictory = !scene && p.anim.clip?.id === 'victory' && p.anim.speed === 0;
+    s.y = this.lift + (scene || heldVictory ? 0 : this.gait.bob) + r.y - this.lungeW * 0.11;
     // видимый Пилот (этап 4.5, A2): высота с подъёмом клипа (прыжки Небесного разреза и Звездопада поднимают
     // корень до 1.7 м, физический y при этом 0); по горизонтали — физическая точка: на ней хитбокс
     this.visual.x = x; this.visual.z = z; this.visual.facing = facing;

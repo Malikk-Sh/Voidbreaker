@@ -67,7 +67,7 @@ async function prepare(page, scene, mode) {
   await page.waitForFunction(() => !!window.__vb?.battle, null, { timeout: 30000 });
   await page.evaluate(({ text, effects, mode }) => {
     const bt = window.__vb.battle;
-    const diag = window.__spectacle = { battle: bt, landing: bt.landing, calls: [], kills: [], samples: [], flight: [], effects };
+    const diag = window.__spectacle = { battle: bt, landing: bt.landing, calls: [], kills: [], bossVictories: [], samples: [], flight: [], effects };
     bt.ctx.hud.canvas.style.visibility = text ? 'visible' : 'hidden';
     diag.hideEffects = () => { if (effects === 'off') {
       // Диагностическое отключение добавочных VFX: цепь, тело и ряса остаются видимыми.
@@ -78,6 +78,7 @@ async function prepare(page, scene, mode) {
     } };
     diag.hideEffects();
     bt.world.bus.on('kill', (e) => diag.kills.push({ kind: e.kind, time: bt.director.time }));
+    bt.world.bus.on('bossVictory', e => diag.bossVictories.push({time:bt.director.time,...e}));
     diag.capture = () => {
       const h = bt.world.hero, cam = bt.ctx.renderer.camera, a = cam.position.clone(), b = a.clone();
       // Между диагностическими кадрами render не вызывается; проекции должны видеть текущую камеру.
@@ -88,6 +89,8 @@ async function prepare(page, scene, mode) {
       const project = (p) => { const v = p.clone().project(cam); return { x: (v.x + 1) / 2, y: (1 - v.y) / 2, depth: v.z }; };
       const boss = bt.runner.boss;
       const mask = boss?.bellPos ? boss.bellPos(cam.position.clone()) : null;
+      const targetScale = mask ? (() => { const lo=mask.clone(), hi=mask.clone(); lo.y-=0.5; hi.y+=0.5; return Math.hypot(project(hi).x-project(lo).x,project(hi).y-project(lo).y); })() : null;
+      const dx=cam.position.x-h.x,dz=cam.position.z-h.z,front=(dx*Math.sin(h.facing)+dz*Math.cos(h.facing))/(Math.hypot(dx,dz)||1);
       const tip = b.clone();
       h.avatar.sceneAnchor('edgeContact', tip);
       const hands = ['handL', 'handR'].map(n => h.avatar.sceneAnchor(n, cam.position.clone()));
@@ -110,7 +113,7 @@ async function prepare(page, scene, mode) {
         time: bt.director.time, worldTime: bt.world.time, clip: h.avatar.puppet.anim.clip?.id ?? null,
         clipTime: h.avatar.puppet.anim.t, hero: { x: h.x, y: h.y, z: h.z, scripted: h.scripted },
         blade: { visible: h.avatar.bladeVisible, scale: h.avatar.bladeScale, base: a.toArray(), tip: b.toArray(), screenBase: project(a), screenTip: project(b) },
-        mask: mask?.toArray(), screenMask: mask ? project(mask) : null,
+        targetScale, front, mask: mask?.toArray(), screenMask: mask ? project(mask) : null,
         screenHead: project(head), screenHands: hands.map(project), camera: cam.position.toArray(), gripError: palm.distanceTo(lowerGrip), screenEdge: project(tip), screenFeet: [project(footL), project(footR)], batchGap,
         contactDistance: mask && tip ? tip.distanceTo(mask) : null,
         landing: landing ? { shardVisible: landing.shard?.visible, igniteT: landing.igniteT, phase: landing.attachment?.phase, released: landing.attachment?.released, weaponGap } : null,
@@ -140,7 +143,7 @@ async function prepare(page, scene, mode) {
       const anim = bt.world.hero.avatar.puppet.anim;
       if (anim.clip?.id === 'executionLand') {
         diag.flightStart ??= bt.director.time - anim.t;
-        if (bt.director.time - diag.flightStart <= anim.clip.dur + 1e-7) {
+        if (anim.t >= 0.55 && bt.director.time - diag.flightStart <= anim.clip.dur + 1e-7) {
           const s = diag.capture();
           diag.flight.push({ time: s.time, head: s.screenHead, feet: s.screenFeet });
         }
@@ -189,7 +192,9 @@ async function markerPlan(page, scene) {
         if (s.who === 'hero' && wanted.includes(e.name)) markers.push({ name: e.name, clip: s.clip, time, callback });
       }
     }
-    return { id: d.id, duration: d.dur, short: d.short, markers,
+    const strike=steps.find(s=>s.do==='clip'&&s.who==='hero'&&s.markers?.contact==='strike');
+    const jump=steps.find(s=>s.do==='actor'&&s.who==='hero'&&s.velocityFrom&&s.t<(strike?.t??0));
+    return { id: d.id, duration: d.dur, short: d.short, jump:jump?.t, markers,
       clips: steps.filter((s) => s.do === 'clip').map((s) => ({ clip: s.clip, time: s.t })),
       calls };
   }, SCENES[scene].markers);
@@ -230,7 +235,10 @@ async function runCase(viewport, scene, mode) {
         : plan.markers.map((m) => ({ name: m.name, time: m.time }));
       if (scene === 'execution') {
         const exit = plan.clips.find((s) => s.clip === 'executionLand');
-        if (exit) times.push({ name: 'push-off', time: exit.time + 0.2 }, { name: 'descent', time: exit.time + 0.6 }, { name: 'landing', time: exit.time + 1.0 });
+        if (exit) times.push({ name: 'push-off', time: exit.time + 0.2 }, { name: 'descent', time: exit.time + 0.6 }, { name: 'landing', time: exit.time + 1.05 });
+        const victory=plan.clips.find(s=>s.clip==='victory');
+        if(plan.jump===undefined||!victory)throw new Error('execution: missing jump/victory plan');
+        times.push({name:'jump',time:plan.jump+0.16},{name:'victory',time:victory.time+0.8},{name:'victory-end',time:plan.duration-0.15});
       }
       if (scene === 'extraction') {
         // кадр ожидания: клинок, место хвата и подсказка до действия игрока
@@ -242,10 +250,6 @@ async function runCase(viewport, scene, mode) {
       }
       if (scene === 'execution' && mode === 'full') {
         times.push({ name: 'establishing', time: 0.5 });
-        for (const [clip, name, offset] of [['executionLeap', 'jump', 0.9]]) {
-          const step = plan.clips.find((s) => s.clip === clip);
-          if (step) times.push({ name, time: step.time + offset });
-        }
         for (const [call, name, offset] of [['fracture', 'mask-fragments', 0.15], ['cut', 'body-cut', 0.3], ['beam', 'star', 1.7], ['calm', 'calm', 0.3]]) {
           const step = plan.calls.find((s) => s.name === call);
           if (!step) throw new Error(`execution: missing scene callback ${call}`);
@@ -259,13 +263,20 @@ async function runCase(viewport, scene, mode) {
       }
       const inside = (p) => p && p.depth > -1 && p.depth < 1 && p.x > 0.02 && p.x < 0.98 && p.y > 0.12 && p.y < 0.88;
       const key = result.shots.find((s) => s.file === `${stem}-${scene === 'execution' ? 'contact' : 'weaponAwake'}.png`);
-      check(key && [key.screenHead, key.blade.screenBase, key.blade.screenTip, ...(scene === 'execution' ? [key.screenMask] : [])].every(inside), `${stem}: шлем, рукоять, клинок и цель внутри кадра с леттербоксом`);
-      if (scene === 'execution') check(result.shots.filter((s) => /-(windup|before-contact|contact|after-contact)\.png$/.test(s.file)).every((s) => [s.screenHead, ...s.screenHands, s.blade.screenBase, s.blade.screenTip, s.screenEdge, s.screenMask].every(inside)), `${stem}: замах и результат удара также остаются в кадре`);
-      // Поднятый двуручный клинок входит в композицию целиком: проверяем хват и неподвижность камеры.
+      check(key && (scene==='execution' ? [...key.screenHands,key.blade.screenBase,key.screenEdge,key.screenMask] : [key.screenHead,key.blade.screenBase,key.blade.screenTip]).every(inside), `${stem}: рукоять, рабочая кромка и цель внутри кадра с леттербоксом`);
       if (scene === 'execution') {
         const attack = result.shots.filter(s => /-(windup|before-contact|contact|after-contact)\.png$/.test(s.file));
+        const windup=attack.find(s=>s.file.endsWith('-windup.png'));
+        const impact=attack.filter(s=>!s.file.endsWith('-windup.png'));
+        const jump=result.shots.find(s=>s.file.endsWith('-jump.png'));
+        check(windup&&windup.front>0.05&&[windup.screenHead,...windup.screenHands,windup.blade.screenBase,windup.blade.screenTip].every(inside), `${stem}: подготовка показывает весь двуручный замах спереди`);
+        check(jump&&[jump.screenHead,...jump.screenFeet,jump.screenMask].every(inside), `${stem}: начальный прыжок показан общим планом целиком`);
+        check(jump&&typeof jump.targetScale==='number'&&jump.targetScale>0&&impact.length===3&&impact.every(s=>typeof s.targetScale==='number'&&s.targetScale>=jump.targetScale*1.25&&[...s.screenHands,s.blade.screenBase,s.screenMask,...(/-before-contact\.png$/.test(s.file)?[]:[s.screenEdge])].every(inside)), `${stem}: удар и реакция показаны крупнее на боссе`);
         check(attack.length === 4 && attack.every(s => s.gripError < 0.005), `${stem}: две руки держат рукоять весь удар (≤5мм)`);
-        check(attack.length === 4 && attack.every(s => Math.hypot(...s.camera.map((v,i) => v - attack[0].camera[i])) < 0.025), `${stem}: камера сохраняет ракурс от замаха до результата удара`);
+        check(windup&&impact.length===3&&Math.hypot(...impact[0].camera.map((v,i)=>v-windup.camera[i]))>0.5,`${stem}: перед ударом есть отдельная склейка на босса`);
+        check(impact.length === 3 && impact.every(s => Math.hypot(...s.camera.map((v,i) => v - impact[0].camera[i])) < 0.025), `${stem}: камера удерживает крупный план контакта без наезда`);
+        const victory=result.shots.filter(s=>/-(victory|victory-end)\.png$/.test(s.file));
+        check(victory.length===2&&victory.every(s=>s.clip==='victory'&&[s.screenHead,...s.screenFeet,s.blade.screenBase,s.blade.screenTip].every(inside)),`${stem}: победная поза и клинок целиком видны на спокойном пролёте`);
       }
       const establishing = result.shots.find((s) => s.file.endsWith('-establishing.png'));
       if (establishing) check([establishing.screenHead, establishing.screenMask, ...establishing.screenFeet].every(inside), `${stem}: общий план показывает героя целиком, маску и дистанцию прыжка`);
@@ -280,17 +291,18 @@ async function runCase(viewport, scene, mode) {
     await advance(page, plan.id, 0, { finish: true });
     result.final = await page.evaluate(() => {
       const diag = window.__spectacle;
-      return { ...diag.capture(), calls: diag.calls, kills: diag.kills, flight: diag.flight, active: diag.battle.director.active, outcome: diag.battle.outcome };
+      return { ...diag.capture(), calls: diag.calls, kills: diag.kills, bossVictories:diag.bossVictories, flight: diag.flight, active: diag.battle.director.active, outcome: diag.battle.outcome };
     });
     check(!result.final.active && !result.final.hero.scripted, `${stem}: сцена завершена, управление возвращено`);
     if (scene === 'execution') {
       if (mode === 'full' || mode === 'short') {
         const inside = (p) => p.depth > -1 && p.depth < 1 && p.x > 0.02 && p.x < 0.98 && p.y > 0.12 && p.y < 0.88;
-        check(result.final.flight.length > 0 && result.final.flight.every((s) => [s.head, ...s.feet].every(inside)), `${stem}: весь полёт остаётся в кадре (${result.final.flight.length} кадров)`);
+        check(result.final.flight.length > 0 && result.final.flight.every((s) => [s.head, ...s.feet].every(inside)), `${stem}: раскрытие к посадке показывает героя целиком (${result.final.flight.length} кадров)`);
       }
       const strikes = result.final.calls.filter((c) => c.name === 'strike');
       const kills = result.final.kills.filter((k) => k.kind === 'hierophant');
       check(strikes.length === 1 && kills.length === 1, `${stem}: один контакт и одна смерть (${strikes.length}/${kills.length})`);
+      check(result.final.bossVictories.length===1,`${stem}: один акцент победной позы`);
       if (mode !== 'skip-early') check(typeof strikes[0]?.contactDistance === 'number' && Number.isFinite(strikes[0].contactDistance) && strikes[0].contactDistance <= 0.01, `${stem}: режущая часть клинка у маски (${strikes[0]?.contactDistance?.toFixed(4)} м)`);
       // Досмотреть хвост пересмотра и реальный возврат в Святилище.
       for (let n = 0; n < 15 && await page.evaluate(() => window.__app.current !== 'hub'); n++) {

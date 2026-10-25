@@ -49,6 +49,7 @@ import type { TrainingCard } from '../ui/hud';
 import { DrillTracker, type DrillState } from './drills';
 import { IGNITE, LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
 import { ExtractionAttachment, extractionGripMatrix, extractionStand } from './extraction';
+import { VICTORY_SHOT } from './victoryShot';
 
 
 const _top = new THREE.Vector3();
@@ -364,7 +365,7 @@ export class Battle {
       if (this.finisherVictory) { S.music.stop(1.5); this.endT = this.director.active ? -1 : 0.35; return; }
       // послебоевая тишина (план §8.8): музыка стихает, обломки ещё падают, Пилот опускает клинок — потом награды
       S.music.stop(POST_SILENCE * 0.8);
-      this.endT = this.cine.busy === 'down' ? 4.6 : Math.max(2.9, POST_SILENCE + 0.4);
+      this.endT = this.cine.busy === 'down' ? 4.6 : Math.max(VICTORY_SHOT.dur + 0.4, POST_SILENCE + 0.4);
       this.cine.victory();
     });
     b.on('guardianRage', () => { if (this.runner.guardian) this.cine.guardianRage(this.runner.guardian, this.events.overhead()); });
@@ -904,6 +905,12 @@ export class Battle {
     };
     this.sceneCalls.set('crumble', crumble);
     this.sceneCalls.set('guardianTitle', () => ctx.hud.bigBanner('СТРАЖ ПОВЕРЖЕН', e.def.name, 'gold', 2.0, 50));
+    let victoryDone = false;
+    this.sceneCalls.set('bossVictory', () => {
+      if (victoryDone) return;
+      victoryDone = true; h.victory();
+      w.bus.emit('bossVictory', { x: h.x, y: h.y, z: h.z, facing: h.facing, tone: 'gold' });
+    });
     const finish = () => { crumble(); if (this.outcome === 'won') this.endT = 0.35; };
     if (e.kind === 'gateGuardian') {
       this.sceneCalls.set('knee', () => {
@@ -918,9 +925,8 @@ export class Battle {
         w.bus.emit('sfx', { id: 'bell_crack', x: e.x, z: e.z });
         w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
         // свет из трещин шлема
-        this.vfx.lights.flash(...anchors.head, [1.6, 1.4, 1.0], 3, 5, 0.9);
-        this.vfx.burst(24, { x: anchors.head[0], y: anchors.head[1], z: anchors.head[2], life: 0.6, size: 0.12, size1: 0.02, color: C.core, drag: 2, frame: 'spark', stretch: 1.5 }, { v: 6, vy: 3 });
-        w.bus.emit('finisherImpact', { x: anchors.head[0], y: anchors.head[1], z: anchors.head[2], facing: angle });
+        this.vfx.lights.flash(...anchors.head, [1.6, 1.4, 1.0], 1.4, 2.2, 0.18);
+        w.bus.emit('finisherImpact', { x: anchors.head[0], y: anchors.head[1], z: anchors.head[2], facing: angle, material: 'stone' });
       });
       this.playScene(killGateTrack(spots), finish, { letterbox: false, hud: false });
     } else {
@@ -928,7 +934,7 @@ export class Battle {
         if (e instanceof BellRinger) { e.bellFlash = 0.65; e.setKillcamStage('hit'); }
         this.vfx.lights.flash(...anchors.bell, C.void, 1.2, 3, 0.22);
         w.bus.emit('sfx', { id: 'hit_heavy', x: e.x, z: e.z });
-        w.bus.emit('finisherImpact', { x: anchors.bell[0], y: anchors.bell[1], z: anchors.bell[2], facing: angle });
+        w.bus.emit('finisherImpact', { x: anchors.bell[0], y: anchors.bell[1], z: anchors.bell[2], facing: angle, material: 'bronze' });
       });
       this.sceneCalls.set('bellRing', () => {
         const at = new THREE.Vector3(...anchors.bell);

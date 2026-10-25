@@ -33,6 +33,7 @@ import type { World } from '../world/world';
 import type { Enemy } from '../world/enemy';
 import type { Hud } from '../ui/hud';
 import type { Settings } from '../meta/settings';
+import type { GameEvents } from '../world/events';
 
 /** Кольцо ударной волны на полу: доля силы волны (было 1). */
 export const SHOCK_RING = 0.5;
@@ -404,14 +405,8 @@ export class FeelSystem {
           this.vfx.lights.flash(e.x, 0.5, e.z, C.gold, 2.3, 4, 0.25);
         }
       }),
-      b.on('finisherImpact', (e) => {
-        const dx = Math.sin(e.facing), dz = Math.cos(e.facing);
-        this.vfx.hitSparks(e.x, e.y, e.z, dx, dz, 1.2, true);
-        this.vfx.slashes.spawn([{ shape: 'vert', reach: 1.8, angle: 1.4, tilt: 0.15, heavy: true, y: -0.7 }], { x: e.x, y: e.y, z: e.z, facing: e.facing }, this.time.world);
-        this.cam.addTrauma(0.5); this.cam.zoomPunch += 0.045;
-        this.audio.play('sub_pulse', { gain: 0.85 });
-        this.input.vibrate(65);
-      }),
+      b.on('finisherImpact', (e) => this.finisherImpact(e)),
+      b.on('bossVictory', (e) => this.bossVictory(e)),
       b.on('helmetHit', (e) => {
         this.time.addHitstop(0.12);
         this.cam.addTrauma(0.5);
@@ -511,6 +506,39 @@ export class FeelSystem {
       b.on('resonanceFull', () => { this.audio.play('charge2', { gain: 0.6 }); this.hud.pulseUlt(); }),
       b.on('abilityReady', (e) => { this.audio.play('ability_ready', { gain: 0.35, vary: 0 }); this.hud.abilityReady(e.slot); }),
     );
+  }
+
+  /** Локальный контакт читается на крупном плане босса: кромка, направленный выброс и материал. */
+  private finisherImpact(e: GameEvents['finisherImpact']): void {
+    const material = e.material ?? 'seal', stone = material === 'stone', bronze = material === 'bronze';
+    const dx = Math.sin(e.facing), dz = Math.cos(e.facing);
+    const subdued = this.settings.photosensitive || !this.settings.flashes, glow = subdued ? 0.35 : 1;
+    const color = stone ? C.gold : bronze ? C.ember : C.voidHot;
+    this.vfx.slashes.spawn([{ shape: 'vert', reach: 1.4, angle: 1.15, dir: -1, tilt: bronze ? 0.38 : 0.1, heavy: !subdued, y: -0.55 }], { x: e.x, y: e.y, z: e.z, facing: e.facing }, this.time.world);
+    this.vfx.burst(bronze ? 26 : 18, { x: e.x, y: e.y, z: e.z, life: bronze ? 0.32 : 0.24, size: 0.055, size1: 0.008, color, alpha: subdued ? 0.55 : 0.9, gravity: -12, drag: 2.5, frame: 'spark', stretch: bronze ? 2.6 : 1.8 }, { v: bronze ? 18 : 13, vy: 3.5, dir: [dx, dz], cone: 0.22 });
+    if (stone) this.vfx.debris.burst(e.x, e.y, e.z, dx, dz, Math.round(7 * this.vfx.quality), 5, 0.12);
+    else if (!bronze) this.vfx.burst(7, { x: e.x, y: e.y, z: e.z, life: 0.55, size: 0.1, size1: 0.025, color: C.void, alpha: 0.65, gravity: -1, drag: 1.8, frame: 'star', stretch: 0.8 }, { v: 5, vy: 3, dir: [dx, dz], cone: 0.6 });
+    this.vfx.add.emit({ x: e.x, y: e.y, z: e.z, life: 0.065, size: 0.22, size1: 0.48, color: C.core, alpha: 0.5 * glow, frame: 'flare' });
+    this.vfx.add.emit({ x: e.x, y: e.y, z: e.z, life: 0.13, size: 0.35, size1: 1.25, color, alpha: 0.32 * glow, frame: 'ring' });
+    this.vfx.lights.flash(e.x, e.y, e.z, color, 1.8 * glow, 2.6, 0.1);
+    // Пауза контакта принадлежит Director. Крупный план не получает дополнительного наезда.
+    this.cam.addTrauma(subdued ? 0.12 : 0.28);
+    this.audio.play('sub_pulse', { gain: 0.9 });
+    this.input.vibrate(70);
+  }
+
+  /** Победный акцент не перекрывает стойку: тонкое кольцо у ног и медленные искры вверх. */
+  private bossVictory(e: GameEvents['bossVictory']): void {
+    const subdued = this.settings.photosensitive || !this.settings.flashes, glow = subdued ? 0.4 : 1;
+    const color = e.tone === 'gold' ? C.gold : C.void;
+    this.vfx.rings.spawn(e.x, e.z, 0.65, 1.4, 1.4, color, 0.08, 0.28 * glow, e.y + 0.035);
+    const n = Math.round(14 * this.vfx.quality);
+    for (let i = 0; i < n; i++) {
+      const a = e.facing + i / n * Math.PI * 2, r = 0.48 + (i % 3) * 0.09;
+      this.vfx.add.emit({ x: e.x + Math.sin(a) * r, y: e.y + 0.1 + (i % 4) * 0.16, z: e.z + Math.cos(a) * r, vx: Math.sin(a) * 0.12, vy: 0.8 + (i % 3) * 0.15, vz: Math.cos(a) * 0.12, life: 1.25, size: 0.055, size1: 0.012, color, alpha: 0.55 * glow, drag: 0.6, frame: 'spark', stretch: 0.7 });
+    }
+    this.vfx.lights.flash(e.x, e.y + 1, e.z, color, 1.4 * glow, 3, 0.8);
+    this.audio.play('exhale', { gain: 0.45, vary: 0 });
   }
 
   /** Событие ближе r м к герою (тряска только вблизи). */

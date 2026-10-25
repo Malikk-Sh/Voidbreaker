@@ -60,13 +60,17 @@ describe('кат-сцены: приземление, ракурсы, Киноз�
     }
   });
 
-  it('стражи и kill-cam снимаются шире игрового угла — Страж в кадре со шлемом', () => {
+  it('добивания меняют крупность: широкий прыжок, замах и более узкий план босса', () => {
     for (const v of Object.values(GUARD_FOV)) expect(v).toBeGreaterThan(CAM_FOV + 8);
     const k = { gx: 0, gz: -4, hx: 0, hz: 2 };
     for (const tr of [killGateTrack(k), killBellTrack(k)]) {
       const cams = tr.steps.filter((s) => s.do === 'cam');
-      expect(cams.length).toBeGreaterThan(1);
-      for (const s of cams) expect(s.do === 'cam' && s.fov).toBe(KILL_FOV);
+      expect(cams.length).toBeGreaterThanOrEqual(4);
+      const angles = cams.map(s => s.do === 'cam' ? s.fov ?? CAM_FOV : CAM_FOV);
+      for (const fov of angles) expect(fov).toBeGreaterThan(CAM_FOV + 8);
+      expect(Math.max(...angles)).toBeGreaterThan(KILL_FOV);
+      expect(angles).toContain(KILL_FOV);
+      expect(Math.min(...angles)).toBeLessThan(KILL_FOV);
     }
   });
 

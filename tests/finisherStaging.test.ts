@@ -16,6 +16,7 @@ import { executionTrack } from '../src/world/boss/hierophantScenes';
 import { Cinematics } from '../src/game/cinematics';
 import { BELL_CONTACT } from '../src/gen/chars/enemies';
 import { Skeleton } from '../src/anim/skeleton';
+import { FINISHER_CUT_LEAD } from '../src/game/finisherMotion';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('читаемая постановка добиваний', () => {
@@ -60,7 +61,8 @@ describe('читаемая постановка добиваний', () => {
     const contacts: { name: string; error: number; at: number }[] = [], rings: number[] = [];
     let crumblePose: Float32Array | undefined, crumbleWorld: Float32Array | undefined, ringAnchor: THREE.Vector3 | undefined;
     let deaths = 0, minimumSupport = Infinity, maximumSupport = -Infinity, lowestHeroFoot = Infinity, minimumAt = 0;
-    let framedSamples = 0, widestX = 0, tallestY = 0, nearestZ = Infinity, furthestZ = -Infinity, leastFront = Infinity;
+    const framedSamples = { jump: 0, windup: 0, impact: 0 };
+    let jumpScale = 0, impactScale = Infinity;
     let chestAtContact: THREE.Quaternion | undefined;
     const bellResponse: { t: number; angle: number; chest: number }[] = [];
     const camera = new THREE.PerspectiveCamera(44, 640 / 360, 0.05, 200);
@@ -105,18 +107,35 @@ describe('читаемая постановка добиваний', () => {
         const chest = new THREE.Quaternion().fromArray(e.puppet.skel.rot, e.puppet.layout.idx('chest') * 4).angleTo(chestAtContact);
         bellResponse.push({ t: d.time - T.contact, angle: new THREE.Euler().setFromQuaternion(q).x, chest });
       }
-      if (d.time >= T.strike && d.time <= T.contact + 0.18) {
+      const phase = d.time >= T.jump + 0.04 && d.time <= Math.min(T.strike - 0.02, T.jump + 0.32) ? 'jump'
+        : d.time >= T.strike + 0.1 && d.time <= T.contact - FINISHER_CUT_LEAD - 0.01 ? 'windup'
+        : d.time >= T.contact - FINISHER_CUT_LEAD + 0.01 && d.time <= T.contact + 0.18 ? 'impact' : null;
+      if (phase) {
         const c = d.cameraSample!;
         camera.fov = c.fov ?? 44; camera.updateProjectionMatrix(); camera.position.copy(c.pos); camera.lookAt(c.look); camera.updateMatrixWorld();
         const bossTarget = bell
           ? e.puppet.skel.jointPoint(e.puppet.layout.idx('bell'), BELL_CONTACT[0] * size, BELL_CONTACT[1] * size, BELL_CONTACT[2] * size, new THREE.Vector3())
           : e.puppet.skel.jointPoint(e.puppet.layout.idx('head'), 0, 0.18 * size, 0.18 * size, new THREE.Vector3());
-        const points = [bossTarget, ...(['head', 'handL', 'handR', 'bladeTip', 'edgeContact'] as const).map(name => w.hero.avatar.sceneAnchor(name, new THREE.Vector3()))];
-        for (const p of points) {
-          const q = p.project(camera); widestX = Math.max(widestX, Math.abs(q.x)); tallestY = Math.max(tallestY, Math.abs(q.y)); nearestZ = Math.min(nearestZ, q.z); furthestZ = Math.max(furthestZ, q.z);
+        // Крупный план принимает кромку сверху в конце разгона; поднятый меч показан целиком предыдущим планом.
+        const anchors = phase === 'jump' ? ['head', 'footL', 'footR'] as const
+          : phase === 'windup' ? ['head', 'handL', 'handR', 'bladeTip', 'edgeContact'] as const
+          : d.time >= T.contact - 0.012 ? ['handL', 'handR', 'edgeContact'] as const : ['handL', 'handR'] as const;
+        for (const [index, p] of [bossTarget.clone(), ...anchors.map(name => w.hero.avatar.sceneAnchor(name, new THREE.Vector3()))].entries()) {
+          const q = p.project(camera), at = `${phase} ${index ? anchors[index - 1] : 'target'}: ${d.time.toFixed(3)} c`;
+          expect(Math.abs(q.x), `${at}, граница по X`).toBeLessThan(0.9);
+          expect(Math.abs(q.y), `${at}, леттербокс`).toBeLessThan(0.76);
+          expect(q.z, at).toBeGreaterThan(-1); expect(q.z, at).toBeLessThan(1);
         }
-        leastFront = Math.min(leastFront, (c.pos.x - w.hero.x) * Math.sin(w.hero.facing) + (c.pos.z - w.hero.z) * Math.cos(w.hero.facing));
-        framedSamples++;
+        const top = bossTarget.clone().add(new THREE.Vector3(0, 0.4, 0)).project(camera);
+        const bottom = bossTarget.clone().add(new THREE.Vector3(0, -0.4, 0)).project(camera);
+        const scale = Math.abs(top.y - bottom.y);
+        if (phase === 'jump') jumpScale = Math.max(jumpScale, scale);
+        if (phase === 'impact') impactScale = Math.min(impactScale, scale);
+        if (phase === 'windup') {
+          const front = (c.pos.x - w.hero.x) * Math.sin(w.hero.facing) + (c.pos.z - w.hero.z) * Math.cos(w.hero.facing);
+          expect(front, 'замах снят с передней четверти героя').toBeGreaterThan(0.5);
+        }
+        framedSamples[phase]++;
       }
     }
     expect(contacts.map((c) => c.name)).toEqual(bell ? ['bell'] : ['knee', 'helmet']);
@@ -149,11 +168,8 @@ describe('читаемая постановка добиваний', () => {
       expect(cup.angle, 'колокол действительно отклоняется на подвесе').toBeLessThan(-0.3);
       expect(cup.chest).toBeLessThan(0.08); expect(body.chest).toBeGreaterThan(0.1);
     }
-    expect(framedSamples).toBeGreaterThan(90);
-    expect(widestX, 'кисти, полный клинок и цель не выходят из кадра').toBeLessThan(0.9);
-    expect(tallestY, 'замах не закрыт леттербоксом').toBeLessThan(0.76);
-    expect(nearestZ).toBeGreaterThan(-1); expect(furthestZ).toBeLessThan(1);
-    expect(leastFront, 'замах снят с передней четверти героя').toBeGreaterThan(0.5);
+    for (const phase of ['jump', 'windup', 'impact'] as const) expect(framedSamples[phase], `${phase}: достаточно кадров`).toBeGreaterThan(20);
+    expect(impactScale / jumpScale, 'на контакте цель крупнее, чем в общем плане прыжка').toBeGreaterThanOrEqual(1.25);
     expect(T.crumble - contacts.at(-1)!.at).toBeGreaterThan(1.2);
     expect(deaths).toBe(1); expect(w.hero.y).toBe(0); expect(d.active).toBe(false);
     w.hero.avatar.dispose();

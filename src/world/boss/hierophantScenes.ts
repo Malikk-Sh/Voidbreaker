@@ -1,6 +1,7 @@
 import type { CineStep, CineTrack, V3 } from '../../game/director';
 import { MASK_CONTACT, MASK_RELEASE, bladeEdgeRoot } from '../../anim/clips/execution';
-import { along, attackFraming, ballisticPoint, ballisticVelocity } from '../../game/finisherMotion';
+import { along, attackFraming, ballisticPoint, ballisticVelocity, bossImpactFraming, FINISHER_CUT_LEAD } from '../../game/finisherMotion';
+import { VICTORY_SHOT, victoryFrame } from '../../game/victoryShot';
 import { HIEROPHANT_POSES } from './hierophantPoses';
 
 /** Где стоят актёры сцены Иерофанта: герой и босс. */
@@ -180,10 +181,10 @@ export function crackTrack(p: HierophantSpots, star: V3 = [0.42, -0.5, -0.76]): 
 export interface ExecSpots { bx: number; bz: number; hx: number; hz: number; cx?: number; cz?: number; bellY: number; lx: number; lz: number; star: V3; mask?: V3 }
 
 /** Вся казнь — один прыжок: маска → взрыв до касания пола → посадка → звезда. */
-export const EXEC_T = { jump: 0.55, strike: 1.9, contact: 1.9 + MASK_CONTACT, toll: 2.78, crack: 2.96, land: 3.05, cut: 3.28, touchdown: 4.1, beam: 6.2, calm: 8.4, say: 8.65, end: 10.1 };
-export const EXEC_SHORT_T = { jump: 0.3, strike: 1.15, contact: 1.15 + MASK_CONTACT, toll: 2.02, crack: 2.18, land: 2.3, cut: 2.55, touchdown: 3.35, beam: 4.95, calm: 6.5, say: 6.75, end: 7.65 };
+export const EXEC_T = { jump: 0.55, strike: 1.9, contact: 1.9 + MASK_CONTACT, toll: 2.78, crack: 2.96, land: 3.05, cut: 3.28, touchdown: 4.1, beam: 6.2, calm: 8.4, say: 8.65, end: 8.4 + VICTORY_SHOT.dur };
+export const EXEC_SHORT_T = { jump: 0.3, strike: 1.15, contact: 1.15 + MASK_CONTACT, toll: 2.02, crack: 2.18, land: 2.3, cut: 2.55, touchdown: 3.35, beam: 4.95, calm: 6.5, say: 6.75, end: 6.5 + VICTORY_SHOT.dur };
 export const CONTACT_SHOT = { fov: 44 };
-export const EXEC_FLASH = 0.08;
+export const EXEC_FLASH = 0.025;
 
 export function executionTrack(p: ExecSpots): CineTrack {
   const { bx, bz, hx, hz, lx, lz, star } = p;
@@ -205,7 +206,13 @@ export function executionTrack(p: ExecSpots): CineTrack {
     const driven = along(contact, facing, 0.15, 0.2, 0.04);
     const kick = along(driven, Math.atan2(lx - driven[0], lz - driven[2]), 0.18, -0.06), kickAt = T.land + 0.12;
     const retreat = ballisticVelocity(kick, landed, T.touchdown - kickAt, 2 * kick[1] / (T.touchdown - kickAt) + 1);
-    const hit = attackFraming('maskStrike', facing, [0, 0.3, 0.44, MASK_RELEASE, MASK_CONTACT].map(time => ({ time, root: ballisticPoint(takeoff, contact, flightDur, T.strike + time - T.jump, 2.4) })).concat([{ time: MASK_CONTACT + 0.05, root: compression }, { time: MASK_CONTACT + 0.2, root: driven }]), mask, C.fov);
+    const cutAt = T.contact - FINISHER_CUT_LEAD;
+    const motion = (time: number) => ({ time, root: ballisticPoint(takeoff, contact, flightDur, T.strike + time - T.jump, 2.4) });
+    const leapSpeed = short ? 1.9 / T.strike : 1;
+    const launch = attackFraming('executionLeap', facing, [0, 0.25, 0.5, 0.75, 1].map(k => ({ time: (T.jump + (T.strike - T.jump) * k) * leapSpeed, root: ballisticPoint(takeoff, contact, flightDur, (T.strike - T.jump) * k, 2.4) })), mask, 48, [[bx, 0, bz], [kx, ky + 1.2, kz]]);
+    const windup = attackFraming('maskStrike', facing, [0, 0.3, 0.44, MASK_CONTACT - FINISHER_CUT_LEAD].map(motion), mask, C.fov);
+    const hit = bossImpactFraming('maskStrike', facing, [MASK_CONTACT - FINISHER_CUT_LEAD, MASK_RELEASE, MASK_CONTACT].map(motion).concat([{ time: MASK_CONTACT + 0.05, root: compression }, { time: MASK_CONTACT + 0.18, root: driven }]), mask, 1.1, 1.0);
+    const victory = [0, 0.5, 1].map(u => victoryFrame(landed, facing, u));
     const P = HIEROPHANT_POSES;
     return [
     { t: 0, do: 'call', fn: 'freeze' },
@@ -225,13 +232,14 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.jump, do: 'call', fn: 'flare' },
     { t: T.jump, do: 'sfx', id: 'dash', gain: 0.65 },
     { t: T.jump, do: 'actor', who: 'hero', moveTo: contact, dur: flightDur, ...flight, lookAt: forward(contact) },
-    { t: T.jump, do: 'cam', path: [medium, hit.cam], look: [establish, hit.look], dur: T.strike - T.jump, ease: 'inOutSine', fov: C.fov, blend: 0.28 },
+    { t: T.jump, do: 'cam', path: [launch.cam], look: [launch.look], dur: T.strike - T.jump, fov: 48, blend: 0 },
     // Поза и корень замедляются самими траекториями; окружение и частицы — той же паузой перед ударом.
     { t: T.strike - 0.45, do: 'time', scale: 0.16, dur: 0.45 + MASK_RELEASE, rampIn: 0.12, rampOut: 0.18 },
     { t: T.strike - 0.4, do: 'sfx', id: 'cast_inhale', gain: 0.45 },
     { t: T.strike, do: 'clip', who: 'hero', clip: 'maskStrike', markers: { contact: 'strike' }, blend: 0.16 },
     { t: T.strike + MASK_RELEASE, do: 'sfx', id: 'swing_heavy', gain: 0.95 },
-    { t: T.strike, do: 'cam', path: [hit.cam], look: [hit.look], dur: T.land - T.strike, fov: C.fov, blend: 0 },
+    { t: T.strike, do: 'cam', path: [windup.cam], look: [windup.look], dur: cutAt - T.strike, fov: C.fov, blend: 0 },
+    { t: cutAt, do: 'cam', path: [hit.cam], look: [hit.look], dur: T.land - cutAt, fov: 40, blend: 0 },
     { t: T.contact, do: 'time', scale: 0.08, dur: 0.16, rampIn: 0, rampOut: 0.06 },
     { t: T.contact + 0.035, do: 'hold', dur: 0.055 },
     { t: T.contact, do: 'actor', who: 'hero', moveTo: compression, dur: 0.05, velocityFrom: flight.velocityTo, velocityTo: softened },
@@ -251,12 +259,12 @@ export function executionTrack(p: ExecSpots): CineTrack {
     { t: T.beam + 0.4, do: 'call', fn: 'star2' },
     { t: T.beam, do: 'cam', path: [landingCam, [bx - star[0] * 22 + sx * 3, 13, bz - star[2] * 22 + sz * 3]], look: [landingLook, [bx + star[0] * 100, 13 + star[1] * 100, bz + star[2] * 100]], dur: T.calm - T.beam, ease: 'inOutSine', fov: 48, blend: 0.3 },
     { t: T.calm, do: 'call', fn: 'calm' },
-    { t: T.calm, do: 'clip', who: 'hero', clip: 'lowerBlade', speed: 2.2 / (T.end - T.calm), dur: T.end - T.calm, blend: 0.24 },
-    { t: T.calm, do: 'cam', path: [[lx + sx * 3.1 - fx * 1.8, 1.75, lz + sz * 3.1 - fz * 1.8], [lx + sx * 2.8 - fx * 1.6, 1.7, lz + sz * 2.8 - fz * 1.6]], look: [[lx, 1.3, lz]], dur: T.end - T.calm, fov: 40, blend: 0.4 },
-    { t: T.calm + 0.35, do: 'sfx', id: 'exhale', gain: 0.6 },
+    { t: T.calm, do: 'clip', who: 'hero', clip: 'victory', dur: VICTORY_SHOT.dur, blend: 0.24 },
+    { t: T.calm, do: 'cam', path: victory.map(s => s.cam), look: victory.map(s => s.look), dur: VICTORY_SHOT.dur, fov: VICTORY_SHOT.fov, ease: 'inOutSine', blend: 0 },
+    { t: T.calm + VICTORY_SHOT.accentAt, do: 'call', fn: 'bossVictory' },
     ...(!short ? [{ t: T.say, do: 'say' as const, line: 'Одна звезда. Осталось четыре.' }] : []),
     { t: T.end, do: 'call', fn: 'end' },
   ];
   };
-  return { id: 'hierophantEnd', revision: 4, cameraBlend: 0.24, origin: [bx, 0, bz], heading: facing, steps: make(EXEC_T, false), short: make(EXEC_SHORT_T, true), dur: EXEC_T.end + 0.2, blendOut: 0.7 };
+  return { id: 'hierophantEnd', revision: 5, cameraBlend: 0.24, origin: [bx, 0, bz], heading: facing, steps: make(EXEC_T, false), short: make(EXEC_SHORT_T, true), dur: EXEC_T.end + 0.2, blendOut: 0.7 };
 }

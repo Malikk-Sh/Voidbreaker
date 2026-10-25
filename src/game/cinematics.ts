@@ -9,6 +9,7 @@ import type { Enemy } from '../world/enemy';
 import type { World } from '../world/world';
 import { Director, type CineTrack, type DirectorHost, type V3 } from './director';
 import { offsetWorld, readProject, resolveScene } from './sceneEdits';
+import { VICTORY_SHOT, victoryFrame } from './victoryShot';
 
 type BannerColor = 'gold' | 'void' | 'hunger' | 'white' | 'ether' | 'steel';
 
@@ -245,16 +246,18 @@ export class Cinematics {
     const h = this.host.world.hero;
     const line = VICTORY[(Math.random() * VICTORY.length) | 0];
     this.play({
-      id: 'victory', editorId: 'arenaVictory', dur: 2.6, fadeIn: 0.6, fadeOut: 0.01, letterbox: true, lock: true, skippable: false,
+      id: 'victory', editorId: 'arenaVictory', dur: VICTORY_SHOT.dur, fadeIn: 0.6, fadeOut: 0.01, letterbox: true, lock: true, skippable: false,
       cam: (u, pos, look) => {
-        const a = -0.5 + Ease.inOutSine(u) * 0.9;
-        const r = 7 - u;
-        pos.set(h.x + Math.sin(a) * r, 2.4 + u * 0.6, h.z + Math.cos(a) * r);
-        look.set(h.x, 1.75, h.z);
+        const shot = victoryFrame([h.x, h.y, h.z], h.facing, u);
+        pos.set(...shot.cam); look.set(...shot.look);
       },
-      fov: () => GUARD_FOV.victory,
+      fov: () => VICTORY_SHOT.fov,
       cues: [
-        { at: 0.6, fn: () => this.host.banner('ЭТАП ПРОЙДЕН', undefined, 'gold', 2.0, 52) },
+        { at: VICTORY_SHOT.poseAt, fn: () => h.victory() },
+        { at: VICTORY_SHOT.accentAt, fn: () => {
+          this.host.banner('ЭТАП ПРОЙДЕН', undefined, 'gold', 2.0, 52);
+          this.host.world.bus.emit('bossVictory', { x: h.x, y: h.y, z: h.z, facing: h.facing, tone: 'gold' });
+        } },
         { at: 0.9, fn: () => this.host.say(line, 'kaelis') },
       ],
     });

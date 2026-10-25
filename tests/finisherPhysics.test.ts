@@ -12,6 +12,7 @@ import { HERO_RIG } from '../src/gen/chars/hero';
 import { FINISHER_EDGE_Y, MASK_RELEASE } from '../src/anim/clips/execution';
 import * as THREE from 'three';
 import { emptyProject, resolveScene } from '../src/game/sceneEdits';
+import { FINISHER_CUT_LEAD } from '../src/game/finisherMotion';
 
 const distance = (a: readonly number[], b: readonly number[]) => Math.hypot(...a.map((v, i) => v - b[i]));
 const position = (a: DirectorActor): V3 => [a.x, a.y ?? 0, a.z];
@@ -188,7 +189,10 @@ describe('кинематика трёх добиваний', () => {
     const contactShot = samples.filter(s => s.t >= contact - 0.1 && s.t <= contact + 0.12 && s.camera);
     expect(contactShot.length).toBeGreaterThan(20);
     const cameraTravel = Math.max(...contactShot.map(s => distance(s.camera!, contactShot[0].camera!)));
-    expect(cameraTravel, 'кадр контакта остаётся устойчивым').toBeLessThan(0.45);
+    expect(cameraTravel, 'кадр контакта остаётся устойчивым').toBeLessThan(0.025);
+    const beforeCut = samples.find(s => s.t >= contact - FINISHER_CUT_LEAD - 0.04 && s.camera)!;
+    const afterCut = samples.find(s => s.t >= contact - FINISHER_CUT_LEAD + 0.02 && s.camera)!;
+    expect(distance(beforeCut.camera!, afterCut.camera!), 'перед быстрым разрезом есть отдельная склейка на босса').toBeGreaterThan(0.5);
     const speeds = samples.slice(1).flatMap((s, i) => {
       const before = samples[i];
       return s.edge && before.edge && s.t - before.t > 1e-6 ? [{ t: s.t - strike.t, speed: distance(s.edge, before.edge) / (s.t - before.t) }] : [];

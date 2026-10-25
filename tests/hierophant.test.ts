@@ -15,6 +15,8 @@ import { InputBuffer, type Input } from '../src/input/input';
 import { EXECUTION_CLIPS, MASK_CONTACT, bladeEdgeRoot } from '../src/anim/clips/execution';
 import { Clip } from '../src/anim/clip';
 import { Skeleton } from '../src/anim/skeleton';
+import { FINISHER_CUT_LEAD } from '../src/game/finisherMotion';
+import { VICTORY_SHOT } from '../src/game/victoryShot';
 
 const DT = 1 / 60;
 const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
@@ -457,34 +459,54 @@ describe('Иерофант 2.0 (план §8.3)', () => {
     expect(log.some((l) => l.startsWith('star:'))).toBe(true);
   });
 
-  it('казнь: передний устойчивый план вмещает обе кисти, полный клинок и цель от замаха до дожима', () => {
+  it('казнь: прыжок показан общим планом, замах спереди, затем крупный устойчивый контрплан на маску', () => {
     const mask: [number, number, number] = [0, 3.1, 0.9];
     for (const short of [false, true]) {
       const { w, b } = setup(0, 8), fh = fakeHost(w, b, () => false, () => false, () => short ? 2 : 0), rig = new CameraRig();
       const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 8, cx: 0, cz: 3, bellY: mask[1], lx: 3, lz: 5, star: [0.42, -0.5, -0.76], mask });
       const T = short ? EXEC_SHORT_T : EXEC_T, camera = new THREE.PerspectiveCamera(44, 640 / 360, 0.05, 200);
-      let first: THREE.Vector3 | undefined, sampleCount = 0;
+      const samples = { jump: 0, windup: 0, impact: 0 };
+      let stable: THREE.Vector3 | undefined, windupCam: THREE.Vector3 | undefined, impactCam: THREE.Vector3 | undefined;
+      let jumpScale = 0, impactScale = Infinity;
       fh.director.play(tr);
       for (let real = 0; real < T.contact + 0.4; real += 1 / 120) {
         fh.director.update(1 / 120, rig);
-        if (fh.director.time < T.strike || fh.director.time > T.contact + 0.18) continue;
+        const t = fh.director.time;
+        const phase = t >= T.jump + 0.04 && t <= Math.min(T.strike - 0.02, T.jump + 0.32) ? 'jump'
+          : t >= T.strike + 0.1 && t <= T.contact - FINISHER_CUT_LEAD - 0.01 ? 'windup'
+          : t >= T.contact - FINISHER_CUT_LEAD + 0.01 && t <= T.contact + 0.18 ? 'impact' : null;
+        if (!phase) continue;
         const cam = fh.director.cameraSample!;
         camera.fov = cam.fov ?? 44; camera.updateProjectionMatrix(); camera.position.copy(cam.pos); camera.lookAt(cam.look); camera.updateMatrixWorld();
-        const anchors = ['head', 'handL', 'handR', 'bladeTip', 'edgeContact'] as const;
-        const points = [new THREE.Vector3(...mask), ...anchors.map(a => w.hero.avatar.sceneAnchor(a, new THREE.Vector3()))];
-        for (const p of points) {
-          const q = p.project(camera);
-          expect(Math.abs(q.x), `${short ? 'short' : 'full'}: ${fh.director.time.toFixed(3)} c, граница по X`).toBeLessThan(0.9);
-          expect(Math.abs(q.y), 'леттербокс не закрывает замах и рабочий край').toBeLessThan(0.76);
-          expect(q.z).toBeGreaterThan(-1); expect(q.z).toBeLessThan(1);
+        // Крупный план принимает кромку сверху в конце разгона; поднятый меч показан целиком предыдущим планом.
+        const anchors = phase === 'jump' ? ['head', 'footL', 'footR'] as const
+          : phase === 'windup' ? ['head', 'handL', 'handR', 'bladeTip', 'edgeContact'] as const
+          : t >= T.contact - 0.012 ? ['handL', 'handR', 'edgeContact'] as const : ['handL', 'handR'] as const;
+        for (const [index, p] of [new THREE.Vector3(...mask), ...anchors.map(a => w.hero.avatar.sceneAnchor(a, new THREE.Vector3()))].entries()) {
+          const q = p.project(camera), at = `${short ? 'short' : 'full'} ${phase} ${index ? anchors[index - 1] : 'target'}: ${t.toFixed(3)} c`;
+          expect(Math.abs(q.x), `${at}, граница по X`).toBeLessThan(0.9);
+          expect(Math.abs(q.y), `${at}, леттербокс`).toBeLessThan(0.76);
+          expect(q.z, at).toBeGreaterThan(-1); expect(q.z, at).toBeLessThan(1);
         }
-        const front = (cam.pos.x - w.hero.x) * Math.sin(w.hero.facing) + (cam.pos.z - w.hero.z) * Math.cos(w.hero.facing);
-        expect(front, 'камера видит переднюю четверть, включая хват и грудь').toBeGreaterThan(0.5);
-        if (first) expect(cam.pos.distanceTo(first), 'контакт не подменяется наездом камеры').toBeLessThan(0.01);
-        else first = cam.pos.clone();
-        sampleCount++;
+        const top = new THREE.Vector3(...mask).add(new THREE.Vector3(0, 0.4, 0)).project(camera);
+        const bottom = new THREE.Vector3(...mask).add(new THREE.Vector3(0, -0.4, 0)).project(camera);
+        const scale = Math.abs(top.y - bottom.y);
+        if (phase === 'jump') jumpScale = Math.max(jumpScale, scale);
+        if (phase === 'windup') {
+          const front = (cam.pos.x - w.hero.x) * Math.sin(w.hero.facing) + (cam.pos.z - w.hero.z) * Math.cos(w.hero.facing);
+          expect(front, 'замах виден с передней четверти').toBeGreaterThan(0.5); windupCam = cam.pos.clone();
+        }
+        if (phase === 'impact') { impactScale = Math.min(impactScale, scale); impactCam ??= cam.pos.clone(); }
+        if (t >= T.contact - 0.1 && t <= T.contact + 0.12) {
+          if (stable) expect(cam.pos.distanceTo(stable), 'контакт не подменяется наездом камеры').toBeLessThan(0.025);
+          else stable = cam.pos.clone();
+        }
+        samples[phase]++;
       }
-      expect(sampleCount).toBeGreaterThan(70); w.hero.avatar.dispose();
+      for (const phase of ['jump', 'windup', 'impact'] as const) expect(samples[phase], `${phase}: достаточно кадров`).toBeGreaterThan(20);
+      expect(impactScale / jumpScale, 'маска крупнее в момент удара').toBeGreaterThanOrEqual(1.25);
+      expect(impactCam!.distanceTo(windupCam!), 'перед контактом есть монтажная склейка на босса').toBeGreaterThan(0.5);
+      w.hero.avatar.dispose();
     }
   });
 
@@ -588,12 +610,16 @@ describe('Иерофант 2.0 (план §8.3)', () => {
   it('дорожка казни: быстрый разрез и пауза победы до эпилога; контакт задан клипом', () => {
     const tr = executionTrack({ bx: 0, bz: 0, hx: 0, hz: 6, cx: 0, cz: 2.6, bellY: 6, lx: 0, lz: -3.2, star: [0.42, -0.5, -0.76] });
     expect(tr.dur).toBeGreaterThanOrEqual(7);
-    expect(tr.dur).toBeLessThanOrEqual(11);
+    expect(tr.dur).toBeLessThanOrEqual(12);
     expect(EXEC_T.beam - EXEC_T.touchdown).toBeGreaterThanOrEqual(2);
+    const victory = tr.steps.find(s => s.do === 'clip' && s.who === 'hero' && s.clip === 'victory');
+    expect(victory?.t).toBe(EXEC_T.calm);
+    expect(victory && victory.do === 'clip' ? victory.dur : 0).toBe(VICTORY_SHOT.dur);
+    expect(EXEC_T.end - EXEC_T.calm).toBe(VICTORY_SHOT.dur);
     const actions = tr.steps.flatMap((s) => s.do === 'call' ? [{ t: s.t, fn: s.fn }]
       : s.do === 'clip' ? ((s.definition ?? EXECUTION_CLIPS.find((c) => c.id === s.clip))?.events ?? []).filter((e) => s.markers?.[e.name]).map((e) => ({ t: s.t + e.t / (s.speed ?? 1), fn: s.markers![e.name] })) : []);
     const order = actions.sort((a, b) => a.t - b.t).map((s) => s.fn).filter((fn) => fn !== 'brace' && fn !== 'chainStep');
-    expect(order).toEqual(['freeze', 'flare', 'strike', 'toll', 'fracture', 'cut', 'beam', 'star2', 'calm', 'end']);
+    expect(order).toEqual(['freeze', 'flare', 'strike', 'toll', 'fracture', 'cut', 'beam', 'star2', 'calm', 'bossVictory', 'end']);
     expect(actions.find((s) => s.fn === 'strike')!.t).toBeCloseTo(EXEC_T.strike + MASK_CONTACT);
     expect(tr.steps.some((s) => (s.do === 'actor' || s.do === 'clip') && (s.clip === 'dash' || s.clip === 'skyfall'))).toBe(false);
     expect(tr.steps.filter((s) => s.do === 'time').every((s) => s.do === 'time' && s.rampIn !== undefined && s.rampOut !== undefined)).toBe(true);

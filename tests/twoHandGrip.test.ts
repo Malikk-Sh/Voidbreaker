@@ -6,7 +6,7 @@ import { GRIP_HANDLE, GRIP_PALM, gripWeight } from '../src/anim/twoHandGrip';
 import { HERO_RIG } from '../src/gen/chars/hero';
 import { bruteRig } from '../src/gen/chars/enemies';
 import { guardianTargets } from '../src/world/boss/guardianStaging';
-import { bladeContactRoot, bladeEdgeRoot, EXECUTION_CLIPS, FINISHER_EDGE_Y, MASK_CONTACT } from '../src/anim/clips/execution';
+import { bladeContactRoot, bladeEdgeRoot, EXECUTION_CLIPS, FINISHER_EDGE_Y, MASK_CONTACT, MASK_RELEASE } from '../src/anim/clips/execution';
 
 const ids = ['maskStrike', 'gateCrush', 'bellBreak'];
 const L = new RigLayout(HERO_RIG);
@@ -15,6 +15,27 @@ const point = (s: Skeleton, name: string) => s.jointPos(L.idx(name), new THREE.V
 const gap = (s: Skeleton) => s.jointPoint(L.idx('handL'), ...GRIP_PALM, new THREE.Vector3()).distanceTo(s.jointPoint(L.idx('blade'), ...GRIP_HANDLE, new THREE.Vector3()));
 
 describe('двуручные финальные удары', () => {
+  it('последние 80 мс разгоняют рабочую кромку до контакта, а маркер и хват остаются точными', () => {
+    expect(MASK_CONTACT - MASK_RELEASE).toBeCloseTo(0.08, 8);
+    for (const id of ids) {
+      const def = EXECUTION_CLIPS.find(c => c.id === id)!, clip = new Clip(def, L), s = new Skeleton(L);
+      const edge = (time: number) => {
+        s.rot.set(L.restRot); clip.sample(time, s.rot, root()); s.update();
+        expect(gap(s)).toBeLessThan(0.0001);
+        return s.jointPoint(L.idx('blade'), 0, FINISHER_EDGE_Y, 0, new THREE.Vector3());
+      };
+      let total = 0, lastTwentyMs = 0, previous = edge(MASK_RELEASE);
+      for (let i = 1; i <= 80; i++) {
+        const t = MASK_RELEASE + i / 1000, next = edge(t), d = next.distanceTo(previous);
+        total += d; if (t > MASK_CONTACT - 0.02 + 1e-8) lastTwentyMs += d;
+        previous = next;
+      }
+      expect(total, `${id}: разрез не превращён в короткий тычок`).toBeGreaterThan(1.5);
+      expect(lastTwentyMs / total, `${id}: кромка ускоряется к цели`).toBeGreaterThan(0.45);
+      expect(def.events?.find(e => e.name === 'contact')?.t).toBe(MASK_CONTACT);
+    }
+  });
+
   it('кисть замыкается на обмотке во всём замахе, контакте и проводке, без растяжения костей', () => {
     for (const id of ids) {
       const def = EXECUTION_CLIPS.find(c => c.id === id)!, clip = new Clip(def, L), s = new Skeleton(L);

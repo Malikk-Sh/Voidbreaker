@@ -5,8 +5,8 @@ import { BLADE_LEN, HERO_RIG } from '../../gen/chars/hero';
 
 /** Контакт — событие специального клипа, в секундах времени сцены. */
 export const MASK_CONTACT = 0.72;
-/** Замедлен только замах. Последние 140 мс до контакта — быстрый разрез. */
-export const MASK_RELEASE = 0.58;
+/** Замедлен только замах. Последние 80 мс до контакта — быстрый разрез. */
+export const MASK_RELEASE = 0.64;
 /** Рубка попадает рабочим участком лезвия, оставляя кончик пройти за силуэт цели. */
 export const FINISHER_EDGE = 0.72;
 export const FINISHER_EDGE_Y = -BLADE_LEN * FINISHER_EDGE - 0.02;

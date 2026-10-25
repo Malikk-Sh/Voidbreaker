@@ -3,12 +3,13 @@ import { MASK_CONTACT, MASK_RELEASE, bladeContactRoot, bladeEdgeRoot } from '../
 import { RigLayout } from '../../anim/skeleton';
 import { bruteRig } from '../../gen/chars/enemies';
 import { guardianTargets, guardianSupport, GUARDIAN_KILL_POSES } from './guardianStaging';
-import { along, attackFraming, ballisticPoint, ballisticVelocity } from '../../game/finisherMotion';
+import { along, attackFraming, ballisticPoint, ballisticVelocity, bossImpactFraming, FINISHER_CUT_LEAD } from '../../game/finisherMotion';
+import { VICTORY_SHOT, victoryFrame } from '../../game/victoryShot';
 
 export const KILL_FOV = 44;
 export interface KillSpots { gx: number; gz: number; hx: number; hz: number; facing?: number; knee?: V3; head?: V3; bell?: V3; landing?: V3 }
-export const GATE_KILL_T = { knee: 0.62, leap: 1.18, jump: 1.45, strike: 1.95, contact: 1.95 + MASK_CONTACT, exit: 2.95, land: 4.0, crumble: 4.25, end: 6.25 };
-export const BELL_KILL_T = { knee: 0.62, leap: 1.15, jump: 1.42, strike: 1.92, contact: 1.92 + MASK_CONTACT, exit: 2.92, land: 3.97, crumble: 4.22, end: 6.22 };
+export const GATE_KILL_T = { knee: 0.62, leap: 1.18, jump: 1.45, strike: 1.95, contact: 1.95 + MASK_CONTACT, exit: 2.95, land: 4.0, crumble: 4.25, victory: 5.25, end: 5.25 + VICTORY_SHOT.dur };
+export const BELL_KILL_T = { knee: 0.62, leap: 1.15, jump: 1.42, strike: 1.92, contact: 1.92 + MASK_CONTACT, exit: 2.92, land: 3.97, crumble: 4.22, victory: 5.22, end: 5.22 + VICTORY_SHOT.dur };
 
 function killTrack(p: KillSpots, bell: boolean): CineTrack {
   const T = bell ? BELL_KILL_T : GATE_KILL_T, who = bell ? 'bellRinger' : 'gateGuardian';
@@ -35,9 +36,14 @@ function killTrack(p: KillSpots, bell: boolean): CineTrack {
   // Держим одну сторону оси боя: обход, клинок и цель не меняются местами при склейке.
   const wide: V3 = [gx - fx * 8 + sx * 9, 3.3, gz - fz * 8 + sz * 9];
   const lowLook: V3 = [(approach[0] + gx) / 2, bell ? 2.1 : 1.6, (approach[2] + gz) / 2];
-  const hit = attackFraming(attack, attackFacing, [0, 0.3, 0.44, MASK_RELEASE, MASK_CONTACT].map(time => ({ time, root: ballisticPoint(takeoff, contact, flightDur, T.strike + time - T.jump, bell ? 2 : 2.4) })).concat([{ time: MASK_CONTACT + 0.05, root: compression }, { time: MASK_CONTACT + 0.2, root: driven }]), target, KILL_FOV);
+  const cutAt = T.contact - FINISHER_CUT_LEAD;
+  const motion = (time: number) => ({ time, root: ballisticPoint(takeoff, contact, flightDur, T.strike + time - T.jump, bell ? 2 : 2.4) });
+  const launch = attackFraming('executionLeap', attackFacing, [0, 0.25, 0.5, 0.75, 1].map(k => ({ time: (T.jump + (T.strike - T.jump) * k - T.leap) * 1.9 / (T.strike - T.leap), root: ballisticPoint(takeoff, contact, flightDur, (T.strike - T.jump) * k, bell ? 2 : 2.4) })), target, 48, [[gx, 0, gz], [gx, bell ? 4.0 : 4.8, gz]]);
+  const windup = attackFraming(attack, attackFacing, [0, 0.3, 0.44, MASK_CONTACT - FINISHER_CUT_LEAD].map(motion), target, KILL_FOV);
+  const hit = bossImpactFraming(attack, attackFacing, [MASK_CONTACT - FINISHER_CUT_LEAD, MASK_RELEASE, MASK_CONTACT].map(motion).concat([{ time: MASK_CONTACT + 0.05, root: compression }, { time: MASK_CONTACT + 0.18, root: driven }]), target, bell ? 1.3 : 0.8, bell ? 1.05 : 0.8);
   const landingCam: V3 = [landing[0] - fx * 5 + sx * 6.5, 2.7, landing[2] - fz * 5 + sz * 6.5];
   const landingLook: V3 = [(landing[0] + gx) / 2, 1.5, (landing[2] + gz) / 2];
+  const victory = [0, 0.5, 1].map(u => victoryFrame(landing, attackFacing, u));
   const steps: CineStep[] = [
     { t: 0, do: 'clip', who: 'hero', clip: bell ? 'guardianApproach' : 'guardianSweep', blend: 0.18 },
     // Реакция врага тоже идёт по времени сцены: замедление мира не уводит шлем от маркера клинка.
@@ -67,13 +73,14 @@ function killTrack(p: KillSpots, bell: boolean): CineTrack {
     { t: T.leap, do: 'clip', who: 'hero', clip: 'executionLeap', speed: 1.9 / (T.strike - T.leap), blend: 0.2 },
     { t: T.leap, do: 'actor', who: 'hero', moveTo: [approach[0], 0, approach[2]], dur: T.jump - T.leap, ease: 'inOutSine', lookAt: forward(approach), turn: 0.18 },
     { t: T.jump, do: 'actor', who: 'hero', moveTo: contact, dur: flightDur, ...flight, lookAt: forward(contact) },
-    { t: T.leap, do: 'cam', path: [[wide[0] - sx * 0.3, wide[1], wide[2] - sz * 0.3], hit.cam], look: [lowLook, hit.look], dur: T.strike - T.leap, fov: KILL_FOV, blend: 0.25 },
+    { t: T.jump, do: 'cam', path: [launch.cam], look: [launch.look], dur: T.strike - T.jump, fov: 48, blend: 0 },
+    { t: T.strike, do: 'cam', path: [windup.cam], look: [windup.look], dur: cutAt - T.strike, fov: KILL_FOV, blend: 0 },
     { t: T.strike, do: 'clip', who: 'hero', clip: attack, markers: { contact: bell ? 'bell' : 'helmet' }, blend: 0.12 },
     { t: T.strike + MASK_RELEASE, do: 'sfx', id: 'swing_heavy', gain: 0.9 },
     { t: T.strike, do: 'time', scale: 0.2, dur: MASK_RELEASE, rampIn: 0.1, rampOut: 0.18 },
     { t: T.contact, do: 'time', scale: 0.08, dur: 0.16, rampIn: 0, rampOut: 0.06 },
     { t: T.contact + 0.035, do: 'hold', dur: bell ? 0.045 : 0.065 },
-    { t: T.strike, do: 'cam', path: [hit.cam], look: [hit.look], dur: T.exit - T.strike, fov: KILL_FOV, blend: 0 },
+    { t: cutAt, do: 'cam', path: [hit.cam], look: [hit.look], dur: T.exit - cutAt, fov: 40, blend: 0 },
     { t: T.contact, do: 'actor', who: 'hero', moveTo: compression, dur: 0.05, velocityFrom: flight.velocityTo, velocityTo: softened },
     { t: T.contact + 0.05, do: 'actor', who: 'hero', moveTo: driven, dur: T.exit - T.contact - 0.05, velocityFrom: softened, velocityTo: [0, 0, 0] },
     ...(!bell ? [{ t: T.contact + 0.1, do: 'sfx' as const, id: 'shatter_stone', gain: 0.45 }] : []),
@@ -86,14 +93,17 @@ function killTrack(p: KillSpots, bell: boolean): CineTrack {
     { t: T.land, do: 'sfx', id: 'land_impact', gain: 0.65 },
     { t: T.crumble + 0.35, do: 'call', fn: 'guardianTitle' },
     { t: T.crumble, do: 'time', scale: 0.32, dur: 0.7, rampIn: 0.08, rampOut: 0.25 },
-    { t: T.land, do: 'cam', path: [landingCam, [landingCam[0] + sx * 0.5, landingCam[1] + 0.2, landingCam[2] + sz * 0.5]], look: [landingLook], dur: T.end - T.land, fov: KILL_FOV },
+    { t: T.land, do: 'cam', path: [landingCam], look: [landingLook], dur: T.victory - T.land, fov: KILL_FOV },
+    { t: T.victory, do: 'clip', who: 'hero', clip: 'victory', dur: VICTORY_SHOT.dur, blend: 0.25 },
+    { t: T.victory, do: 'cam', path: victory.map(s => s.cam), look: victory.map(s => s.look), dur: VICTORY_SHOT.dur, fov: VICTORY_SHOT.fov, ease: 'inOutSine', blend: 0 },
+    { t: T.victory + VICTORY_SHOT.accentAt, do: 'call', fn: 'bossVictory' },
   ];
   // Подсечка также проходит после сэмплирования позы — как основной удар.
   if (!bell) {
     const clip = steps[0]; if (clip.do === 'clip') clip.markers = { contact: 'knee' };
     const i = steps.findIndex((s) => s.do === 'call' && s.fn === 'knee'); steps.splice(i, 1);
   }
-  return { id: bell ? 'killBell' : 'killGate', revision: 4, cameraBlend: 0.25, origin: [gx, 0, gz], heading: attackFacing, steps, dur: T.end, blendOut: 0.65 };
+  return { id: bell ? 'killBell' : 'killGate', revision: 5, cameraBlend: 0.25, origin: [gx, 0, gz], heading: attackFacing, steps, dur: T.end, blendOut: 0.65 };
 }
 export function killGateTrack(p: KillSpots): CineTrack { return killTrack(p, false); }
 export function killBellTrack(p: KillSpots): CineTrack { return killTrack(p, true); }

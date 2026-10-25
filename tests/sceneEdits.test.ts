@@ -136,12 +136,14 @@ describe('студия и Director используют одну траекто�
     expect(SCENES.some((s) => s.id === 'arenaIntro:1-9')).toBe(true);
   });
   it('короткая вставка меняет камеру и темп, сохраняя однократные события', () => {
-    const hero = { x: 0, y: 0, z: 0, facing: 0, locked: false }, banners: string[] = [];
-    const h = { world: { hero }, letterbox: () => {}, slow: () => {}, banner: (text: string) => banners.push(text), say: () => {}, flash: () => {}, musicPhase: () => {}, stinger: () => {}, skipRequested: () => false, once: () => false } as unknown as CineHost;
+    let victories = 0;
+    const hero = { x: 0, y: 0, z: 0, facing: 0, locked: false, victory: () => { victories++; } }, banners: string[] = [], events: string[] = [];
+    const h = { world: { hero, bus: { emit: (name: string) => events.push(name) } }, letterbox: () => {}, slow: () => {}, banner: (text: string) => banners.push(text), say: () => {}, flash: () => {}, musicPhase: () => {}, stinger: () => {}, skipRequested: () => false, once: () => false } as unknown as CineHost;
     const base = new Cinematics(h); base.studio = true; base.victory(); const cam = new CameraRig(); base.update(0.5, cam); const before = cam.cine!.pos.y;
     storage({ version: 1, enabled: true, scenes: { arenaVictory: { full: { rate: 0.5, steps: { 'cam:0': { pathOffsets: Array.from({ length: 25 }, () => [0, 2, 0] as [number, number, number]) } } } } } });
     const edited = new Cinematics(h); edited.victory(); const after = new CameraRig(); edited.update(1, after);
     expect(after.cine!.pos.y).toBeCloseTo(before + 2);
     edited.update(0.3, after); edited.update(0.3, after); expect(banners).toEqual(['ЭТАП ПРОЙДЕН']);
+    expect(victories).toBe(2); expect(events).toEqual(['bossVictory']);
   });
 });

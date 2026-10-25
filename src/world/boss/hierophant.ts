@@ -894,21 +894,22 @@ export class HierophantController implements BossController {
     const bellY = mask[1];
     this.chainsOn = false;
     H.chains([]);
-    let contactDone = false;
+    let contactDone = false, victoryDone = false;
     H.scene(executionTrack({ bx: b.x, bz: b.z, hx: h.x, hz: h.z, bellY, lx: l.x, lz: l.z, star: H.starDir(), mask }), {
       freeze: () => { H.duck(0, 30); H.chains([]); w.bus.emit('sfx', { id: 'choir_note', x: b.x, z: b.z }); this.faceLight('gold', 1.3); },
-      flare: () => { h.glowBoost = 1.7; },
+      flare: () => { h.glowBoost = 0.55; },
       strike: () => {
         if (contactDone) return;
         contactDone = true;
+        h.glowBoost = 0.2;
         this.flawless = !this.p3Hurt;
         b.puppet.crack = 0.35;
         w.bus.emit('sfx', { id: 'shatter_cut', x: b.x, z: b.z });
         w.bus.emit('sfx', { id: 'hit_heavy', x: b.x, z: b.z });
-        w.bus.emit('finisherImpact', { x: mask[0], y: mask[1], z: mask[2], facing: Math.atan2(fx, fz) });
+        w.bus.emit('finisherImpact', { x: mask[0], y: mask[1], z: mask[2], facing: Math.atan2(fx, fz), material: 'seal' });
         // Контакт сначала виден геометрически; короткий локальный свет и слабый акцент идут вслед за ним.
         H.flash(EXEC_FLASH);
-        H.light?.(mask[0], mask[1], mask[2], 'void', 2.4, 2.3, 0.3);
+        H.light?.(mask[0], mask[1], mask[2], 'void', 1.2, 1.8, 0.16);
         w.bus.emit('shockwave', { x: mask[0], z: mask[2], y: mask[1], r: 1.2, color: 'void', strength: 0.25 });
       },
       toll: () => {
@@ -926,6 +927,11 @@ export class HierophantController implements BossController {
       beam: () => { H.beam(b.x, b.z); w.bus.emit('sfx', { id: 'beam_up', x: b.x, z: b.z }); },
       star2: () => { if (this.flawless) H.sky('star2', 1); },
       calm: () => { h.glowBoost = 0; h.sceneGhosts = false; H.starLight?.(H.starDir()); },
+      bossVictory: () => {
+        if (victoryDone) return;
+        victoryDone = true; h.victory();
+        w.bus.emit('bossVictory', { x: h.x, y: h.y, z: h.z, facing: h.facing, tone: 'void' });
+      },
       end: () => this.finish(),
     }, () => { this.cut(); this.finish(); });
   }
