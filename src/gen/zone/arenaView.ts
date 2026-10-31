@@ -20,6 +20,8 @@ export interface ArenaView {
   floor: THREE.InstancedMesh[];
   flames: [number, number, number][];
   pools: LightPoolDef[];
+  /** Бирюзовые трещины в плитах — источники для буфера света в мире (план ×100, A1); без буфера не нужны. */
+  veinLights: LightPoolDef[];
   runeRadius: number;
   /** Обновить матрицы плиток (падение/возрождение). */
   syncTiles(): void;
@@ -191,6 +193,9 @@ function godRayMaterial(color: string): THREE.ShaderMaterial {
   });
 }
 
+/** Свет трещины в плите для буфера света: радиус (м), яркость, мерцание. */
+const VEIN_LIGHT = { r: 1.4, intensity: 0.07, flicker: 0.15 };
+
 /** Корень острова: радиус верхнего диска к rad (с разбросом shard); глубина корня под провалом (м, ниже дна −6.5). */
 export const ROOT_TOP = 1.3;
 export const ROOT_SUNK = -6.8;
@@ -217,6 +222,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     // у звёздного моста край отмечает золотая кромка (STAR_EDGE) — ромбы на краю только шумели бы
     buckets[onCross && !def.star ? 2 : k < 0.06 ? 1 : k < 0.1 ? 2 : 0].push(idx);
   });
+  const veinLights: LightPoolDef[] = buckets[1].map((ti) => ({ x: arena.tiles[ti].x, z: arena.tiles[ti].z, ...VEIN_LIGHT, color: look.veins }));
   const floor: THREE.InstancedMesh[] = [];
   const tileRefs: { mesh: THREE.InstancedMesh; slot: number; tile: number; rx: number; rz: number }[] = [];
   const tint = new THREE.Color();
@@ -851,7 +857,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   const runeRadius = Math.min(b.maxX - b.minX, b.maxZ - b.minZ, p0.w * 1.2, p0.h * 1.2) * 0.3;
 
   return {
-    root, floor, flames, pools, runeRadius, syncTiles,
+    root, floor, flames, pools, veinLights, runeRadius, syncTiles,
     lightConstellations() { cTime = 0; },
     update(realDt: number) {
       // кромки моста разгораются, когда пол вокруг обрушился (раз в 0.25 с — без перебора плит каждый кадр)

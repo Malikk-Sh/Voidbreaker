@@ -48,6 +48,8 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
     h('div', { class: 'vb-dim', style: { fontSize: '11px' } }, 'iOS: в беззвучном режиме Web Audio может молчать — выключите беззвучный режим.'),
     section('Изображение'),
     toggle('Качество', 'quality', [['auto', 'Авто'], ['low', 'Низкое'], ['medium', 'Среднее'], ['high', 'Высокое']]),
+    toggle('Новый свет (проба)', 'light', [['auto', 'Авто'], ['on', 'Вкл'], ['off', 'Выкл']]),
+    h('div', { class: 'vb-dim', style: { fontSize: '11px' } }, 'Свечи, клинок и враги освещают пол и броню. «Авто» включает его только на высоком качестве; на телефоне включите и посмотрите счётчик FPS.'),
     slider('Тряска камеры', 'shake'),
     toggle('Вспышки', 'flashes', [[true, 'Вкл'], [false, 'Выкл']]),
     toggle('Режим без вспышек', 'photosensitive', [[false, 'Выкл'], [true, 'Вкл']]),

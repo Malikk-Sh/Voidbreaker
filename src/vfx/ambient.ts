@@ -8,6 +8,11 @@ const QUAD = (): [THREE.Float32BufferAttribute, THREE.Float32BufferAttribute] =>
   new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2),
 ];
 const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
+/**
+ * Квад, лежащий на полу и смотрящий вверх (x → мир X, y → мир Z): обход против часовой при взгляде сверху. С QUAD_INDEX
+ * пятна LightPools смотрели вниз и отсекались как задние грани — на экране их не было вовсе.
+ */
+const FLOOR_QUAD_INDEX = [0, 2, 1, 0, 3, 2];
 
 /** Пламя свечей: billboard, вытянутый шум вверх, градиент белый → оранжевый → прозрачный (Tech §6.3). */
 export class Flames {
@@ -137,7 +142,7 @@ export class LightPools {
   constructor(readonly max = 256) {
     this.geo = new THREE.InstancedBufferGeometry();
     const [pos, uv] = QUAD();
-    this.geo.setAttribute('position', pos); this.geo.setAttribute('uv', uv); this.geo.setIndex(QUAD_INDEX);
+    this.geo.setAttribute('position', pos); this.geo.setAttribute('uv', uv); this.geo.setIndex(FLOOR_QUAD_INDEX);
     this.data = new Float32Array(max * 4); this.col = new Float32Array(max * 4);
     this.a1 = new THREE.InstancedBufferAttribute(this.data, 4); this.a1.setUsage(THREE.DynamicDrawUsage);
     this.a2 = new THREE.InstancedBufferAttribute(this.col, 4); this.a2.setUsage(THREE.DynamicDrawUsage);

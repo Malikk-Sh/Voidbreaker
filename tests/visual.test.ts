@@ -144,3 +144,61 @@ describe('план ×100: настройки и косметика', () => {
     for (const [file, text] of Object.entries(src)) expect(text.includes('Math.random'), file).toBe(false);
   });
 });
+
+describe('план ×100, фаза 1 (A1): буфер света в мире', () => {
+  it('«Авто» включает буфер только на высоком качестве; ?fx=light выключает, адрес ?light= перекрывает всё', async () => {
+    const { lightEnabled } = await import('../src/render/worldLight');
+    expect(lightEnabled('auto', 'high', '')).toBe(true);
+    expect(lightEnabled('auto', 'medium', '')).toBe(false);
+    expect(lightEnabled(undefined, 'low', '')).toBe(false);
+    expect(lightEnabled('on', 'low', '')).toBe(true);
+    expect(lightEnabled('off', 'high', '')).toBe(false);
+    expect(lightEnabled('off', 'high', '?light=on')).toBe(true);
+    expect(lightEnabled('on', 'high', '?q=low&light=off')).toBe(false);
+    // флаги апгрейда: ?fx=light и ?fx=off выключают буфер (кадр «до»), явный ?light=on сильнее
+    expect(lightEnabled('auto', 'high', '?fx=light')).toBe(false);
+    expect(lightEnabled('on', 'high', '?fx=off')).toBe(false);
+    expect(lightEnabled('auto', 'high', '?fx=rays')).toBe(true);
+    expect(lightEnabled('off', 'medium', '?fx=off&light=on')).toBe(true);
+  });
+
+  it('текстура накрывает арену с запасом: углы и центр попадают в свои UV, верх — ближний край', async () => {
+    const { lightRect, lightUv, LIGHT_BUF } = await import('../src/render/worldLight');
+    const b = { minX: -10, maxX: 14, minZ: -20, maxZ: 6 };
+    const r = lightRect(b);
+    const m = LIGHT_BUF.margin;
+    const near = (a: number[], e: number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(e[i], 6));
+    near(lightUv(b.minX - m, b.minZ - m, r), [0, 1]);
+    near(lightUv(b.maxX + m, b.maxZ + m, r), [1, 0]);
+    near(lightUv((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, r), [0.5, 0.5]);
+    // разрешение по плану: low 256², medium и high 512²; на 50 м — около 10 см на тексель
+    expect(LIGHT_BUF.size).toEqual({ low: 256, medium: 512, high: 512 });
+  });
+
+  it('пятна света лежат на полу лицом вверх — иначе отсекаются как задние грани и не светят вовсе', async () => {
+    const { LightPools } = await import('../src/vfx/ambient');
+    const g = new LightPools(8).mesh.geometry;
+    const pos = g.getAttribute('position'), idx = g.getIndex()!;
+    // квад: x → мир X, y → мир Z
+    const v = (k: number) => new THREE.Vector3(pos.getX(idx.getX(k)), 0, pos.getY(idx.getX(k)));
+    for (let t = 0; t < idx.count; t += 3) {
+      const n = new THREE.Vector3().crossVectors(v(t + 1).sub(v(t)), v(t + 2).sub(v(t)));
+      expect(n.y, `треугольник ${t / 3}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('пол берёт свет своим вариантом шейдера (блик × глянец), тела — отсветом снизу', async () => {
+    const { obsidianMaterial, LIGHT_LOOK, G } = await import('../src/render/materials');
+    expect(obsidianMaterial({ floor: true }).defines.FLOOR).toBeDefined();
+    expect(obsidianMaterial().defines.FLOOR).toBeUndefined();
+    expect(obsidianMaterial().fragmentShader).toContain('worldLight(vWP)');
+    expect(G.uLightK.value).toBe(0);
+    expect(LIGHT_LOOK.gloss[0]).toBeLessThan(LIGHT_LOOK.gloss[1]);
+    expect(LIGHT_LOOK.down).toBeGreaterThan(0);
+    expect(LIGHT_LOOK.down).toBeLessThan(1);
+  });
+
+  it('старые сохранения получают «Авто»: на телефонах (среднее качество) буфер выключен до замера', () => {
+    expect(migrate({} as never).settings.light).toBe('auto');
+  });
+});

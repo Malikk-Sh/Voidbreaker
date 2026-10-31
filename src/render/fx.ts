@@ -5,9 +5,9 @@
  *
  * exposure — дисциплина яркости удара (вспышка тела, ядро следа, искра контакта); tele — новый вид телеграфов;
  * title — титр этапа до волны, подпись внизу слева; herolight — свет Пилота и визор; shadow — тени, вытянутые от
- * ключевого света; rays — мягкие лучи окон.
+ * ключевого света; rays — мягкие лучи окон; light — буфер света в мире (фаза 1, A1; включается и настройкой).
  */
-export const FX_NAMES = ['exposure', 'tele', 'title', 'herolight', 'shadow', 'rays'] as const;
+export const FX_NAMES = ['exposure', 'tele', 'title', 'herolight', 'shadow', 'rays', 'light'] as const;
 export type FxName = (typeof FX_NAMES)[number];
 
 /** Разбор строки адреса: имена через запятую выключают эффекты, off — все. */

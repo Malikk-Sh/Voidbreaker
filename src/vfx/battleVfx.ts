@@ -60,6 +60,11 @@ export const IMPACT = FX.exposure
 export const HERO_LIGHT = FX.herolight
   ? { r: 2.5, k: 2, act: 0.1, visorAhead: 0.9, visorR: 1.1, visor: 0.07 }
   : { r: 2.4, k: 1, act: 0, visorAhead: 0, visorR: 0, visor: 0 };
+/**
+ * Источники буфера света в мире (план ×100, A1, A4, D4; только когда буфер включён): точечные вспышки сверх четырёх
+ * (× яркость, × радиус), пол под телеграфом краснеет к удару, враг на замахе светит красным снизу.
+ */
+export const LIGHT_SRC = { overflow: 0.15, overflowR: 0.75, tele: 0.14, windup: 0.3 };
 /** Пыль, поднятая волной с пола: светлее дыма удара — её видно на обсидиане и в лучах. */
 const WAVE_DUST = lin('#5d586a');
 
@@ -113,6 +118,8 @@ export class BattleVfx {
   /** Частицы в воздухе вокруг Пилота. Пыль теперь только в лучах света, а пепел — свой слой (vfx/atmosphere). */
   atmosphere: 'dust' | 'embers' | 'none' = 'none';
   quality = 1;
+  /** Буфер света в мире включён (render/worldLight): пятна LightPools освещают пол и тела, источников больше. */
+  lightBuffer = false;
 
   constructor(maxParticles: number, pools: LightPools) {
     this.add = new Particles(maxParticles, true);
@@ -488,7 +495,6 @@ export class BattleVfx {
     // телеграфы
     this.tele.sync(w.telegraphs, w.ringWaves);
     this.sprites.begin();
-    this.lights.begin();
     this.pools.beginDynamic();
     const h = w.hero;
 
@@ -575,6 +581,8 @@ export class BattleVfx {
           this.add.emit({ x: _wp.x + ox, y: _wp.y + oy, z: _wp.z + oz, vx: -ox / life, vy: -oy / life, vz: -oz / life, life, size: 0.07 + wu * 0.05, size1: 0.015, color: wu > 0.8 ? C.hungerHot : C.ember, drag: 0, frame: 'spark', stretch: 1 });
         }
         this.sprites.add(_wp.x, _wp.y, _wp.z, 0.25 + wu * 0.6, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], 0.35 + wu * 0.6, 'dot');
+        // замах виден и по полу: под врагом краснеет — телеграф «изнутри»
+        if (this.lightBuffer) this.pools.addDynamic(e.x, e.z, e.radius + 1 + wu, C.hunger, LIGHT_SRC.windup * wu);
         if (e.heavyWindup && fxRng.chance(dtReal * 7)) this.rings.spawn(e.x, e.z, e.radius + 3.2, e.radius * 0.6, 0.35, C.hungerHot, 0.12, 0.5 + wu * 0.4);
       }
       if (e.elite.length && fxRng.chance(0.35 * this.quality)) {
@@ -783,13 +791,29 @@ export class BattleVfx {
       }
     }
 
+    this.lights.end(dtW);
+    if (this.lightBuffer) this.lightSources(w);
+    // очередь источников чистится после кадра, а не в его начале: свет, заказанный боем до sync (луч, свет звезды
+    // на Пилоте в финале казни), раньше стирался, не дойдя до экрана
+    this.lights.begin();
     this.sprites.end();
     this.pools.commit();
     this.add.flush();
     this.norm.flush();
     this.rings.update(dtW);
     this.debris.update(dtW);
-    this.lights.end(dtW);
+  }
+
+  /** Добавочные источники буфера света: вспышки сверх четырёх точечных и пол под телеграфами (к удару ярче). */
+  private lightSources(w: World): void {
+    const S = LIGHT_SRC;
+    this.lights.forEachOverflow((r) => this.pools.addDynamic(r.x, r.z, r.radius * S.overflowR, [r.r, r.g, r.b], r.i * S.overflow));
+    for (const t of w.telegraphs) {
+      if (!t.alive) continue;
+      const k = S.tele * Math.min(1, t.t / t.dur), s = t.shape, c = t.white ? C.core : C.hunger;
+      if (s.k === 'line') this.pools.addDynamic(s.x + s.dx * s.len / 2, s.z + s.dz * s.len / 2, Math.max(s.w, s.len * 0.5), c, k);
+      else this.pools.addDynamic(s.x, s.z, s.k === 'ring' ? s.r1 : s.r, c, k);
+    }
   }
 
   private syncRobes(w: World): void {

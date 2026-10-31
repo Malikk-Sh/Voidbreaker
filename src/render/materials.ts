@@ -23,7 +23,18 @@ export const G = {
   uNoise: { value: null as THREE.Texture | null },
   /** Грудь Пилота в мире (бой): дым и пепел на линии камера → Пилот приглушаются. Вне боя — далеко внизу. */
   uHero: { value: new THREE.Vector3(0, -1000, 0) },
+  /** Буфер света в мире (план ×100, A1; render/worldLight): текстура, её прямоугольник на полу и сила (0 — выключен). */
+  uLightBuf: { value: null as THREE.Texture | null },
+  uLightRect: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uLightK: { value: 0 },
 };
+
+/**
+ * Как поверхности берут буфер света: kd — рассеянный (× цвет поверхности, как у точечных источников), ks — блик
+ * пола (× глянец; у золота — цвета металла и вдвое), gloss — разброс глянца по плитам, fall — затухание отсвета на
+ * телах с высотой (1/м), down — доля отсвета на гранях, смотрящих не вниз.
+ */
+export const LIGHT_LOOK = { kd: 2.5, ks: 0.6, gloss: [0.6, 1] as const, fall: 0.55, down: 0.35 };
 
 /** Отдельный matcap для пола: тёмное зеркало без жёсткого блика — пол отражает свет, а не «светится». */
 export const FLOOR_MATCAP = { value: null as THREE.Texture | null };
@@ -119,6 +130,9 @@ uniform vec3 uHemiTop;
 uniform vec3 uHemiBot;
 uniform vec4 uPLPos[${MAX_POINT_LIGHTS}];
 uniform vec4 uPLCol[${MAX_POINT_LIGHTS}];
+uniform sampler2D uLightBuf;
+uniform vec4 uLightRect;
+uniform float uLightK;
 varying vec3 vColor;
 varying float vEmissive;
 varying vec3 vWN;
@@ -136,6 +150,13 @@ vec3 emissiveTerm(float e, float white) {
   vec3 c = mix(base, vec3(1.0) * length(base) * 1.4, smoothstep(1.0, 2.0, a) * white);
   float pulse = 0.78 + 0.22 * sin(uTime * 3.0 + vSeed * 6.28 + vWP.y * 1.7);
   return c * min(a, 2.0) * pulse;
+}
+
+// буфер света в мире: одна выборка по XZ (верх текстуры — ближний край арены); за краем — темно
+vec3 worldLight(vec3 p) {
+  vec2 uv = vec2((p.x - uLightRect.x) * uLightRect.z, 1.0 - (p.z - uLightRect.y) * uLightRect.w);
+  float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+  return texture2D(uLightBuf, uv).rgb * inside;
 }
 
 float fogAmount() {
@@ -205,6 +226,18 @@ void main() {
     float diff = max(dot(n, L), 0.0);
     float spec = pow(max(dot(reflect(-L, n), vdw), 0.0), 14.0);
     col += uPLCol[i].rgb * att * (diff * (albedo * 3.0 + 0.03) + spec * (0.35 + sMetal * 0.9) * (1.0 - sCloth));
+  }
+  if (uLightK > 0.0) {
+    vec3 L = worldLight(vWP) * uLightK;
+#ifdef FLOOR
+    // пол: цвет плиты × свет + блик от света × глянец — свет проявляет плитку, золото вспыхивает бликом
+    float gloss = mix(${LIGHT_LOOK.gloss[0].toFixed(2)}, ${LIGHT_LOOK.gloss[1].toFixed(2)}, texture2D(uNoise, vWP.xz * 0.07).r);
+    col += L * (albedo * ${LIGHT_LOOK.kd.toFixed(1)} + specTint * gloss * ${LIGHT_LOOK.ks.toFixed(2)} * (1.0 + metal));
+#else
+    // тела и декор: отсвет снизу — сильнее у пола и на гранях, смотрящих вниз (красная атака красит броню снизу)
+    float hk = exp(-abs(vWP.y) * ${LIGHT_LOOK.fall.toFixed(2)});
+    col += albedo * L * ${LIGHT_LOOK.kd.toFixed(1)} * hk * (${LIGHT_LOOK.down.toFixed(2)} + ${(1 - LIGHT_LOOK.down).toFixed(2)} * max(-n.y, 0.0));
+#endif
   }
 
   float rim = pow(1.0 - max(dot(vn, viewDir), 0.0), uRimPower);
@@ -286,6 +319,7 @@ export type ObsidianMaterial = THREE.ShaderMaterial & {
 export function obsidianMaterial(o: ObsidianOpts = {}): ObsidianMaterial {
   const defines: Record<string, string> = {};
   if (o.rigged) defines.RIGGED = '';
+  if (o.floor) defines.FLOOR = '';
   const m = new THREE.ShaderMaterial({
     defines,
     uniforms: {

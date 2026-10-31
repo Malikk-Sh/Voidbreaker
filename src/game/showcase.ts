@@ -66,6 +66,9 @@ export class Showcase {
     this.view = buildArenaView(arena, 'hub', ZONE1_LOOK, 1);
     this.flames = new Flames(this.view.flames);
     this.pools.setStatic(this.view.pools);
+    // пятна света видны только через буфер света в бою (план ×100, A1); раньше их квады отсекались, и витрина
+    // выглядела без них — поверх пола они легли бы плоскими наклейками
+    this.pools.mesh.visible = false;
     this.rune = new RuneCircle(3.2);
     this.rune.mesh.position.set(0, 0, 1.6);
     this.group.add(this.view.root, this.flames.mesh, this.pools.mesh, this.rune.mesh, this.hero.group, this.particles.mesh);

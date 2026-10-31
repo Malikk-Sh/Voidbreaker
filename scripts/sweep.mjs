@@ -16,6 +16,8 @@ const ALL = ['1-1', '1-2', '1-3', '1-4', '1-5', '1-6', '1-7', '1-8', '1-9', 'bos
 const stages = process.argv.slice(2).length ? process.argv.slice(2) : ALL;
 const OUT = process.env.SWEEP_OUT ?? 'sweep';
 const Q = process.env.SWEEP_Q ?? 'medium';
+/** Добавка к адресу: SWEEP_URL='light=on' — бюджет с буфером света на medium, 'fx=off' — без эффектов апгрейда. */
+const EXTRA = process.env.SWEEP_URL ? `&${process.env.SWEEP_URL}` : '';
 /** Сколько секунд мира враг живёт до снятия; предел этапа (с мира). */
 const HOLD = 3.5, LIMIT = 600;
 /**
@@ -37,7 +39,7 @@ try {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(`http://localhost:4175/?q=${Q}&stage=${id}&god`);
+    await page.goto(`http://localhost:4175/?q=${Q}&stage=${id}&god${EXTRA}`);
     await page.waitForFunction(() => !!window.__vb?.battle, null, { timeout: 30000 });
     await page.evaluate(() => {
       window.__vb.game.running = false;

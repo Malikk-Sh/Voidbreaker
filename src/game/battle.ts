@@ -3,7 +3,7 @@ import { ARENAS } from '../data/arenas';
 import type { StageDef } from '../data/stages';
 import { buildArenaView, ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
 import { EnemyRenderer } from '../render/enemyRenderer';
-import { CAM_FOV, QUALITY } from '../render/renderer';
+import { CAM_FOV, QUALITY, type QualityLevel } from '../render/renderer';
 import { Flames, LightPools, RuneCircle } from '../vfx/ambient';
 import { BattleVfx } from '../vfx/battleVfx';
 import { ContactShadows } from '../render/contactShadows';
@@ -41,6 +41,7 @@ import { fxRng } from '../core/rng';
 import { clamp, hexToLinear } from '../core/math';
 import { Ease } from '../core/ease';
 import { G, obsidianMaterial } from '../render/materials';
+import { LIGHT_BUF, lightEnabled, WorldLight } from '../render/worldLight';
 import { buildBladeSocket, buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
 import type { EnemyKind } from '../data/enemies';
@@ -231,6 +232,7 @@ export class Battle {
     this.vfx.tele.hatch = ctx.settings.hatch;
     this.vfx.camera = ctx.renderer.camera;
     this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group, this.scars.mesh, this.contact.mesh);
+    this.applyLight();
     // батчи всех врагов этапа (с Стражами и боссом) заранее: их шейдеры прогреются вместе со сценой
     const rigs = new Set<string>(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'psalmist', 'brute']);
     for (const wv of stage.waves) for (const sp of wv.spawns) {
@@ -529,6 +531,7 @@ export class Battle {
     // руны гаснут, когда пол под ними обрушился (вторая фаза босса)
     const runeTarget = this.arena.edge === 'abyss' && this.stage.boss ? 0 : 1;
     this.rune.u.uAlpha.value += (runeTarget - this.rune.u.uAlpha.value) * Math.min(1, realDt * 2);
+    if (this.lightQuality !== this.ctx.renderer.quality) this.applyLight();
     // рендер врагов и героя
     this.enemies.render(this.world.enemies, this.world.shadows);
     this.updateXray(realDt);
@@ -1377,7 +1380,41 @@ export class Battle {
   applySettings(): void {
     this.feel.settings = Battle.feelSettings(this.ctx.settings);
     this.applyCamMode(false);
+    this.applyLight();
     this.ctx.hud.subtitleScale = this.ctx.settings.subtitleSize;
+  }
+
+  /**
+   * Буфер света в мире (план ×100, A1) по настройке «Новый свет»: пятна света рисуются в текстуру над ареной, к ним
+   * добавляются трещины пола; материалы берут свет выборкой. Без буфера пятна скрыты — как и были на деле: их квады
+   * смотрели вниз и отсекались, а поверх пола они легли бы плоскими наклейками.
+   */
+  private worldLight: WorldLight | null = null;
+  /** Качество, под которое выбран буфер: автоподстройка может сменить его посреди боя («Авто» — только на высоком). */
+  private lightQuality: QualityLevel | null = null;
+  private applyLight(): void {
+    const r = this.ctx.renderer, on = lightEnabled(this.ctx.settings.light, r.quality), size = LIGHT_BUF.size[r.quality];
+    this.lightQuality = r.quality;
+    if (on ? this.worldLight?.rt.width === size : !this.worldLight) return;
+    if (this.worldLight) { this.group.add(this.pools.mesh); this.disposeLight(); }
+    this.pools.mesh.visible = on;
+    if (on) {
+      const wl = this.worldLight = new WorldLight(size);
+      wl.fit(this.arena.bounds);
+      wl.scene.add(this.pools.mesh);
+      this.pools.setStatic([...this.view.pools, ...this.view.veinLights]);
+      G.uLightBuf.value = wl.rt.texture;
+      G.uLightK.value = 1;
+      r.worldLight = wl;
+    } else this.pools.setStatic(this.view.pools);
+    this.vfx.lightBuffer = on;
+  }
+  private disposeLight(): void {
+    if (!this.worldLight) return;
+    if (this.ctx.renderer.worldLight === this.worldLight) this.ctx.renderer.worldLight = null;
+    G.uLightK.value = 0; G.uLightBuf.value = null;
+    this.worldLight.dispose();
+    this.worldLight = null;
   }
 
   /** Режим боевой камеры (план ×100, C1). Базовая дистанция — при «Дистанции камеры» = 100 %; snap — и наклон сразу (старт боя). */
@@ -1401,8 +1438,9 @@ export class Battle {
     this.world.hero.avatar.dispose();
     this.world.bus.clear();
     this.ctx.renderer.scene.remove(this.group);
-    // угол обзора меню и сцен вне боя — прежний
+    // угол обзора меню и сцен вне боя — прежний; буфер света — только в бою
     this.ctx.renderer.camera.fov = CAM_FOV; this.ctx.renderer.camera.updateProjectionMatrix();
+    this.disposeLight();
     this.events.dispose();
     this.view.dispose();
     this.flames.dispose();

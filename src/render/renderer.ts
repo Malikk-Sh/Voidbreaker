@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { G, initSharedTextures } from './materials';
 import { Post } from './post';
 import { Sky } from './sky';
+import type { WorldLight } from './worldLight';
 
 export type QualityLevel = 'low' | 'medium' | 'high';
 
@@ -27,6 +28,8 @@ export class Renderer {
   quality: QualityLevel;
   /** Динамическое разрешение (авто-подстройка, Tech §25.2). */
   dynScale = 1;
+  /** Буфер света в мире (план ×100, A1): рисуется до сцены, если бой его включил. */
+  worldLight: WorldLight | null = null;
   private cssW = 1; private cssH = 1;
   pixelW = 1; pixelH = 1;
 
@@ -127,6 +130,7 @@ export class Renderer {
     G.uTime.value = worldTime;
     this.camera.updateMatrixWorld();
     this.sky.update(this.camera);
+    this.worldLight?.render(this.gl);
     this.post.render(this.scene, this.camera);
   }
 
