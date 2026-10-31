@@ -38,6 +38,10 @@ export interface ArenaView {
   /** Лучи света из окон фасада (в них видна пыль, план §8.5): верх, низ, ширина у пола; их цвет. */
   rays: { top: THREE.Vector3; bot: THREE.Vector3; w: number }[];
   rayColor: string;
+  /** Неподвижная архитектура — колонны, аркады, канделябры (план ×100, A2): её тени запекаются в буфер света. */
+  casters: THREE.Mesh[];
+  /** Свет окон на полу: основной цвет стёкол и редких (свечной стиль — тёплые, иначе бирюза с золотом). */
+  windowColors: [string, string];
   dispose(): void;
 }
 
@@ -883,6 +887,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     coverMeshes,
     rays,
     rayColor,
+    casters: [decor],
+    windowColors: style === 'candles' ? [look.warm, look.veins] : [look.veins, look.warm],
     leanSpires(k: number) { leanT = k; },
     tintGlass(k: number, pulse = 0) {
       decorMat.uniforms.uEmissiveColor.value.copy(glassBase).lerp(GLASS_VOID, k).multiplyScalar(1 + pulse);

@@ -52,6 +52,9 @@ export class EnemyRenderer {
     return b;
   }
 
+  /** Все созданные батчи (тени тел в буфере света подхватывают и те, что появились по ходу боя). */
+  get batchList(): IterableIterator<RigBatch> { return this.batches.values(); }
+
   /** Прогреть батчи заранее (без фриза при первом спавне). */
   warm(ids: string[]): void { for (const id of ids) this.batch(id); }
 

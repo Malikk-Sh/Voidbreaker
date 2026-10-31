@@ -24,17 +24,29 @@ export const G = {
   /** Грудь Пилота в мире (бой): дым и пепел на линии камера → Пилот приглушаются. Вне боя — далеко внизу. */
   uHero: { value: new THREE.Vector3(0, -1000, 0) },
   /** Буфер света в мире (план ×100, A1; render/worldLight): текстура, её прямоугольник на полу и сила (0 — выключен). */
+  /**
+   * Направление к ключевому свету теней (план ×100, A2): окна фасада, если они есть, иначе свет с дальней стороны
+   * арены — тени ложатся к камере и не прячутся за телами. Луна материалов (uMoonDir) светит спереди: лица и латы
+   * читаются, а тени от неё ушли бы за спины. Бой ставит своё по арене.
+   */
+  uShadowDir: { value: new THREE.Vector3(-0.25, 0.8, -0.55).normalize() },
   uLightBuf: { value: null as THREE.Texture | null },
   uLightRect: { value: new THREE.Vector4(0, 0, 0, 0) },
   uLightK: { value: 0 },
+  /** Тень на полу четырьмя выборками (план ×100, A2: high) — без ступенек текселей; 0 — одной. uLightTexel — 1/сторона буфера. */
+  uLightPcf: { value: 0 },
+  uLightTexel: { value: 1 / 512 },
 };
 
 /**
  * Как поверхности берут буфер света: kd — рассеянный (× цвет поверхности, как у точечных источников), ks — блик
  * пола (× глянец; у золота — цвета металла и вдвое), gloss — разброс глянца по плитам, fall — затухание отсвета на
- * телах с высотой (1/м), down — доля отсвета на гранях, смотрящих не вниз.
+ * телах с высотой (1/м), down — доля отсвета на гранях, смотрящих не вниз; shadowFloor — сколько собственного света
+ * пола (небосвод, луна, отражение) остаётся в полной тени ключевого света (A2, render/keyShadow); shadowLight — сколько
+ * остаётся от света буфера: как и контактное пятно, тень приглушает всё, что лежит на полу, иначе на тёмном
+ * обсидиане её не видно вовсе.
  */
-export const LIGHT_LOOK = { kd: 2.5, ks: 0.6, gloss: [0.6, 1] as const, fall: 0.55, down: 0.35 };
+export const LIGHT_LOOK = { kd: 2.5, ks: 0.6, gloss: [0.6, 1] as const, fall: 0.55, down: 0.35, shadowFloor: 0.3, shadowLight: 0.45 };
 
 /** Отдельный matcap для пола: тёмное зеркало без жёсткого блика — пол отражает свет, а не «светится». */
 export const FLOOR_MATCAP = { value: null as THREE.Texture | null };
@@ -133,6 +145,8 @@ uniform vec4 uPLCol[${MAX_POINT_LIGHTS}];
 uniform sampler2D uLightBuf;
 uniform vec4 uLightRect;
 uniform float uLightK;
+uniform float uLightPcf;
+uniform float uLightTexel;
 varying vec3 vColor;
 varying float vEmissive;
 varying vec3 vWN;
@@ -152,11 +166,21 @@ vec3 emissiveTerm(float e, float white) {
   return c * min(a, 2.0) * pulse;
 }
 
-// буфер света в мире: одна выборка по XZ (верх текстуры — ближний край арены); за краем — темно
-vec3 worldLight(vec3 p) {
+// буфер света в мире: одна выборка по XZ (верх текстуры — ближний край арены). rgb — свет, a — видимость ключевого
+// света (тени, A2). За краем буфера — ни света, ни тени
+vec4 worldLight(vec3 p) {
   vec2 uv = vec2((p.x - uLightRect.x) * uLightRect.z, 1.0 - (p.z - uLightRect.y) * uLightRect.w);
   float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
-  return texture2D(uLightBuf, uv).rgb * inside;
+  vec4 t = texture2D(uLightBuf, uv);
+#ifdef FLOOR
+  if (uLightPcf > 0.5) {
+    // четыре билинейные выборки вокруг точки — тень тела без ступенек текселей
+    float o = uLightTexel * 0.5;
+    t.a = 0.25 * (texture2D(uLightBuf, uv + vec2(o, o)).a + texture2D(uLightBuf, uv + vec2(-o, o)).a
+      + texture2D(uLightBuf, uv + vec2(o, -o)).a + texture2D(uLightBuf, uv + vec2(-o, -o)).a);
+  }
+#endif
+  return vec4(t.rgb * inside, mix(1.0, t.a, inside));
 }
 
 float fogAmount() {
@@ -214,6 +238,13 @@ void main() {
   // ткань: мягкий «обёрнутый» свет вместо блеска
   col += albedo * uHemiTop * 0.35 * sCloth;
 
+  vec4 WL = vec4(0.0, 0.0, 0.0, 1.0);
+  if (uLightK > 0.0) WL = worldLight(vWP);
+#ifdef FLOOR
+  // тень ключевого света (план ×100, A2): небосвод, луна и отражение пола гаснут на долю тени; вспышки и свет буфера — нет
+  col *= mix(${LIGHT_LOOK.shadowFloor.toFixed(2)}, 1.0, WL.a);
+#endif
+
   vec3 camW = cameraPosition - vWP;
   vec3 vdw = normalize(camW);
   for (int i = 0; i < ${MAX_POINT_LIGHTS}; i++) {
@@ -228,8 +259,9 @@ void main() {
     col += uPLCol[i].rgb * att * (diff * (albedo * 3.0 + 0.03) + spec * (0.35 + sMetal * 0.9) * (1.0 - sCloth));
   }
   if (uLightK > 0.0) {
-    vec3 L = worldLight(vWP) * uLightK;
+    vec3 L = WL.rgb * uLightK;
 #ifdef FLOOR
+    L *= mix(${LIGHT_LOOK.shadowLight.toFixed(2)}, 1.0, WL.a);
     // пол: цвет плиты × свет + блик от света × глянец — свет проявляет плитку, золото вспыхивает бликом
     float gloss = mix(${LIGHT_LOOK.gloss[0].toFixed(2)}, ${LIGHT_LOOK.gloss[1].toFixed(2)}, texture2D(uNoise, vWP.xz * 0.07).r);
     col += L * (albedo * ${LIGHT_LOOK.kd.toFixed(1)} + specTint * gloss * ${LIGHT_LOOK.ks.toFixed(2)} * (1.0 + metal));

@@ -7,10 +7,11 @@ import type { QualityLevel } from './renderer';
  * Буфер света в мире (план ×100, A1): ортографическая камера сверху на арену рисует аддитивные пятна света —
  * свечи, трещины, клинок, ядра врагов, снаряды, вспышки — в текстуру. Пол и тела берут из неё одну выборку: пол —
  * цвет плиты × свет + блик × глянец, тела и декор — отсвет снизу. Источников сотни, пиксель платит одну выборку.
- * size — сторона текстуры по уровню качества (план: low 256², medium и high 512²); margin — запас за краем арены (м);
+ * size — сторона текстуры по уровню качества (план: low 256², medium 512²; на high 1024² — тени тел, A2, четвёрками
+ * выборок без ступенек); margin — запас за краем арены (м);
  * height — высота камеры над полом (м).
  */
-export const LIGHT_BUF = { size: { low: 256, medium: 512, high: 512 } as Record<QualityLevel, number>, margin: 6, height: 30 };
+export const LIGHT_BUF = { size: { low: 256, medium: 512, high: 1024 } as Record<QualityLevel, number>, margin: 6, height: 30 };
 
 /** Настройка «Новый свет»: авто — только на высоком качестве, пока нет замера на телефонах (протокол плана). */
 export type LightMode = 'auto' | 'on' | 'off';
@@ -64,11 +65,16 @@ export class WorldLight {
     c.updateMatrixWorld();
   }
 
+  /** Перед кадром буфера: тени тел берут видимость и матрицы у оригиналов (keyShadow.KeyCasters). */
+  prepare: (() => void) | null = null;
+
   render(gl: THREE.WebGLRenderer): void {
+    this.prepare?.();
     const prev = gl.getRenderTarget(), alpha = gl.getClearAlpha();
     gl.getClearColor(_clear);
     gl.setRenderTarget(this.rt);
-    gl.setClearColor(0x000000, 0);
+    // цвет — свет, альфа — видимость ключевого света (1 — без тени; тени пишут минимум)
+    gl.setClearColor(0x000000, 1);
     gl.clear(true, false, false);
     gl.render(this.scene, this.camera);
     gl.setRenderTarget(prev);

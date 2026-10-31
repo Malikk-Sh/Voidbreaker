@@ -169,7 +169,10 @@ export class LightPools {
           gl_FragColor = vec4(vCol * a, 1.0);
         }
       `,
-      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      // свет складывается, альфа буфера не меняется: в ней видимость ключевого света (тени, план ×100, A2)
+      transparent: true, depthWrite: false,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+      blendEquationAlpha: THREE.AddEquation, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
     this.mesh = new THREE.Mesh(this.geo, m);

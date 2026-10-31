@@ -171,8 +171,8 @@ describe('план ×100, фаза 1 (A1): буфер света в мире', (
     near(lightUv(b.minX - m, b.minZ - m, r), [0, 1]);
     near(lightUv(b.maxX + m, b.maxZ + m, r), [1, 0]);
     near(lightUv((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, r), [0.5, 0.5]);
-    // разрешение по плану: low 256², medium и high 512²; на 50 м — около 10 см на тексель
-    expect(LIGHT_BUF.size).toEqual({ low: 256, medium: 512, high: 512 });
+    // разрешение по плану: low 256², medium 512² (на 50 м — около 10 см на тексель); high — 1024²: тени тел (A2)
+    expect(LIGHT_BUF.size).toEqual({ low: 256, medium: 512, high: 1024 });
   });
 
   it('пятна света лежат на полу лицом вверх — иначе отсекаются как задние грани и не светят вовсе', async () => {
@@ -200,5 +200,86 @@ describe('план ×100, фаза 1 (A1): буфер света в мире', (
 
   it('старые сохранения получают «Авто»: на телефонах (среднее качество) буфер выключен до замера', () => {
     expect(migrate({} as never).settings.light).toBe('auto');
+  });
+});
+
+describe('план ×100, фаза 1 (A2): тени ключевого света в буфере', () => {
+  it('тени — только с буфером света; ?fx=shadow выключает; на low — архитектура и окна, без теней тел', async () => {
+    const { keyShadowsEnabled } = await import('../src/render/keyShadow');
+    expect(keyShadowsEnabled(false, 'high', '')).toEqual({ statics: false, actors: false });
+    expect(keyShadowsEnabled(true, 'high', '')).toEqual({ statics: true, actors: true });
+    expect(keyShadowsEnabled(true, 'medium', '')).toEqual({ statics: true, actors: true });
+    expect(keyShadowsEnabled(true, 'low', '')).toEqual({ statics: true, actors: false });
+    expect(keyShadowsEnabled(true, 'high', '?fx=shadow')).toEqual({ statics: false, actors: false });
+    expect(keyShadowsEnabled(true, 'high', '?fx=off')).toEqual({ statics: false, actors: false });
+  });
+
+  it('свет теней идёт от окон фасада: тени ложатся к камере (+z), не длиннее ~1.3 роста; без окон — с дальней стороны', async () => {
+    const { shadowDirFromRays, shadowOffset, SHADOW_DIR_DEFAULT } = await import('../src/render/keyShadow');
+    const { G } = await import('../src/render/materials');
+    // окна на дальней стене (−z), лучи падают к камере
+    const rays = [
+      { top: new THREE.Vector3(-3, 10, -20), bot: new THREE.Vector3(-1.5, 0, -12) },
+      { top: new THREE.Vector3(3, 11, -20), bot: new THREE.Vector3(5, 0, -13) },
+    ];
+    const d = shadowDirFromRays(rays);
+    expect(d.length()).toBeCloseTo(1, 6);
+    expect(d.y).toBeGreaterThanOrEqual(0.6 - 1e-9);
+    expect(d.z).toBeLessThan(0);
+    const [dx, dz] = shadowOffset(1.8, d);
+    expect(dz).toBeGreaterThan(0);
+    expect(Math.hypot(dx, dz)).toBeLessThan(1.8 * 1.34);
+    // ушедшее под пол тени не сдвигает
+    expect(shadowOffset(-1, d).map(Math.abs)).toEqual([0, 0]);
+    // свет у самого горизонта поднимается до 0.6: тени не тянутся через всю арену
+    const flat = shadowDirFromRays([{ top: new THREE.Vector3(0, 1, -20), bot: new THREE.Vector3(0, 0, 0) }]);
+    expect(flat.y).toBeCloseTo(0.6, 6);
+    expect(flat.length()).toBeCloseTo(1, 6);
+    const def = shadowDirFromRays([]);
+    expect(def.z).toBeLessThan(0);
+    expect(def.toArray()).toEqual(new THREE.Vector3(...SHADOW_DIR_DEFAULT).normalize().toArray());
+    expect(G.uShadowDir.value.toArray().map((v) => +v.toFixed(6))).toEqual(def.toArray().map((v) => +v.toFixed(6)));
+  });
+
+  it('заслонитель пишет в альфу минимум и не трогает свет; пятна света альфу не трогают', async () => {
+    const { casterMaterial, KeyLightMap } = await import('../src/render/keyShadow');
+    const { LightPools } = await import('../src/vfx/ambient');
+    for (const m of [casterMaterial(true), casterMaterial(false)]) {
+      expect(m.blending).toBe(THREE.CustomBlending);
+      expect([m.blendSrc, m.blendDst, m.blendEquation]).toEqual([THREE.ZeroFactor, THREE.OneFactor, THREE.AddEquation]);
+      expect(m.blendEquationAlpha).toBe(THREE.MinEquation);
+      expect(m.side).toBe(THREE.DoubleSide);
+      expect(m.depthTest).toBe(false);
+    }
+    expect(casterMaterial(true).defines.RIGGED).toBeDefined();
+    expect(casterMaterial(false).defines.RIGGED).toBeUndefined();
+    const pools = new LightPools(4).mesh.material as THREE.ShaderMaterial;
+    expect([pools.blendSrcAlpha, pools.blendDstAlpha]).toEqual([THREE.ZeroFactor, THREE.OneFactor]);
+    // свет окон × видимость от тел, тени архитектуры — минимум с тенями тел
+    const comp = new KeyLightMap(16).composite.material as THREE.ShaderMaterial;
+    expect([comp.blendSrc, comp.blendDst]).toEqual([THREE.DstAlphaFactor, THREE.OneFactor]);
+    expect(comp.blendEquationAlpha).toBe(THREE.MinEquation);
+  });
+
+  it('пол гасит в тени свой свет и часть света буфера; четыре выборки — по униформе (high)', async () => {
+    const { obsidianMaterial, LIGHT_LOOK, G } = await import('../src/render/materials');
+    const f = obsidianMaterial({ floor: true }).fragmentShader;
+    expect(f).toContain('WL.a');
+    expect(f).toContain('uLightPcf');
+    expect(LIGHT_LOOK.shadowFloor).toBeGreaterThan(0);
+    expect(LIGHT_LOOK.shadowFloor).toBeLessThan(LIGHT_LOOK.shadowLight);
+    expect(LIGHT_LOOK.shadowLight).toBeLessThan(1);
+    expect(G.uLightPcf.value).toBe(0);
+  });
+
+  it('с тенями тел контактные пятна без хвостов: тень тела уже лежит на полу', async () => {
+    const { ContactShadows } = await import('../src/render/contactShadows');
+    const c = new ContactShadows(4);
+    c.begin(); c.add(0, 0, 0.5, 0, 1, 1.8); c.end();
+    const tails = (c.mesh.geometry.getAttribute('iLen').array as Float32Array)[0];
+    expect(tails).toBeGreaterThan(0);
+    c.tails = false;
+    c.begin(); c.add(0, 0, 0.5, 0, 1, 1.8); c.end();
+    expect((c.mesh.geometry.getAttribute('iLen').array as Float32Array)[0]).toBe(0);
   });
 });

@@ -42,6 +42,7 @@ import { clamp, hexToLinear } from '../core/math';
 import { Ease } from '../core/ease';
 import { G, obsidianMaterial } from '../render/materials';
 import { LIGHT_BUF, lightEnabled, WorldLight } from '../render/worldLight';
+import { KeyCasters, KeyLightMap, keyShadowsEnabled, SHADOW_DIR_DEFAULT, shadowDirFromRays, windowsFromRays } from '../render/keyShadow';
 import { buildBladeSocket, buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
 import type { EnemyKind } from '../data/enemies';
@@ -232,7 +233,6 @@ export class Battle {
     this.vfx.tele.hatch = ctx.settings.hatch;
     this.vfx.camera = ctx.renderer.camera;
     this.group.add(this.flames.mesh, this.pools.mesh, this.rune.mesh, this.enemies.group, this.world.hero.avatar.group, this.vfx.group, this.scars.mesh, this.contact.mesh);
-    this.applyLight();
     // батчи всех врагов этапа (с Стражами и боссом) заранее: их шейдеры прогреются вместе со сценой
     const rigs = new Set<string>(['husk', 'crawler', 'mantis', 'crucifier', 'eye', 'acolyte', 'psalmist', 'brute']);
     for (const wv of stage.waves) for (const sp of wv.spawns) {
@@ -240,6 +240,10 @@ export class Battle {
       try { rigs.add(createEnemy(sp.enemy, { zone: stage.zone, stage: stage.index }).puppet.layout.def.id); } catch { /* вид без рига */ }
     }
     this.enemies.warm([...rigs]);
+    // тени (контактные хвосты и тени буфера света) — от окон фасада этой арены. Буфер — после прогрева батчей: тени
+    // тел создаются при загрузке, а не посреди боя (three.js тратит Math.random на UUID, ход боя сдвинулся бы)
+    shadowDirFromRays(this.view.rays, G.uShadowDir.value);
+    this.applyLight();
     r.scene.add(this.group);
     this.events = new ArenaEvents(this.world, this.view, this.group, this.vfx, stage);
     this.beamDust = this.view.rays.length ? new BeamDust(this.view.rays, this.view.rayColor, this.vfx.quality) : null;
@@ -1388,23 +1392,51 @@ export class Battle {
    * Буфер света в мире (план ×100, A1) по настройке «Новый свет»: пятна света рисуются в текстуру над ареной, к ним
    * добавляются трещины пола; материалы берут свет выборкой. Без буфера пятна скрыты — как и были на деле: их квады
    * смотрели вниз и отсекались, а поверх пола они легли бы плоскими наклейками.
+   *
+   * Тени ключевого света (A2) — в альфе того же буфера: запечённые тени архитектуры и свет окон с переплётом (любой
+   * уровень) и тени тел (medium, high; на low остаются вытянутые контактные пятна).
    */
   private worldLight: WorldLight | null = null;
+  private keyMap: KeyLightMap | null = null;
+  private keyCasters: KeyCasters | null = null;
   /** Качество, под которое выбран буфер: автоподстройка может сменить его посреди боя («Авто» — только на высоком). */
   private lightQuality: QualityLevel | null = null;
+  /** Под какое состояние собран буфер: размер и тени; пока оно то же — пересобирать нечего. */
+  private lightState = '';
   private applyLight(): void {
     const r = this.ctx.renderer, on = lightEnabled(this.ctx.settings.light, r.quality), size = LIGHT_BUF.size[r.quality];
+    const ks = keyShadowsEnabled(on, r.quality);
     this.lightQuality = r.quality;
-    if (on ? this.worldLight?.rt.width === size : !this.worldLight) return;
+    const state = on ? `${size}:${ks.statics}:${ks.actors}` : 'off';
+    if (state === this.lightState) return;
+    this.lightState = state;
     if (this.worldLight) { this.group.add(this.pools.mesh); this.disposeLight(); }
     this.pools.mesh.visible = on;
+    this.contact.tails = !ks.actors;
     if (on) {
       const wl = this.worldLight = new WorldLight(size);
       wl.fit(this.arena.bounds);
       wl.scene.add(this.pools.mesh);
       this.pools.setStatic([...this.view.pools, ...this.view.veinLights]);
+      if (ks.statics) {
+        const km = this.keyMap = new KeyLightMap(size), [ca, cb] = this.view.windowColors;
+        km.bake(r.gl, wl.camera, this.view.casters, windowsFromRays(this.view.rays), hexToLinear(ca), hexToLinear(cb), this.arena.bounds.minZ + 0.5);
+        wl.scene.add(km.composite);
+      }
+      if (ks.actors) {
+        const kc = this.keyCasters = new KeyCasters(), av = this.world.hero.avatar;
+        kc.addRig(av.batch);
+        for (const b of this.enemies.batchList) kc.addRig(b);
+        kc.addMesh(av.cloakMesh.mesh);
+        kc.addMesh(av.scarfMesh.mesh);
+        for (const m of this.view.coverMeshes) kc.addMesh(m);
+        wl.scene.add(kc.group);
+        wl.prepare = () => kc.sync(this.enemies.batchList);
+      }
       G.uLightBuf.value = wl.rt.texture;
       G.uLightK.value = 1;
+      G.uLightTexel.value = 1 / size;
+      G.uLightPcf.value = ks.actors && r.quality === 'high' ? 1 : 0;
       r.worldLight = wl;
     } else this.pools.setStatic(this.view.pools);
     this.vfx.lightBuffer = on;
@@ -1412,7 +1444,9 @@ export class Battle {
   private disposeLight(): void {
     if (!this.worldLight) return;
     if (this.ctx.renderer.worldLight === this.worldLight) this.ctx.renderer.worldLight = null;
-    G.uLightK.value = 0; G.uLightBuf.value = null;
+    G.uLightK.value = 0; G.uLightBuf.value = null; G.uLightPcf.value = 0;
+    this.keyCasters?.dispose(); this.keyCasters = null;
+    this.keyMap?.dispose(); this.keyMap = null;
     this.worldLight.dispose();
     this.worldLight = null;
   }
@@ -1441,6 +1475,7 @@ export class Battle {
     // угол обзора меню и сцен вне боя — прежний; буфер света — только в бою
     this.ctx.renderer.camera.fov = CAM_FOV; this.ctx.renderer.camera.updateProjectionMatrix();
     this.disposeLight();
+    G.uShadowDir.value.set(...SHADOW_DIR_DEFAULT).normalize();
     this.events.dispose();
     this.view.dispose();
     this.flames.dispose();

@@ -38,6 +38,11 @@ export class ContactShadows {
   private readonly key = { x: 0, y: 1, z: 0 };
   private readonly uKey = { value: new THREE.Vector2(0, 0) };
   private n = 0;
+  /**
+   * Хвосты от ключевого света. Когда тела бросают настоящие тени в буфер света (план ×100, A2: medium и high),
+   * хвост не нужен — остаётся плотное пятно под ногами, оно ставит фигуру на пол.
+   */
+  tails = true;
 
   constructor(readonly max = CONTACT.max) {
     const g = new THREE.InstancedBufferGeometry();
@@ -91,8 +96,8 @@ export class ContactShadows {
 
   begin(): void {
     this.n = 0;
-    // ключевой свет — тот же, что у материалов: тень ложится от него
-    const L = G.uMoonDir.value, l = Math.hypot(L.x, L.z) || 1;
+    // ключевой свет теней — тот же, что у теней буфера света (окна фасада или дальняя сторона арены)
+    const L = G.uShadowDir.value, l = Math.hypot(L.x, L.z) || 1;
     this.key.x = L.x; this.key.y = L.y; this.key.z = L.z;
     this.uKey.value.set(-L.x / l, -L.z / l);
   }
@@ -103,7 +108,7 @@ export class ContactShadows {
     if (al < 0.01 || this.n >= this.max) return;
     const i = this.n++, o = i * 4, f = this.a.array as Float32Array;
     f[o] = x; f[o + 1] = z; f[o + 2] = r * (1 + Math.max(0, y) * CONTACT.grow); f[o + 3] = al;
-    (this.len.array as Float32Array)[i] = contactStretch(h, y, this.key);
+    (this.len.array as Float32Array)[i] = this.tails ? contactStretch(h, y, this.key) : 0;
   }
 
   end(): void {
