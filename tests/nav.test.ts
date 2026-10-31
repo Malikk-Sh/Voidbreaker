@@ -117,18 +117,43 @@ describe('навигация врагов (план §4.4)', () => {
 });
 
 describe('камера и заметность героя (план §5.3)', () => {
-  it('на экране 1280×600 герой (1.9 м) не меньше 75 px', async () => {
+  /** Рост Пилота (1.9 м) на экране 1280×600 (px) в режиме камеры. */
+  async function heroPx(mode: 'cinema' | 'tactical'): Promise<number> {
     const THREE = await import('three');
-    const { CameraRig } = await import('../src/world/camera');
-    const src = import.meta.glob('../src/game/battle.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
-    const dist = Number(/const CAM_DIST = (\d+(?:\.\d+)?);/.exec(src['../src/game/battle.ts'])![1]);
-    const cam = new THREE.PerspectiveCamera(30, 1280 / 600, 0.1, 500);
+    const { CAM_MODES, CameraRig } = await import('../src/world/camera');
+    const P = CAM_MODES[mode];
+    const cam = new THREE.PerspectiveCamera(P.fov, 1280 / 600, 0.1, 500);
     const rig = new CameraRig();
-    rig.baseDist = dist;
+    rig.baseDist = P.dist; rig.tilt = P.tilt; rig.fov = P.fov;
     rig.snap(0, 0);
     rig.update(1 / 60, 0, 0, 0, 0, cam);
     cam.updateMatrixWorld();
     const a = new THREE.Vector3(0, 0, 0).project(cam), b = new THREE.Vector3(0, 1.9, 0).project(cam);
-    expect(((b.y - a.y) / 2) * 600).toBeGreaterThanOrEqual(75);
+    return ((b.y - a.y) / 2) * 600;
+  }
+
+  it('на экране 1280×600 герой (1.9 м) не меньше 75 px — в обоих режимах камеры', async () => {
+    expect(await heroPx('tactical')).toBeGreaterThanOrEqual(75);
+    expect(await heroPx('cinema')).toBeGreaterThanOrEqual(75);
+  });
+
+  it('план ×100 (C1): «Кино» по умолчанию — ниже, шире и ближе, Пилот того же размера (±20 %)', async () => {
+    const { CAM_MODES, camModeFrom } = await import('../src/world/camera');
+    const { DEFAULT_SETTINGS } = await import('../src/meta/settings');
+    const C = CAM_MODES.cinema, T = CAM_MODES.tactical;
+    expect(DEFAULT_SETTINGS.camMode).toBe('cinema');
+    expect(C.tilt).toBeLessThan(T.tilt);
+    expect(C.fov).toBeGreaterThan(T.fov);
+    expect(C.boss).toBeLessThan(T.boss);
+    // 17 м × tan 15° / tan 19°: при более широком угле — ближе
+    expect(C.dist).toBeCloseTo(T.dist * Math.tan((T.fov / 2) * Math.PI / 180) / Math.tan((C.fov / 2) * Math.PI / 180), 1);
+    const c = await heroPx('cinema'), t = await heroPx('tactical');
+    expect(c / t).toBeGreaterThan(0.8);
+    expect(c / t).toBeLessThan(1.25);
+    // старые сохранения без поля — «Кино»; адрес ?cam= перекрывает настройку
+    expect(camModeFrom(undefined, '')).toBe('cinema');
+    expect(camModeFrom('tactical', '')).toBe('tactical');
+    expect(camModeFrom('cinema', '?cam=tactical')).toBe('tactical');
+    expect(camModeFrom('tactical', '?cam=cinema')).toBe('cinema');
   });
 });

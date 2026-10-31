@@ -1,4 +1,5 @@
 import { clamp } from '../core/math';
+import { fxRng } from '../core/rng';
 import { Ease } from '../core/ease';
 import { RANKS } from '../data/player';
 import { ABILITIES, type AbilityId } from '../data/abilities';
@@ -8,12 +9,21 @@ import type { Enemy } from '../world/enemy';
 import { STUN_IMMUNE } from '../world/actor';
 import type { World } from '../world/world';
 import { drawTitle, measureTitle, type TitleOpts } from './font';
+import { FX } from '../render/fx';
 import { FONT_BODY, FONT_TECH } from './fonts';
 import { drawIcon, type IconId } from './icons';
 import { UI } from './theme';
 
 interface DmgNum { x: number; y: number; z: number; v: number; crit: boolean; shield: boolean; t: number; dx: number; key: number; big: boolean }
-interface Banner { text: string; sub?: string; t: number; dur: number; color: NonNullable<TitleOpts['color']>; size: number }
+/** fold — титр этапа: уходя, сворачивается в подпись внизу слева; строка — её подстрочник. */
+interface Banner { text: string; sub?: string; t: number; dur: number; color: NonNullable<TitleOpts['color']>; size: number; fold?: string }
+
+/**
+ * Подпись этапа внизу слева (план ×100, H; флаг title): титр этапа на «вдохе» перед первой волной сворачивается
+ * сюда за fold с; волны пишут строку сюда же, а не титром над боем — центр экрана принадлежит бою. Держится hold с,
+ * гаснет за out с. name, sub — кегль названия и строк (×масштаб HUD, не меньше min px).
+ */
+export const CAPTION = { fold: 0.55, hold: 5, out: 0.8, name: 17, sub: 11, min: [11, 9] as const, glow: 0.6 };
 /** Короткая надпись в мире у цели («РАСКОЛ», «В БЕЗДНУ»), над героем — не дольше 0.5 с. */
 interface WorldText { text: string; color: string; x: number; y: number; z: number; t: number; dur: number }
 
@@ -75,6 +85,10 @@ export class Hud {
   private readonly headTmp = { x: 0, y: 0, z: 0 };
   /** Очередь титулов: следующий ждёт ухода текущего (план §5.7). */
   private banners: Banner[] = [];
+  /** Подпись этапа внизу слева: подстрочник, строка волны, время с появления. */
+  private caption: { sub: string; wave: string; t: number } | null = null;
+  /** Где этим кадром стоит название в подписи (цель сворачивания титра). */
+  private capName = { x: 0, y: 0, size: 12 };
   private worldTexts: WorldText[] = [];
   /** Нижняя граница верхнего HUD этого кадра — титулы ниже неё. */
   private topEdge = 0;
@@ -124,7 +138,7 @@ export class Hud {
       const prev = this.nums.find((n) => n.key === key && n.t < 0.3);
       if (prev) { prev.v += v; prev.crit ||= crit; prev.t = Math.min(prev.t, 0.05); prev.x = x; prev.z = z; return; }
     }
-    this.nums.push({ x, y, z, v, crit, shield, t: 0, dx: (Math.random() - 0.5) * 30, key, big });
+    this.nums.push({ x, y, z, v, crit, shield, t: 0, dx: fxRng.spread(15), key, big });
     if (this.nums.length > 48) this.nums.shift();
   }
   /** Надпись в мире у цели, мелко (план §5.7, п. 3). hero — над героем: 0.5 с. */
@@ -139,7 +153,21 @@ export class Hud {
   /** Способность снова готова: вокруг иконки за 0.25 с замыкается кольцо. */
   abilityReady(slot: 'q' | 'e' | 'r'): void { this.readyT[slot] = 0; }
   waveBanner(index: number, total: number): void {
-    this.pushBanner({ text: `Волна ${ROMAN[index] ?? index + 1}`, sub: index + 1 === total ? 'финальная' : undefined, t: 0, dur: 1.6, color: 'gold', size: 30 });
+    const text = `Волна ${ROMAN[index] ?? index + 1}`, sub = index + 1 === total ? 'финальная' : undefined;
+    if (FX.title) { this.caption = { sub: this.caption?.sub ?? '', wave: `${text} из ${ROMAN[total - 1] ?? total}${sub ? ` · ${sub}` : ''}`, t: this.caption ? Math.min(this.caption.t, 0.25) : 0 }; return; }
+    this.pushBanner({ text, sub, t: 0, dur: 1.6, color: 'gold', size: 30 });
+  }
+  /**
+   * Титр этапа (план ×100, H): как bigBanner, но, уходя, сворачивается в подпись внизу слева (caption — её
+   * подстрочник). Без флага title — обычный титр.
+   */
+  stageTitle(text: string, sub: string | undefined, caption: string, dur = 2.6, size = 58): void {
+    this.pushBanner({ text, sub, t: 0, dur, color: 'gold', size: size * 0.75, fold: FX.title ? caption : undefined });
+  }
+  /** Начать сворачивание титра этапа сейчас (интро пропущено — волна вот-вот). */
+  foldTitle(): void {
+    const b = this.banners[0];
+    if (b?.fold !== undefined) b.t = Math.max(b.t, b.dur - CAPTION.fold);
   }
   /** Титул: на 25 % меньше прежнего и выше боя (0.12–0.16 высоты, под верхним HUD). */
   bigBanner(text: string, sub: string | undefined, color: Banner['color'], dur = 2.4, size = 56): void {
@@ -148,11 +176,11 @@ export class Hud {
   /** Очередь: новый титул ждёт ухода текущего; текущий, если за ним очередь, сразу начинает уходить. */
   private pushBanner(b: Banner): void {
     const cur = this.banners[0];
-    if (cur) cur.t = Math.max(cur.t, cur.dur - 0.3);
+    if (cur) cur.t = Math.max(cur.t, cur.dur - (cur.fold !== undefined ? CAPTION.fold : 0.3));
     this.banners.push(b);
     if (this.banners.length > 3) this.banners.splice(1, 1);
   }
-  clear(): void { this.nums = []; this.banners = []; this.worldTexts = []; this.sub = null; this.hint = null; this.hpTrail = 1; this.lastHp = 1; }
+  clear(): void { this.nums = []; this.banners = []; this.caption = null; this.worldTexts = []; this.sub = null; this.hint = null; this.hpTrail = 1; this.lastHp = 1; }
 
   // ------------------------------------------------------------------ кадр
   draw(dt: number, f: HudFrame): void {
@@ -168,7 +196,7 @@ export class Hud {
     const L = 20 * s + this.safe.l, R = this.w - 20 * s - this.safe.r, T = 14 * s + this.safe.t, B = this.h - 16 * s - this.safe.b;
     // сцена со скрытым HUD: остаются только титры и реплики
     // подсказки ждут конца сцены — не висят поверх kill-cam
-    if (!this.visible) { this.drawBanners(dt); this.drawSubtitle(dt, s, L, T, false); return; }
+    if (!this.visible) { this.drawCaption(dt, f, L, B); this.drawBanners(dt); this.drawSubtitle(dt, s, L, T, false); return; }
     g.globalAlpha = 0.95;
     this.drawWorldMarks(f);
     this.drawChevrons(f);
@@ -188,6 +216,7 @@ export class Hud {
     this.drawNums(dt, f);
     this.drawWorldTexts(dt, f);
     this.drawStarFly(dt, f);
+    this.drawCaption(dt, f, L, B);
     this.drawBanners(dt);
     this.drawSubtitle(dt, s, L, T);
     if (f.showFps) { g.fillStyle = UI.dim; g.font = `600 ${Math.round(11 * s)}px ${FONT_TECH}`; g.textAlign = 'left'; g.fillText(`${f.fps.toFixed(0)} FPS`, L, B - 70 * s); }
@@ -800,15 +829,24 @@ export class Hud {
     if (!b) return;
     b.t += dt;
     const inT = 0.22, outT = 0.3;
-    const size = b.size * s;
-    const y = Math.max(this.h * 0.13, this.topEdge + 6 * s);
-    let prog = 1, alpha = 1, slide = 0;
+    let size = b.size * s;
+    let y = Math.max(this.h * 0.13, this.topEdge + 6 * s);
+    let prog = 1, alpha = 1, slide = 0, fold = 0;
     if (b.t < inT) { prog = Ease.outCubic(b.t / inT); slide = (1 - prog) * 60 * s; }
+    else if (b.fold !== undefined && b.t > b.dur - CAPTION.fold) fold = Ease.inOutCubic(clamp((b.t - (b.dur - CAPTION.fold)) / CAPTION.fold, 0, 1));
     else if (b.t > b.dur - outT) { const k = (b.t - (b.dur - outT)) / outT; alpha = 1 - k; slide = -k * 40 * s; }
+    let cx = this.w / 2 + slide;
+    if (fold > 0) {
+      // сворачивание: название уменьшается и уходит туда, где оно стоит в подписи; орнамент и строка гаснут
+      const c = this.capName, to = Math.round(size + (c.size - size) * fold);
+      cx += (c.x + measureTitle(b.text, c.size) / 2 - cx) * fold;
+      y += (c.y - y) * fold;
+      size = to;
+      if (b.t >= b.dur) { this.caption = { sub: b.fold!, wave: '', t: 0.25 }; this.banners.shift(); return; }
+    }
     g.save();
-    g.globalAlpha = clamp(alpha, 0, 1);
+    g.globalAlpha = clamp(alpha, 0, 1) * (1 - fold);
     const w = measureTitle(b.text, size) + 70 * s;
-    const cx = this.w / 2 + slide;
     // орнаментальная линия под заголовком
     const ly = y + size * 1.35;
     const lg = g.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
@@ -816,10 +854,41 @@ export class Hud {
     g.strokeStyle = lg; g.lineWidth = 1;
     g.beginPath(); g.moveTo(cx - w / 2 * prog, ly); g.lineTo(cx + w / 2 * prog, ly); g.stroke();
     this.diamond(cx, ly, 3 * s, UI.goldHi);
-    drawTitle(g, b.text, cx, y, size, { align: 'center', color: b.color, glow: 0.8, progress: Math.min(1, b.t / (inT * 1.6)), spacing: 0.1 });
+    g.globalAlpha = clamp(alpha, 0, 1);
+    drawTitle(g, b.text, cx, y, size, { align: 'center', color: b.color, glow: fold > 0.5 ? CAPTION.glow : 0.8, progress: Math.min(1, b.t / (inT * 1.6)), spacing: 0.1 });
+    g.globalAlpha = clamp(alpha, 0, 1) * (1 - fold);
     if (b.sub) this.text(b.sub.toUpperCase(), cx, ly + size * 0.42, Math.max(10, size * 0.26), UI.text, 'bodyBold', 'center');
     g.restore();
     if (b.t >= b.dur) this.banners.shift();
+  }
+
+  /**
+   * Подпись этапа внизу слева (план ×100, H): «1-1 · ПАДЕНИЕ», подстрочник и строка волны. Место названия
+   * считается каждый кадр — туда сворачивается титр, даже пока подписи ещё нет.
+   */
+  private drawCaption(dt: number, f: HudFrame, L: number, B: number): void {
+    if (!FX.title) return;
+    const g = this.g, s = this.scale, C = CAPTION;
+    const ns = Math.max(C.min[0], C.name * s), ss = Math.max(C.min[1], C.sub * s);
+    const cap = this.caption, prefix = `${f.stageLabel} · `;
+    const lines = cap ? (cap.sub ? 1 : 0) + (cap.wave ? 1 : 0) : 1;
+    const yName = B - lines * ss * 1.45 - ns * 1.05;
+    const px = L + 10 * s, nx = px + measureTitle(prefix, ns, 0.1);
+    this.capName.x = nx; this.capName.y = yName; this.capName.size = Math.round(ns);
+    if (!cap) return;
+    cap.t += dt;
+    if (cap.t > C.hold + C.out) { this.caption = null; return; }
+    const a = Math.min(1, cap.t / 0.25) * (cap.t > C.hold ? 1 - (cap.t - C.hold) / C.out : 1);
+    g.save();
+    g.globalAlpha = clamp(a, 0, 1) * 0.92;
+    g.textBaseline = 'alphabetic';
+    this.diamond(L + 2 * s, yName + ns * 0.45, 3 * s, UI.goldHi);
+    drawTitle(g, prefix, px, yName, ns, { color: 'gold', glow: C.glow, spacing: 0.1 });
+    drawTitle(g, f.stageName.toUpperCase(), nx, yName, ns, { color: 'gold', glow: C.glow, spacing: 0.1 });
+    let y = yName + ns * 1.05 + ss * 1.15;
+    if (cap.sub) { this.text(cap.sub, px, y, ss, UI.text, 'body', 'left'); y += ss * 1.45; }
+    if (cap.wave) this.text(cap.wave.toUpperCase(), px, y, ss * 0.95, UI.goldHi, 'tech', 'left');
+    g.restore();
   }
 
   /** Надписи у целей: всплывают на 30 px и гаснут; над героем — не дольше 0.5 с. */

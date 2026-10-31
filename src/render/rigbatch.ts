@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { casterMaterial, CASTER_ORDER } from './keyShadow';
 import { obsidianMaterial, type ObsidianMaterial, type ObsidianOpts } from './materials';
 
 /**
@@ -57,6 +58,17 @@ export class RigBatch {
       this.tex.needsUpdate = true;
       this.fx.needsUpdate = true;
     }
+  }
+
+  /**
+   * Тень батча для буфера света (план ×100, A2): тот же меш и те же матрицы суставов, материал заслонителя проецирует
+   * кукол на пол вдоль ключевого света. Видимость и число экземпляров — общие с батчем.
+   */
+  casterMesh(): THREE.Mesh {
+    const m = new THREE.Mesh(this.geo, casterMaterial(true, this.tex));
+    m.frustumCulled = false;
+    m.renderOrder = CASTER_ORDER;
+    return m;
   }
 
   /** Батч с другим материалом (призраки) поверх тех же вершин. */

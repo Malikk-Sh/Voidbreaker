@@ -1,6 +1,6 @@
 import { G, MAX_POINT_LIGHTS } from '../render/materials';
 
-interface LightReq { x: number; y: number; z: number; r: number; g: number; b: number; i: number; radius: number }
+export interface LightReq { x: number; y: number; z: number; r: number; g: number; b: number; i: number; radius: number }
 interface Flash extends LightReq { t: number; life: number }
 
 /**
@@ -38,6 +38,9 @@ export class LightManager {
       else { P.set(0, -999, 0, 1); C.set(0, 0, 0, 0); }
     }
   }
+
+  /** Запросы сверх четырёх точечных источников (после end): буфер света в мире даёт им осветить пол. */
+  forEachOverflow(fn: (r: LightReq) => void): void { for (let k = MAX_POINT_LIGHTS; k < this.reqs.length; k++) fn(this.reqs[k]); }
 
   clear(): void { this.flashes.length = 0; this.reqs.length = 0; this.end(0); }
 }

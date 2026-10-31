@@ -8,7 +8,8 @@ import { box, prism, shard, rock, lathe, starPlate } from '../geom/prims';
 import {
   arcade, candelabra, chain, column, floatingRuin, GOLD, hoodedStatue, OBS, OBS_DEEP, OBS_HI, roseWindow, rubble, spire, vein, WAX,
 } from '../geom/kit';
-import { obsidianMaterial, type ObsidianMaterial } from '../../render/materials';
+import { G, obsidianMaterial, type ObsidianMaterial } from '../../render/materials';
+import { FX } from '../../render/fx';
 import { TileState, type Arena } from '../../world/arena';
 import { frescoMaterial } from './setPieces';
 
@@ -19,6 +20,8 @@ export interface ArenaView {
   floor: THREE.InstancedMesh[];
   flames: [number, number, number][];
   pools: LightPoolDef[];
+  /** Бирюзовые трещины в плитах — источники для буфера света в мире (план ×100, A1); без буфера не нужны. */
+  veinLights: LightPoolDef[];
   runeRadius: number;
   /** Обновить матрицы плиток (падение/возрождение). */
   syncTiles(): void;
@@ -35,6 +38,10 @@ export interface ArenaView {
   /** Лучи света из окон фасада (в них видна пыль, план §8.5): верх, низ, ширина у пола; их цвет. */
   rays: { top: THREE.Vector3; bot: THREE.Vector3; w: number }[];
   rayColor: string;
+  /** Неподвижная архитектура — колонны, аркады, канделябры (план ×100, A2): её тени запекаются в буфер света. */
+  casters: THREE.Mesh[];
+  /** Свет окон на полу: основной цвет стёкол и редких (свечной стиль — тёплые, иначе бирюза с золотом). */
+  windowColors: [string, string];
   dispose(): void;
 }
 
@@ -152,8 +159,30 @@ function banner(g: GeomBuilder, h: number, color: [number, number, number], seed
   g.add(box(w * 2 - 0.12, 0.035, 0.04), { matrix: mat(0, -0.16, 0.03), color: GOLD });
 }
 
-/** Лучи света из окон фасада: аддитивные полосы, гаснущие к полу. */
+/**
+ * Лучи окон (план ×100, C3; флаг rays): мягкий профиль поперёк, медленная пыль вдоль, у пола и у камеры гаснут;
+ * при взгляде сверху (боевая камера) остаётся top-доля — луч читается светом в воздухе, а не бежевой плитой.
+ * На низких планах сцен лучи — в полную силу. Было: плоская полоса одной яркости с любого ракурса.
+ */
+export const RAY_LOOK = { top: 0.3, from: 0.35, to: 0.85, nearCam: [3, 10] as const };
+
 function godRayMaterial(color: string): THREE.ShaderMaterial {
+  if (FX.rays) return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) }, uTime: G.uTime },
+    vertexShader: 'varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+    fragmentShader: `uniform vec3 uColor; uniform float uTime; varying vec2 vUv; varying vec3 vW;
+      void main(){
+        float across = sin(vUv.x * 3.14159265); across *= across;
+        float len = smoothstep(0.0, 0.25, vUv.y) * smoothstep(1.0, 0.35, vUv.y);
+        float dust = 0.7 + 0.3 * sin(vUv.x * 13.0 + vUv.y * 4.0 - uTime * 0.35) * sin(vUv.x * 7.0 - vUv.y * 9.0 + uTime * 0.2);
+        vec3 v = vW - cameraPosition; float dist = length(v);
+        float down = -v.y / max(dist, 1e-3);
+        float view = mix(1.0, ${RAY_LOOK.top.toFixed(2)}, smoothstep(${RAY_LOOK.from.toFixed(2)}, ${RAY_LOOK.to.toFixed(2)}, down));
+        float nearCam = smoothstep(${RAY_LOOK.nearCam[0].toFixed(1)}, ${RAY_LOOK.nearCam[1].toFixed(1)}, dist);
+        gl_FragColor = vec4(uColor * across * len * dust * view * nearCam * 1.15, 1.0);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: new THREE.Color(color) } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -167,6 +196,9 @@ function godRayMaterial(color: string): THREE.ShaderMaterial {
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   });
 }
+
+/** Свет трещины в плите для буфера света: радиус (м), яркость, мерцание. */
+const VEIN_LIGHT = { r: 1.4, intensity: 0.07, flicker: 0.15 };
 
 /** Корень острова: радиус верхнего диска к rad (с разбросом shard); глубина корня под провалом (м, ниже дна −6.5). */
 export const ROOT_TOP = 1.3;
@@ -194,6 +226,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     // у звёздного моста край отмечает золотая кромка (STAR_EDGE) — ромбы на краю только шумели бы
     buckets[onCross && !def.star ? 2 : k < 0.06 ? 1 : k < 0.1 ? 2 : 0].push(idx);
   });
+  const veinLights: LightPoolDef[] = buckets[1].map((ti) => ({ x: arena.tiles[ti].x, z: arena.tiles[ti].z, ...VEIN_LIGHT, color: look.veins }));
   const floor: THREE.InstancedMesh[] = [];
   const tileRefs: { mesh: THREE.InstancedMesh; slot: number; tile: number; rx: number; rz: number }[] = [];
   const tint = new THREE.Color();
@@ -828,7 +861,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   const runeRadius = Math.min(b.maxX - b.minX, b.maxZ - b.minZ, p0.w * 1.2, p0.h * 1.2) * 0.3;
 
   return {
-    root, floor, flames, pools, runeRadius, syncTiles,
+    root, floor, flames, pools, veinLights, runeRadius, syncTiles,
     lightConstellations() { cTime = 0; },
     update(realDt: number) {
       // кромки моста разгораются, когда пол вокруг обрушился (раз в 0.25 с — без перебора плит каждый кадр)
@@ -854,6 +887,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     coverMeshes,
     rays,
     rayColor,
+    casters: [decor],
+    windowColors: style === 'candles' ? [look.warm, look.veins] : [look.veins, look.warm],
     leanSpires(k: number) { leanT = k; },
     tintGlass(k: number, pulse = 0) {
       decorMat.uniforms.uEmissiveColor.value.copy(glassBase).lerp(GLASS_VOID, k).multiplyScalar(1 + pulse);

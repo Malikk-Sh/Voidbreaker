@@ -2,7 +2,24 @@ import * as THREE from 'three';
 import { noise1 } from '../core/noise';
 
 /**
- * Камера (GDD §4.3, Tech §18): перспектива с узким углом (~30°), наклон 55°, ~28 м.
+ * Режимы боевой камеры (план ×100, C1): наклон (рад), угол обзора (°), базовая дистанция (м) и наклон в бою со
+ * Стражем и боссом. «Кино» — по умолчанию: 47°, 38°, 17 м × tan 15° / tan 19° ≈ 13.2 м — Пилот того же размера,
+ * перспектива глубже, край арены и фон входят в кадр; у боссов 42°. «Тактическая» — прежняя: 55°, 30°, 17 м, 49°.
+ */
+export const CAM_MODES = {
+  cinema: { tilt: 0.82, fov: 38, dist: 13.2, boss: 0.733 },
+  tactical: { tilt: 0.96, fov: 30, dist: 17, boss: 0.86 },
+} as const;
+export type CamMode = keyof typeof CAM_MODES;
+
+/** Режим из настроек; адрес ?cam=tactical|cinema перекрывает (разработка, стенд кадров). */
+export function camModeFrom(setting: CamMode | undefined, search = typeof location !== 'undefined' ? location.search : ''): CamMode {
+  const q = new URLSearchParams(search).get('cam');
+  return q === 'tactical' || q === 'cinema' ? q : setting === 'tactical' ? 'tactical' : 'cinema';
+}
+
+/**
+ * Камера (GDD §4.3, Tech §18): перспектива с узким углом, наклон и дистанция — по режиму (CAM_MODES).
  * Следование с упреждением, тряска по модели «травмы», направленный кик, зум-панч. Тряска — в реальном времени.
  */
 export class CameraRig {
@@ -20,8 +37,8 @@ export class CameraRig {
   shakeScale = 1;
   /** Внешняя цель кинематографа (пролёт, дорожки режиссёра): перекрывает следование; fov и крен — по желанию. */
   cine: { pos: THREE.Vector3; look: THREE.Vector3; w: number; fov?: number; roll?: number } | null = null;
-  /** Исходный угол обзора камеры (запоминается при первом кадре). */
-  private baseFov = 0;
+  /** Игровой угол обзора (°): режим камеры; 0 — взять у камеры при первом кадре. */
+  fov = 0;
   private seed = Math.random() * 1000;
   private t = 0;
 
@@ -48,15 +65,15 @@ export class CameraRig {
     cam.position.set(fx, dist * Math.sin(this.tilt), fz + dist * Math.cos(this.tilt));
     cam.lookAt(fx, 0, fz);
     cam.rotation.z += 0.02 * s * noise1(this.seed + 200, t) + this.roll;
-    if (!this.baseFov) this.baseFov = cam.fov;
-    let fov = this.baseFov;
+    if (!this.fov) this.fov = cam.fov;
+    let fov = this.fov;
     if (this.cine) {
       const w = this.cine.w;
       cam.position.lerp(this.cine.pos, w);
       const look = _look.set(fx, 0, fz).lerp(this.cine.look, w);
       cam.lookAt(look);
       if (this.cine.roll) cam.rotation.z += this.cine.roll * w;
-      if (this.cine.fov) fov = this.baseFov + (this.cine.fov - this.baseFov) * w;
+      if (this.cine.fov) fov = this.fov + (this.cine.fov - this.fov) * w;
     }
     if (Math.abs(cam.fov - fov) > 1e-3) { cam.fov = fov; cam.updateProjectionMatrix(); }
   }

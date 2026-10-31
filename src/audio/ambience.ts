@@ -1,3 +1,4 @@
+import { fxRng } from '../core/rng';
 import type { LoopHandle, PlayOpts } from './engine';
 
 /** Что фону нужно от аудиодвижка (в тестах — заглушка). */
@@ -42,7 +43,8 @@ export class Ambience {
   private nextDrop: number;
   private stopped = false;
 
-  constructor(private readonly audio: AmbienceAudio, private readonly def: AmbienceDef, private readonly rnd: () => number = Math.random) {
+  /** rnd — косметический поток: интервалы капель и колокола не должны сдвигать решения врагов. */
+  constructor(private readonly audio: AmbienceAudio, private readonly def: AmbienceDef, private readonly rnd: () => number = () => fxRng.next()) {
     this.nextBell = this.gap(def.bell) * 0.5;
     this.nextDrop = this.gap(def.drops) * 0.5;
   }

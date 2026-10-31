@@ -5,6 +5,7 @@ import type { RigDef } from '../../anim/skeleton';
 import { GeomBuilder, mat, SURF, type RGB } from '../geom/build';
 import { bipyramid, box, lathe, octa, prism, shard } from '../geom/prims';
 import { hull8, limb, plate, torso } from './parts';
+import { FX } from '../../render/fx';
 
 /**
  * Пилот (GDD §15.3): шарнирная кукла из граней. Рыцарский шлем с щелью визора и гребнем, многослойные наплечники,
@@ -47,6 +48,12 @@ export const BLADE_LEN = 1.3;
  * насколько конечность заходит за следующий сустав (м).
  */
 export const BODY = { coreW: 0.27, coreD: 0.17, ball: { sh: 0.085, elb: 0.078, hip: 0.1, knee: 0.085 }, over: 0.03 };
+/**
+ * Визор (Master Plan §5.3, план ×100 A4; флаг herolight): фиолетовая щель, ореол ярче и белая сердцевина —
+ * тонкая линия внутри щели (core: эмиссия выше 1 уходит в белое; 0 — нет линии). Не вся щель: сплошная белая
+ * щель 2.0 читалась белым шаром (Пилот 2.0). Было: щель 1.0, ореол 0.4.
+ */
+export const VISOR = FX.herolight ? { slit: 1.0, halo: 0.6, core: 1.6 } : { slit: 1.0, halo: 0.4, core: 0 };
 
 export interface HeroLook {
   armor: string;
@@ -164,9 +171,11 @@ export function buildHeroGeometry(look: HeroLook = HERO_DEFAULT, seed = 7): THRE
   b.add(dome, { matrix: mat(0, 0.0, -0.01, 0, 0, 0, 1, 1, 1.15), color: armor });
   // забрало — клин вперёд
   plate(b, [[-0.13, 0.2], [0.13, 0.2], [0.12, 0.06], [0.04, -0.03], [-0.04, -0.03], [-0.12, 0.06]], 0.055, mat(0, 0.0, 0.115, -0.12, 0, 0), 0, dark);
-  // визор: узкая фиолетовая щель и слабый ореол
-  b.add(box(0.19, 0.022, 0.03), { matrix: mat(0, 0.135, 0.15, -0.12), emissive: 1.0, color: dark });
-  b.add(box(0.24, 0.05, 0.02), { matrix: mat(0, 0.135, 0.138, -0.12), emissive: 0.4, color: dark });
+  // визор: узкая щель и ореол; с флагом herolight (Master Plan §5.3) щель раскалена до белой сердцевины,
+  // ореол фиолетовый и ярче
+  b.add(box(0.19, 0.022, 0.03), { matrix: mat(0, 0.135, 0.15, -0.12), emissive: VISOR.slit, color: dark });
+  if (VISOR.core) b.add(box(0.11, 0.007, 0.034), { matrix: mat(0, 0.135, 0.151, -0.12), emissive: VISOR.core, color: dark });
+  b.add(box(0.24, 0.05, 0.02), { matrix: mat(0, 0.135, 0.138, -0.12), emissive: VISOR.halo, color: dark });
   for (const sx of [1, -1]) plate(b, [[0, 0], [0.065, 0.02], [0.055, -0.11], [0, -0.13]], 0.022, mat(sx * 0.135, 0.12, 0.05, 0, sx * 0.35, 0), 0, armor);
   // гребень: от лба назад и вниз — читается силуэтом с любой стороны
   plate(b, [[0.06, 0.0], [0.08, 0.1], [0.0, 0.13], [-0.2, 0.07], [-0.3, -0.06], [-0.18, -0.02]], 0.03, mat(0, 0.27, 0.0, 0, Math.PI / 2, 0), 0, trim);

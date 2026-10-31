@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { fxRng } from '../core/rng';
 import { hexToLinear } from '../core/math';
 import { G } from '../render/materials';
 
@@ -7,6 +8,11 @@ const QUAD = (): [THREE.Float32BufferAttribute, THREE.Float32BufferAttribute] =>
   new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2),
 ];
 const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
+/**
+ * Квад, лежащий на полу и смотрящий вверх (x → мир X, y → мир Z): обход против часовой при взгляде сверху. С QUAD_INDEX
+ * пятна LightPools смотрели вниз и отсекались как задние грани — на экране их не было вовсе.
+ */
+const FLOOR_QUAD_INDEX = [0, 2, 1, 0, 3, 2];
 
 /** Пламя свечей: billboard, вытянутый шум вверх, градиент белый → оранжевый → прозрачный (Tech §6.3). */
 export class Flames {
@@ -25,7 +31,7 @@ export class Flames {
     const [pos, uv] = QUAD();
     g.setAttribute('position', pos); g.setAttribute('uv', uv); g.setIndex(QUAD_INDEX);
     const ip = new Float32Array(Math.max(1, points.length) * 4);
-    points.forEach((p, i) => { ip[i * 4] = p[0]; ip[i * 4 + 1] = p[1]; ip[i * 4 + 2] = p[2]; ip[i * 4 + 3] = Math.random() * 100; });
+    points.forEach((p, i) => { ip[i * 4] = p[0]; ip[i * 4 + 1] = p[1]; ip[i * 4 + 2] = p[2]; ip[i * 4 + 3] = fxRng.next() * 100; });
     g.setAttribute('iPos', new THREE.InstancedBufferAttribute(ip, 4));
     this.lit = new Float32Array(Math.max(1, points.length)).fill(1);
     this.litAttr = new THREE.InstancedBufferAttribute(this.lit, 1);
@@ -136,7 +142,7 @@ export class LightPools {
   constructor(readonly max = 256) {
     this.geo = new THREE.InstancedBufferGeometry();
     const [pos, uv] = QUAD();
-    this.geo.setAttribute('position', pos); this.geo.setAttribute('uv', uv); this.geo.setIndex(QUAD_INDEX);
+    this.geo.setAttribute('position', pos); this.geo.setAttribute('uv', uv); this.geo.setIndex(FLOOR_QUAD_INDEX);
     this.data = new Float32Array(max * 4); this.col = new Float32Array(max * 4);
     this.a1 = new THREE.InstancedBufferAttribute(this.data, 4); this.a1.setUsage(THREE.DynamicDrawUsage);
     this.a2 = new THREE.InstancedBufferAttribute(this.col, 4); this.a2.setUsage(THREE.DynamicDrawUsage);
@@ -163,7 +169,10 @@ export class LightPools {
           gl_FragColor = vec4(vCol * a, 1.0);
         }
       `,
-      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      // свет складывается, альфа буфера не меняется: в ней видимость ключевого света (тени, план ×100, A2)
+      transparent: true, depthWrite: false,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+      blendEquationAlpha: THREE.AddEquation, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
     this.mesh = new THREE.Mesh(this.geo, m);

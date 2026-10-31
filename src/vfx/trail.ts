@@ -1,8 +1,16 @@
 import * as THREE from 'three';
 import { hexToLinear } from '../core/math';
+import { FX } from '../render/fx';
 
 const MAX_SAMPLES = 24;
 const SUB = 3;
+/**
+ * Яркость ленты (план ×100, D1; флаг exposure): тело, белая кромка и где она начинается поперёк ленты (лёгкий и
+ * тяжёлый взмах); смазанный кадр. Было 1.8 / 3.2 от 0.8 — у кончика шла широкая белая полоса.
+ */
+export const RIBBON = FX.exposure
+  ? { body: 1.2, core: 2.0, edge: [0.9, 0.8], smear: [1.0, 1.4] }
+  : { body: 1.8, core: 3.2, edge: [0.8, 0.66], smear: [1.4, 2.0] };
 
 /**
  * Шлейф клинка (Tech §19.2): кольцевой буфер сэмплов пары точек (рукоять, кончик) →
@@ -63,8 +71,8 @@ export class RibbonTrail {
           // тяжёлый: края распадаются — шум съедает старую часть дуги
           float n = fract(sin(dot(floor(vec2(age * 22.0, across * 7.0)), vec2(12.9898, 78.233))) * 43758.5453);
           a *= mix(1.0, step(age * 1.15, n + 0.2) * 0.62, k);
-          float edge = smoothstep(mix(0.8, 0.66, k), 1.0, across);
-          vec3 col = mix(uColor * 1.8, uCore * 3.2, edge * (1.0 - age * 0.7));
+          float edge = smoothstep(mix(${RIBBON.edge[0].toFixed(2)}, ${RIBBON.edge[1].toFixed(2)}, k), 1.0, across);
+          vec3 col = mix(uColor * ${RIBBON.body.toFixed(2)}, uCore * ${RIBBON.core.toFixed(2)}, edge * (1.0 - age * 0.7));
           gl_FragColor = vec4(col * a * uI, 1.0);
         }
       `,
@@ -88,7 +96,7 @@ export class RibbonTrail {
         uniform vec3 uColor, uCore; varying vec2 vUv;
         void main() {
           float a = (1.0 - vUv.x) * smoothstep(0.15, 1.0, vUv.y) * 0.4;
-          gl_FragColor = vec4(mix(uColor * 1.4, uCore * 2.0, vUv.y * vUv.y) * a, 1.0);
+          gl_FragColor = vec4(mix(uColor * ${RIBBON.smear[0].toFixed(2)}, uCore * ${RIBBON.smear[1].toFixed(2)}, vUv.y * vUv.y) * a, 1.0);
         }
       `,
       transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,

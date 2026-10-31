@@ -3,7 +3,7 @@ import { ARENAS } from '../data/arenas';
 import type { StageDef } from '../data/stages';
 import { buildArenaView, ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
 import { EnemyRenderer } from '../render/enemyRenderer';
-import { QUALITY } from '../render/renderer';
+import { CAM_FOV, QUALITY, type QualityLevel } from '../render/renderer';
 import { Flames, LightPools, RuneCircle } from '../vfx/ambient';
 import { BattleVfx } from '../vfx/battleVfx';
 import { ContactShadows } from '../render/contactShadows';
@@ -12,7 +12,7 @@ import { BOSS_SCAR_LIFE, FloorScars, SCAR_LIFE } from '../vfx/scars';
 import { ArenaEvents } from './arenaEvents';
 import { Abilities, type Loadout } from '../world/abilities';
 import { Arena } from '../world/arena';
-import { CameraRig } from '../world/camera';
+import { CAM_MODES, camModeFrom, CameraRig, type CamMode } from '../world/camera';
 import type { HeroStats } from '../world/heroStats';
 import { BREATHER, StageRunner } from '../world/stage';
 import { World } from '../world/world';
@@ -41,6 +41,8 @@ import { fxRng } from '../core/rng';
 import { clamp, hexToLinear } from '../core/math';
 import { Ease } from '../core/ease';
 import { G, obsidianMaterial } from '../render/materials';
+import { LIGHT_BUF, lightEnabled, WorldLight } from '../render/worldLight';
+import { KeyCasters, KeyLightMap, keyShadowsEnabled, SHADOW_DIR_DEFAULT, shadowDirFromRays, windowsFromRays } from '../render/keyShadow';
 import { buildBladeSocket, buildCrater, buildHullShard } from '../gen/zone/space';
 import { createEnemy } from '../world/enemies/factory';
 import type { EnemyKind } from '../data/enemies';
@@ -59,8 +61,8 @@ const _top = new THREE.Vector3();
  * после — гаснет за fade. Тёплый белый: золото — окружение, не угроза.
  */
 export const STAR_LIGHT = { reach: 0.8, fade: 1.0, from: 6, fromY: 7, near: 1.1, y: 1.6, rgb: [1.5, 1.32, 1.05] as [number, number, number], intensity: 4.5, radius: 4.5 };
-/** Базовая дистанция боевой камеры (м) при «Дистанции камеры» = 100 %. Герой ~13 % высоты экрана (план §5.3). */
-const CAM_DIST = 17;
+/** Рост Пилота (м): длина его тени от ключевого света. */
+const HERO_HEIGHT = 1.9;
 export const STEP = 1 / 60;
 /** Dev: ?nav — оверлей поля потоков (план §4.4, п. 9). */
 const DEBUG_NAV = typeof location !== 'undefined' && new URLSearchParams(location.search).has('nav');
@@ -238,6 +240,10 @@ export class Battle {
       try { rigs.add(createEnemy(sp.enemy, { zone: stage.zone, stage: stage.index }).puppet.layout.def.id); } catch { /* вид без рига */ }
     }
     this.enemies.warm([...rigs]);
+    // тени (контактные хвосты и тени буфера света) — от окон фасада этой арены. Буфер — после прогрева батчей: тени
+    // тел создаются при загрузке, а не посреди боя (three.js тратит Math.random на UUID, ход боя сдвинулся бы)
+    shadowDirFromRays(this.view.rays, G.uShadowDir.value);
+    this.applyLight();
     r.scene.add(this.group);
     this.events = new ArenaEvents(this.world, this.view, this.group, this.vfx, stage);
     this.beamDust = this.view.rays.length ? new BeamDust(this.view.rays, this.view.rayColor, this.vfx.quality) : null;
@@ -262,7 +268,7 @@ export class Battle {
     this.world.hero.spawn(o.x, o.z, Math.PI);
     this.abilities.resetCooldowns();
     this.cam.snap(o.x, o.z - 1);
-    this.cam.baseDist = CAM_DIST * ctx.settings.camDist;
+    this.applyCamMode(true);
 
     ctx.hud.clear();
     ctx.hud.subtitleScale = ctx.settings.subtitleSize;
@@ -281,6 +287,8 @@ export class Battle {
       skipRequested: () => ctx.input.buffer.peek('attack', ctx.input.now) || ctx.input.buffer.peek('dash', ctx.input.now),
       once: (f) => { if (ctx.flag(f)) return false; ctx.setFlag(f); return true; },
       hud: (v) => { if (!this.director.active) ctx.hud.visible = v; },
+      gameFov: () => this.cam.fov || CAM_FOV,
+      title: (text, sub, caption, dur, size) => ctx.hud.stageTitle(text, sub, caption, dur, size),
     });
     this.director = new Director(this.directorHost());
     const su = ctx.renderer.sky.u;
@@ -307,7 +315,7 @@ export class Battle {
       const ab = this.arena.bounds;
       const vista = this.events.vista(this.world.hero.x, this.world.hero.z);
       this.runner.introTime = vista ? STAGE_VISTA_T.end - 0.1 : 3.0;
-      this.cine.stageIntro(stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => this.runner.skipIntro(), vista);
+      this.cine.stageIntro(stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => { this.runner.skipIntro(); ctx.hud.foldTitle(); }, vista);
     }
     // в прологе музыка 1-1 вступает после титула; тема босса — с его именем в интро (план §8.3)
     if (stage.boss) { this.runner.introTime = 0.05; ctx.music.preload(hierophantSong()); }
@@ -527,6 +535,7 @@ export class Battle {
     // руны гаснут, когда пол под ними обрушился (вторая фаза босса)
     const runeTarget = this.arena.edge === 'abyss' && this.stage.boss ? 0 : 1;
     this.rune.u.uAlpha.value += (runeTarget - this.rune.u.uAlpha.value) * Math.min(1, realDt * 2);
+    if (this.lightQuality !== this.ctx.renderer.quality) this.applyLight();
     // рендер врагов и героя
     this.enemies.render(this.world.enemies, this.world.shadows);
     this.updateXray(realDt);
@@ -756,8 +765,8 @@ export class Battle {
       zoom *= 1 - WAVE_END.push * Math.min(1, this.waveEndT / 0.25, (WAVE_END.sec + 0.35 - this.waveEndT) / 0.12);
     }
     this.feel.baseZoom = zoom;
-    // со Стражем и боссом камера наклоняется до ~49°: в кадре горизонт и луна (план §8.5)
-    cam.tilt += ((focusBoss ? 0.86 : 0.96) - cam.tilt) * Math.min(1, realDt * 1.2);
+    // со Стражем и боссом камера наклоняется ниже: в кадре горизонт и луна (план §8.5); у «Кино» — до 42°
+    cam.tilt += ((focusBoss ? this.camPreset.boss : this.camPreset.tilt) - cam.tilt) * Math.min(1, realDt * 1.2);
     const lead = this.world.hero.state === 'move' ? 0.18 : 0;
     cam.update(realDt, tx, tz, h.vx * lead, h.vz * lead, this.ctx.renderer.camera);
     this.boss?.cameraOverride(cam, this.ctx.renderer.camera, realDt);
@@ -1319,11 +1328,11 @@ export class Battle {
     const c = this.contact, w = this.world, h = w.hero, a = this.arena;
     c.begin();
     // по видимой высоте: в прыжке клипа тень уменьшается и бледнеет
-    if (!h.dead && a.walkable(h.x, h.z)) c.add(h.x, h.z, 0.62, h.avatar.visual.y);
+    if (!h.dead && a.walkable(h.x, h.z)) c.add(h.x, h.z, 0.62, h.avatar.visual.y, 1, HERO_HEIGHT);
     for (const e of w.enemies) {
       const dis = e.puppet.dissolve;
       if (dis >= 0.98 || !a.walkable(e.x, e.z)) continue;
-      c.add(e.x, e.z, e.radius * 1.25, e.y, 1 - dis);
+      c.add(e.x, e.z, e.radius * 1.25, e.y, 1 - dis, e.height);
     }
     c.end();
   }
@@ -1374,8 +1383,81 @@ export class Battle {
   /** Настройки, изменённые из паузы, сразу действуют в текущем бою. */
   applySettings(): void {
     this.feel.settings = Battle.feelSettings(this.ctx.settings);
-    this.cam.baseDist = CAM_DIST * this.ctx.settings.camDist;
+    this.applyCamMode(false);
+    this.applyLight();
     this.ctx.hud.subtitleScale = this.ctx.settings.subtitleSize;
+  }
+
+  /**
+   * Буфер света в мире (план ×100, A1) по настройке «Новый свет»: пятна света рисуются в текстуру над ареной, к ним
+   * добавляются трещины пола; материалы берут свет выборкой. Без буфера пятна скрыты — как и были на деле: их квады
+   * смотрели вниз и отсекались, а поверх пола они легли бы плоскими наклейками.
+   *
+   * Тени ключевого света (A2) — в альфе того же буфера: запечённые тени архитектуры и свет окон с переплётом (любой
+   * уровень) и тени тел (medium, high; на low остаются вытянутые контактные пятна).
+   */
+  private worldLight: WorldLight | null = null;
+  private keyMap: KeyLightMap | null = null;
+  private keyCasters: KeyCasters | null = null;
+  /** Качество, под которое выбран буфер: автоподстройка может сменить его посреди боя («Авто» — только на высоком). */
+  private lightQuality: QualityLevel | null = null;
+  /** Под какое состояние собран буфер: размер и тени; пока оно то же — пересобирать нечего. */
+  private lightState = '';
+  private applyLight(): void {
+    const r = this.ctx.renderer, on = lightEnabled(this.ctx.settings.light, r.quality), size = LIGHT_BUF.size[r.quality];
+    const ks = keyShadowsEnabled(on, r.quality);
+    this.lightQuality = r.quality;
+    const state = on ? `${size}:${ks.statics}:${ks.actors}` : 'off';
+    if (state === this.lightState) return;
+    this.lightState = state;
+    if (this.worldLight) { this.group.add(this.pools.mesh); this.disposeLight(); }
+    this.pools.mesh.visible = on;
+    this.contact.tails = !ks.actors;
+    if (on) {
+      const wl = this.worldLight = new WorldLight(size);
+      wl.fit(this.arena.bounds);
+      wl.scene.add(this.pools.mesh);
+      this.pools.setStatic([...this.view.pools, ...this.view.veinLights]);
+      if (ks.statics) {
+        const km = this.keyMap = new KeyLightMap(size), [ca, cb] = this.view.windowColors;
+        km.bake(r.gl, wl.camera, this.view.casters, windowsFromRays(this.view.rays), hexToLinear(ca), hexToLinear(cb), this.arena.bounds.minZ + 0.5);
+        wl.scene.add(km.composite);
+      }
+      if (ks.actors) {
+        const kc = this.keyCasters = new KeyCasters(), av = this.world.hero.avatar;
+        kc.addRig(av.batch);
+        for (const b of this.enemies.batchList) kc.addRig(b);
+        kc.addMesh(av.cloakMesh.mesh);
+        kc.addMesh(av.scarfMesh.mesh);
+        for (const m of this.view.coverMeshes) kc.addMesh(m);
+        wl.scene.add(kc.group);
+        wl.prepare = () => kc.sync(this.enemies.batchList);
+      }
+      G.uLightBuf.value = wl.rt.texture;
+      G.uLightK.value = 1;
+      G.uLightTexel.value = 1 / size;
+      G.uLightPcf.value = ks.actors && r.quality === 'high' ? 1 : 0;
+      r.worldLight = wl;
+    } else this.pools.setStatic(this.view.pools);
+    this.vfx.lightBuffer = on;
+  }
+  private disposeLight(): void {
+    if (!this.worldLight) return;
+    if (this.ctx.renderer.worldLight === this.worldLight) this.ctx.renderer.worldLight = null;
+    G.uLightK.value = 0; G.uLightBuf.value = null; G.uLightPcf.value = 0;
+    this.keyCasters?.dispose(); this.keyCasters = null;
+    this.keyMap?.dispose(); this.keyMap = null;
+    this.worldLight.dispose();
+    this.worldLight = null;
+  }
+
+  /** Режим боевой камеры (план ×100, C1). Базовая дистанция — при «Дистанции камеры» = 100 %; snap — и наклон сразу (старт боя). */
+  private camPreset: (typeof CAM_MODES)[CamMode] = CAM_MODES.cinema;
+  private applyCamMode(snap: boolean): void {
+    const P = this.camPreset = CAM_MODES[camModeFrom(this.ctx.settings.camMode)];
+    this.cam.baseDist = P.dist * this.ctx.settings.camDist;
+    this.cam.fov = P.fov;
+    if (snap) this.cam.tilt = P.tilt;
   }
 
   dispose(): void {
@@ -1390,6 +1472,10 @@ export class Battle {
     this.world.hero.avatar.dispose();
     this.world.bus.clear();
     this.ctx.renderer.scene.remove(this.group);
+    // угол обзора меню и сцен вне боя — прежний; буфер света — только в бою
+    this.ctx.renderer.camera.fov = CAM_FOV; this.ctx.renderer.camera.updateProjectionMatrix();
+    this.disposeLight();
+    G.uShadowDir.value.set(...SHADOW_DIR_DEFAULT).normalize();
     this.events.dispose();
     this.view.dispose();
     this.flames.dispose();

@@ -1,3 +1,4 @@
+import { fxRng } from '../core/rng';
 import { makeImpulse, mtof } from './synth';
 import { SFX } from './sfx';
 
@@ -135,11 +136,11 @@ export class AudioEngine {
     if (rec.length >= 4 || this.active >= 24) return;
     rec.push(now); this.recent.set(id, rec);
     const src = ctx.createBufferSource();
-    const vi = (this.nextVariant.get(id) ?? Math.floor(Math.random() * list.length)) % list.length;
+    const vi = (this.nextVariant.get(id) ?? Math.floor(fxRng.next() * list.length)) % list.length;
     this.nextVariant.set(id, vi + 1);
     src.buffer = list[vi];
     const vary = o.vary ?? 0.06;
-    src.playbackRate.value = (o.pitch ?? 1) * (1 + (Math.random() * 2 - 1) * vary);
+    src.playbackRate.value = (o.pitch ?? 1) * (1 + fxRng.spread(vary));
     const g = ctx.createGain(); g.gain.value = o.gain ?? 1;
     let node: AudioNode = src;
     node.connect(g); node = g;
@@ -246,9 +247,9 @@ export class AudioEngine {
     const syl: { at: number; dur: number }[] = [];
     let at = 0.02;
     for (let i = 0; i < n; i++) {
-      const dur = 0.05 + Math.random() * 0.05;
+      const dur = 0.05 + fxRng.next() * 0.05;
       syl.push({ at, dur });
-      at += dur + 0.025 + Math.random() * 0.03;
+      at += dur + 0.025 + fxRng.next() * 0.03;
     }
     this.onSpeak?.(speaker, syl.map((x) => [x.at, x.dur]));
     const ctx = this.ctx;
@@ -262,11 +263,11 @@ export class AudioEngine {
     const base = speaker === 'boss' ? 70 : 190 * pitch;
     syl.forEach(({ at: st, dur }, i) => {
       const t = t0 + st;
-      const f0 = base * (1 + (Math.random() - 0.5) * 0.25) * (i === n - 1 ? 0.85 : 1);
+      const f0 = base * (1 + fxRng.spread(0.125)) * (i === n - 1 ? 0.85 : 1);
       const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f0;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      const vow = [[800, 1150], [450, 800], [325, 700], [400, 1600], [600, 1000]][Math.floor(Math.random() * 5)];
+      const vow = [[800, 1150], [450, 800], [325, 700], [400, 1600], [600, 1000]][Math.floor(fxRng.next() * 5)];
       for (const [fq, k] of [[vow[0], 1], [vow[1], 0.6], [2600, 0.3]] as const) {
         const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = fq * (speaker === 'boss' ? 0.6 : 1); f.Q.value = 8;
         const fg = ctx.createGain(); fg.gain.value = k;

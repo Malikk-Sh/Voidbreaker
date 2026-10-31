@@ -1,3 +1,4 @@
+import { fxRng } from '../core/rng';
 import { FONT_DISPLAY, FONT_TECH } from './fonts';
 
 /**
@@ -101,7 +102,7 @@ export function drawTitle(g: CanvasRenderingContext2D, text: string, x: number, 
     g.rect(x0 - size, y - size, (w + size * 2) * Math.max(0, o.progress), size * 3);
     g.clip();
   }
-  const jx = o.shake ? (Math.random() - 0.5) * o.shake * size * 0.3 : 0, jy = o.shake ? (Math.random() - 0.5) * o.shake * size * 0.3 : 0;
+  const jx = o.shake ? fxRng.spread(0.15) * o.shake * size : 0, jy = o.shake ? fxRng.spread(0.15) * o.shake * size : 0;
   g.drawImage(sp.cv, x0 - sp.pad * k + jx, y - sp.pad * k + jy, (sp.cv.width / sp.scale) * k, (sp.cv.height / sp.scale) * k);
   g.restore();
   return w;
@@ -134,7 +135,7 @@ function drawTitleRaw(g: CanvasRenderingContext2D, text: string, x: number, y: n
   const pos: number[] = [];
   let cx = x0;
   for (const c of glyphs) { pos.push(cx); cx += g.measureText(c).width + spacing * size; }
-  const jitter = () => (o.shake ? [(Math.random() - 0.5) * o.shake * size * 0.3, (Math.random() - 0.5) * o.shake * size * 0.3] : [0, 0]);
+  const jitter = () => (o.shake ? [fxRng.spread(0.15) * o.shake * size, fxRng.spread(0.15) * o.shake * size] : [0, 0]);
   // 1) свечение
   if ((o.glow ?? 1) > 0) {
     g.shadowColor = pal[4];

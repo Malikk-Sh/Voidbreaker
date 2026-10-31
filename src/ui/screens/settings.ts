@@ -41,12 +41,15 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
     fullscreenSupported()
       ? toggle('Полноэкранный режим', 'fullscreen', [[false, 'Выкл'], [true, 'Вкл']], () => { if (S.fullscreen) void enterFullscreen(); else void exitFullscreen(); })
       : h('div', { class: 'vb-dim', style: { fontSize: '12px' } }, 'Полноэкранный режим: добавьте игру на главный экран («Поделиться» → «На экран Домой»).'),
+    toggle('Камера', 'camMode', [['cinema', 'Кино'], ['tactical', 'Тактическая']]),
     slider('Дистанция камеры', 'camDist', 0.75, 1.3, 0.05),
     section('Звук'),
     slider('Общая громкость', 'volMaster'), slider('Музыка', 'volMusic'), slider('Эффекты', 'volSfx'), slider('Голос', 'volVoice'),
     h('div', { class: 'vb-dim', style: { fontSize: '11px' } }, 'iOS: в беззвучном режиме Web Audio может молчать — выключите беззвучный режим.'),
     section('Изображение'),
     toggle('Качество', 'quality', [['auto', 'Авто'], ['low', 'Низкое'], ['medium', 'Среднее'], ['high', 'Высокое']]),
+    toggle('Новый свет (проба)', 'light', [['auto', 'Авто'], ['on', 'Вкл'], ['off', 'Выкл']]),
+    h('div', { class: 'vb-dim', style: { fontSize: '11px' } }, 'Свечи, клинок и враги освещают пол и броню. «Авто» включает его только на высоком качестве; на телефоне включите и посмотрите счётчик FPS.'),
     slider('Тряска камеры', 'shake'),
     toggle('Вспышки', 'flashes', [[true, 'Вкл'], [false, 'Выкл']]),
     toggle('Режим без вспышек', 'photosensitive', [[false, 'Выкл'], [true, 'Вкл']]),

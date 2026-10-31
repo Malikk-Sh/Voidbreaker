@@ -4,6 +4,7 @@ import { hexToLinear } from '../core/math';
 import { GeomBuilder } from '../gen/geom/build';
 import { crescent } from '../gen/geom/prims';
 import { obsidianMaterial, G } from '../render/materials';
+import { FX } from '../render/fx';
 import type { World } from '../world/world';
 import type { Abilities } from '../world/abilities';
 import { Acolyte } from '../world/enemies/acolyte';
@@ -35,15 +36,35 @@ export const C = {
 /**
  * Иерархия эффектов удара (ревью): главный акцент — след приёма; вспышка в точке попадания (м, +за тяжесть,
  * рост за жизнь, непрозрачность) и кольцо тяжёлого — мельче. Было 0.9 / 0.5 / до 2.6 м / 0.9 и кольцо 2.6 м.
+ * План ×100 (D1, флаг exposure): искра контакта ещё мельче и прозрачнее, у крита — фиолетовая с маленьким белым
+ * ядром: белая вспышка во весь контакт закрывала и цель, и след.
  */
-export const HIT_FX = { flare: 0.5, flareHeavy: 0.3, grow: 1.8, alpha: 0.75, ring: 1.6 };
+export const HIT_FX = FX.exposure
+  ? { flare: 0.34, flareHeavy: 0.2, grow: 1.6, alpha: 0.5, ring: 1.6, critCore: 0.16 }
+  : { flare: 0.5, flareHeavy: 0.3, grow: 1.8, alpha: 0.75, ring: 1.6, critCore: 0 };
 /** Вспышка оглушения (и Раскола — чуть сильнее): непрозрачность белого кольца, размер и непрозрачность белой сердцевины, свет. Было 1.2 / 1.4 / 0.85 / 6 (Раскол 1.2 / 1.2 / 0.9 / 7). */
-export const STUN_FX = { ring: 0.7, flare: 0.8, alpha: 0.55, light: 4 };
+export const STUN_FX = FX.exposure ? { ring: 0.6, flare: 0.7, alpha: 0.4, light: 4 } : { ring: 0.7, flare: 0.8, alpha: 0.55, light: 4 };
 
 /** Удар о землю (impact): яркость и непрозрачность кольца, внутреннее кольцо (непрозрачность, ширина), сила и радиус (×r) света. Было 2.5 / 1 / 0.6 / 0.6 / 3 / 2.5. */
 /** Штрих проскока Контрудара: число искр, высота (м), скорость по ходу (м/с), жизнь (с). */
 export const BLINK = { n: 14, y: 1.05, v: 6, life: 0.26 };
-export const IMPACT = { ring: 1.4, outer: 0.55, inner: 0.35, innerW: 0.3, light: 1.8, lightR: 2.0 };
+// план ×100 (D1, флаг exposure): кольца удара о землю тусклее, внутреннее — тоньше: у тяжёлых ударов нет светящегося диска
+export const IMPACT = FX.exposure
+  ? { ring: 1.0, outer: 0.5, inner: 0.22, innerW: 0.22, light: 1.8, lightR: 2.0 }
+  : { ring: 1.4, outer: 0.55, inner: 0.35, innerW: 0.3, light: 1.8, lightR: 2.0 };
+/**
+ * Свет Пилота на полу (план ×100, A4; Master Plan §5.3 — «пятно света под героем ×2»; флаг herolight): радиус (м),
+ * множитель яркости пятна, прибавка в атаке и рывке; визор — маленькое пятно перед Пилотом (вперёд м, радиус м,
+ * яркость). Герой заметнее своим светом, фон не меняется.
+ */
+export const HERO_LIGHT = FX.herolight
+  ? { r: 2.5, k: 2, act: 0.1, visorAhead: 0.9, visorR: 1.1, visor: 0.07 }
+  : { r: 2.4, k: 1, act: 0, visorAhead: 0, visorR: 0, visor: 0 };
+/**
+ * Источники буфера света в мире (план ×100, A1, A4, D4; только когда буфер включён): точечные вспышки сверх четырёх
+ * (× яркость, × радиус), пол под телеграфом краснеет к удару, враг на замахе светит красным снизу.
+ */
+export const LIGHT_SRC = { overflow: 0.15, overflowR: 0.75, tele: 0.14, windup: 0.3 };
 /** Пыль, поднятая волной с пола: светлее дыма удара — её видно на обсидиане и в лучах. */
 const WAVE_DUST = lin('#5d586a');
 
@@ -97,6 +118,8 @@ export class BattleVfx {
   /** Частицы в воздухе вокруг Пилота. Пыль теперь только в лучах света, а пепел — свой слой (vfx/atmosphere). */
   atmosphere: 'dust' | 'embers' | 'none' = 'none';
   quality = 1;
+  /** Буфер света в мире включён (render/worldLight): пятна LightPools освещают пол и тела, источников больше. */
+  lightBuffer = false;
 
   constructor(maxParticles: number, pools: LightPools) {
     this.add = new Particles(maxParticles, true);
@@ -165,7 +188,8 @@ export class BattleVfx {
     this.burst(4 + heavy * 4, { x, y, z, life: 0.35, size: 0.08, size1: 0.01, color: C.hungerHot, gravity: -10, drag: 3, frame: 'spark', stretch: 1 }, { v: 7, vy: 5, dir: [dx, dz], cone: 1.6 });
     // вспышка в точке попадания — акцент, но мельче следа удара (была до 2.6 м: в стоп-кадре — белый шар)
     const F = HIT_FX;
-    this.add.emit({ x, y, z, life: 0.12, size: F.flare + heavy * F.flareHeavy, size1: (F.flare + heavy * F.flareHeavy) * F.grow, color: crit ? C.core : C.voidHot, alpha: F.alpha, frame: 'flare', rot: fxRng.next() * 3 });
+    this.add.emit({ x, y, z, life: 0.12, size: F.flare + heavy * F.flareHeavy, size1: (F.flare + heavy * F.flareHeavy) * F.grow, color: crit && !F.critCore ? C.core : C.voidHot, alpha: F.alpha, frame: 'flare', rot: fxRng.next() * 3 });
+    if (crit && F.critCore) this.add.emit({ x, y, z, life: 0.08, size: F.critCore, size1: F.critCore * 0.4, color: C.core, alpha: 0.8, frame: 'dot' });
     if (heavy > 0.5 || crit) this.add.emit({ x, y, z, life: 0.2, size: 0.3, size1: F.ring, color: C.void, alpha: 0.45, frame: 'ring' });
     this.debris.burst(x, y, z, dx, dz, Math.round((2 + heavy * 4) * this.quality), 4 + heavy * 2, 0.16);
   }
@@ -471,7 +495,6 @@ export class BattleVfx {
     // телеграфы
     this.tele.sync(w.telegraphs, w.ringWaves);
     this.sprites.begin();
-    this.lights.begin();
     this.pools.beginDynamic();
     const h = w.hero;
 
@@ -482,7 +505,9 @@ export class BattleVfx {
       const charging = h.state === 'charge' ? 0.5 + Math.min(1, h.stateT / 0.9) * 1.3 : h.state === 'cast' ? 1.4 : 0;
       const glow = 0.3 + (h.trailOn ? 1.0 : 0) + (h.eclipse ? 2 : 0) + h.chargeLevel * 0.8 + charging;
       this.lights.add((_v.x + _w.x) / 2, (_v.y + _w.y) / 2 + 0.3, (_v.z + _w.z) / 2, C.void, glow * 1.6, 4 + (h.eclipse ? 3 : 0));
-      this.pools.addDynamic(h.x, h.z, 2.4 + (h.eclipse ? 1.5 : 0), C.void, 0.1 + glow * 0.08);
+      const L = HERO_LIGHT, act = h.state === 'dash' || h.state === 'attack' || h.state === 'charged' ? 1 : 0;
+      this.pools.addDynamic(h.x, h.z, L.r + (h.eclipse ? 1.5 : 0), C.void, (0.1 + glow * 0.08) * L.k + act * L.act);
+      if (L.visor > 0) this.pools.addDynamic(h.x + Math.sin(h.facing) * L.visorAhead, h.z + Math.cos(h.facing) * L.visorAhead, L.visorR, C.voidHot, L.visor);
       if (h.eclipse) {
         if (fxRng.chance(0.6)) this.add.emit({ x: h.x + fxRng.spread(0.6), y: fxRng.range(0, 1.8), z: h.z + fxRng.spread(0.6), vy: 2.5, life: 0.7, size: 0.1, size1: 0.02, color: C.voidHot, drag: 1, frame: 'star' });
       }
@@ -556,6 +581,8 @@ export class BattleVfx {
           this.add.emit({ x: _wp.x + ox, y: _wp.y + oy, z: _wp.z + oz, vx: -ox / life, vy: -oy / life, vz: -oz / life, life, size: 0.07 + wu * 0.05, size1: 0.015, color: wu > 0.8 ? C.hungerHot : C.ember, drag: 0, frame: 'spark', stretch: 1 });
         }
         this.sprites.add(_wp.x, _wp.y, _wp.z, 0.25 + wu * 0.6, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], 0.35 + wu * 0.6, 'dot');
+        // замах виден и по полу: под врагом краснеет — телеграф «изнутри»
+        if (this.lightBuffer) this.pools.addDynamic(e.x, e.z, e.radius + 1 + wu, C.hunger, LIGHT_SRC.windup * wu);
         if (e.heavyWindup && fxRng.chance(dtReal * 7)) this.rings.spawn(e.x, e.z, e.radius + 3.2, e.radius * 0.6, 0.35, C.hungerHot, 0.12, 0.5 + wu * 0.4);
       }
       if (e.elite.length && fxRng.chance(0.35 * this.quality)) {
@@ -764,13 +791,29 @@ export class BattleVfx {
       }
     }
 
+    this.lights.end(dtW);
+    if (this.lightBuffer) this.lightSources(w);
+    // очередь источников чистится после кадра, а не в его начале: свет, заказанный боем до sync (луч, свет звезды
+    // на Пилоте в финале казни), раньше стирался, не дойдя до экрана
+    this.lights.begin();
     this.sprites.end();
     this.pools.commit();
     this.add.flush();
     this.norm.flush();
     this.rings.update(dtW);
     this.debris.update(dtW);
-    this.lights.end(dtW);
+  }
+
+  /** Добавочные источники буфера света: вспышки сверх четырёх точечных и пол под телеграфами (к удару ярче). */
+  private lightSources(w: World): void {
+    const S = LIGHT_SRC;
+    this.lights.forEachOverflow((r) => this.pools.addDynamic(r.x, r.z, r.radius * S.overflowR, [r.r, r.g, r.b], r.i * S.overflow));
+    for (const t of w.telegraphs) {
+      if (!t.alive) continue;
+      const k = S.tele * Math.min(1, t.t / t.dur), s = t.shape, c = t.white ? C.core : C.hunger;
+      if (s.k === 'line') this.pools.addDynamic(s.x + s.dx * s.len / 2, s.z + s.dz * s.len / 2, Math.max(s.w, s.len * 0.5), c, k);
+      else this.pools.addDynamic(s.x, s.z, s.k === 'ring' ? s.r1 : s.r, c, k);
+    }
   }
 
   private syncRobes(w: World): void {

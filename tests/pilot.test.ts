@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { HERO_RIG, buildHeroGeometry } from '../src/gen/chars/hero';
+import { HERO_RIG, VISOR, buildHeroGeometry } from '../src/gen/chars/hero';
 import { GeomBuilder, SURF } from '../src/gen/geom/build';
 import { box } from '../src/gen/geom/prims';
 import { CONTACT, contactAlpha } from '../src/render/contactShadows';
@@ -19,19 +19,31 @@ describe('Пилот 2.0 и контактные тени (разбор)', () =>
     expect(vals.has(SURF.armor) && vals.has(SURF.metal)).toBe(true);
   });
 
-  it('Пилот: золото — металл, визор — тусклая щель (не белая, эмиссия ≤ 1.2)', () => {
+  it('Пилот: золото — металл, визор — фиолетовая щель с тонкой белой сердцевиной, не белое пятно', () => {
     const g = buildHeroGeometry();
     const surf = g.getAttribute('aSurf').array as Float32Array;
     const emi = g.getAttribute('aEmissive').array as Float32Array;
     const metal = surf.filter((v) => v === SURF.metal).length;
     expect(metal / surf.length).toBeGreaterThan(0.02);
     expect(metal / surf.length).toBeLessThan(0.3);
-    // ярче 1.6 светится только клинок и Каэлис (у них свой сустав), визор и шрам — до 1.25
-    const joint = g.getAttribute('aJoint').array as Float32Array;
+    // ярче 1.6 светится только клинок и Каэлис (у них свой сустав); на голове белеет лишь сердцевина визора
+    // (Master Plan §5.3) — тонкая линия, а не вся щель: сплошная белая щель 2.0 читалась белым шаром
+    const joint = g.getAttribute('aJoint').array as Float32Array, pos = g.getAttribute('position');
     let headMax = 0;
-    for (let i = 0; i < emi.length; i++) if (joint[i] === 5) headMax = Math.max(headMax, emi[i]);
+    const hot = new THREE.Box3();
+    for (let i = 0; i < emi.length; i++) {
+      if (joint[i] !== 5) continue;
+      headMax = Math.max(headMax, emi[i]);
+      if (emi[i] > 1.25) hot.expandByPoint(new THREE.Vector3().fromBufferAttribute(pos, i));
+    }
     expect(headMax).toBeGreaterThan(0.5);
-    expect(headMax).toBeLessThanOrEqual(1.2);
+    expect(headMax).toBeLessThanOrEqual((VISOR.core || 1.25) + 1e-6);
+    expect(headMax).toBeLessThan(2);
+    if (VISOR.core) {
+      const size = hot.getSize(new THREE.Vector3());
+      expect(size.x).toBeLessThan(0.13);
+      expect(size.y).toBeLessThan(0.015);
+    }
   });
 
   it('контактная тень: плотная у пола, гаснет с высотой, под полом — нет', () => {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { hexToLinear } from '../core/math';
 import { makeMatcap, makeNoiseTexture } from '../gen/tex/textures';
+import { FX } from './fx';
 
 /** Общие униформы: время, туман, «лунный» свет, пул из 4 точечных источников (Tech §4.2). */
 export const MAX_POINT_LIGHTS = 4;
@@ -22,7 +23,30 @@ export const G = {
   uNoise: { value: null as THREE.Texture | null },
   /** Грудь Пилота в мире (бой): дым и пепел на линии камера → Пилот приглушаются. Вне боя — далеко внизу. */
   uHero: { value: new THREE.Vector3(0, -1000, 0) },
+  /** Буфер света в мире (план ×100, A1; render/worldLight): текстура, её прямоугольник на полу и сила (0 — выключен). */
+  /**
+   * Направление к ключевому свету теней (план ×100, A2): окна фасада, если они есть, иначе свет с дальней стороны
+   * арены — тени ложатся к камере и не прячутся за телами. Луна материалов (uMoonDir) светит спереди: лица и латы
+   * читаются, а тени от неё ушли бы за спины. Бой ставит своё по арене.
+   */
+  uShadowDir: { value: new THREE.Vector3(-0.25, 0.8, -0.55).normalize() },
+  uLightBuf: { value: null as THREE.Texture | null },
+  uLightRect: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uLightK: { value: 0 },
+  /** Тень на полу четырьмя выборками (план ×100, A2: high) — без ступенек текселей; 0 — одной. uLightTexel — 1/сторона буфера. */
+  uLightPcf: { value: 0 },
+  uLightTexel: { value: 1 / 512 },
 };
+
+/**
+ * Как поверхности берут буфер света: kd — рассеянный (× цвет поверхности, как у точечных источников), ks — блик
+ * пола (× глянец; у золота — цвета металла и вдвое), gloss — разброс глянца по плитам, fall — затухание отсвета на
+ * телах с высотой (1/м), down — доля отсвета на гранях, смотрящих не вниз; shadowFloor — сколько собственного света
+ * пола (небосвод, луна, отражение) остаётся в полной тени ключевого света (A2, render/keyShadow); shadowLight — сколько
+ * остаётся от света буфера: как и контактное пятно, тень приглушает всё, что лежит на полу, иначе на тёмном
+ * обсидиане её не видно вовсе.
+ */
+export const LIGHT_LOOK = { kd: 2.5, ks: 0.6, gloss: [0.6, 1] as const, fall: 0.55, down: 0.35, shadowFloor: 0.3, shadowLight: 0.45 };
 
 /** Отдельный matcap для пола: тёмное зеркало без жёсткого блика — пол отражает свет, а не «светится». */
 export const FLOOR_MATCAP = { value: null as THREE.Texture | null };
@@ -118,6 +142,11 @@ uniform vec3 uHemiTop;
 uniform vec3 uHemiBot;
 uniform vec4 uPLPos[${MAX_POINT_LIGHTS}];
 uniform vec4 uPLCol[${MAX_POINT_LIGHTS}];
+uniform sampler2D uLightBuf;
+uniform vec4 uLightRect;
+uniform float uLightK;
+uniform float uLightPcf;
+uniform float uLightTexel;
 varying vec3 vColor;
 varying float vEmissive;
 varying vec3 vWN;
@@ -137,6 +166,23 @@ vec3 emissiveTerm(float e, float white) {
   return c * min(a, 2.0) * pulse;
 }
 
+// буфер света в мире: одна выборка по XZ (верх текстуры — ближний край арены). rgb — свет, a — видимость ключевого
+// света (тени, A2). За краем буфера — ни света, ни тени
+vec4 worldLight(vec3 p) {
+  vec2 uv = vec2((p.x - uLightRect.x) * uLightRect.z, 1.0 - (p.z - uLightRect.y) * uLightRect.w);
+  float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+  vec4 t = texture2D(uLightBuf, uv);
+#ifdef FLOOR
+  if (uLightPcf > 0.5) {
+    // четыре билинейные выборки вокруг точки — тень тела без ступенек текселей
+    float o = uLightTexel * 0.5;
+    t.a = 0.25 * (texture2D(uLightBuf, uv + vec2(o, o)).a + texture2D(uLightBuf, uv + vec2(-o, o)).a
+      + texture2D(uLightBuf, uv + vec2(o, -o)).a + texture2D(uLightBuf, uv + vec2(-o, -o)).a);
+  }
+#endif
+  return vec4(t.rgb * inside, mix(1.0, t.a, inside));
+}
+
 float fogAmount() {
   float d = length(vVP);
   float f = smoothstep(uFogRange.x, uFogRange.y, d);
@@ -150,6 +196,13 @@ float fogAmount() {
  * затемнение, где оно полное и до какой доли яркости. Край моста — светлая плита над тёмной бездной.
  */
 export const DEPTH_DARK = { from: 0.3, to: 6, min: 0.2 };
+
+/**
+ * Вспышка тела от попадания (план ×100, D1): к какой яркости смешивается тело. Было 1.15 поверх эмиссии и трещин —
+ * с блумом и следом удара контакт выгорал в белый диск. Теперь 0.6 и до эмиссии: силуэт, глаза и швы видны.
+ */
+export const BODY_FLASH = { white: FX.exposure ? 0.6 : 1.15, early: FX.exposure };
+const FLASH_GLSL = `col = mix(col, vec3(${BODY_FLASH.white.toFixed(2)}), clamp(flash, 0.0, 1.0));`;
 
 const FRAG = /* glsl */ `
 ${FRAG_COMMON}
@@ -185,6 +238,13 @@ void main() {
   // ткань: мягкий «обёрнутый» свет вместо блеска
   col += albedo * uHemiTop * 0.35 * sCloth;
 
+  vec4 WL = vec4(0.0, 0.0, 0.0, 1.0);
+  if (uLightK > 0.0) WL = worldLight(vWP);
+#ifdef FLOOR
+  // тень ключевого света (план ×100, A2): небосвод, луна и отражение пола гаснут на долю тени; вспышки и свет буфера — нет
+  col *= mix(${LIGHT_LOOK.shadowFloor.toFixed(2)}, 1.0, WL.a);
+#endif
+
   vec3 camW = cameraPosition - vWP;
   vec3 vdw = normalize(camW);
   for (int i = 0; i < ${MAX_POINT_LIGHTS}; i++) {
@@ -198,10 +258,24 @@ void main() {
     float spec = pow(max(dot(reflect(-L, n), vdw), 0.0), 14.0);
     col += uPLCol[i].rgb * att * (diff * (albedo * 3.0 + 0.03) + spec * (0.35 + sMetal * 0.9) * (1.0 - sCloth));
   }
+  if (uLightK > 0.0) {
+    vec3 L = WL.rgb * uLightK;
+#ifdef FLOOR
+    L *= mix(${LIGHT_LOOK.shadowLight.toFixed(2)}, 1.0, WL.a);
+    // пол: цвет плиты × свет + блик от света × глянец — свет проявляет плитку, золото вспыхивает бликом
+    float gloss = mix(${LIGHT_LOOK.gloss[0].toFixed(2)}, ${LIGHT_LOOK.gloss[1].toFixed(2)}, texture2D(uNoise, vWP.xz * 0.07).r);
+    col += L * (albedo * ${LIGHT_LOOK.kd.toFixed(1)} + specTint * gloss * ${LIGHT_LOOK.ks.toFixed(2)} * (1.0 + metal));
+#else
+    // тела и декор: отсвет снизу — сильнее у пола и на гранях, смотрящих вниз (красная атака красит броню снизу)
+    float hk = exp(-abs(vWP.y) * ${LIGHT_LOOK.fall.toFixed(2)});
+    col += albedo * L * ${LIGHT_LOOK.kd.toFixed(1)} * hk * (${LIGHT_LOOK.down.toFixed(2)} + ${(1 - LIGHT_LOOK.down).toFixed(2)} * max(-n.y, 0.0));
+#endif
+  }
 
   float rim = pow(1.0 - max(dot(vn, viewDir), 0.0), uRimPower);
   // контур — у лат; у металла слабее (свой блеск), у ткани почти нет: силуэт цельный, без «сетки» кромок
   col += uRimColor * rim * uRimStrength * (1.0 - sMetal * 0.45 - sCloth * 0.7);
+  ${BODY_FLASH.early ? FLASH_GLSL : ''}
 
   // у врагов белое — только на замахе (boost), в покое глаза и жилы багровые: белый значит «сейчас ударит»
   col += emissiveTerm(vEmissive, clamp(uWhite + boost * 0.6, 0.0, 1.0)) * uEmissiveStrength * (1.0 + boost);
@@ -218,8 +292,8 @@ void main() {
 
   if (dissolve > 0.001) col += uEmissiveColor * smoothstep(dissolve + 0.07, dissolve, nz) * 5.0;
 
-  // вспышка попадания — к белому чуть выше 1 (было 1.6: после блума тело расплывалось белым облаком)
-  col = mix(col, vec3(1.15), clamp(flash, 0.0, 1.0));
+  // вспышка попадания (без флага exposure) — к белому чуть выше 1, поверх всего
+  ${BODY_FLASH.early ? '' : FLASH_GLSL}
   // глубина провала (ревью): ниже пола всё темнеет — бока плит, падающие обломки, стены бездны
   col *= mix(1.0, ${DEPTH_DARK.min.toFixed(2)}, smoothstep(${DEPTH_DARK.from.toFixed(2)}, ${DEPTH_DARK.to.toFixed(2)}, -vWP.y));
   col = mix(col, uFogColor, fogAmount());
@@ -277,6 +351,7 @@ export type ObsidianMaterial = THREE.ShaderMaterial & {
 export function obsidianMaterial(o: ObsidianOpts = {}): ObsidianMaterial {
   const defines: Record<string, string> = {};
   if (o.rigged) defines.RIGGED = '';
+  if (o.floor) defines.FLOOR = '';
   const m = new THREE.ShaderMaterial({
     defines,
     uniforms: {

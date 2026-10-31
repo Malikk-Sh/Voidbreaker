@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { fxRng } from '../core/rng';
 import { G } from '../render/materials';
 import { HERO_DIM_GLSL } from './particles';
 
@@ -37,7 +38,7 @@ export class BeamDust {
         top.set([r.top.x, r.top.y, r.top.z, r.w], i * 4);
         bot.set([r.bot.x, r.bot.y, r.bot.z, 0], i * 4);
         // доля вдоль луча, поперёк, в глубину, фаза
-        seed.set([Math.random(), Math.random() - 0.5, Math.random() - 0.5, Math.random()], i * 4);
+        seed.set([fxRng.next(), fxRng.next() - 0.5, fxRng.next() - 0.5, fxRng.next()], i * 4);
       }
     }
     g.setAttribute('aTop', new THREE.InstancedBufferAttribute(top, 4));
@@ -110,8 +111,8 @@ export class AshFall {
     for (const { L, c } of layers) {
       for (let k = 0; k < c; k++, i++) {
         // старт (x, y, z) в коробке слоя, слой; размер, скорость падения, фаза, яркость
-        a.set([Math.random() * L.box[0], L.y0 + Math.random() * (L.y1 - L.y0), Math.random() * L.box[1], 0], i * 4);
-        b.set([L.size[0] + Math.random() * (L.size[1] - L.size[0]), L.fall[0] + Math.random() * (L.fall[1] - L.fall[0]), Math.random(), L.alpha * (0.6 + Math.random() * 0.4)], i * 4);
+        a.set([fxRng.next() * L.box[0], L.y0 + fxRng.next() * (L.y1 - L.y0), fxRng.next() * L.box[1], 0], i * 4);
+        b.set([L.size[0] + fxRng.next() * (L.size[1] - L.size[0]), L.fall[0] + fxRng.next() * (L.fall[1] - L.fall[0]), fxRng.next(), L.alpha * (0.6 + fxRng.next() * 0.4)], i * 4);
         c4.set([L.y0, L.y1, L.zOff, 0], i * 4);
         a[i * 4 + 3] = L.box[0]; c4[i * 4 + 3] = L.box[1];
       }
