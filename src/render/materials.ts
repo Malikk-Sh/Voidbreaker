@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { hexToLinear } from '../core/math';
 import { makeMatcap, makeNoiseTexture } from '../gen/tex/textures';
+import { FX } from './fx';
 
 /** Общие униформы: время, туман, «лунный» свет, пул из 4 точечных источников (Tech §4.2). */
 export const MAX_POINT_LIGHTS = 4;
@@ -151,6 +152,13 @@ float fogAmount() {
  */
 export const DEPTH_DARK = { from: 0.3, to: 6, min: 0.2 };
 
+/**
+ * Вспышка тела от попадания (план ×100, D1): к какой яркости смешивается тело. Было 1.15 поверх эмиссии и трещин —
+ * с блумом и следом удара контакт выгорал в белый диск. Теперь 0.6 и до эмиссии: силуэт, глаза и швы видны.
+ */
+export const BODY_FLASH = { white: FX.exposure ? 0.6 : 1.15, early: FX.exposure };
+const FLASH_GLSL = `col = mix(col, vec3(${BODY_FLASH.white.toFixed(2)}), clamp(flash, 0.0, 1.0));`;
+
 const FRAG = /* glsl */ `
 ${FRAG_COMMON}
 void main() {
@@ -202,6 +210,7 @@ void main() {
   float rim = pow(1.0 - max(dot(vn, viewDir), 0.0), uRimPower);
   // контур — у лат; у металла слабее (свой блеск), у ткани почти нет: силуэт цельный, без «сетки» кромок
   col += uRimColor * rim * uRimStrength * (1.0 - sMetal * 0.45 - sCloth * 0.7);
+  ${BODY_FLASH.early ? FLASH_GLSL : ''}
 
   // у врагов белое — только на замахе (boost), в покое глаза и жилы багровые: белый значит «сейчас ударит»
   col += emissiveTerm(vEmissive, clamp(uWhite + boost * 0.6, 0.0, 1.0)) * uEmissiveStrength * (1.0 + boost);
@@ -218,8 +227,8 @@ void main() {
 
   if (dissolve > 0.001) col += uEmissiveColor * smoothstep(dissolve + 0.07, dissolve, nz) * 5.0;
 
-  // вспышка попадания — к белому чуть выше 1 (было 1.6: после блума тело расплывалось белым облаком)
-  col = mix(col, vec3(1.15), clamp(flash, 0.0, 1.0));
+  // вспышка попадания (без флага exposure) — к белому чуть выше 1, поверх всего
+  ${BODY_FLASH.early ? '' : FLASH_GLSL}
   // глубина провала (ревью): ниже пола всё темнеет — бока плит, падающие обломки, стены бездны
   col *= mix(1.0, ${DEPTH_DARK.min.toFixed(2)}, smoothstep(${DEPTH_DARK.from.toFixed(2)}, ${DEPTH_DARK.to.toFixed(2)}, -vWP.y));
   col = mix(col, uFogColor, fogAmount());

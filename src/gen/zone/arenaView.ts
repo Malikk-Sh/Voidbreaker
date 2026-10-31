@@ -8,7 +8,8 @@ import { box, prism, shard, rock, lathe, starPlate } from '../geom/prims';
 import {
   arcade, candelabra, chain, column, floatingRuin, GOLD, hoodedStatue, OBS, OBS_DEEP, OBS_HI, roseWindow, rubble, spire, vein, WAX,
 } from '../geom/kit';
-import { obsidianMaterial, type ObsidianMaterial } from '../../render/materials';
+import { G, obsidianMaterial, type ObsidianMaterial } from '../../render/materials';
+import { FX } from '../../render/fx';
 import { TileState, type Arena } from '../../world/arena';
 import { frescoMaterial } from './setPieces';
 
@@ -152,8 +153,30 @@ function banner(g: GeomBuilder, h: number, color: [number, number, number], seed
   g.add(box(w * 2 - 0.12, 0.035, 0.04), { matrix: mat(0, -0.16, 0.03), color: GOLD });
 }
 
-/** Лучи света из окон фасада: аддитивные полосы, гаснущие к полу. */
+/**
+ * Лучи окон (план ×100, C3; флаг rays): мягкий профиль поперёк, медленная пыль вдоль, у пола и у камеры гаснут;
+ * при взгляде сверху (боевая камера) остаётся top-доля — луч читается светом в воздухе, а не бежевой плитой.
+ * На низких планах сцен лучи — в полную силу. Было: плоская полоса одной яркости с любого ракурса.
+ */
+export const RAY_LOOK = { top: 0.3, from: 0.35, to: 0.85, nearCam: [3, 10] as const };
+
 function godRayMaterial(color: string): THREE.ShaderMaterial {
+  if (FX.rays) return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) }, uTime: G.uTime },
+    vertexShader: 'varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+    fragmentShader: `uniform vec3 uColor; uniform float uTime; varying vec2 vUv; varying vec3 vW;
+      void main(){
+        float across = sin(vUv.x * 3.14159265); across *= across;
+        float len = smoothstep(0.0, 0.25, vUv.y) * smoothstep(1.0, 0.35, vUv.y);
+        float dust = 0.7 + 0.3 * sin(vUv.x * 13.0 + vUv.y * 4.0 - uTime * 0.35) * sin(vUv.x * 7.0 - vUv.y * 9.0 + uTime * 0.2);
+        vec3 v = vW - cameraPosition; float dist = length(v);
+        float down = -v.y / max(dist, 1e-3);
+        float view = mix(1.0, ${RAY_LOOK.top.toFixed(2)}, smoothstep(${RAY_LOOK.from.toFixed(2)}, ${RAY_LOOK.to.toFixed(2)}, down));
+        float nearCam = smoothstep(${RAY_LOOK.nearCam[0].toFixed(1)}, ${RAY_LOOK.nearCam[1].toFixed(1)}, dist);
+        gl_FragColor = vec4(uColor * across * len * dust * view * nearCam * 1.15, 1.0);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: new THREE.Color(color) } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',

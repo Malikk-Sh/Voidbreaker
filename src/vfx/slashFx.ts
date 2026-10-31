@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { LINE_BACK, type HitShape } from '../data/weapons';
 import { G } from '../render/materials';
+import { FX } from '../render/fx';
 
 /**
  * Форма следа удара (разбор: «у каждого действия своя форма эффекта»). Каждая повторяет зону поражения
@@ -38,7 +39,17 @@ export interface SlashSpec {
  */
 export const SLASH = { sweep: 0.09, life: 0.26, heavyLife: 0.38, bright: 2.2, heavyBright: 3.0, inner: 0.55, vertInner: 0.8, vertBright: 0.75 };
 
+/**
+ * Яркость следа по слоям (план ×100, D1–D2; флаг exposure): фиолетовое тело 0.6–1.0, горячее ядро ≤ 2 HDR —
+ * тонкая кромка и фронт взмаха, меньше десятой части площади. Было: весь след ×2.2–3.0 бело-фиолетовым, и после
+ * блума контакт выгорал в белый диск.
+ */
+export const SLASH_HDR = { body: 0.85, heavyBody: 1.0, core: 1.5, heavyCore: 1.9 };
+
 const WHITE_VIOLET = new THREE.Color(0.85, 0.62, 1.6);
+/** Тело следа — фиолет Пилота (#9b6cff), ядро — горячий бело-сиреневый. */
+const VOID_BODY = new THREE.Color(0.33, 0.15, 1.0);
+const VOID_HOT = new THREE.Color(1.0, 0.86, 1.25);
 
 /**
  * Какой след у приёма: по id удара и его хитбоксу. Неизвестный удар — по форме хитбокса.
@@ -99,7 +110,7 @@ function basisCross(m: THREE.Mesh, facing: number, tilt: number, len: number, di
   m.position.z += _F.z * dist - _Z.z * len * 0.5;
 }
 
-interface Live { mesh: THREE.Mesh; u: { uBorn: { value: number }; uLife: { value: number }; uDir: { value: number }; uBright: { value: number } }; busy: boolean }
+interface Live { mesh: THREE.Mesh; u: { uBorn: { value: number }; uLife: { value: number }; uDir: { value: number }; uBright: { value: number }; uCore: { value: number } }; busy: boolean }
 
 /** Откуда идёт след: Пилот (живой объект — пока открыт хитбокс, след едет за ним). */
 export interface SlashSource { x: number; y: number; z: number; facing: number }
@@ -169,6 +180,46 @@ const FRAG_STRIP = /* glsl */ `
     gl_FragColor = vec4(uColor * uBright * core * ends * fade * (0.6 + 0.8 * smoothstep(p - 0.3, p, vUv.x)), 1.0);
   }
 `;
+// план ×100 (D2): три слоя — тонкое горячее ядро у внешней кромки и фронта, фиолетовое тело, рваный хвост:
+// шум съедает след тем сильнее, чем дальше от фронта и чем старше след
+const FRAG_LAYERED = /* glsl */ `
+  uniform float uTime, uBorn, uLife, uDir, uBright, uSweep, uCore; uniform vec3 uColor, uHot; uniform sampler2D uNoise;
+  varying vec2 vUv;
+  void main() {
+    float age = uTime - uBorn;
+    if (age < 0.0 || age > uLife) discard;
+    float u = uDir > 0.0 ? vUv.x : 1.0 - vUv.x;
+    float p = clamp(age / uSweep, 0.0, 1.0) * 1.12;
+    if (u > p) discard;
+    float head = smoothstep(p - 0.25, p, u);
+    float fade = 1.0 - smoothstep(uSweep, uLife, age);
+    float tip = smoothstep(0.0, 0.12, u) * smoothstep(1.0, 0.86, u);
+    float n = texture2D(uNoise, vec2(u * 2.3 + uBorn * 3.7, vUv.y * 0.9 + uBorn)).r;
+    float rag = smoothstep(0.0, 0.2, n + 0.25 - (1.0 - head) * 0.5 - (1.0 - fade) * 0.3);
+    float body = pow(vUv.y, 1.6) * (0.5 + 0.5 * head);
+    float core = smoothstep(0.88, 0.98, vUv.y) * (0.2 + 0.8 * head);
+    gl_FragColor = vec4((uColor * body * uBright + uHot * core * uCore) * tip * fade * rag, 1.0);
+  }
+`;
+const FRAG_STRIP_LAYERED = /* glsl */ `
+  uniform float uTime, uBorn, uLife, uDir, uBright, uSweep, uCore; uniform vec3 uColor, uHot; uniform sampler2D uNoise;
+  varying vec2 vUv;
+  void main() {
+    float age = uTime - uBorn;
+    if (age < 0.0 || age > uLife) discard;
+    float p = clamp(age / uSweep, 0.0, 1.0) * 1.1;
+    if (vUv.x > p) discard;
+    float across = 1.0 - abs(vUv.y - 0.5) * 2.0;
+    float head = smoothstep(p - 0.3, p, vUv.x);
+    float fade = 1.0 - smoothstep(uSweep, uLife, age);
+    float ends = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.7, vUv.x);
+    float n = texture2D(uNoise, vec2(vUv.x * 3.1 + uBorn * 2.9, vUv.y * 0.6 + uBorn)).r;
+    float rag = smoothstep(0.0, 0.2, n + 0.25 - (1.0 - head) * 0.45 - (1.0 - fade) * 0.3);
+    float body = pow(across, 2.0) * (0.55 + 0.45 * head);
+    float core = pow(across, 14.0) * (0.25 + 0.75 * head);
+    gl_FragColor = vec4((uColor * body * uBright + uHot * core * uCore) * ends * fade * rag, 1.0);
+  }
+`;
 
 /**
  * Следы ударов: пул сеток по формам, аддитивно, по времени мира (замедление и стоп-кадр их тоже держат).
@@ -189,9 +240,13 @@ export class SlashFx {
   }
 
   private make(isStrip: boolean): Live {
-    const u = { uTime: G.uTime, uBorn: { value: -99 }, uLife: { value: SLASH.life }, uDir: { value: 1 }, uBright: { value: SLASH.bright }, uSweep: { value: SLASH.sweep }, uColor: { value: WHITE_VIOLET } };
+    const layered = FX.exposure;
+    const u = {
+      uTime: G.uTime, uBorn: { value: -99 }, uLife: { value: SLASH.life }, uDir: { value: 1 }, uBright: { value: SLASH.bright }, uSweep: { value: SLASH.sweep },
+      uColor: { value: layered ? VOID_BODY : WHITE_VIOLET }, uCore: { value: SLASH_HDR.core }, uHot: { value: VOID_HOT }, uNoise: G.uNoise,
+    };
     const m = new THREE.ShaderMaterial({
-      uniforms: u, vertexShader: VERT, fragmentShader: isStrip ? FRAG_STRIP : FRAG,
+      uniforms: u, vertexShader: VERT, fragmentShader: layered ? (isStrip ? FRAG_STRIP_LAYERED : FRAG_LAYERED) : (isStrip ? FRAG_STRIP : FRAG),
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(isStrip ? this.stripGeo : this.arcGeo(Math.PI * 2 / 3), m);
@@ -236,7 +291,8 @@ export class SlashFx {
       this.lastLive = l;
       for (let i = this.follows.length - 1; i >= 0; i--) if (this.follows[i].l === l) this.follows.splice(i, 1);
       l.u.uBorn.value = now; l.u.uLife.value = life; l.u.uDir.value = dir;
-      l.u.uBright.value = heavy ? SLASH.heavyBright : SLASH.bright;
+      l.u.uBright.value = FX.exposure ? (heavy ? SLASH_HDR.heavyBody : SLASH_HDR.body) : heavy ? SLASH.heavyBright : SLASH.bright;
+      l.u.uCore.value = heavy ? SLASH_HDR.heavyCore : SLASH_HDR.core;
       l.mesh.visible = true;
       l.mesh.position.set(x, y + (spec.y ?? 1), z);
       l.mesh.rotation.set(0, 0, 0); l.mesh.scale.set(1, 1, 1);

@@ -41,6 +41,7 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
     fullscreenSupported()
       ? toggle('Полноэкранный режим', 'fullscreen', [[false, 'Выкл'], [true, 'Вкл']], () => { if (S.fullscreen) void enterFullscreen(); else void exitFullscreen(); })
       : h('div', { class: 'vb-dim', style: { fontSize: '12px' } }, 'Полноэкранный режим: добавьте игру на главный экран («Поделиться» → «На экран Домой»).'),
+    toggle('Камера', 'camMode', [['cinema', 'Кино'], ['tactical', 'Тактическая']]),
     slider('Дистанция камеры', 'camDist', 0.75, 1.3, 0.05),
     section('Звук'),
     slider('Общая громкость', 'volMaster'), slider('Музыка', 'volMusic'), slider('Эффекты', 'volSfx'), slider('Голос', 'volVoice'),

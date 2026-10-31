@@ -10,6 +10,7 @@ import type { World } from '../world/world';
 import { Director, type CineTrack, type DirectorHost, type V3 } from './director';
 import { offsetWorld, readProject, resolveScene } from './sceneEdits';
 import { VICTORY_SHOT, victoryFrame } from './victoryShot';
+import { FX } from '../render/fx';
 
 type BannerColor = 'gold' | 'void' | 'hunger' | 'white' | 'ether' | 'steel';
 
@@ -29,6 +30,10 @@ export interface CineHost {
   once(flag: string): boolean;
   /** Скрыть HUD на время плана, который забирает управление (титры и реплики остаются). */
   hud?(visible: boolean): void;
+  /** Игровой угол обзора (режим камеры): к нему приходят планы, которые сдают кадр бою. */
+  gameFov?(): number;
+  /** Титр этапа, который к концу сворачивается в подпись (caption — её подстрочник); нет — обычный banner. */
+  title?(text: string, sub: string | undefined, caption: string, dur: number, size: number): void;
 }
 
 interface Shot {
@@ -153,10 +158,16 @@ export class Cinematics {
       fov: (u) => {
         if (!V || !vista?.fov) return undefined;
         const t = u * dur;
-        return t < V.hold ? vista.fov : t < V.crane ? vista.fov + (CAM_FOV - vista.fov) * Ease.inOutSine((t - V.hold) / (V.crane - V.hold)) : undefined;
+        const game = this.host.gameFov?.() ?? CAM_FOV;
+        return t < V.hold ? vista.fov : t < V.crane ? vista.fov + (game - vista.fov) * Ease.inOutSine((t - V.hold) / (V.crane - V.hold)) : undefined;
       },
       cues: [
-        { at: V ? 0.5 : 0.35, fn: () => this.host.banner(stage.name.toUpperCase(), info ? `${label} · ${info.sub}` : label, 'gold', 2.6, 58) },
+        { at: V ? 0.5 : 0.35, fn: () => {
+          const sub = info ? `${label} · ${info.sub}` : label;
+          // план ×100 (H): титр на «вдохе» — к первой волне он уже свёрнут в подпись внизу слева
+          if (this.host.title) this.host.title(stage.name.toUpperCase(), sub, info?.sub ?? '', FX.title ? Math.min(2.6, dur - (V ? 0.5 : 0.35) - 0.25) : 2.6, 58);
+          else this.host.banner(stage.name.toUpperCase(), sub, 'gold', 2.6, 58);
+        } },
         { at: V ? 1.1 : 1.4, fn: () => { if (info && this.host.once(`cine_intro_${stage.id}`)) this.host.say(info.line, 'kaelis'); } },
       ],
       onEnd,

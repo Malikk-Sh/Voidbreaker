@@ -1,4 +1,13 @@
 import * as THREE from 'three';
+import { FX } from '../render/fx';
+
+/**
+ * План ×100 (D1, флаг exposure): полоса кольца не шире доли band его радиуса — в начале разлёта широкая полоса
+ * закрывала центр, и кольцо читалось светящимся диском; peak — яркость в момент рождения (было ×2). Профиль —
+ * тонкая горячая линия (core) и мягкое тело (body): та же яркость на линии, вдвое меньше света по полосе —
+ * ударная волна читается кольцом, а не светящимся тором после блума.
+ */
+export const RING_LOOK = FX.exposure ? { band: 0.45, peak: 1.4, body: 0.45, core: 0.55 } : { band: 0, peak: 2, body: 1, core: 0 };
 
 interface Ring { mesh: THREE.Mesh; u: { uR: { value: number }; uW: { value: number }; uA: { value: number }; uColor: { value: THREE.Vector3 } }; t: number; life: number; r0: number; r1: number; w: number; alpha: number; active: boolean; y: number }
 
@@ -22,7 +31,9 @@ export class Rings {
           void main() {
             float r = length(vUv);
             float d = abs(r - uR);
-            float a = smoothstep(uW, 0.0, d) * uA;
+            float w = ${RING_LOOK.band > 0 ? `min(uW, uR * ${RING_LOOK.band.toFixed(2)})` : 'uW'};
+            float k = smoothstep(w, 0.0, d);
+            float a = (k * ${RING_LOOK.body.toFixed(2)} + pow(k, 6.0) * ${RING_LOOK.core.toFixed(2)}) * uA;
             // заливка внутри — лёгкая: при 0.12 и HDR-цвете кольцо в начале разлёта читалось светящимся диском
             float inner = smoothstep(uR, uR * 0.2, r) * step(r, uR) * uA * 0.06;
             gl_FragColor = vec4(uColor * (a + inner), 1.0);
@@ -59,7 +70,7 @@ export class Rings {
       r.mesh.scale.set(scale, 1, scale);
       r.u.uR.value = R / scale;
       r.u.uW.value = r.w / scale;
-      r.u.uA.value = r.alpha * (1 - f) * (1 - f) * 2;
+      r.u.uA.value = r.alpha * (1 - f) * (1 - f) * RING_LOOK.peak;
       if (f >= 1) { r.active = false; r.mesh.visible = false; }
     }
   }
