@@ -138,8 +138,8 @@ describe('план ×100: настройки и косметика', () => {
     expect(old.settings.shake).toBe(0.5);
   });
 
-  it('эффекты не берут Math.random: поток врагов не зависит от того, сколько частиц на экране', () => {
-    const src = import.meta.glob(['../src/vfx/*.ts', '../src/render/*.ts', '../src/ui/hud.ts', '../src/ui/font.ts'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+  it('эффекты, фон арены и голос не берут Math.random: поток врагов не зависит от того, сколько частиц на экране', () => {
+    const src = import.meta.glob(['../src/vfx/*.ts', '../src/render/*.ts', '../src/ui/hud.ts', '../src/ui/font.ts', '../src/audio/ambience.ts', '../src/audio/engine.ts'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
     expect(Object.keys(src).length).toBeGreaterThan(20);
     for (const [file, text] of Object.entries(src)) expect(text.includes('Math.random'), file).toBe(false);
   });
