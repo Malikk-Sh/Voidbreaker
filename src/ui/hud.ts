@@ -1,4 +1,5 @@
 import { clamp } from '../core/math';
+import { fxRng } from '../core/rng';
 import { Ease } from '../core/ease';
 import { RANKS } from '../data/player';
 import { ABILITIES, type AbilityId } from '../data/abilities';
@@ -124,7 +125,7 @@ export class Hud {
       const prev = this.nums.find((n) => n.key === key && n.t < 0.3);
       if (prev) { prev.v += v; prev.crit ||= crit; prev.t = Math.min(prev.t, 0.05); prev.x = x; prev.z = z; return; }
     }
-    this.nums.push({ x, y, z, v, crit, shield, t: 0, dx: (Math.random() - 0.5) * 30, key, big });
+    this.nums.push({ x, y, z, v, crit, shield, t: 0, dx: fxRng.spread(15), key, big });
     if (this.nums.length > 48) this.nums.shift();
   }
   /** Надпись в мире у цели, мелко (план §5.7, п. 3). hero — над героем: 0.5 с. */

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { fxRng } from '../core/rng';
 import { hexToLinear } from '../core/math';
 import { G } from '../render/materials';
 
@@ -25,7 +26,7 @@ export class Flames {
     const [pos, uv] = QUAD();
     g.setAttribute('position', pos); g.setAttribute('uv', uv); g.setIndex(QUAD_INDEX);
     const ip = new Float32Array(Math.max(1, points.length) * 4);
-    points.forEach((p, i) => { ip[i * 4] = p[0]; ip[i * 4 + 1] = p[1]; ip[i * 4 + 2] = p[2]; ip[i * 4 + 3] = Math.random() * 100; });
+    points.forEach((p, i) => { ip[i * 4] = p[0]; ip[i * 4 + 1] = p[1]; ip[i * 4 + 2] = p[2]; ip[i * 4 + 3] = fxRng.next() * 100; });
     g.setAttribute('iPos', new THREE.InstancedBufferAttribute(ip, 4));
     this.lit = new Float32Array(Math.max(1, points.length)).fill(1);
     this.litAttr = new THREE.InstancedBufferAttribute(this.lit, 1);

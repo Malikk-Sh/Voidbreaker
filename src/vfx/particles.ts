@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { G } from '../render/materials';
+import { fxRng } from '../core/rng';
 import { makeParticleAtlas, ATLAS_COLS, ATLAS_FRAMES, type AtlasFrame } from '../gen/tex/textures';
 
 let atlas: THREE.Texture | null = null;
@@ -138,7 +139,7 @@ export class Particles {
     V[o] = s.vx ?? 0; V[o + 1] = s.vy ?? 0; V[o + 2] = s.vz ?? 0; V[o + 3] = s.life;
     S[o] = s.size; S[o + 1] = s.size1 ?? s.size; S[o + 2] = s.gravity ?? 0; S[o + 3] = s.drag ?? 0;
     C[o] = s.color[0]; C[o + 1] = s.color[1]; C[o + 2] = s.color[2]; C[o + 3] = s.alpha ?? 1;
-    M[o] = ATLAS_FRAMES[s.frame ?? 'dot']; M[o + 1] = s.stretch ?? 0; M[o + 2] = s.rot ?? Math.random() * 6.28; M[o + 3] = s.spin ?? 0;
+    M[o] = ATLAS_FRAMES[s.frame ?? 'dot']; M[o + 1] = s.stretch ?? 0; M[o + 2] = s.rot ?? fxRng.next() * 6.28; M[o + 3] = s.spin ?? 0;
     if (i < this.lo) this.lo = i;
     if (i > this.hi) this.hi = i;
   }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { fxRng } from '../core/rng';
 import { G } from '../render/materials';
 
 /** Следов боя на полу одновременно (план §8.5) и сколько живёт один (с). */
@@ -86,8 +87,8 @@ export class FloorScars {
     this.head = (this.head + 1) % SCARS_MAX;
     this.n = Math.min(SCARS_MAX, this.n + 1);
     const A = this.a.array as Float32Array, B = this.b.array as Float32Array;
-    A[i * 4] = x; A[i * 4 + 1] = z; A[i * 4 + 2] = size; A[i * 4 + 3] = Math.random() * 6.28;
-    B[i * 4] = G.uTime.value as number; B[i * 4 + 1] = Math.random() * 7; B[i * 4 + 2] = Math.min(1, strength);
+    A[i * 4] = x; A[i * 4 + 1] = z; A[i * 4 + 2] = size; A[i * 4 + 3] = fxRng.next() * 6.28;
+    B[i * 4] = G.uTime.value as number; B[i * 4 + 1] = fxRng.next() * 7; B[i * 4 + 2] = Math.min(1, strength);
     this.spots[i].x = x; this.spots[i].z = z; this.spots[i].alive = true;
     (this.mesh.geometry as THREE.InstancedBufferGeometry).instanceCount = this.n;
     this.a.needsUpdate = true; this.b.needsUpdate = true;
