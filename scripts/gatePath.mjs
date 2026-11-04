@@ -32,7 +32,7 @@ async function boot(q, vp, extra = '') {
     Math.random = () => { a |= 0; a = a + 0x6d2b79f5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
     Date.now = () => 1767225600000;
   });
-  await page.goto(`http://localhost:4182/?stage=1-3&god&q=${q}${extra}`);
+  await page.goto(`http://localhost:4182/?stage=1-3&single&god&q=${q}${extra}`);
   await page.waitForFunction(() => !!window.__vb?.battle, null, { timeout: 30000 });
   await page.evaluate(() => {
     const b = window.__vb.battle, inp = b.ctx.input;

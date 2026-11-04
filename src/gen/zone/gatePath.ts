@@ -6,6 +6,24 @@ import { box, gothicArch, starPlate } from '../geom/prims';
 import { candelabra, column, GOLD, OBS, OBS_DEEP, spire } from '../geom/kit';
 import type { ArenaView } from './arenaView';
 
+/** Открытый снизу проход: единый контур не создаёт поперечную грань на уровне пола. */
+export function passageArch(span: number, springH: number, wall: number, depth: number): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  const w = span / 2, W = w + wall;
+  shape.moveTo(-W, 0); shape.lineTo(-W, springH);
+  shape.lineTo(0, springH + span * 0.87 + wall);
+  shape.lineTo(W, springH); shape.lineTo(W, 0);
+  shape.lineTo(w, 0); shape.lineTo(w, springH);
+  shape.absarc(-w, springH, span, 0, Math.PI / 3, false);
+  shape.absarc(w, springH, span, 2 * Math.PI / 3, Math.PI, false);
+  shape.lineTo(-w, 0); shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 1, curveSegments: 5,
+  });
+  geometry.translate(0, 0, -depth / 2);
+  return geometry;
+}
+
 /** Небольшой архитектурный набор маршрута. Пять дополнительных батчей, без текстур и новых проходов. */
 export class GatePathView {
   readonly group = new THREE.Group();
@@ -37,8 +55,8 @@ export class GatePathView {
       // Толстая подошва галереи читается над бездной, верх всегда ниже игрового пола.
       b.add(box(1.0, 2.2, 15), { matrix: mat(s * 2.5, -1.6, 16.8), color: OBS_DEEP });
     }
-    for (const z of [16.7, 23.5]) b.add(gothicArch(6.3, 4.3, 0.5, 0.8), { matrix: mat(0, 0, z) });
-    b.add(gothicArch(7, 4.8, 0.75, 1.2), { matrix: mat(0, 0, -27) });
+    for (const z of [16.7, 23.5]) b.add(passageArch(6.3, 4.3, 0.5, 0.8), { matrix: mat(0, 0, z) });
+    b.add(passageArch(7, 4.8, 0.75, 1.2), { matrix: mat(0, 0, -27) });
     // Четыре указателя врезаны в плиты: золото показывает маршрут, не угрозу.
     for (const z of [18, 13, -17, -22]) {
       b.add(starPlate(4, 0.32, 0.12, 0.012), { matrix: mat(0, 0.035, z), color: GOLD, surface: SURF.metal });

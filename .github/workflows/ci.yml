@@ -39,6 +39,10 @@ jobs:
         env:
           GATE_PATH_Q: medium
           GATE_PATH_VIEWS: 844x390,740x360
+      - name: Cathedral bridge (two sections, checkpoint and final rewards)
+        run: npm run cathedral-test
+        env:
+          CATHEDRAL_Q: medium
       - name: Cinematic finishers
         run: npm run finishers
       - name: Choir psalm (touch, bait and return)
@@ -60,4 +64,6 @@ jobs:
             work/studio/*.png
             work/gate-path/report.json
             work/gate-path/*.png
+            work/cathedral/report.json
+            work/cathedral/*.png
           if-no-files-found: ignore

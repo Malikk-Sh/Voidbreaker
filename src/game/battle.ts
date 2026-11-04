@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ARENAS } from '../data/arenas';
+import { ARENAS, encounterBounds } from '../data/arenas';
 import type { StageDef } from '../data/stages';
 import { buildArenaView, ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
 import { EnemyRenderer } from '../render/enemyRenderer';
@@ -19,7 +19,7 @@ import { World } from '../world/world';
 import { guardianSong, hierophantSong, stageSong } from '../audio/music';
 import type { MusicCue } from './director';
 import { effectiveFlashes, type Settings } from '../meta/settings';
-import { awardExecution } from '../meta/progression';
+import { awardExecution, computeStats } from '../meta/progression';
 import type { GameContext } from './context';
 import { FeelSystem } from './feel';
 import { Cinematics, GUARDIAN, STAGE_VISTA_T } from './cinematics';
@@ -55,6 +55,9 @@ import { VICTORY_SHOT } from './victoryShot';
 import { GATE_PATH, GatePath, gatePathArena } from '../world/gatePath';
 import { GatePathView } from '../gen/zone/gatePath';
 import { gateEntranceTrack } from './gateEntrance';
+import { CathedralRoute, cathedralArena } from '../world/cathedralRoute';
+import { addCathedralBridge } from '../gen/zone/cathedralBridge';
+import { stageById } from '../data/stages';
 
 
 const _top = new THREE.Vector3();
@@ -89,7 +92,7 @@ export const REPLAY: Record<ReplayId, { stage: string; guardian?: EnemyKind }> =
 const REPLAY_TAIL = { kill: 1.6, intro: 0.5, execDelay: 0.4 };
 
 /** prologue — бой 1-1 начинается приземлением; replay — пересмотр сцены: без волн и наград, по концу — onReplayEnd. */
-export interface BattleOpts { prologue?: boolean; replay?: ReplayId; previewShort?: boolean }
+export interface BattleOpts { prologue?: boolean; replay?: ReplayId; previewShort?: boolean; singleStage?: boolean }
 
 /** Кратер от падения Пилота в центре 1-1 (план §8.5). */
 const CRATER = { x: 0, z: 0.5 };
@@ -126,7 +129,7 @@ export class Battle {
   readonly world: World;
   readonly arena: Arena;
   readonly view: ArenaView;
-  readonly runner: StageRunner;
+  runner: StageRunner;
   readonly vfx: BattleVfx;
   readonly enemies = new EnemyRenderer();
   readonly cam = new CameraRig();
@@ -148,6 +151,8 @@ export class Battle {
   readonly events: ArenaEvents;
   /** Управляемый маршрут 1-3; пересмотры в Кинозале оставляют исходную сцену. */
   readonly gatePath: GatePath | null;
+  readonly journey: CathedralRoute | null;
+  onSectionEnd: ((o: BattleOutcome) => void) | null = null;
   private readonly gatePathView: GatePathView | null;
   private gateEntrance = false;
   private entranceLift = 0;
@@ -210,13 +215,15 @@ export class Battle {
   /** Положение луны до плана «на фоне луны» (сцена возвращает его). */
   private moonSaved: THREE.Vector3 | null = null;
 
-  constructor(private ctx: GameContext, readonly stage: StageDef, stats: HeroStats, loadout: Loadout, readonly opts: BattleOpts = {}) {
+  constructor(private ctx: GameContext, public stage: StageDef, stats: HeroStats, loadout: Loadout, readonly opts: BattleOpts = {}) {
     this.scars = new FloorScars(stage.boss ? BOSS_SCAR_LIFE : SCAR_LIFE);
     const r = ctx.renderer;
     const Q = QUALITY[r.quality];
     const path = stage.id === '1-3' && !opts.replay;
-    this.arena = new Arena(path ? gatePathArena(ARENAS[stage.arena]) : ARENAS[stage.arena]);
+    const joined = path && !opts.singleStage;
+    this.arena = new Arena(joined ? cathedralArena() : path ? gatePathArena(ARENAS[stage.arena]) : ARENAS[stage.arena]);
     this.gatePath = path ? new GatePath(this.arena) : null;
+    this.journey = joined ? new CathedralRoute(this.arena) : null;
     this.world = new World(this.arena, `stage:${stage.id}`);
     this.world.zone = stage.zone;
     // ступень сложности: 1-7…1-9 — 6…8 (здоровье +12 %, урон +8 % за ступень сверх 1-6)
@@ -232,6 +239,7 @@ export class Battle {
 
     this.view = buildArenaView(this.arena, `stage:${stage.id}`, ZONE1_LOOK, Q.decor);
     this.gatePathView = path ? new GatePathView(this.view) : null;
+    if (joined) addCathedralBridge(this.view, Q.decor);
     this.group.add(this.view.root);
     if (stage.id === '1-1') this.group.add(...craterMeshes());
     this.flames = new Flames(this.view.flames);
@@ -387,12 +395,14 @@ export class Battle {
     });
     b.on('stageClear', () => {
       this.outcome = 'won';
-      if (this.gatePath) {
+      if (this.gatePath && this.journey?.phase !== 'combat' && this.journey?.phase !== 'complete') {
         this.gatePath.win();
         S.music.stop(POST_SILENCE * 0.8);
+        if (this.journey) S.music.preload(stageSong('1-4'));
         this.endT = -1;
         return;
       }
+      if (this.journey?.phase === 'combat') { this.journey.win(); this.view.root.userData.candleCombat = false; }
       // казнь (план §8.3.2): экран наград — только когда сцена досмотрена
       if (this.stage.boss) { this.endT = this.director.active ? -1 : 1.8; return; }
       if (this.finisherVictory) { S.music.stop(1.5); this.endT = this.director.active ? -1 : 0.35; return; }
@@ -532,7 +542,7 @@ export class Battle {
     this.vfx.trail.intensity = h.eclipse ? 1.6 : ri >= 3 ? 1.35 : 1;
     this.vfx.trail.update(realDt * T.heroScale);
     // свечи гаснут по кругу, пока Звонарь заряжает удар (план §7.4): пламя, пятна света и дымок от погасших
-    const ab = this.arena.bounds, acx = (ab.minX + ab.maxX) / 2, acz = (ab.minZ + ab.maxZ) / 2;
+    const ab = encounterBounds(this.arena.def), acx = (ab.minX + ab.maxX) / 2, acz = (ab.minZ + ab.maxZ) / 2;
     this.douseOut.length = 0;
     // 1-4: волны гасят свечное поле (и его пятна света), зачистка — зажигает
     this.events.update(realDt, dtW, this.ctx.renderer.camera.position.y);
@@ -541,7 +551,7 @@ export class Battle {
     this.ambience?.setChoirMuted(!!this.events.choir?.silenced);
     this.ambience?.update(realDt);
     this.ash.follow(this.cam.focus.x, this.cam.focus.z);
-    const out = Math.max(this.world.candlesOut, this.events.fieldOut);
+    const out = Math.max(this.world.candlesOut, this.events.fieldOut, this.journey?.phase === 'combat' && this.runner.phase === 'wave' ? 0.86 : 0);
     this.flames.douse(acx, acz, this.world.candlesFrom, out, realDt, this.douseOut);
     this.pools.douse(acx, acz, this.world.candlesFrom, out);
     this.updateQuench(realDt);
@@ -597,8 +607,9 @@ export class Battle {
       this.boss.execute?.();
     }
     const runTime = this.world.run.time;
+    const fighting = !this.gatePath || (this.journey && this.journey.phase !== 'gate' ? this.journey.phase === 'combat' : this.gatePath.phase === 'combat');
     this.world.step(dtW, dtH, this.ctx.input, dtR);
-    if (this.gatePath && this.gatePath.phase !== 'combat') this.world.run.time = runTime;
+    if (!fighting) this.world.run.time = runTime;
     if (!this.boss && this.runner.boss instanceof Hierophant) {
       this.boss = new HierophantController(this.bossHost(), this.runner.boss);
       // цепи, колокола-спутники и прочие объекты босса — тоже до первого кадра с ними
@@ -624,6 +635,14 @@ export class Battle {
     if (!path) return;
     const h = this.world.hero, ctx = this.ctx;
     const cinematic = this.director.active || this.cine.active;
+    if (this.journey && this.journey.phase !== 'gate') {
+      if (!h.dead && !cinematic && this.journey.step(h.x, h.z)) {
+        this.runner.skipIntro(); this.world.magnet = false;
+        this.view.root.userData.candleCombat = true;
+        ctx.hud.foldTitle();
+      }
+      return;
+    }
     const event = path.step(realDt, h.x, h.z, h.dead, cinematic);
     if (event === 'reveal') {
       ctx.hud.foldTitle();
@@ -635,8 +654,8 @@ export class Battle {
       ctx.audio.play('wave_clear', { gain: 0.4 });
       ctx.hud.showHint('Врата открыты. Пройди по золотым меткам', 30);
     } else if (event === 'complete') {
-      // Награды по прежним формулам этапа — один раз, после настоящего перехода за Врата.
-      this.endT = 0.25;
+      if (this.journey) this.crossCathedralBridge();
+      else this.endT = 0.25;
     }
     if (path.phase === 'opening' && !cinematic) {
       h.resumeAfterVictory();
@@ -653,6 +672,29 @@ export class Battle {
     if (path.open >= 1) this.gateVisual = 1;
     this.events.gateOpen(this.gateVisual);
     this.gatePathView?.update(path.open, path.phase === 'combat' || path.phase === 'opening');
+  }
+
+  private crossCathedralBridge(): void {
+    const route = this.journey!;
+    if (!route.startBridge()) return;
+    // Сохранение читает завершённый бой до сброса статистики; герой и камера остаются на своих местах.
+    this.onSectionEnd?.({ cleared: true, world: this.world, stage: this.stage });
+    this.stage = stageById('1-4')!;
+    const w = this.world, ctx = this.ctx;
+    w.stage = this.stage.index; w.shardPerDrop = 3 + this.stage.index * 0.6;
+    w.run = { dmgDealt: 0, kills: 0, hitsTaken: 0, dmgTaken: 0, perfectDodges: 0, shatters: 0, shards: 0, ether: 0, time: 0 };
+    w.rank.beginStage();
+    this.runner = new StageRunner(w, this.stage); this.runner.introTime = Infinity;
+    this.outcome = 'playing'; this.endT = -1; this.finisherVictory = false;
+    w.hero.resumeAfterVictory(); w.hero.target = null;
+    w.hero.applyStats(computeStats(ctx.save, ctx.settings.autoAim));
+    this.abilities.loadout = { q: ctx.save.loadout.q, e: ctx.save.loadout.e, r: ctx.save.loadout.r, levels: { ...ctx.save.abilities } };
+    this.abilities.resetCooldowns();
+    this.rune.mesh.visible = false;
+    ctx.music.play(stageSong('1-4'), 0.3);
+    ctx.music.phase = 0; ctx.music.final = false; ctx.audio.musicTranspose = 0;
+    ctx.hud.stageTitle('СВЕЧНОЙ ЗАЛ', '1-4 · Мост паломников', 'Пройди по мосту', 2.8, 46);
+    ctx.hud.showHint('Врата пройдены. Награда сохранена. Впереди — Свечной зал', 8);
   }
 
   private startGateEntrance(e: Enemy): void {
@@ -873,18 +915,19 @@ export class Battle {
       zoom *= 1 - WAVE_END.push * Math.min(1, this.waveEndT / 0.25, (WAVE_END.sec + 0.35 - this.waveEndT) / 0.12);
     }
     const path = this.gatePath;
-    const explore = path && (path.phase === 'approach' || path.phase === 'reveal' || path.phase === 'opening' || path.phase === 'passage');
+    const bridging = this.journey?.phase === 'bridge';
+    const explore = bridging || (path && (path.phase === 'approach' || path.phase === 'reveal' || path.phase === 'opening' || path.phase === 'passage'));
     cam.context = this.director.active || this.cine.active ? 'event' : explore ? 'explore' : 'combat';
     // Ни свободного облёта, ни смены осей ввода: открываем перспективу только наклоном и упреждением.
     const gallery = path?.phase === 'approach' || path?.phase === 'reveal';
     const reveal = clamp((GATE_PATH.revealZ - h.z) / 6.5, 0, 1);
     const opening = path?.phase === 'opening';
-    const tilt = gallery ? 0.3 + 0.43 * reveal : opening ? 0.62 : focusBoss ? this.camPreset.boss : this.camPreset.tilt;
-    const lookHeight = gallery ? 1.25 * (1 - reveal) : opening ? 1.6 : explore ? 0.8 : 0;
+    const tilt = gallery ? 0.3 + 0.43 * reveal : bridging ? 0.58 : opening ? 0.62 : focusBoss ? this.camPreset.boss : this.camPreset.tilt;
+    const lookHeight = gallery ? 1.25 * (1 - reveal) : opening ? 1.6 : bridging ? 1 : explore ? 0.8 : 0;
     cam.lookHeight += (lookHeight - cam.lookHeight) * (1 - Math.exp(-realDt * 3));
-    const fov = gallery ? 52 - (52 - this.camPreset.fov) * reveal : opening ? 44 : this.camPreset.fov;
+    const fov = gallery ? 52 - (52 - this.camPreset.fov) * reveal : opening || bridging ? 44 : this.camPreset.fov;
     cam.fov += (fov - cam.fov) * (1 - Math.exp(-realDt * 3));
-    if (explore) { tz -= gallery ? 1.4 : opening ? 3.5 : 1.1; zoom = opening ? 1.15 : 1; }
+    if (explore) { tz -= gallery ? 1.4 : opening ? 3.5 : bridging ? 2.5 : 1.1; zoom = opening ? 1.15 : 1; }
     this.feel.baseZoom = zoom;
     // со Стражем и боссом камера наклоняется ниже: в кадре горизонт и луна (план §8.5); у «Кино» — до 42°
     cam.tilt += (tilt - cam.tilt) * Math.min(1, realDt * 1.2);
@@ -968,8 +1011,18 @@ export class Battle {
       clipDuration: (who: string, clip: string) => (who === 'hero' ? w.hero.avatar.puppet : (enemyActor(who) as Enemy | null)?.puppet)?.clips.get(clip)?.dur ?? 0,
       sampleClip: (who: string, clip: string, time: number, reset: boolean, blend?: number) => {
         if (who === 'hero') w.hero.sampleSceneClip(clip, time, reset, blend);
-        else { const p = (enemyActor(who) as Enemy | null)?.puppet, c = p?.clips.get(clip);
-          if (p && c) { if (reset && !p.anim.sceneDriven) { p.anim.out.set(p.skel.rot); p.base.set(p.skel.rot); } p.anim.sampleScene(c, time, reset, blend); p.anim.compose(p.base); p.skel.rot.set(p.anim.out); p.skel.off[p.layout.idx('root') * 3 + 1] = p.anim.root.y; p.skel.update(); }
+        else { const e = enemyActor(who) as Enemy | null, p = e?.puppet, c = p?.clips.get(clip);
+          if (e && p && c) {
+            if (reset && !p.anim.sceneDriven) {
+              p.anim.out.set(p.skel.rot); p.base.set(p.skel.rot);
+            }
+            p.anim.sampleScene(c, time, reset, blend); p.anim.compose(p.base); p.skel.rot.set(p.anim.out);
+            p.skel.off[p.layout.idx('root') * 3 + 1] = p.anim.root.y;
+            p.skel.x = e.x; p.skel.z = e.z; p.skel.facing = e.facing;
+            // Вход идёт при остановленном мире; остальные сцены сохраняют опору/высоту своего контроллера.
+            if (this.gateEntrance) p.skel.y = e.y;
+            p.skel.update();
+          }
         }
       },
       releaseClip: (who: string) => { if (who === 'hero') w.hero.releaseSceneClip(); else { const p = (enemyActor(who) as Enemy | null)?.puppet; if (p) { p.anim.releaseScene(); p.skel.off[p.layout.idx('root') * 3 + 1] = 0; } } },

@@ -27,6 +27,7 @@ export class Game {
   /** Экраны DOM подписываются сюда (рисуют фон сцены в меню). */
   onFrame: ((dt: number) => void) | null = null;
   onBattleEnd: ((o: BattleOutcome) => void) | null = null;
+  onBattleCheckpoint: ((o: BattleOutcome) => void) | null = null;
   private autoQ = newAutoQ();
 
   constructor(root: HTMLElement) {
@@ -182,6 +183,7 @@ export class Game {
     // пересмотр из Кинозала — на копии сохранения: без звёзд, титулов и записей
     const b = new Battle(opts.replay ? replayContext(this.ctx) : this.ctx, def, stats, this.loadout(), opts);
     b.onEnd = (o) => this.onBattleEnd?.(o);
+    b.onSectionEnd = (o) => this.onBattleCheckpoint?.(o);
     this.battle = b;
     this.screen = 'battle';
     this.ctx.input.enabled = true;

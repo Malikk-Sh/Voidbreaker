@@ -205,7 +205,7 @@ export const ROOT_TOP = 1.3;
 export const ROOT_SUNK = -6.8;
 
 export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, density = 1): ArenaView {
-  const def = arena.def.encounter ? { ...arena.def, parts: [arena.def.encounter] } : arena.def;
+  const def = arena.def.encounter ? { ...arena.def, parts: [arena.def.encounter], holes: arena.def.holes?.filter(h => inPart(arena.def.encounter!, h.x, h.z)) } : arena.def;
   const rng = new Rng(seed + ':decor');
   const root = new THREE.Group();
   const flames: [number, number, number][] = [];
@@ -559,6 +559,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   const breakable = def.id === 'naves';
   const coverMeshes: THREE.Mesh[] = [];
   for (const c of arena.covers) {
+    if (def.encounter && !inPart(def.encounter, c.x, c.z)) continue;
     // низкая колонна-постамент: капитель на высоте h + 0.08 (см. column)
     const h = rng.range(2.9, 3.4);
     if (breakable) {
