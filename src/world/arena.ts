@@ -1,4 +1,4 @@
-import { arenaBounds, inArenaShape, inHole, inStar, type ArenaDef } from '../data/arenas';
+import { arenaBounds, inArenaShape, inHole, inPart, inStar, type ArenaDef, type ShapePart } from '../data/arenas';
 
 export enum TileState { Gone = 0, Alive = 1, Falling = 2, Rising = 3, Warning = 4 }
 
@@ -28,6 +28,35 @@ export class Arena {
   tilesDirty = true;
   /** Растёт, когда меняется проходимость (плиты, временные стены) — навигация перестраивает сетку. */
   version = 0;
+  private readonly barriers = new Map<string, ShapePart>();
+
+  /** Врата и запираемые проходы: видимая преграда меняет ту же маску, которую читает навигация. */
+  setBarrier(id: string, shape: ShapePart | null): void {
+    if (shape) this.barriers.set(id, shape);
+    else if (!this.barriers.delete(id)) return;
+    this.version++;
+  }
+
+  /** Фазовый шаг проходит над провалами, но не сквозь закрытые Врата. Направление нормализовано. */
+  barrierDistance(x: number, z: number, dx: number, dz: number, distance: number): number {
+    if (!this.barriers.size) return distance;
+    let safe = distance;
+    for (const b of this.barriers.values()) {
+      let enter = 0, exit = safe;
+      for (const [p, d, lo, hi] of [
+        [x, dx, b.x - b.w / 2 - 0.35, b.x + b.w / 2 + 0.35],
+        [z, dz, b.z - b.h / 2 - 0.35, b.z + b.h / 2 + 0.35],
+      ]) {
+        if (Math.abs(d) < 1e-8) { if (p < lo || p > hi) { exit = -1; break; } }
+        else {
+          const a = (lo - p) / d, c = (hi - p) / d;
+          enter = Math.max(enter, Math.min(a, c)); exit = Math.min(exit, Math.max(a, c));
+        }
+      }
+      if (exit >= enter) safe = Math.max(0, enter - 0.05);
+    }
+    return safe;
+  }
 
   constructor(readonly def: ArenaDef) {
     this.t = def.tile;
@@ -60,6 +89,7 @@ export class Arena {
 
   /** Можно ли стоять в точке (плитка жива; у «стеновых» арен ещё и внутри формы). */
   walkable(x: number, z: number): boolean {
+    for (const b of this.barriers.values()) if (inPart(b, x, z, -0.35)) return false;
     const t = this.tileAt(x, z);
     if (!t || (t.state !== TileState.Alive && t.state !== TileState.Warning)) return false;
     if (this.edge === 'wall') return inArenaShape(this.def, x, z, 0.35);
@@ -91,6 +121,7 @@ export class Arena {
 
   /** Снаряд упёрся в укрытие? */
   blocked(x: number, z: number, r = 0): boolean {
+    for (const b of this.barriers.values()) if (inPart(b, x, z, -r)) return true;
     for (const c of this.covers) {
       const dx = x - c.x, dz = z - c.z, rr = c.r + r;
       if (dx * dx + dz * dz < rr * rr) return true;

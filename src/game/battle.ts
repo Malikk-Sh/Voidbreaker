@@ -52,6 +52,9 @@ import { DrillTracker, type DrillState } from './drills';
 import { IGNITE, LANDING_FROM, landingTrack, type LandingSpots } from './prologueTracks';
 import { ExtractionAttachment, extractionGripMatrix, extractionStand } from './extraction';
 import { VICTORY_SHOT } from './victoryShot';
+import { GATE_PATH, GatePath, gatePathArena } from '../world/gatePath';
+import { GatePathView } from '../gen/zone/gatePath';
+import { gateEntranceTrack } from './gateEntrance';
 
 
 const _top = new THREE.Vector3();
@@ -143,6 +146,13 @@ export class Battle {
   private readonly contact = new ContactShadows();
   /** Своё событие арены (план §8.5). */
   readonly events: ArenaEvents;
+  /** Управляемый маршрут 1-3; пересмотры в Кинозале оставляют исходную сцену. */
+  readonly gatePath: GatePath | null;
+  private readonly gatePathView: GatePathView | null;
+  private gateEntrance = false;
+  private entranceLift = 0;
+  private gateVisual = 0;
+  private gateOpeningAnnounced = false;
   private readonly ambience: Ambience | null;
   /** Пыль в лучах из окон и пепел на разной глубине (план §8.5). */
   private readonly beamDust: BeamDust | null;
@@ -204,7 +214,9 @@ export class Battle {
     this.scars = new FloorScars(stage.boss ? BOSS_SCAR_LIFE : SCAR_LIFE);
     const r = ctx.renderer;
     const Q = QUALITY[r.quality];
-    this.arena = new Arena(ARENAS[stage.arena]);
+    const path = stage.id === '1-3' && !opts.replay;
+    this.arena = new Arena(path ? gatePathArena(ARENAS[stage.arena]) : ARENAS[stage.arena]);
+    this.gatePath = path ? new GatePath(this.arena) : null;
     this.world = new World(this.arena, `stage:${stage.id}`);
     this.world.zone = stage.zone;
     // ступень сложности: 1-7…1-9 — 6…8 (здоровье +12 %, урон +8 % за ступень сверх 1-6)
@@ -219,6 +231,7 @@ export class Battle {
     this.world.hero.applyStats(stats);
 
     this.view = buildArenaView(this.arena, `stage:${stage.id}`, ZONE1_LOOK, Q.decor);
+    this.gatePathView = path ? new GatePathView(this.view) : null;
     this.group.add(this.view.root);
     if (stage.id === '1-1') this.group.add(...craterMeshes());
     this.flames = new Flames(this.view.flames);
@@ -263,7 +276,8 @@ export class Battle {
     const b = this.arena.bounds;
     const sx = ARENAS[stage.arena].parts[0].x, sz = Math.min(b.maxZ - 3, (b.maxZ + b.minZ) / 2 + (b.maxZ - b.minZ) * 0.25);
     const o = { x: 0, z: 0 };
-    if (opts.prologue) this.arena.nearestWalkable(CRATER.x, CRATER.z, o);
+    if (this.gatePath) this.arena.nearestWalkable(GATE_PATH.start.x, GATE_PATH.start.z, o);
+    else if (opts.prologue) this.arena.nearestWalkable(CRATER.x, CRATER.z, o);
     else this.arena.nearestWalkable(sx, sz, o);
     this.world.hero.spawn(o.x, o.z, Math.PI);
     this.abilities.resetCooldowns();
@@ -310,6 +324,11 @@ export class Battle {
     if (opts.prologue) this.startLanding();
     else if (this.replay) this.startReplay();
     else if (stage.training) this.startTraining();
+    else if (this.gatePath) {
+      this.runner.introTime = Infinity;
+      ctx.hud.stageTitle('ПУТЬ К ВРАТАМ', '1-3 · Собор Падших Звёзд', 'Пройди через галерею', 2.8, 52);
+      ctx.hud.showHint('Пройди через галерею к Вратам', 8);
+    }
     else if (!stage.boss) {
       // пролёт над ареной; первая волна — когда камера опустится к Пилоту
       const ab = this.arena.bounds;
@@ -368,6 +387,12 @@ export class Battle {
     });
     b.on('stageClear', () => {
       this.outcome = 'won';
+      if (this.gatePath) {
+        this.gatePath.win();
+        S.music.stop(POST_SILENCE * 0.8);
+        this.endT = -1;
+        return;
+      }
       // казнь (план §8.3.2): экран наград — только когда сцена досмотрена
       if (this.stage.boss) { this.endT = this.director.active ? -1 : 1.8; return; }
       if (this.finisherVictory) { S.music.stop(1.5); this.endT = this.director.active ? -1 : 0.35; return; }
@@ -408,7 +433,11 @@ export class Battle {
     });
     b.on('spawned', (e) => {
       const en = e.actor as { kind?: string; isGuardian?: boolean; isBoss?: boolean };
-      if (en.isGuardian && !en.isBoss && en.kind) { S.music.play(guardianSong(en.kind), 0.9); if (!this.replay) this.cine.guardianIntro(e.actor as Enemy); }
+      if (en.isGuardian && !en.isBoss && en.kind) {
+        S.music.play(guardianSong(en.kind), 0.9);
+        if (this.gatePath && en.kind === 'gateGuardian') this.startGateEntrance(e.actor as Enemy);
+        else if (!this.replay) this.cine.guardianIntro(e.actor as Enemy);
+      }
       else if ((e.actor as Enemy).elite?.length && !en.isBoss) this.cine.elite(e.actor as Enemy);
       // новые враги Зоны 01 (план §7.2–7.3): одна подсказка при первой встрече
       if (en.kind === 'crucifier' && !S.flag('tut_crucifier')) {
@@ -488,6 +517,7 @@ export class Battle {
     if (!T.paused) {
       this.cine.update(realDt, this.cam);
       this.director.update(realDt, this.cam);
+      this.updateGatePath(realDt);
     }
 
     // шлейф клинка: сэмплы рукоять/кончик
@@ -558,19 +588,97 @@ export class Battle {
   }
 
   private step(dtW: number, dtH: number, dtR: number): void {
+    // Вход Стража ведёт Director: вся симуляция стоит, невидимых атак и спаунов нет.
+    if (this.gateEntrance || (this.gatePath && this.director.active)) return;
     // «ДОБИТЬ»: атака по оглушённому боссу на краю смерти запускает казнь, а не удар
     const inp = this.ctx.input;
     if (this.boss?.executable && !this.director.active && inp.buffer.peek('attack', inp.now)) {
       inp.buffer.consume('attack', inp.now);
       this.boss.execute?.();
     }
+    const runTime = this.world.run.time;
     this.world.step(dtW, dtH, this.ctx.input, dtR);
+    if (this.gatePath && this.gatePath.phase !== 'combat') this.world.run.time = runTime;
     if (!this.boss && this.runner.boss instanceof Hierophant) {
       this.boss = new HierophantController(this.bossHost(), this.runner.boss);
       // цепи, колокола-спутники и прочие объекты босса — тоже до первого кадра с ними
       void this.ctx.renderer.warmAll(this.group, () => !this.disposed);
     }
     this.boss?.step(dtW);
+  }
+
+  /** Отладочный переход сохраняет короткий адрес ?stage=1-3&wave=2 для дуэли со Стражем. */
+  skipToWave(index: number): void {
+    if (this.gatePath) {
+      this.gatePath.enterCombat();
+      this.world.hero.spawn(0, 5, Math.PI);
+      this.cam.snap(0, 4);
+      this.ctx.hud.foldTitle();
+    }
+    this.runner.skipTo(Number.isFinite(index) ? Math.max(0, index) : 0);
+    this.cine.clear(this.cam);
+  }
+
+  private updateGatePath(realDt: number): void {
+    const path = this.gatePath;
+    if (!path) return;
+    const h = this.world.hero, ctx = this.ctx;
+    const cinematic = this.director.active || this.cine.active;
+    const event = path.step(realDt, h.x, h.z, h.dead, cinematic);
+    if (event === 'reveal') {
+      ctx.hud.foldTitle();
+      ctx.hud.showHint('Врата впереди. Выйди на террасу', 5);
+    } else if (event === 'combat') {
+      this.runner.skipIntro();
+      ctx.hud.foldTitle();
+    } else if (event === 'passage') {
+      ctx.audio.play('wave_clear', { gain: 0.4 });
+      ctx.hud.showHint('Врата открыты. Пройди по золотым меткам', 30);
+    } else if (event === 'complete') {
+      // Награды по прежним формулам этапа — один раз, после настоящего перехода за Врата.
+      this.endT = 0.25;
+    }
+    if (path.phase === 'opening' && !cinematic) {
+      h.resumeAfterVictory();
+      if (!this.gateOpeningAnnounced) {
+        this.gateOpeningAnnounced = true;
+        ctx.audio.play('shatter_stone', { gain: 0.5 });
+        ctx.hud.showHint('Печать разрушена. Врата поднимаются', 4);
+        this.view.lightConstellations();
+        for (let i = -2; i <= 2; i++) this.vfx.smokePuff(i * 1.1, 0.25, GATE_PATH.gateZ);
+      }
+    } else if (path.phase === 'combat' && this.finisherVictory && !cinematic) h.resumeAfterVictory();
+    const target = Math.max(path.open, this.entranceLift);
+    this.gateVisual += (target - this.gateVisual) * (1 - Math.exp(-realDt * 5));
+    if (path.open >= 1) this.gateVisual = 1;
+    this.events.gateOpen(this.gateVisual);
+    this.gatePathView?.update(path.open, path.phase === 'combat' || path.phase === 'opening');
+  }
+
+  private startGateEntrance(e: Enemy): void {
+    this.gateEntrance = true;
+    e.setState('idle'); e.puppet.dissolve = 0;
+    this.cine.clear(this.cam);
+    this.ctx.music.duck(0.2, 1.0);
+    this.sceneCalls.set('gateLift', (value) => { this.entranceLift = value ?? 0; });
+    this.sceneCalls.set('gateStep', () => {
+      this.world.bus.emit('sfx', { id: 'land_impact', x: e.x, z: e.z, gain: 0.65 });
+      this.world.bus.emit('shake', { trauma: 0.2 });
+      for (const x of [-0.8, 0.8]) this.vfx.smokePuff(e.x + x, 0.1, e.z + 0.3);
+    });
+    const h = this.world.hero;
+    const end = { x: 0, z: -5.5 };
+    if (Math.hypot(h.x - end.x, h.z - end.z) < 4) this.arena.nearestWalkable(h.x <= 0 ? 4 : -4, -6.5, end);
+    this.playScene(gateEntranceTrack([h.x, 0, h.z], [end.x, 0, end.z]), () => {
+      // Полный показ, короткая версия и пропуск имеют одно безопасное конечное состояние.
+      e.x = end.x; e.y = 0; e.z = end.z;
+      e.facing = Math.atan2(h.x - e.x, h.z - e.z);
+      e.puppet.dissolve = 0; e.setState('idle'); e.cooldown = 1;
+      this.entranceLift = 0;
+      this.gateEntrance = false;
+      this.ctx.input.buffer.clear();
+      h.invulnUntil = h.clock + 1;
+    }, { hud: false });
   }
 
   private bossHost(): BossHost {
@@ -764,9 +872,22 @@ export class Battle {
       this.waveEndT -= realDt;
       zoom *= 1 - WAVE_END.push * Math.min(1, this.waveEndT / 0.25, (WAVE_END.sec + 0.35 - this.waveEndT) / 0.12);
     }
+    const path = this.gatePath;
+    const explore = path && (path.phase === 'approach' || path.phase === 'reveal' || path.phase === 'opening' || path.phase === 'passage');
+    cam.context = this.director.active || this.cine.active ? 'event' : explore ? 'explore' : 'combat';
+    // Ни свободного облёта, ни смены осей ввода: открываем перспективу только наклоном и упреждением.
+    const gallery = path?.phase === 'approach' || path?.phase === 'reveal';
+    const reveal = clamp((GATE_PATH.revealZ - h.z) / 6.5, 0, 1);
+    const opening = path?.phase === 'opening';
+    const tilt = gallery ? 0.3 + 0.43 * reveal : opening ? 0.62 : focusBoss ? this.camPreset.boss : this.camPreset.tilt;
+    const lookHeight = gallery ? 1.25 * (1 - reveal) : opening ? 1.6 : explore ? 0.8 : 0;
+    cam.lookHeight += (lookHeight - cam.lookHeight) * (1 - Math.exp(-realDt * 3));
+    const fov = gallery ? 52 - (52 - this.camPreset.fov) * reveal : opening ? 44 : this.camPreset.fov;
+    cam.fov += (fov - cam.fov) * (1 - Math.exp(-realDt * 3));
+    if (explore) { tz -= gallery ? 1.4 : opening ? 3.5 : 1.1; zoom = opening ? 1.15 : 1; }
     this.feel.baseZoom = zoom;
     // со Стражем и боссом камера наклоняется ниже: в кадре горизонт и луна (план §8.5); у «Кино» — до 42°
-    cam.tilt += ((focusBoss ? this.camPreset.boss : this.camPreset.tilt) - cam.tilt) * Math.min(1, realDt * 1.2);
+    cam.tilt += (tilt - cam.tilt) * Math.min(1, realDt * 1.2);
     const lead = this.world.hero.state === 'move' ? 0.18 : 0;
     cam.update(realDt, tx, tz, h.vx * lead, h.vz * lead, this.ctx.renderer.camera);
     this.boss?.cameraOverride(cam, this.ctx.renderer.camera, realDt);
@@ -920,7 +1041,7 @@ export class Battle {
       victoryDone = true; h.victory();
       w.bus.emit('bossVictory', { x: h.x, y: h.y, z: h.z, facing: h.facing, tone: 'gold' });
     });
-    const finish = () => { crumble(); if (this.outcome === 'won') this.endT = 0.35; };
+    const finish = () => { crumble(); if (this.outcome === 'won' && !this.gatePath) this.endT = 0.35; };
     if (e.kind === 'gateGuardian') {
       this.sceneCalls.set('knee', () => {
         if (e instanceof GateGuardian) e.setKillcamStage('kneel');

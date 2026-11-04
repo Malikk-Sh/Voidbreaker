@@ -23,6 +23,9 @@ export function camModeFrom(setting: CamMode | undefined, search = typeof locati
  * Следование с упреждением, тряска по модели «травмы», направленный кик, зум-панч. Тряска — в реальном времени.
  */
 export class CameraRig {
+  /** Контекст кадра; азимут не меняется, поэтому направление стика остаётся прежним. */
+  context: 'explore' | 'combat' | 'event' = 'combat';
+  lookHeight = 0;
   focus = new THREE.Vector3();
   trauma = 0;
   kick = new THREE.Vector2();
@@ -63,14 +66,14 @@ export class CameraRig {
     const dist = (this.baseDist * this.zoom * aspectFix) / (1 + this.zoomPunch);
     const fx = this.focus.x + ox, fz = this.focus.z + oz;
     cam.position.set(fx, dist * Math.sin(this.tilt), fz + dist * Math.cos(this.tilt));
-    cam.lookAt(fx, 0, fz);
+    cam.lookAt(fx, this.lookHeight, fz);
     cam.rotation.z += 0.02 * s * noise1(this.seed + 200, t) + this.roll;
     if (!this.fov) this.fov = cam.fov;
     let fov = this.fov;
     if (this.cine) {
       const w = this.cine.w;
       cam.position.lerp(this.cine.pos, w);
-      const look = _look.set(fx, 0, fz).lerp(this.cine.look, w);
+      const look = _look.set(fx, this.lookHeight, fz).lerp(this.cine.look, w);
       cam.lookAt(look);
       if (this.cine.roll) cam.rotation.z += this.cine.roll * w;
       if (this.cine.fov) fov = this.fov + (this.cine.fov - this.fov) * w;

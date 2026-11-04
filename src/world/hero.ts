@@ -793,6 +793,11 @@ export class Hero implements Actor {
     if (!this.avatar.puppet.anim.sceneDriven) this.avatar.puppet.play('victory', 1, 0.25);
   }
 
+  /** Победа открыла следующий проход: стойка закончена, новый ввод принимается сразу. */
+  resumeAfterVictory(): void {
+    if (this.state === 'victory') { this.toMove(); this.avatar.puppet.anim.stop(0.18); }
+  }
+
   /** Скриптовое движение (пробежка по древку): герой не расталкивается с врагами, позицию ведёт сценарий. */
   scripted = false;
   /** Размер клинка вне ульты: в прологе клинка ещё нет (≈0), он вырастает из обломка обшивки. */

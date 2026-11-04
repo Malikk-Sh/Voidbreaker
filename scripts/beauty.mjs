@@ -98,6 +98,7 @@ const STEP_PAGE = ([frames, HOLD, BOSS_HOLD]) => {
       if (nd > 1.9) { B.mx = (near.x - h.x) / nd; B.mz = (near.z - h.z) / nd; }
       else if (B.frame % 12 === 0) inp.buffer.push('attack', inp.now);
     }
+    if (free && bt.gatePath && ['approach', 'reveal'].includes(bt.gatePath.phase)) B.mz = -1;
     B.frame++;
     bt.frame(1 / 60);
     bt.ctx.hud.draw(1 / 60, bt.hudFrame());

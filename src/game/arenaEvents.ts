@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { inPart } from '../data/arenas';
+import { encounterBounds, inPart } from '../data/arenas';
 import type { StageDef } from '../data/stages';
-import { buildChoristerParts, buildGiantBell, buildGiantGate, buildGuardianSilhouette, buildPrayingFigure, buildWreck } from '../gen/zone/setPieces';
+import { buildChoristerParts, buildGiantBell, buildGiantGate, buildGiantGateGrille, buildGuardianSilhouette, buildPrayingFigure, buildWreck } from '../gen/zone/setPieces';
 import { ASSEMBLY, Assembly } from './assembly';
 import { boundaryAt, ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
 import { obsidianMaterial } from '../render/materials';
@@ -39,6 +39,7 @@ export class ArenaEvents {
   private fieldTarget = 0;
   private silhouette: THREE.Mesh | null = null;
   private haze: THREE.Mesh | null = null;
+  private gateGrille: THREE.Mesh | null = null;
   private bell: THREE.Object3D | null = null;
   private bellAmp = 0.03;
   private bellT = 0;
@@ -76,13 +77,15 @@ export class ArenaEvents {
     if (id === '1-3') {
       // ворота встают на место дальнего фасада; старая арка-калитка остаётся в их проёме
       const gateMat = obsidianMaterial({ rim: ZONE1_LOOK.rim, rimStrength: 0.3, rimPower: 2.6, emissive: ZONE1_LOOK.veins, emissive2: '#E11D2E', emissiveStrength: 1.4 });
-      add(buildGiantGate(), gateMat, cx, -2, GATE_Z(b.minZ));
+      const gz = GATE_Z(encounterBounds(w.arena.def).minZ);
+      add(buildGiantGate(83, !w.arena.def.encounter), gateMat, cx, -2, gz);
+      if (w.arena.def.encounter) this.gateGrille = add(buildGiantGateGrille(), gateMat, cx, -2, gz);
       // сбоку от арки-калитки, чтобы она его не заслоняла; в полтора роста — гигант за решёткой
-      this.silhouette = add(buildGuardianSilhouette(), enemyMat, cx + 7.5, -3, GATE_Z(b.minZ) - 7);
+      this.silhouette = add(buildGuardianSilhouette(), enemyMat, cx + 7.5, -3, gz - 7);
       this.silhouette.scale.setScalar(1.35);
       this.silhouette.rotation.y = -0.25;
       // багровое марево за Стражем: на нём читается чёрный силуэт сквозь решётку
-      this.haze = add(new THREE.PlaneGeometry(40, 36), hazeMaterial(), cx + 6, 12, GATE_Z(b.minZ) - 13);
+      this.haze = add(new THREE.PlaneGeometry(40, 36), hazeMaterial(), cx + 6, 12, gz - 13);
       this.haze.renderOrder = -1;
     }
     if (id === '1-6') {
@@ -171,6 +174,11 @@ export class ArenaEvents {
 
   /** Свои геометрии и материал сборной декорации (остальной декор уходит вместе с группой арены). */
   dispose(): void { this.assembly?.dispose(); this.choir?.dispose(); }
+
+  /** Подъём без масштаба и растворения: каменная арка остаётся на месте. */
+  gateOpen(k: number): void {
+    if (this.gateGrille) this.gateGrille.position.y = -2 + 36 * (k * k * (3 - 2 * k));
+  }
 
   /**
    * Низкий план на декорацию для интро этапа (из боевой камеры сверху её не видно): из-за плеча Пилота

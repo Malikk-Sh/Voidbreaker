@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { buildDomeRose } from './space';
 import { Rng } from '../../core/rng';
 import { hexToLinear } from '../../core/math';
-import { inArenaShape, inOutline, inPart, starRay, type ArenaDef, type ShapePart } from '../../data/arenas';
+import { encounterBounds, inArenaShape, inOutline, inPart, starRay, type ArenaDef, type ShapePart } from '../../data/arenas';
 import { GeomBuilder, mat, matAlong } from '../geom/build';
 import { box, prism, shard, rock, lathe, starPlate } from '../geom/prims';
 import {
@@ -205,12 +205,12 @@ export const ROOT_TOP = 1.3;
 export const ROOT_SUNK = -6.8;
 
 export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, density = 1): ArenaView {
-  const def = arena.def;
+  const def = arena.def.encounter ? { ...arena.def, parts: [arena.def.encounter] } : arena.def;
   const rng = new Rng(seed + ':decor');
   const root = new THREE.Group();
   const flames: [number, number, number][] = [];
   const pools: LightPoolDef[] = [];
-  const b = arena.bounds;
+  const b = encounterBounds(arena.def);
 
   // ---------- пол ----------
   const floorMat = obsidianMaterial({ rim: look.rim, rimStrength: 0.06, emissive: look.veins, emissive2: look.warm, spec: 1.0, floor: true });
@@ -324,6 +324,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     if (def.parts.length > 1) break;
     const r = boundaryAt(def, a, def.parts[0].x, def.parts[0].z);
     const x = def.parts[0].x + Math.sin(a) * (r + 0.25), z = def.parts[0].z + Math.cos(a) * (r + 0.25);
+    if (def.encounter && Math.abs(x) < 3.5 && Math.abs(z) > 8) continue;
     if (wall) D.add(prism(4, 0.5, 0.42, 0.18), { matrix: mat(x, 0, z, 0, a + Math.PI / 4), color: OBS, shade: 0.15 });
     if (i % 2 === 0) {
       const len = rng.range(3, 9);
@@ -353,6 +354,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       const a = (i / n) * Math.PI * 2 + 0.001;
       const r = boundaryAt(def, a, p0.x, p0.z);
       const x = p0.x + Math.sin(a) * (r + 1.2), z = p0.z + Math.cos(a) * (r + 1.2);
+      if (def.encounter && Math.abs(x) < 4.2 && Math.abs(z) > 8) continue;
       const near = z > nearZ - 3.5;
       const far = z < farZ + 2.5;
       if (far && Math.abs(x - farPart.x) < farPart.w * 0.36) continue; // там стоит аркада-фасад
@@ -433,7 +435,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     }
     if (style === 'gate') {
       // Врата: огромная арка с решёткой
-      place((g) => gateArch(g), p0.x, 0, farZ - 1.0);
+      place((g) => gateArch(g, !def.encounter), p0.x, 0, farZ - 1.0);
     }
     if (style === 'belfry') {
       // колокол в проёме фасада
@@ -911,7 +913,7 @@ const FRESCO_MAW = new Set(['candles', 'bridge', 'belfry', 'hierophant']);
 const GLASS_VOID = new THREE.Vector3(...hexToLinear('#B794FF')).multiplyScalar(1.4);
 
 /** Врата: высокая стрельчатая арка с опущенной решёткой. */
-function gateArch(g: GeomBuilder): void {
+function gateArch(g: GeomBuilder, grille = true): void {
   g.color = OBS;
   const shape = new THREE.Shape();
   const W = 5.2, H = 9;
@@ -920,9 +922,11 @@ function gateArch(g: GeomBuilder): void {
   hole.moveTo(-3.4, 0); hole.lineTo(-3.4, 6.5); hole.quadraticCurveTo(-3.2, 10.2, 0, 11.4); hole.quadraticCurveTo(3.2, 10.2, 3.4, 6.5); hole.lineTo(3.4, 0); hole.closePath();
   shape.holes.push(hole);
   g.add(new THREE.ExtrudeGeometry(shape, { depth: 1.4, bevelEnabled: false }), { matrix: mat(0, 0, -0.7) });
-  for (let x = -3; x <= 3; x += 0.75) g.add(box(0.12, 9, 0.12), { matrix: mat(x, 4.6, 0) });
-  for (let y = 1; y <= 8; y += 1.4) g.add(box(6.8, 0.1, 0.1), { matrix: mat(0, y, 0) });
-  for (let x = -3; x <= 3; x += 0.75) g.add(prism(4, 0.12, 0, 0.4), { matrix: mat(x, -0.1, 0, Math.PI) });
+  if (grille) {
+    for (let x = -3; x <= 3; x += 0.75) g.add(box(0.12, 9, 0.12), { matrix: mat(x, 4.6, 0) });
+    for (let y = 1; y <= 8; y += 1.4) g.add(box(6.8, 0.1, 0.1), { matrix: mat(0, y, 0) });
+    for (let x = -3; x <= 3; x += 0.75) g.add(prism(4, 0.12, 0, 0.4), { matrix: mat(x, -0.1, 0, Math.PI) });
+  }
   g.add(box(0.5, 0.5, 0.2), { matrix: mat(0, 12.2, 0.65, 0, 0, Math.PI / 4), emissive: 1, color: OBS_DEEP });
 }
 

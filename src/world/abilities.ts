@@ -134,7 +134,7 @@ export class Abilities implements AbilityHost {
   private castPhase(dx: number, dz: number): void {
     const h = this.w.hero, a = this.w.arena;
     const x0 = h.x, z0 = h.z;
-    let dist = 5;
+    let dist = a.barrierDistance(x0, z0, dx, dz, 5);
     // конечная точка — проходимая (сквозь врагов, но не в пропасть)
     while (dist > 0.5 && !a.walkable(x0 + dx * dist, z0 + dz * dist)) dist -= 0.25;
     const x1 = x0 + dx * dist, z1 = z0 + dz * dist;

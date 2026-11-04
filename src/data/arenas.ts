@@ -9,6 +9,8 @@ export type DecorStyle = 'nave' | 'gate' | 'candles' | 'bridge' | 'belfry' | 'bo
 export interface ArenaDef {
   id: string;
   parts: ShapePart[];
+  /** Боевая площадка внутри маршрута: спауны и декор не растягиваются на подход и выход. */
+  encounter?: ShapePart;
   holes?: ShapePart[];
   tile: number;
   edge: 'wall' | 'abyss';
@@ -171,4 +173,9 @@ export function arenaBounds(a: ArenaDef): { minX: number; maxX: number; minZ: nu
     minZ = Math.min(minZ, p.z - p.h / 2); maxZ = Math.max(maxZ, p.z + p.h / 2);
   }
   return { minX, maxX, minZ, maxZ };
+}
+
+/** Границы боя; проходимый маршрут при этом может продолжаться за ними. */
+export function encounterBounds(a: ArenaDef): ReturnType<typeof arenaBounds> {
+  return a.encounter ? arenaBounds({ ...a, parts: [a.encounter] }) : arenaBounds(a);
 }

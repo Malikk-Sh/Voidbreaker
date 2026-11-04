@@ -4,6 +4,7 @@ import type { Enemy } from './enemy';
 import { createEnemy } from './enemies/factory';
 import { ENEMIES } from '../data/enemies';
 import { BIG_RADIUS } from './nav';
+import { encounterBounds, inPart } from '../data/arenas';
 import type { World } from './world';
 
 type Phase = 'intro' | 'wave' | 'breather' | 'clear' | 'failed';
@@ -35,6 +36,7 @@ export class StageRunner {
     const a = w.arena;
     for (const tile of a.tiles) {
       if (tile.state !== TileState.Alive) continue;
+      if (a.def.encounter && !inPart(a.def.encounter, tile.x, tile.z, 0.5)) continue;
       const t = a.t;
       const edge = !a.walkable(tile.x + t, tile.z) || !a.walkable(tile.x - t, tile.z) || !a.walkable(tile.x, tile.z + t) || !a.walkable(tile.x, tile.z - t);
       if (edge && a.walkable(tile.x, tile.z)) this.edgeTiles.push({ x: tile.x, z: tile.z });
@@ -123,11 +125,12 @@ export class StageRunner {
   }
 
   private pickRaw(s: SpawnDef, i: number, n: number): { x: number; z: number } {
-    const w = this.w, a = w.arena, h = w.hero, b = a.bounds;
+    const w = this.w, a = w.arena, h = w.hero, b = encounterBounds(a.def);
     const out = { x: 0, z: 0 };
     const def = ENEMIES[s.enemy];
     const melee = !def.ranged, big = def.radius > BIG_RADIUS;
-    const ok = (x: number, z: number) => a.walkable(x, z) && Math.hypot(x - h.x, z - h.z) >= 3.2 && (!melee || w.nav.reachable(x, z, big));
+    const inBattle = (x: number, z: number) => !a.def.encounter || inPart(a.def.encounter, x, z, 0.8);
+    const ok = (x: number, z: number) => inBattle(x, z) && a.walkable(x, z) && Math.hypot(x - h.x, z - h.z) >= 3.2 && (!melee || w.nav.reachable(x, z, big));
     if (s.at && s.at.length) {
       const anchor = s.at[i % s.at.length];
       const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
@@ -158,7 +161,7 @@ export class StageRunner {
     const tiles = a.tiles.filter((t) => t.state === TileState.Alive);
     for (let k = 0; k < 14; k++) {
       const t = w.rng.pick(tiles);
-      if (!t || !a.walkable(t.x, t.z) || (melee && !w.nav.reachable(t.x, t.z, big))) continue;
+      if (!t || !inBattle(t.x, t.z) || !a.walkable(t.x, t.z) || (melee && !w.nav.reachable(t.x, t.z, big))) continue;
       const d = Math.hypot(t.x - h.x, t.z - h.z);
       const score = pattern === 'far' ? d : d > 4 && d < 10 ? 10 - Math.abs(d - 7) : d * 0.3;
       if (score > bd) { bd = score; best = { x: t.x + w.rng.spread(0.4), z: t.z + w.rng.spread(0.4) }; }
