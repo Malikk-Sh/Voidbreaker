@@ -1,0 +1,161 @@
+{
+  "date": "2026-11-04",
+  "conditions": "Chromium154 / SwiftShader; audio off; suites sequential; accelerated kills test state transitions, not difficulty or physical phone performance",
+  "unitTests": {
+    "passed": 442,
+    "files": 51
+  },
+  "finalFocusedTests": 26,
+  "typecheck": true,
+  "build": true,
+  "bundleBytes": 1855232,
+  "renderBudget": {
+    "calls": 160,
+    "triangles": 260000
+  },
+  "sample": "All renderer passes sampled every120 simulation frames, not every possible frame",
+  "ritual": [
+    {
+      "q": "medium",
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "shot": null,
+      "ends": 1,
+      "lit": [
+        true,
+        true,
+        true
+      ],
+      "broken": true,
+      "maxDark": 0,
+      "maxDarkPools": 0,
+      "heartScreen": {
+        "x": 425.99149104333634,
+        "y": 92.0260000163635,
+        "visible": true
+      },
+      "firstHits": 1,
+      "heartHits": 1,
+      "protected": true,
+      "pulses": 2,
+      "peak": {
+        "calls": 59,
+        "tris": 80795
+      },
+      "screen": "results",
+      "clear": 1,
+      "hints": [
+        "Сердце крадёт огонь. Искры павших зажгут три жаровни.",
+        "Распинатель: стой в просвете веера. Промах Гвоздём — клинок застрял, бей",
+        "Искра у тебя. Подойди к тёмной жаровне — верни огонь.",
+        "Погребальное сердце разбито. Похищенный огонь свободен.",
+        "Враг оглушён — финишер или заряженный удар: РАСКОЛ"
+      ],
+      "frames": 3330,
+      "hero": [
+        6.871794705181408,
+        1.368299444739116
+      ],
+      "carried": 0,
+      "target": 2,
+      "errors": []
+    },
+    {
+      "q": "high",
+      "viewport": {
+        "width": 740,
+        "height": 360
+      },
+      "shot": null,
+      "ends": 1,
+      "lit": [
+        true,
+        true,
+        true
+      ],
+      "broken": true,
+      "maxDark": 0,
+      "maxDarkPools": 0,
+      "heartScreen": {
+        "x": 380.8150299016183,
+        "y": 66.00958449021569,
+        "visible": true
+      },
+      "firstHits": 1,
+      "heartHits": 1,
+      "protected": true,
+      "pulses": 2,
+      "peak": {
+        "calls": 71,
+        "tris": 95481
+      },
+      "screen": "results",
+      "clear": 1,
+      "hints": [
+        "Сердце крадёт огонь. Искры павших зажгут три жаровни.",
+        "Распинатель: стой в просвете веера. Промах Гвоздём — клинок застрял, бей",
+        "Искра у тебя. Подойди к тёмной жаровне — верни огонь.",
+        "Погребальное сердце разбито. Похищенный огонь свободен.",
+        "Враг оглушён — финишер или заряженный удар: РАСКОЛ"
+      ],
+      "frames": 3330,
+      "hero": [
+        6.885017113468141,
+        1.3998381386290968
+      ],
+      "carried": 0,
+      "target": 2,
+      "errors": []
+    }
+  ],
+  "continuousRoute": [
+    {
+      "q": "high",
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "shot": null,
+      "phase": "complete",
+      "stage": "1-4",
+      "wave": 3,
+      "z": -52.149666400231354,
+      "ends": 1,
+      "checkpoints": 1,
+      "saved": true,
+      "continuous": true,
+      "positionJump": 0.0914653731538202,
+      "rootError": 0,
+      "peak": {
+        "calls": 90,
+        "tris": 162528
+      },
+      "stages": [
+        "1-3",
+        "1-4"
+      ],
+      "screen": "results",
+      "clears": 1,
+      "collapse": {
+        "gap": true,
+        "safe": true,
+        "nav": true
+      },
+      "hints": [
+        "Врата впереди. Выйди на террасу",
+        "Враг оглушён — финишер или заряженный удар: РАСКОЛ",
+        "Печать разрушена. Врата поднимаются",
+        "Врата пройдены. Награда сохранена. Впереди — Свечной зал",
+        "Сердце крадёт огонь. Искры павших зажгут три жаровни.",
+        "Распинатель: стой в просвете веера. Промах Гвоздём — клинок застрял, бей",
+        "Искра у тебя. Подойди к тёмной жаровне — верни огонь.",
+        "Резонанс полон — R: ЗАТМЕНИЕ"
+      ],
+      "bridgeStillGone": true,
+      "bridgeFlamesMax": 0,
+      "errors": []
+    }
+  ]
+}

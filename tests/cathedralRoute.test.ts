@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { cathedralArena, CathedralRoute, CATHEDRAL } from '../src/world/cathedralRoute';
-import { Arena } from '../src/world/arena';
+import { cathedralArena, CathedralRoute, CATHEDRAL, BRIDGE_COLLAPSE } from '../src/world/cathedralRoute';
+import { Arena, TileState } from '../src/world/arena';
 import { RankTracker } from '../src/world/rank';
 import { World } from '../src/world/world';
 import { StageRunner } from '../src/world/stage';
@@ -14,12 +14,15 @@ describe('Врата — мост — Свечной зал', () => {
     expect(a.walkable(0,CATHEDRAL.hallZ)).toBe(false);
     expect(a.walkable(8,CATHEDRAL.hallZ)).toBe(true);
   });
-  it('переключает участок один раз, ждёт входа и запирает проход за героем', () => {
+  it('переключает участок один раз и обрушает мост за героем вместо невидимой стены', () => {
     const a=new Arena(cathedralArena()), r=new CathedralRoute(a);
     expect(r.startBridge()).toBe(true);expect(r.startBridge()).toBe(false);
     expect(r.step(0,-35)).toBe(false);expect(r.step(0,-47)).toBe(true);
-    expect(r.step(0,-48)).toBe(false);expect(a.walkable(0,-42)).toBe(false);
-    r.win();expect(a.walkable(0,-42)).toBe(true);
+    expect(r.step(0,-48)).toBe(false);expect(r.collapseStarted).toBe(true);
+    expect(a.blocked(0,-42)).toBe(false);
+    r.advanceCollapse(BRIDGE_COLLAPSE.duration);
+    expect(a.walkable(0,-42)).toBe(false);
+    r.win();expect(a.walkable(0,-42)).toBe(false);
   });
   it('начинает бой и при входе с края моста по широкой боковой части зала', () => {
     const a = new Arena(cathedralArena()), r = new CathedralRoute(a); r.startBridge();
@@ -42,6 +45,32 @@ describe('Врата — мост — Свечной зал', () => {
     expect(r.step(0,-100)).toBe(false);
     expect(r.phase).toBe('bridge');
     expect(r.step(4,-48)).toBe(true);
+  });
+  it('обвал идёт от зала к Вратам, останавливается на паузе и не затрагивает героя', () => {
+    const a = new Arena(cathedralArena()), r = new CathedralRoute(a); r.startBridge();
+    const safe = a.tiles.filter(t => t.z < BRIDGE_COLLAPSE.minZ || t.z > BRIDGE_COLLAPSE.maxZ);
+    expect(r.advanceCollapse(1)).toBe(0); expect(a.walkable(0,-35)).toBe(true);
+    r.step(0,-47);
+    const version = a.version;
+    expect(r.advanceCollapse(0)).toBe(0); expect(a.version).toBe(version);
+    expect(r.advanceCollapse(0.01)).toBeGreaterThan(0);
+    expect(a.walkable(0,-42.75)).toBe(false); expect(a.walkable(0,-29.25)).toBe(true);
+    expect(a.version).toBeGreaterThan(version); expect(a.tilesDirty).toBe(true);
+    r.advanceCollapse(BRIDGE_COLLAPSE.duration);
+    for (const tile of safe) expect(tile.state, `целая кромка ${tile.x},${tile.z}`).toBe(TileState.Alive);
+    expect(a.walkable(0,-47)).toBe(true); expect(a.walkable(8,CATHEDRAL.hallZ)).toBe(true);
+    expect(r.advanceCollapse(1)).toBe(0); expect(r.step(0,-47)).toBe(false);
+  });
+  it('оставляет настоящий постоянный разрыв после победы и обычного обновления плит', () => {
+    const a = new Arena(cathedralArena()), r = new CathedralRoute(a); r.startBridge(); r.step(0,-47);
+    // Чужой временный таймер падения не должен воскресить плиту разрушаемого пролёта.
+    const transient = a.tileAt(0,-35)!; a.breakTile(transient,6);
+    r.advanceCollapse(BRIDGE_COLLAPSE.duration); r.win();
+    for (let i=0;i<1200;i++) { r.advanceCollapse(1/60); a.step(1/60); }
+    const gap = a.tiles.filter(t => t.z >= BRIDGE_COLLAPSE.minZ && t.z <= BRIDGE_COLLAPSE.maxZ);
+    expect(gap.length).toBeGreaterThan(0);
+    for (const tile of gap) { expect(tile.state).toBe(TileState.Gone); expect(a.walkable(tile.x,tile.z)).toBe(false); }
+    expect(r.phase).toBe('complete'); expect(a.walkable(0,-47)).toBe(true);
   });
   it('враги второго участка появляются в его зале, а не на мосту или у Врат', () => {
     const a=new Arena(cathedralArena()), r=new CathedralRoute(a);r.startBridge();r.step(0,-47);

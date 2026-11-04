@@ -34,9 +34,6 @@ const GATE_Z = (minZ: number) => minZ - 4;
  * силуэт Стража на 1-3, свечное поле 1-4, рушащийся мост 1-5, огромный колокол 1-6.
  */
 export class ArenaEvents {
-  /** 1-4: доля погашенного свечного поля 0..1 (гасят волны, зажигает зачистка). */
-  fieldOut = 0;
-  private fieldTarget = 0;
   private silhouette: THREE.Mesh | null = null;
   private haze: THREE.Mesh | null = null;
   private gateGrille: THREE.Mesh | null = null;
@@ -126,9 +123,7 @@ export class ArenaEvents {
       this.bellAmp = Math.max(this.bellAmp, 0.2);
       bus.emit('sfx', { id: 'boss_bell', x: this.bell.position.x, z: this.bell.position.z, gain: 0.6 });
     });
-    bus.on('waveStart', () => { if (id === '1-4') this.fieldTarget = 0.86; });
     bus.on('waveClear', (e) => {
-      if (id === '1-4') this.fieldTarget = 0;
       if (id === '1-5' && e.index + 1 < e.total) this.collapseSpan();
     });
     if (id === '1-2') {
@@ -202,12 +197,11 @@ export class ArenaEvents {
   }
 
   /** camY — высота камеры: колокол виден, только пока камера ниже его края (сверху он лишь заслонял бы бой). */
-  update(realDt: number, dtW: number, camY = 0): void {
+  update(_realDt: number, dtW: number, camY = 0): void {
     if (this.bell) this.bell.visible = camY < this.bell.position.y - 7.4 * BELL.scale;
     this.updateBob(dtW);
     const fade = Math.exp(-dtW / WEAR.tau);
     for (let i = 0; i < this.wear.length; i++) this.wear[i] *= fade;
-    this.fieldOut += (this.fieldTarget - this.fieldOut) * Math.min(1, realDt * (this.fieldTarget > this.fieldOut ? 0.9 : 1.6));
     this.updateBell(dtW);
     this.updateColumns(dtW);
     this.assembly?.update(dtW);

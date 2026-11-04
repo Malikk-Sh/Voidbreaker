@@ -13,6 +13,7 @@ import { FX } from '../render/fx';
 import { FONT_BODY, FONT_TECH } from './fonts';
 import { drawIcon, type IconId } from './icons';
 import { UI } from './theme';
+import { drawCandleStatus, type CandleStatus } from './candleStatus';
 
 interface DmgNum { x: number; y: number; z: number; v: number; crit: boolean; shield: boolean; t: number; dx: number; key: number; big: boolean }
 /** fold — титр этапа: уходя, сворачивается в подпись внизу слева; строка — её подстрочник. */
@@ -59,6 +60,7 @@ export interface HudFrame {
   /** Тренировочный зал: памятка приёмов слева. */
   /** Тренировочный зал: активное упражнение и шаг. */
   training?: TrainingCard;
+  candles?: CandleStatus;
 }
 
 /** Кто целится издалека — им шевроны у края экрана. */
@@ -206,6 +208,7 @@ export class Hud {
     else if (f.guardian && !f.guardian.dead) this.drawBossBar(s, T, f.guardian, f.guardian.def.name, [], 0);
     else this.drawStageTop(f, s, T);
     this.topEdge = T + (f.boss || (f.guardian && !f.guardian.dead) ? 92 : 52) * s;
+    if (f.candles) { drawCandleStatus(g, f.candles, L + 93 * s, T + 45 * s, s); this.topEdge = Math.max(this.topEdge, T + 82 * s); }
     this.drawPause(R, T, s);
     this.drawRank(f, R, s);
     this.drawAbilities(f, R, B, s);

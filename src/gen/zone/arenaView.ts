@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildDomeRose } from './space';
+import { CandleSanctum } from './candleSanctum';
 import { Rng } from '../../core/rng';
 import { hexToLinear } from '../../core/math';
 import { encounterBounds, inArenaShape, inOutline, inPart, starRay, type ArenaDef, type ShapePart } from '../../data/arenas';
@@ -311,6 +312,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     D.append(g, mat(x, y, z, 0, ry, 0, s));
   };
   const style = def.decor;
+  let sanctum: CandleSanctum | undefined;
   const wall = def.edge === 'wall';
   const nearZ = b.maxZ, farZ = b.minZ;
   const farPart = def.parts.reduce((m, p) => (p.z - p.h / 2 < m.z - m.h / 2 ? p : m), def.parts[0]);
@@ -459,39 +461,11 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       }
     }
     if (style === 'candles') {
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 + 0.5;
-        const r = boundaryAt(def, a, p0.x, p0.z) * 0.62;
-        const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
-        if (Math.abs(z) < 2 && Math.abs(x) < 7) continue;
-        const c = candelabra(D, x, z, 0.5, rng.int(4, 6), rng.int(0, 1e5));
-        flames.push(...c.flames);
-        pools.push({ x, z, r: 3.0, color: look.warm, intensity: 0.5, flicker: 1 });
-      }
-      // свечное поле (план §8.5): тысячи свечей на трёх ярусах-ступенях вдоль стен — волны гасят их и зажигают
-      for (let tier = 0; tier < 3; tier++) {
-        const n = 150 - tier * 20, inset = 0.45 + tier * 0.55, base = 0.12 + (2 - tier) * 0.22;
-        for (let i = 0; i < n; i++) {
-          const a = (i / n) * Math.PI * 2 + rng.spread(0.01) + tier * 0.02;
-          const r = boundaryAt(def, a, p0.x, p0.z) - inset;
-          const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
-          if (z > nearZ - 1.2) continue;
-          const h = rng.range(0.08, 0.32);
-          if (i % 2 === 0) D.add(box(0.5, base, 0.5), { matrix: mat(x, base / 2 - 0.02, z, 0, a, 0), color: OBS, shade: 0.05 });
-          D.add(prism(5, 0.045, 0.04, h), { matrix: mat(x + rng.spread(0.12), base, z + rng.spread(0.12)), color: hexToLinear('#5a4a3a') });
-          flames.push([x, base + h + 0.06, z]);
-        }
-      }
-      // оплывшие свечи на полу у стен
-      for (let i = 0; i < 26; i++) {
-        const a = rng.range(0, Math.PI * 2);
-        const r = boundaryAt(def, a, p0.x, p0.z) - rng.range(0.3, 0.9);
-        const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
-        if (z > nearZ - 2) continue;
-        const h = rng.range(0.15, 0.5);
-        D.add(prism(6, 0.07, 0.06, h), { matrix: mat(x, 0, z), color: hexToLinear('#5a4a3a') });
-        flames.push([x, h + 0.08, z]);
-      }
+      sanctum = new CandleSanctum(density);
+      root.add(sanctum.root);
+      root.userData.candleSanctum = sanctum;
+      flames.push(...sanctum.flames);
+      pools.push(...sanctum.pools);
     }
   } else {
     // мост/островок: балюстрады, обломанные колонны, свисающие цепи
@@ -624,7 +598,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       const a = rng.range(0, Math.PI * 2), r = partEdge(hole, a);
       chain(D, hole.x + Math.sin(a) * r, -0.1, hole.z + Math.cos(a) * r, hole.x + rng.spread(0.6), -7, hole.z + rng.spread(0.6), 0.3);
     }
-    pools.push({ x: hole.x, z: hole.z, r: Math.max(hole.w, hole.h) * 0.75, color: look.veins, intensity: 0.45, flicker: 0.3 });
+    if (style !== 'candles') pools.push({ x: hole.x, z: hole.z, r: Math.max(hole.w, hole.h) * 0.75, color: look.veins, intensity: 0.45, flicker: 0.3 });
     if (style === 'candles') {
       // свечи по краю колодца — двумя кольцами
       for (let i = 0; i < 64; i++) {
@@ -890,7 +864,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     coverMeshes,
     rays,
     rayColor,
-    casters: [decor],
+    casters: [decor, ...(sanctum ? [sanctum.caster] : [])],
     windowColors: style === 'candles' ? [look.warm, look.veins] : [look.veins, look.warm],
     leanSpires(k: number) { leanT = k; },
     tintGlass(k: number, pulse = 0) {
@@ -899,6 +873,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     },
     dispose() {
       root.traverse((o) => {
+        // Матрицы/цвета экземпляров хранятся отдельно от геометрии; renderer освобождает их по событию mesh.dispose.
+        if (o instanceof THREE.InstancedMesh) o.dispose();
         if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as ObsidianMaterial).dispose(); }
       });
     },

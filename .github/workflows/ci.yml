@@ -43,6 +43,10 @@ jobs:
         run: npm run cathedral-test
         env:
           CATHEDRAL_Q: medium
+      - name: Candle ritual (darkness, safe sectors, braziers and rewards)
+        run: npm run candles-test
+        env:
+          CANDLES_Q: medium
       - name: Cinematic finishers
         run: npm run finishers
       - name: Choir psalm (touch, bait and return)
@@ -66,4 +70,6 @@ jobs:
             work/gate-path/*.png
             work/cathedral/report.json
             work/cathedral/*.png
+            work/candles/report.json
+            work/candles/*.png
           if-no-files-found: ignore

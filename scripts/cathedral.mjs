@@ -15,9 +15,10 @@ try{for(const q of qualities){
  await page.goto(`http://localhost:4189/?stage=1-3&god&q=${q}`);await page.waitForFunction(()=>!!window.__vb?.battle);
  await page.evaluate(()=>{
   const b=window.__vb.battle,inp=b.ctx.input,w=b.world;
-  const s=window.__cat={frames:0,mx:0,mz:0,born:new Map(),checkpoints:0,ends:0,rootError:0,positionJump:0,peak:{calls:0,tris:0},stages:new Set(),shots:new Set()};
+  const s=window.__cat={frames:0,mx:0,mz:0,born:new Map(),checkpoints:0,ends:0,rootError:0,positionJump:0,peak:{calls:0,tris:0},stages:new Set(),shots:new Set(),hints:[],collapseSample:null};
   const update=inp.update.bind(inp);inp.update=(now)=>{update(now);inp.moveX=s.mx;inp.moveZ=s.mz;};
   const checkpoint=b.onSectionEnd;b.onSectionEnd=o=>{s.checkpoints++;s.checkpointHero=[w.hero.x,w.hero.z];checkpoint?.(o);s.saved=!!b.ctx.save.stages['1-3']?.clears;};
+  const hint=b.ctx.hud.showHint.bind(b.ctx.hud);b.ctx.hud.showHint=(text,font)=>{s.hints.push(text);hint(text,font);};
   const end=b.onEnd;b.onEnd=o=>{s.ends++;end?.(o);};
   s.world=w;s.hero=w.hero;s.camera=b.cam;b.ctx.renderer.gl.info.autoReset=false;
  });
@@ -42,18 +43,22 @@ try{for(const q of qualities){
     if(s.frames%120===0){const r=b.ctx.renderer;r.gl.info.reset();r.render(b.ctx.time.world);s.peak.calls=Math.max(s.peak.calls,r.gl.info.render.calls);s.peak.tris=Math.max(s.peak.tris,r.gl.info.render.triangles);}
     if(b.director.id==='gateEntrance'&&b.director.time>2.6&&!s.shots.has('entrance'))shot='entrance';
     if(b.journey.phase==='bridge'&&h.z<-33&&!s.shots.has('bridge'))shot='bridge';
+    if(b.journey.collapseTime>1.1&&b.journey.collapseTime<2.5&&!s.shots.has('collapse'))shot='collapse';
+    if(b.journey.collapseTime>=2.5){s.collapseSample={gap:!b.arena.walkable(0,-36),safe:b.arena.walkable(0,-47),nav:!w.nav.reachable(0,-36,false)};}
     if(b.stage.id==='1-4'&&b.runner.waveIdx>=1&&!s.shots.has('hall'))shot='hall';
     if(shot){s.shots.add(shot);break;}
    }
    b.ctx.renderer.render(b.ctx.time.world);
-   return {shot,phase:b.journey.phase,stage:b.stage.id,wave:b.runner.waveIdx,z:h.z,ends:s.ends,checkpoints:s.checkpoints,saved:s.saved,continuous:s.continuous,positionJump:s.positionJump,rootError:s.rootError,peak:s.peak,stages:[...s.stages],screen:window.__app.current,clears:b.ctx.save.stages['1-4']?.clears};
+   return {shot,phase:b.journey.phase,stage:b.stage.id,wave:b.runner.waveIdx,z:h.z,ends:s.ends,checkpoints:s.checkpoints,saved:s.saved,continuous:s.continuous,positionJump:s.positionJump,rootError:s.rootError,peak:s.peak,stages:[...s.stages],screen:window.__app.current,clears:b.ctx.save.stages['1-4']?.clears,collapse:s.collapseSample,hints:s.hints,bridgeStillGone:!b.arena.walkable(0,-36),bridgeFlamesMax:Math.max(0,...b.flames.points.map((p,i)=>Math.abs(p[0])<=3.4&&p[2]>=-43.5&&p[2]<-28.5?b.flames.mesh.geometry.getAttribute('iLit').getX(i):0))};
   });
-  if(state.shot)await page.screenshot({path:`${out}/${q}-${state.shot}.png`});
+  if(state.shot)await page.screenshot({path:`${out}/${q}-${state.shot}.png`,timeout:60000});
   if(state.ends)break;
  }
  const check=(ok,msg)=>{if(!ok)throw new Error(`${q}: ${msg}: ${JSON.stringify(state)}`);};
  check(state.ends===1&&state.stage==='1-4'&&state.screen==='results'&&state.clears===1,'полный проход и результат второго этапа');
  check(state.checkpoints===1&&state.saved&&state.continuous&&state.positionJump<0.3,'промежуточная награда и переход без замены мира/героя/камеры');
+ check(state.collapse?.gap&&state.collapse?.safe&&state.collapse?.nav&&state.bridgeStillGone&&state.bridgeFlamesMax<0.001,'мост обрушился навсегда, навигация учитывает разрыв, герой на безопасном полу');
+ check(!state.hints.some(h=>h.includes('Врата открыты. Пройди')),'удалённая подсказка не появляется');
  check(state.rootError<1e-5,'видимый скелет следует корню Стража');
  check(state.peak.calls<=160&&state.peak.tris<=260000,'мобильный бюджет');
  check(errors.length===0,'ошибки браузера');

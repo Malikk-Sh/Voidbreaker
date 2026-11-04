@@ -10,6 +10,7 @@
     "studio-test": "node scripts/studio.mjs",
     "gate-path-test": "node scripts/gatePath.mjs",
     "cathedral-test": "node scripts/cathedral.mjs",
+    "candles-test": "node scripts/candles.mjs",
     "finishers": "node scripts/finishers.mjs",
     "choir": "node scripts/choir.mjs",
     "build": "vite build",
