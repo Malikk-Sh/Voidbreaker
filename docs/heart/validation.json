@@ -6,7 +6,7 @@
     "triangles": 260000
   },
   "unitTests": {
-    "passed": 503,
+    "passed": 508,
     "files": 56
   },
   "story": {
@@ -90,21 +90,22 @@
   },
   "combat": [
     {
-      "q": "high",
+      "q": "medium",
       "viewport": {
-        "width": 740,
-        "height": 360
+        "width": 844,
+        "height": 390
       },
-      "shot": null,
       "ends": 1,
-      "active": false,
       "dead": true,
       "hp": 0,
       "metrics": {
-        "counters": 3,
-        "reflectedHits": 2,
-        "bodyHits": 26,
-        "spawnedTotal": 6
+        "counters": 15,
+        "reflectedHits": 9,
+        "bodyHits": 32,
+        "spawnedTotal": 21,
+        "dives": 7,
+        "knockdowns": 5,
+        "clanks": 2
       },
       "phases": [
         1,
@@ -113,22 +114,45 @@
       ],
       "maxDark": 0,
       "peak": {
-        "calls": 75,
-        "tris": 105369
+        "calls": 78,
+        "tris": 106665
       },
       "screen": "results",
       "clear": 1,
-      "frames": 1661,
-      "hero": [
-        -7.683909156248106,
-        -24.598378365310875
+      "frames": 5686,
+      "errors": []
+    },
+    {
+      "q": "high",
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "ends": 1,
+      "dead": true,
+      "hp": 0,
+      "metrics": {
+        "counters": 16,
+        "reflectedHits": 9,
+        "bodyHits": 27,
+        "spawnedTotal": 18,
+        "dives": 5,
+        "knockdowns": 4,
+        "clanks": 1
+      },
+      "phases": [
+        1,
+        2,
+        3
       ],
-      "heat": [
-        0,
-        0,
-        0
-      ],
-      "hints": [],
+      "maxDark": 0,
+      "peak": {
+        "calls": 84,
+        "tris": 115983
+      },
+      "screen": "results",
+      "clear": 1,
+      "frames": 5205,
       "errors": []
     }
   ],
@@ -189,5 +213,1349 @@
     "Heart damage is generated through real movement, aim and blade input.",
     "Software WebGL does not establish physical mobile frame time, heat or audible mix."
   ],
-  "bundleBytes": 1883281
+  "bundleBytes": 1883281,
+  "balance": [
+    {
+      "name": "naive",
+      "fight": 25,
+      "heartDead": false,
+      "heroDead": true,
+      "heartHp": 897,
+      "heroHp": 0,
+      "phase": 2,
+      "metrics": {
+        "counters": 0,
+        "reflectedHits": 0,
+        "bodyHits": 42,
+        "spawnedTotal": 6,
+        "dives": 3,
+        "knockdowns": 0,
+        "clanks": 15
+      },
+      "hurt": {
+        "сердце:dive": 72,
+        "сердце:stuck": 28,
+        "сердце:orbs": 18,
+        "сердце:rise": 36
+      },
+      "errors": []
+    },
+    {
+      "name": "skilled",
+      "fight": 78.7,
+      "heartDead": true,
+      "heroDead": false,
+      "heartHp": 0,
+      "heroHp": 88,
+      "phase": 3,
+      "metrics": {
+        "counters": 18,
+        "reflectedHits": 3,
+        "bodyHits": 43,
+        "spawnedTotal": 17,
+        "dives": 9,
+        "knockdowns": 3,
+        "clanks": 4
+      },
+      "hurt": {
+        "сердце:orbs": 18,
+        "ring": 14
+      },
+      "errors": []
+    }
+  ],
+  "balanceBefore": {
+    "note": "старая версия, тот же наивный бот без бессмертия, medium 844×390",
+    "naive": {
+      "outcome": "победа",
+      "fight": 21.2,
+      "heroHp": 106,
+      "heartHp": 0
+    }
+  },
+  "storyReport": {
+    "conditions": "Chromium / SwiftShader; touch; manual 1/60; audio and RAF disabled; actual App; accelerated final-elite kill",
+    "viewport": {
+      "width": 844,
+      "height": 390
+    },
+    "quality": "medium",
+    "assertions": 118,
+    "errors": [],
+    "screenshots": [
+      "work/heart-story/medium-844x390-late-escape.png",
+      "work/heart-story/medium-844x390-gate-approach.png",
+      "work/heart-story/medium-844x390-arrival-1.3.png",
+      "work/heart-story/medium-844x390-arrival-2.25.png",
+      "work/heart-story/medium-844x390-awakened-4.6.png",
+      "work/heart-story/medium-844x390-boss-ready.png",
+      "work/heart-story/medium-844x390-combat-frame.png"
+    ],
+    "lastState": {
+      "frames": 2345,
+      "realTime": 39.083333333333336,
+      "worldTime": 30.93904186912813,
+      "hero": {
+        "x": 0.0017314590571645655,
+        "y": 0,
+        "z": -17.06422016716959,
+        "state": "move",
+        "locked": false
+      },
+      "passage": "combat",
+      "gateOpen": 0,
+      "soul": {
+        "phase": "absorbed",
+        "visible": false,
+        "position": {
+          "x": 0,
+          "y": 3.8,
+          "z": -27
+        },
+        "awakened": 1
+      },
+      "director": null,
+      "sceneTime": 5.616666666666652,
+      "wave": 3,
+      "heart": {
+        "active": true,
+        "hp": 1350,
+        "initialHp": 1350
+      },
+      "framing": {
+        "heroFeet": [
+          4.831132301205747e-05,
+          -0.5164143615174633,
+          0.8921604352069341
+        ],
+        "heroHead": [
+          5.2755247223110756e-05,
+          -0.48081784461749527,
+          0.8820361580314832
+        ],
+        "core": [
+          -1.2056216949528491e-05,
+          0.5768816539070515,
+          0.8993612635533899
+        ],
+        "crown": [
+          -1.3021003375019207e-05,
+          0.6953393180915037,
+          0.8911297227731737
+        ]
+      },
+      "screen": "battle",
+      "clears": 0,
+      "ends": 0,
+      "savedCurrencies": {
+        "shards": 0,
+        "ether": 0
+      },
+      "freezeBad": [],
+      "freezeSamples": {
+        "heartSoulEscape": 145,
+        "heartAwakening": 337
+      },
+      "earlyActive": [],
+      "starts": [
+        {
+          "id": "heartSoulEscape",
+          "frame": 235,
+          "hero": {
+            "x": 0,
+            "z": 5.25
+          },
+          "worldTime": 3.822375202461928
+        },
+        {
+          "id": "heartAwakening",
+          "frame": 2007,
+          "hero": {
+            "x": 0.0017314590571645655,
+            "z": -17.06422016716959
+          },
+          "worldTime": 30.93904186912813
+        }
+      ],
+      "sceneEnds": [
+        {
+          "id": "heartSoulEscape",
+          "frame": 380,
+          "time": 2.416666666666663,
+          "skipped": false,
+          "active": false
+        },
+        {
+          "id": "heartAwakening",
+          "frame": 2344,
+          "time": 5.616666666666652,
+          "skipped": false,
+          "active": false
+        }
+      ],
+      "sourceKills": [
+        {
+          "x": 3.9049845355121686,
+          "z": -5.133097081603611,
+          "frame": 235,
+          "worldTime": 3.821041869128595,
+          "kind": "golem"
+        }
+      ],
+      "escapes": [
+        {
+          "x": 3.9049845355121686,
+          "z": -5.133097081603611,
+          "ok": true,
+          "frame": 235,
+          "position": {
+            "x": 3.9049845355121686,
+            "y": 1.2,
+            "z": -5.133097081603611
+          }
+        }
+      ],
+      "absorptions": [
+        {
+          "time": 2.3166666666666633,
+          "scene": "heartAwakening",
+          "frame": 2146
+        }
+      ],
+      "heartStarts": [
+        {
+          "frame": 2344,
+          "director": null,
+          "time": 5.616666666666652,
+          "awakened": 1
+        }
+      ],
+      "escapeMid": {
+        "time": 0.8000000000000008,
+        "phase": "escaping",
+        "visible": true,
+        "position": {
+          "x": 3.6945748548006945,
+          "y": 7.627059338095944,
+          "z": -5.362634915107038
+        }
+      },
+      "beforeAbsorb": {
+        "time": 2.2666666666666635,
+        "phase": "arriving",
+        "visible": true,
+        "awakened": 0,
+        "position": {
+          "x": 0.0004287607164700221,
+          "y": 4.098290275152307,
+          "z": -26.970365593290545
+        }
+      },
+      "waypoint": 4,
+      "peak": {
+        "calls": 59,
+        "tris": 93799
+      },
+      "finished": true,
+      "capture": null
+    },
+    "waitedInOldHall": {
+      "duration": 20,
+      "hero": {
+        "x": 0.5632290730072967,
+        "y": 0,
+        "z": 3.752410933760752,
+        "state": "move",
+        "locked": false
+      },
+      "soul": {
+        "phase": "hidden",
+        "visible": false,
+        "position": {
+          "x": 3.354984535512169,
+          "y": 18,
+          "z": -5.733097081603611
+        },
+        "awakened": 0
+      },
+      "heart": {
+        "active": false,
+        "hp": 1350,
+        "initialHp": 1350
+      }
+    },
+    "final": {
+      "frames": 2345,
+      "realTime": 39.083333333333336,
+      "worldTime": 30.93904186912813,
+      "hero": {
+        "x": 0.0017314590571645655,
+        "y": 0,
+        "z": -17.06422016716959,
+        "state": "move",
+        "locked": false
+      },
+      "passage": "combat",
+      "gateOpen": 0,
+      "soul": {
+        "phase": "absorbed",
+        "visible": false,
+        "position": {
+          "x": 0,
+          "y": 3.8,
+          "z": -27
+        },
+        "awakened": 1
+      },
+      "director": null,
+      "sceneTime": 5.616666666666652,
+      "wave": 3,
+      "heart": {
+        "active": true,
+        "hp": 1350,
+        "initialHp": 1350
+      },
+      "framing": {
+        "heroFeet": [
+          4.831132301205747e-05,
+          -0.5164143615174633,
+          0.8921604352069341
+        ],
+        "heroHead": [
+          5.2755247223110756e-05,
+          -0.48081784461749527,
+          0.8820361580314832
+        ],
+        "core": [
+          -1.2056216949528491e-05,
+          0.5768816539070515,
+          0.8993612635533899
+        ],
+        "crown": [
+          -1.3021003375019207e-05,
+          0.6953393180915037,
+          0.8911297227731737
+        ]
+      },
+      "screen": "battle",
+      "clears": 0,
+      "ends": 0,
+      "savedCurrencies": {
+        "shards": 0,
+        "ether": 0
+      },
+      "freezeBad": [],
+      "freezeSamples": {
+        "heartSoulEscape": 145,
+        "heartAwakening": 337
+      },
+      "earlyActive": [],
+      "starts": [
+        {
+          "id": "heartSoulEscape",
+          "frame": 235,
+          "hero": {
+            "x": 0,
+            "z": 5.25
+          },
+          "worldTime": 3.822375202461928
+        },
+        {
+          "id": "heartAwakening",
+          "frame": 2007,
+          "hero": {
+            "x": 0.0017314590571645655,
+            "z": -17.06422016716959
+          },
+          "worldTime": 30.93904186912813
+        }
+      ],
+      "sceneEnds": [
+        {
+          "id": "heartSoulEscape",
+          "frame": 380,
+          "time": 2.416666666666663,
+          "skipped": false,
+          "active": false
+        },
+        {
+          "id": "heartAwakening",
+          "frame": 2344,
+          "time": 5.616666666666652,
+          "skipped": false,
+          "active": false
+        }
+      ],
+      "sourceKills": [
+        {
+          "x": 3.9049845355121686,
+          "z": -5.133097081603611,
+          "frame": 235,
+          "worldTime": 3.821041869128595,
+          "kind": "golem"
+        }
+      ],
+      "escapes": [
+        {
+          "x": 3.9049845355121686,
+          "z": -5.133097081603611,
+          "ok": true,
+          "frame": 235,
+          "position": {
+            "x": 3.9049845355121686,
+            "y": 1.2,
+            "z": -5.133097081603611
+          }
+        }
+      ],
+      "absorptions": [
+        {
+          "time": 2.3166666666666633,
+          "scene": "heartAwakening",
+          "frame": 2146
+        }
+      ],
+      "heartStarts": [
+        {
+          "frame": 2344,
+          "director": null,
+          "time": 5.616666666666652,
+          "awakened": 1
+        }
+      ],
+      "escapeMid": {
+        "time": 0.8000000000000008,
+        "phase": "escaping",
+        "visible": true,
+        "position": {
+          "x": 3.6945748548006945,
+          "y": 7.627059338095944,
+          "z": -5.362634915107038
+        }
+      },
+      "beforeAbsorb": {
+        "time": 2.2666666666666635,
+        "phase": "arriving",
+        "visible": true,
+        "awakened": 0,
+        "position": {
+          "x": 0.0004287607164700221,
+          "y": 4.098290275152307,
+          "z": -26.970365593290545
+        }
+      },
+      "waypoint": 4,
+      "peak": {
+        "calls": 59,
+        "tris": 93799
+      },
+      "finished": true,
+      "capture": null
+    },
+    "shotStates": {
+      "late-escape": {
+        "frames": 339,
+        "realTime": 5.65,
+        "worldTime": 3.822375202461928,
+        "hero": {
+          "x": 0,
+          "y": 0,
+          "z": 5.25,
+          "state": "frozen",
+          "locked": true
+        },
+        "passage": "waiting",
+        "gateOpen": 0,
+        "soul": {
+          "phase": "escaping",
+          "visible": true,
+          "position": {
+            "x": 3.369358728921207,
+            "y": 17.56093372859665,
+            "z": -5.7174161433392054
+          },
+          "awakened": 0
+        },
+        "director": "heartSoulEscape",
+        "sceneTime": 1.7166666666666655,
+        "wave": 3,
+        "heart": {
+          "active": false,
+          "hp": 1350,
+          "initialHp": 1350
+        },
+        "framing": {
+          "heroFeet": [
+            1.6583808650000162,
+            8.697677410267099,
+            1.5282912151766082
+          ],
+          "heroHead": [
+            1.7844395529865094,
+            8.292928925368319,
+            1.5682791677872172
+          ],
+          "core": [
+            0.08490593060190173,
+            -1.2976032770681152,
+            0.9307831615858821
+          ],
+          "crown": [
+            0.08414615320775412,
+            -1.1605128563117357,
+            0.931422453341195
+          ]
+        },
+        "screen": "battle",
+        "clears": 0,
+        "ends": 0,
+        "savedCurrencies": {
+          "shards": 0,
+          "ether": 0
+        },
+        "freezeBad": [],
+        "freezeSamples": {
+          "heartSoulEscape": 104
+        },
+        "earlyActive": [],
+        "starts": [
+          {
+            "id": "heartSoulEscape",
+            "frame": 235,
+            "hero": {
+              "x": 0,
+              "z": 5.25
+            },
+            "worldTime": 3.822375202461928
+          }
+        ],
+        "sceneEnds": [],
+        "sourceKills": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "frame": 235,
+            "worldTime": 3.821041869128595,
+            "kind": "golem"
+          }
+        ],
+        "escapes": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "ok": true,
+            "frame": 235,
+            "position": {
+              "x": 3.9049845355121686,
+              "y": 1.2,
+              "z": -5.133097081603611
+            }
+          }
+        ],
+        "absorptions": [],
+        "heartStarts": [],
+        "escapeMid": {
+          "time": 0.8000000000000008,
+          "phase": "escaping",
+          "visible": true,
+          "position": {
+            "x": 3.6945748548006945,
+            "y": 7.627059338095944,
+            "z": -5.362634915107038
+          }
+        },
+        "waypoint": 0,
+        "peak": {
+          "calls": 59,
+          "tris": 93799
+        },
+        "finished": false
+      },
+      "gate-approach": {
+        "frames": 1947,
+        "realTime": 32.45,
+        "worldTime": 29.92237520246152,
+        "hero": {
+          "x": 0.03350577383795203,
+          "y": 0,
+          "z": -11.577569142035934,
+          "state": "move",
+          "locked": false
+        },
+        "passage": "released",
+        "gateOpen": 1,
+        "soul": {
+          "phase": "hidden",
+          "visible": false,
+          "position": {
+            "x": 3.354984535512169,
+            "y": 18,
+            "z": -5.733097081603611
+          },
+          "awakened": 0
+        },
+        "director": null,
+        "sceneTime": 2.416666666666663,
+        "wave": 3,
+        "heart": {
+          "active": false,
+          "hp": 1350,
+          "initialHp": 1350
+        },
+        "framing": {
+          "heroFeet": [
+            0.008715592971879191,
+            -0.058093494449344314,
+            0.8444401119497055
+          ],
+          "heroHead": [
+            0.009661984915075817,
+            0.2298530901583286,
+            0.8273069050877282
+          ],
+          "core": [
+            0.003137314636476703,
+            1.9218481581916318,
+            0.9065165337568347
+          ],
+          "crown": [
+            0.0033231417186076876,
+            2.1961909681336067,
+            0.9008476193397853
+          ]
+        },
+        "screen": "battle",
+        "clears": 0,
+        "ends": 0,
+        "savedCurrencies": {
+          "shards": 0,
+          "ether": 0
+        },
+        "freezeBad": [],
+        "freezeSamples": {
+          "heartSoulEscape": 145
+        },
+        "earlyActive": [],
+        "starts": [
+          {
+            "id": "heartSoulEscape",
+            "frame": 235,
+            "hero": {
+              "x": 0,
+              "z": 5.25
+            },
+            "worldTime": 3.822375202461928
+          }
+        ],
+        "sceneEnds": [
+          {
+            "id": "heartSoulEscape",
+            "frame": 380,
+            "time": 2.416666666666663,
+            "skipped": false,
+            "active": false
+          }
+        ],
+        "sourceKills": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "frame": 235,
+            "worldTime": 3.821041869128595,
+            "kind": "golem"
+          }
+        ],
+        "escapes": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "ok": true,
+            "frame": 235,
+            "position": {
+              "x": 3.9049845355121686,
+              "y": 1.2,
+              "z": -5.133097081603611
+            }
+          }
+        ],
+        "absorptions": [],
+        "heartStarts": [],
+        "escapeMid": {
+          "time": 0.8000000000000008,
+          "phase": "escaping",
+          "visible": true,
+          "position": {
+            "x": 3.6945748548006945,
+            "y": 7.627059338095944,
+            "z": -5.362634915107038
+          }
+        },
+        "waypoint": 3,
+        "peak": {
+          "calls": 59,
+          "tris": 93799
+        },
+        "finished": false
+      },
+      "arrival-1.3": {
+        "frames": 2086,
+        "realTime": 34.766666666666666,
+        "worldTime": 30.93904186912813,
+        "hero": {
+          "x": 0.0017314590571645655,
+          "y": 0,
+          "z": -17.06422016716959,
+          "state": "frozen",
+          "locked": true
+        },
+        "passage": "awakening",
+        "gateOpen": 1,
+        "soul": {
+          "phase": "arriving",
+          "visible": true,
+          "position": {
+            "x": 0.2766976769536998,
+            "y": 11.00907372400756,
+            "z": -24.076454004972096
+          },
+          "awakened": 0
+        },
+        "director": "heartAwakening",
+        "sceneTime": 1.3000000000000003,
+        "wave": 3,
+        "heart": {
+          "active": false,
+          "hp": 1350,
+          "initialHp": 1350
+        },
+        "framing": {
+          "heroFeet": [
+            -0.32935143267489303,
+            -5.11227657329144,
+            0.5064317186864711
+          ],
+          "heroHead": [
+            -0.3402957364253991,
+            -4.308127077574271,
+            0.48995658488707144
+          ],
+          "core": [
+            0.04472453785108114,
+            -0.7731571972826704,
+            0.8591836753276118
+          ],
+          "crown": [
+            0.04511855772277439,
+            -0.5217331771886533,
+            0.8579234945281359
+          ]
+        },
+        "screen": "battle",
+        "clears": 0,
+        "ends": 0,
+        "savedCurrencies": {
+          "shards": 0,
+          "ether": 0
+        },
+        "freezeBad": [],
+        "freezeSamples": {
+          "heartSoulEscape": 145,
+          "heartAwakening": 79
+        },
+        "earlyActive": [],
+        "starts": [
+          {
+            "id": "heartSoulEscape",
+            "frame": 235,
+            "hero": {
+              "x": 0,
+              "z": 5.25
+            },
+            "worldTime": 3.822375202461928
+          },
+          {
+            "id": "heartAwakening",
+            "frame": 2007,
+            "hero": {
+              "x": 0.0017314590571645655,
+              "z": -17.06422016716959
+            },
+            "worldTime": 30.93904186912813
+          }
+        ],
+        "sceneEnds": [
+          {
+            "id": "heartSoulEscape",
+            "frame": 380,
+            "time": 2.416666666666663,
+            "skipped": false,
+            "active": false
+          }
+        ],
+        "sourceKills": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "frame": 235,
+            "worldTime": 3.821041869128595,
+            "kind": "golem"
+          }
+        ],
+        "escapes": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "ok": true,
+            "frame": 235,
+            "position": {
+              "x": 3.9049845355121686,
+              "y": 1.2,
+              "z": -5.133097081603611
+            }
+          }
+        ],
+        "absorptions": [],
+        "heartStarts": [],
+        "escapeMid": {
+          "time": 0.8000000000000008,
+          "phase": "escaping",
+          "visible": true,
+          "position": {
+            "x": 3.6945748548006945,
+            "y": 7.627059338095944,
+            "z": -5.362634915107038
+          }
+        },
+        "waypoint": 4,
+        "peak": {
+          "calls": 59,
+          "tris": 93799
+        },
+        "finished": false
+      },
+      "arrival-2.25": {
+        "frames": 2144,
+        "realTime": 35.733333333333334,
+        "worldTime": 30.93904186912813,
+        "hero": {
+          "x": 0.0017314590571645655,
+          "y": 0,
+          "z": -17.06422016716959,
+          "state": "frozen",
+          "locked": true
+        },
+        "passage": "awakening",
+        "gateOpen": 1,
+        "soul": {
+          "phase": "arriving",
+          "visible": true,
+          "position": {
+            "x": 0.0004287607164700221,
+            "y": 4.098290275152307,
+            "z": -26.970365593290545
+          },
+          "awakened": 0
+        },
+        "director": "heartAwakening",
+        "sceneTime": 2.2666666666666635,
+        "wave": 3,
+        "heart": {
+          "active": false,
+          "hp": 1350,
+          "initialHp": 1350
+        },
+        "framing": {
+          "heroFeet": [
+            -0.9095601090114056,
+            -6.819962022028535,
+            -0.06712811566117848
+          ],
+          "heroHead": [
+            -1.057383747888117,
+            -5.471408141372021,
+            -0.24092160332239354
+          ],
+          "core": [
+            0.010890096183798024,
+            -0.056840100248819324,
+            0.8280422738280159
+          ],
+          "crown": [
+            0.011128606075269542,
+            0.27301431416124605,
+            0.8242274103543384
+          ]
+        },
+        "screen": "battle",
+        "clears": 0,
+        "ends": 0,
+        "savedCurrencies": {
+          "shards": 0,
+          "ether": 0
+        },
+        "freezeBad": [],
+        "freezeSamples": {
+          "heartSoulEscape": 145,
+          "heartAwakening": 137
+        },
+        "earlyActive": [],
+        "starts": [
+          {
+            "id": "heartSoulEscape",
+            "frame": 235,
+            "hero": {
+              "x": 0,
+              "z": 5.25
+            },
+            "worldTime": 3.822375202461928
+          },
+          {
+            "id": "heartAwakening",
+            "frame": 2007,
+            "hero": {
+              "x": 0.0017314590571645655,
+              "z": -17.06422016716959
+            },
+            "worldTime": 30.93904186912813
+          }
+        ],
+        "sceneEnds": [
+          {
+            "id": "heartSoulEscape",
+            "frame": 380,
+            "time": 2.416666666666663,
+            "skipped": false,
+            "active": false
+          }
+        ],
+        "sourceKills": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "frame": 235,
+            "worldTime": 3.821041869128595,
+            "kind": "golem"
+          }
+        ],
+        "escapes": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "ok": true,
+            "frame": 235,
+            "position": {
+              "x": 3.9049845355121686,
+              "y": 1.2,
+              "z": -5.133097081603611
+            }
+          }
+        ],
+        "absorptions": [],
+        "heartStarts": [],
+        "escapeMid": {
+          "time": 0.8000000000000008,
+          "phase": "escaping",
+          "visible": true,
+          "position": {
+            "x": 3.6945748548006945,
+            "y": 7.627059338095944,
+            "z": -5.362634915107038
+          }
+        },
+        "beforeAbsorb": {
+          "time": 2.2666666666666635,
+          "phase": "arriving",
+          "visible": true,
+          "awakened": 0,
+          "position": {
+            "x": 0.0004287607164700221,
+            "y": 4.098290275152307,
+            "z": -26.970365593290545
+          }
+        },
+        "waypoint": 4,
+        "peak": {
+          "calls": 59,
+          "tris": 93799
+        },
+        "finished": false
+      },
+      "awakened-4.6": {
+        "frames": 2285,
+        "realTime": 38.083333333333336,
+        "worldTime": 30.93904186912813,
+        "hero": {
+          "x": 0.0017314590571645655,
+          "y": 0,
+          "z": -17.06422016716959,
+          "state": "frozen",
+          "locked": true
+        },
+        "passage": "awakening",
+        "gateOpen": 1,
+        "soul": {
+          "phase": "absorbed",
+          "visible": false,
+          "position": {
+            "x": 0,
+            "y": 3.8,
+            "z": -27
+          },
+          "awakened": 1
+        },
+        "director": "heartAwakening",
+        "sceneTime": 4.616666666666656,
+        "wave": 3,
+        "heart": {
+          "active": false,
+          "hp": 1350,
+          "initialHp": 1350
+        },
+        "framing": {
+          "heroFeet": [
+            4.888495399544076e-05,
+            -0.5245213868450485,
+            0.8901343094309669
+          ],
+          "heroHead": [
+            5.350388566579334e-05,
+            -0.49161978740548457,
+            0.8795433650729308
+          ],
+          "core": [
+            -1.1119361823340801e-05,
+            0.5942149866102161,
+            0.8967878193900214
+          ],
+          "crown": [
+            -1.2039515694392506e-05,
+            0.7156089455178337,
+            0.8880626650186145
+          ]
+        },
+        "screen": "battle",
+        "clears": 0,
+        "ends": 0,
+        "savedCurrencies": {
+          "shards": 0,
+          "ether": 0
+        },
+        "freezeBad": [],
+        "freezeSamples": {
+          "heartSoulEscape": 145,
+          "heartAwakening": 278
+        },
+        "earlyActive": [],
+        "starts": [
+          {
+            "id": "heartSoulEscape",
+            "frame": 235,
+            "hero": {
+              "x": 0,
+              "z": 5.25
+            },
+            "worldTime": 3.822375202461928
+          },
+          {
+            "id": "heartAwakening",
+            "frame": 2007,
+            "hero": {
+              "x": 0.0017314590571645655,
+              "z": -17.06422016716959
+            },
+            "worldTime": 30.93904186912813
+          }
+        ],
+        "sceneEnds": [
+          {
+            "id": "heartSoulEscape",
+            "frame": 380,
+            "time": 2.416666666666663,
+            "skipped": false,
+            "active": false
+          }
+        ],
+        "sourceKills": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "frame": 235,
+            "worldTime": 3.821041869128595,
+            "kind": "golem"
+          }
+        ],
+        "escapes": [
+          {
+            "x": 3.9049845355121686,
+            "z": -5.133097081603611,
+            "ok": true,
+            "frame": 235,
+            "position": {
+              "x": 3.9049845355121686,
+              "y": 1.2,
+              "z": -5.133097081603611
+            }
+          }
+        ],
+        "absorptions": [
+          {
+            "time": 2.3166666666666633,
+            "scene": "heartAwakening",
+            "frame": 2146
+          }
+        ],
+        "heartStarts": [],
+        "escapeMid": {
+          "time": 0.8000000000000008,
+          "phase": "escaping",
+          "visible": true,
+          "position": {
+            "x": 3.6945748548006945,
+            "y": 7.627059338095944,
+            "z": -5.362634915107038
+          }
+        },
+        "beforeAbsorb": {
+          "time": 2.2666666666666635,
+          "phase": "arriving",
+          "visible": true,
+          "awakened": 0,
+          "position": {
+            "x": 0.0004287607164700221,
+            "y": 4.098290275152307,
+            "z": -26.970365593290545
+          }
+        },
+        "waypoint": 4,
+        "peak": {
+          "calls": 59,
+          "tris": 93799
+        },
+        "finished": false
+      }
+    },
+    "settled": {
+      "frames": 2345,
+      "realTime": 39.083333333333336,
+      "worldTime": 32.605708535794705,
+      "hero": {
+        "x": 0.0017314590571645655,
+        "y": 0,
+        "z": -17.06422016716959,
+        "state": "move",
+        "locked": false
+      },
+      "passage": "combat",
+      "gateOpen": 0,
+      "soul": {
+        "phase": "absorbed",
+        "visible": false,
+        "position": {
+          "x": 0,
+          "y": 3.8,
+          "z": -27
+        },
+        "awakened": 1
+      },
+      "director": null,
+      "sceneTime": 5.616666666666652,
+      "wave": 3,
+      "heart": {
+        "active": true,
+        "hp": 1350,
+        "initialHp": 1350
+      },
+      "framing": {
+        "heroFeet": [
+          4.715812976109146e-05,
+          -0.655873282638357,
+          0.8763542391731336
+        ],
+        "heroHead": [
+          5.214055967885968e-05,
+          -0.6256565054728895,
+          0.8630555624955255
+        ],
+        "core": [
+          -4.286131677578852e-05,
+          0.5950365790534676,
+          0.8844008926187772
+        ],
+        "crown": [
+          -4.680139256615164e-05,
+          0.7363186315709246,
+          0.8735698042928831
+        ]
+      },
+      "screen": "battle",
+      "clears": 0,
+      "ends": 0,
+      "savedCurrencies": {
+        "shards": 0,
+        "ether": 0
+      },
+      "freezeBad": [],
+      "freezeSamples": {
+        "heartSoulEscape": 145,
+        "heartAwakening": 337
+      },
+      "earlyActive": [],
+      "starts": [
+        {
+          "id": "heartSoulEscape",
+          "frame": 235,
+          "hero": {
+            "x": 0,
+            "z": 5.25
+          },
+          "worldTime": 3.822375202461928
+        },
+        {
+          "id": "heartAwakening",
+          "frame": 2007,
+          "hero": {
+            "x": 0.0017314590571645655,
+            "z": -17.06422016716959
+          },
+          "worldTime": 30.93904186912813
+        }
+      ],
+      "sceneEnds": [
+        {
+          "id": "heartSoulEscape",
+          "frame": 380,
+          "time": 2.416666666666663,
+          "skipped": false,
+          "active": false
+        },
+        {
+          "id": "heartAwakening",
+          "frame": 2344,
+          "time": 5.616666666666652,
+          "skipped": false,
+          "active": false
+        }
+      ],
+      "sourceKills": [
+        {
+          "x": 3.9049845355121686,
+          "z": -5.133097081603611,
+          "frame": 235,
+          "worldTime": 3.821041869128595,
+          "kind": "golem"
+        }
+      ],
+      "escapes": [
+        {
+          "x": 3.9049845355121686,
+          "z": -5.133097081603611,
+          "ok": true,
+          "frame": 235,
+          "position": {
+            "x": 3.9049845355121686,
+            "y": 1.2,
+            "z": -5.133097081603611
+          }
+        }
+      ],
+      "absorptions": [
+        {
+          "time": 2.3166666666666633,
+          "scene": "heartAwakening",
+          "frame": 2146
+        }
+      ],
+      "heartStarts": [
+        {
+          "frame": 2344,
+          "director": null,
+          "time": 5.616666666666652,
+          "awakened": 1
+        }
+      ],
+      "escapeMid": {
+        "time": 0.8000000000000008,
+        "phase": "escaping",
+        "visible": true,
+        "position": {
+          "x": 3.6945748548006945,
+          "y": 7.627059338095944,
+          "z": -5.362634915107038
+        }
+      },
+      "beforeAbsorb": {
+        "time": 2.2666666666666635,
+        "phase": "arriving",
+        "visible": true,
+        "awakened": 0,
+        "position": {
+          "x": 0.0004287607164700221,
+          "y": 4.098290275152307,
+          "z": -26.970365593290545
+        }
+      },
+      "waypoint": 4,
+      "peak": {
+        "calls": 59,
+        "tris": 93799
+      },
+      "finished": true
+    }
+  },
+  "routeReport": [
+    {
+      "q": "medium",
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "shot": null,
+      "phase": "complete",
+      "stage": "1-4",
+      "wave": 3,
+      "z": -86.15120294271728,
+      "ends": 1,
+      "checkpoints": 1,
+      "saved": true,
+      "continuous": true,
+      "positionJump": 0.09166583271163375,
+      "rootError": 0,
+      "peak": {
+        "calls": 88,
+        "tris": 166407
+      },
+      "stages": [
+        "1-3",
+        "1-4"
+      ],
+      "screen": "results",
+      "clears": 1,
+      "collapse": {
+        "gap": true,
+        "safe": true,
+        "nav": true
+      },
+      "hints": [
+        "Врата впереди. Выйди на террасу",
+        "Враг оглушён — финишер или заряженный удар: РАСКОЛ",
+        "Печать разрушена. Врата поднимаются",
+        "Распинатель: стой в просвете веера. Промах Гвоздём — клинок застрял, бей",
+        "Резонанс полон — R: ЗАТМЕНИЕ",
+        "Идеально! Атакуй сразу — КОНТРУДАР"
+      ],
+      "heartDead": true,
+      "heartMetrics": {
+        "counters": 12,
+        "reflectedHits": 8,
+        "bodyHits": 35,
+        "spawnedTotal": 20,
+        "dives": 7,
+        "knockdowns": 4,
+        "clanks": 2
+      },
+      "bridgeStillGone": true,
+      "bridgeFlamesMax": 0,
+      "errors": []
+    }
+  ]
 }
