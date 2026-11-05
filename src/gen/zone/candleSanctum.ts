@@ -27,6 +27,8 @@ export interface HeartBodyVisual {
   rage?: number;
   dying?: number;
   burst?: boolean;
+  /** До боя: ядро светится принятым светом (золото) вместо багрового, 0…1. */
+  glow?: number;
 }
 
 /**
@@ -200,7 +202,8 @@ export class CandleSanctum {
     this.openK += (openTarget - this.openK) * k; if (dt === 0) this.openK = openTarget;
     const lying = pose === 'stuck' || pose === 'knock' ? 1 : 0;
     this.stuckK += (lying - this.stuckK) * Math.min(1, dt * 5);
-    const open = this.wake * this.openK;
+    // До боя (принятый свет) лепестки раскрываются сами по себе — ядро видно сквозь броню.
+    const open = boss?.glow ? this.openK : this.wake * this.openK;
     const plates = phase >= 3 ? 2 : phase === 2 ? 4 : 6;
     const beatK = boss ? heartbeatPulse(boss.beat) : 0.5;
     const shake = (rage > 0 ? 0.09 : 0) + dying * 0.14 * (burst ? 0 : 1);
@@ -260,7 +263,7 @@ export class CandleSanctum {
     this.core.rotation.set(0, this.time * 0.4, tilt);
     const tracking = pose === 'track' || pose === 'lock' || pose === 'fall';
     this.core.material.color.set(dead || burst ? '#ffd399' : dying > 0 ? '#fff1d0' : exposed ? '#ffc46e' : rage > 0 ? '#ff2244' : tracking ? '#ff3a4c' : phase === 3 ? '#ff537a' : '#e0414a');
-    this.core.material.color.lerp(GOLD_FIRE, Math.min(1, (boss?.hitFlash ?? 0) * 0.9));
+    this.core.material.color.lerp(GOLD_FIRE, Math.min(1, Math.max((boss?.hitFlash ?? 0) * 0.9, boss?.glow ?? 0)));
     this.core.material.opacity = dead || burst ? Math.max(0, 0.6 * (1 - this.fracture)) * (burst ? 0 : 1)
       : 0.08 + this.wake * ((exposed ? 0.82 : tracking || rage > 0 ? 0.76 : 0.66) + beatK * 0.18);
     this.crown.position.set(bodyX + jx, bodyY + 0.6 * S + this.fracture * 0.5 - this.stuckK * 0.5, bodyZ + jz);

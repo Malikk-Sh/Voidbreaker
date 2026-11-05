@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mat, matAlong } from '../geom/build';
 import { octa } from '../geom/prims';
 import type { Shape } from '../../world/combat';
+import { SoulSpirit } from './soulSpirit';
 
 export interface HeartEffectsView {
   centerZ: number;
@@ -36,18 +37,20 @@ const MAX_SHOTS=48, MAX_FIELDS=24, MAX_CARRIERS=16, MAX_LINKS=32;
 /** Все координаты мировые; точные предупреждения атак рисует общая система телеграфов. */
 export class HeartEffects {
   readonly group = new THREE.Group();
-  readonly soul: THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
+  /** Свет павшей элиты по пути к Сердцу: огненный дух со шлейфом. */
+  readonly soul = new SoulSpirit();
   private readonly shots: THREE.InstancedMesh;
   private readonly halos: THREE.InstancedMesh;
   private readonly carriers: THREE.InstancedMesh;
   private readonly fields: THREE.InstancedMesh;
   private readonly links: THREE.InstancedMesh;
-  private readonly trail: THREE.InstancedMesh;
   private readonly shadow: THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
   private readonly lockRing: THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
   private readonly pillar: THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
   private readonly motes: THREE.InstancedMesh;
-  private readonly soulHistory: THREE.Vector3[]=[];
+  /** Сердце, принявшее свет: золотое сияние вокруг брони, оно не прячется за лепестками. */
+  private readonly aura: THREE.Mesh<THREE.BufferGeometry,THREE.ShaderMaterial>;
+  private readonly prelude = { x: 0, y: 0, z: 0, glow: 0, pulse: 0 };
   private readonly tempColor = new THREE.Color();
   private time=0;
   private disposed=false;
@@ -66,12 +69,8 @@ export class HeartEffects {
     this.fields.name='heart-firefields';
     this.links=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0.72,blending:THREE.AdditiveBlending,depthWrite:false}),MAX_LINKS);
     this.links.name='heart-arteries';
-    this.soul=new THREE.Mesh(new THREE.IcosahedronGeometry(0.65,2),new THREE.MeshBasicMaterial({color:'#fff0bd',transparent:true,opacity:0.92,blending:THREE.AdditiveBlending,depthWrite:false}));
-    this.soul.name='escaping-soul'; this.soul.visible=false;
-    this.trail=new THREE.InstancedMesh(octa(0.3,0.3,0.3),halo,10);
-    this.trail.name='soul-trail';
-    for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links,this.trail]) {mesh.count=0;mesh.frustumCulled=false;this.group.add(mesh);}
-    this.group.add(this.soul);
+    for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links]) {mesh.count=0;mesh.frustumCulled=false;this.group.add(mesh);}
+    this.group.add(this.soul.group);
     // Тень падения — тёмный диск на полу, а не ещё одно свечение: где будет Сердце, видно сразу.
     const disk=new THREE.CircleGeometry(1,40); disk.rotateX(-Math.PI/2);
     this.shadow=new THREE.Mesh(disk,new THREE.MeshBasicMaterial({color:'#05010a',transparent:true,opacity:0,depthWrite:false}));
@@ -83,7 +82,15 @@ export class HeartEffects {
     this.pillar.name='heart-dive-pillar';
     this.motes=new THREE.InstancedMesh(octa(0.09,0.16,0.09),bright,DIVE_LOOK.motes);
     this.motes.name='heart-core-motes';
-    for(const mesh of [this.shadow,this.lockRing,this.pillar,this.motes]){mesh.frustumCulled=false;mesh.visible=false;this.group.add(mesh);}
+    // Мягкое сияние: яркое в середине, прозрачное к краю — без граней сферы.
+    this.aura=new THREE.Mesh(new THREE.IcosahedronGeometry(1,3),new THREE.ShaderMaterial({
+      uniforms:{color:{value:GOLD.clone()},opacity:{value:0}},
+      vertexShader:'varying vec3 vN;varying vec3 vV;void main(){vec4 p=modelViewMatrix*vec4(position,1.0);vN=normalize(normalMatrix*normal);vV=normalize(-p.xyz);gl_Position=projectionMatrix*p;}',
+      fragmentShader:'uniform vec3 color;uniform float opacity;varying vec3 vN;varying vec3 vV;void main(){float f=max(dot(normalize(vN),normalize(vV)),0.0);gl_FragColor=vec4(color*opacity*f*f*f,1.0);}',
+      transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,
+    }));
+    this.aura.name='heart-prelude-aura';
+    for(const mesh of [this.shadow,this.lockRing,this.pillar,this.motes,this.aura]){mesh.frustumCulled=false;mesh.visible=false;this.group.add(mesh);}
     this.motes.count=0;
   }
 
@@ -147,7 +154,7 @@ export class HeartEffects {
     this.links.count=links;
     this.updateDive(v,visible);
     for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links,this.motes]){mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;}
-    if(this.soul.visible)this.soul.scale.setScalar(1+Math.sin(this.time*5)*0.08);
+    this.soul.update(dt);
   }
 
   /** Тень и столб над меткой падения; золотые искры над раскрытым ядром. */
@@ -169,8 +176,21 @@ export class HeartEffects {
     }
     const open=visible&&(v.exposed??0)>0&&(pose==='stuck'||pose==='knock');
     const dying=visible&&(v.dying??0)>0;
+    const pre=this.prelude, glowing=!visible&&!v.dead&&pre.glow>0.01;
+    this.aura.visible=glowing;
+    if(glowing){
+      const r=2.3+pre.pulse*0.35;
+      this.aura.position.set(pre.x,pre.y,pre.z);this.aura.scale.set(r,r*1.2,r);
+      this.aura.material.uniforms.opacity.value=pre.glow*(0.24+pre.pulse*0.32);
+    }
     let motes=0;
-    if(open||dying)for(let i=0;i<DIVE_LOOK.motes;i++){
+    if(glowing)for(let i=0;i<DIVE_LOOK.motes;i++){
+      // Тлеющие искры поднимаются над Сердцем — оно живое и ждёт.
+      const u=(this.time*0.35+i/DIVE_LOOK.motes)%1, a=i*2.4+this.time*0.6, r=1.6+u*0.9;
+      this.motes.setMatrixAt(motes,mat(pre.x+Math.sin(a)*r,pre.y-1.2+u*3.4,pre.z+Math.cos(a)*r,0,a,0,(1-u)*pre.glow,(1-u)*pre.glow,(1-u)*pre.glow));
+      this.motes.setColorAt(motes,GOLD);motes++;
+    }
+    else if(open||dying)for(let i=0;i<DIVE_LOOK.motes;i++){
       // Искры поднимаются из раскрытого ядра: открытое место видно и издалека.
       const u=(this.time*0.7+i/DIVE_LOOK.motes)%1, a=i*2.4+this.time*(dying?3:1.1), r=(dying?0.8:1.4)+u*(dying?0.4:1.2);
       this.motes.setMatrixAt(motes,mat(v.body.x+Math.sin(a)*r,v.body.y+u*2.6-0.4,v.body.z+Math.cos(a)*r,0,a,0,1-u*0.6,1-u*0.6,1-u*0.6));
@@ -179,15 +199,14 @@ export class HeartEffects {
     this.motes.count=motes; this.motes.visible=motes>0;
   }
 
+  /** До боя: где Сердце, насколько оно светится принятым светом (0…1) и удар его пульса (0…1). */
+  setPrelude(x:number,y:number,z:number,glow:number,pulse:number):void {
+    const p=this.prelude;p.x=x;p.y=y;p.z=z;p.glow=Math.max(0,Math.min(1,glow));p.pulse=Math.max(0,Math.min(1,pulse));
+  }
+
   setSoul(x:number,y:number,z:number,visible:boolean):void {
     if(this.disposed)return;
-    this.soul.visible=visible;this.soul.position.set(x,y,z);
-    if(!visible){this.soulHistory.length=0;this.trail.count=0;return;}
-    const point=new THREE.Vector3(x,y,z),last=this.soulHistory[0];
-    if(!last||last.distanceToSquared(point)>0.012){this.soulHistory.unshift(point);if(this.soulHistory.length>10)this.soulHistory.pop();}
-    this.trail.count=this.soulHistory.length;
-    this.soulHistory.forEach((p,i)=>{const k=1-i/10;this.trail.setMatrixAt(i,mat(p.x,p.y,p.z,0,this.time+i,0,k,k,k));this.trail.setColorAt(i,GOLD);});
-    this.trail.instanceMatrix.needsUpdate=true;if(this.trail.instanceColor)this.trail.instanceColor.needsUpdate=true;
+    this.soul.set(x,y,z,visible);
   }
 
   dispose():void {

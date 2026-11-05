@@ -1,5 +1,5 @@
 /**
- * Реальный App: элита притвора → побег души → ожидание героя → пробуждение Сердца.
+ * Реальный App: элита притвора → свет летит по проходу в ядро → Сердце тлеет и ждёт героя → пробуждение.
  * Ввод движения обычный; снятие врага после 3.5 с проверяет историю, а не баланс боя.
  * npm run build && node scripts/heartStory.mjs
  */
@@ -33,7 +33,7 @@ async function advance(frames, mode) {
   const state = await page.evaluate(([frames, mode]) => {
     const b = window.__vb.battle, w = b.world, h = w.hero, soul = b.heartSoul;
     const s = window.__heartStory, input = b.ctx.input;
-    const isStory = () => b.director.id === 'heartSoulEscape' || b.director.id === 'heartAwakening';
+    const isStory = () => b.director.id === 'heartSoulFlight' || b.director.id === 'heartAwakening';
     const timerSnapshot = () => w.enemies.map(e => ({
       kind: e.kind, time: e.time, state: e.state, stateT: e.stateT,
       cooldown: e.cooldown, brainT: e.brainT, deathT: e.deathT, airT: e.airT, lagT: e.lagT,
@@ -62,16 +62,19 @@ async function advance(frames, mode) {
         } else s.freeze = { id, worldTime: w.time, timers };
         s.freezeSamples[id] = (s.freezeSamples[id] ?? 0) + 1;
         if (b.heart.active && s.earlyActive.length < 5) s.earlyActive.push({ id, time, frame: s.frames });
-        if (id === 'heartSoulEscape' && time >= 0.8 && !s.escapeMid) {
-          s.escapeMid = { time, phase: soul.phase, visible: soul.visible, position: { ...soul.position } };
+        if (id === 'heartSoulFlight') {
+          const m = soul.timing;
+          s.flightMaxY = Math.max(s.flightMaxY, soul.visible ? soul.position.y : 0);
+          if (soul.visible && !s.gateCross && soul.position.z <= s.gateZ) s.gateCross = { time, gateOpen: b.heartPassage.gateOpen, position: { ...soul.position } };
+          if (time >= 0.3 && !s.shots.has('flight-burst')) capture = 'flight-burst';
+          else if (m && time >= m.gateAt - 0.25 && !s.shots.has('flight-gate')) capture = 'flight-gate';
+          else if (m && time >= m.absorbAt - 0.3 && !s.shots.has('flight-core')) {
+            s.beforeAbsorb = { time, phase: soul.phase, visible: soul.visible, awakened: soul.awakened, position: { ...soul.position } };
+            capture = 'flight-core';
+          } else if (m && time >= m.absorbAt + 0.7 && !s.shots.has('flight-absorbed')) capture = 'flight-absorbed';
         }
-        if (id === 'heartSoulEscape' && time >= 1.7 && !s.shots.has('late-escape')) capture = 'late-escape';
-        if (id === 'heartAwakening' && time >= 1.3 && !s.shots.has('arrival-1.3')) capture = 'arrival-1.3';
-        if (id === 'heartAwakening' && time >= 2.25 && !s.shots.has('arrival-2.25')) {
-          s.beforeAbsorb = { time, phase: soul.phase, visible: soul.visible, awakened: soul.awakened, position: { ...soul.position } };
-          capture = 'arrival-2.25';
-        }
-        if (id === 'heartAwakening' && time >= 4.6 && !s.shots.has('awakened-4.6')) capture = 'awakened-4.6';
+        if (id === 'heartAwakening' && time >= 1.7 && !s.shots.has('awakening-beat')) capture = 'awakening-beat';
+        if (id === 'heartAwakening' && time >= 4.4 && !s.shots.has('awakened-4.4')) capture = 'awakened-4.4';
       } else s.freeze = null;
 
       if (mode === 'fight' && !b.director.active && !b.cine.active && soul.phase === 'idle') {
@@ -86,7 +89,7 @@ async function advance(frames, mode) {
           }
         }
       }
-      if (mode === 'walk' && h.z <= -11.5 && soul.phase === 'hidden' && !s.shots.has('gate-approach')) capture = 'gate-approach';
+      if (mode === 'walk' && h.z <= -11.5 && soul.phase === 'absorbed' && !s.shots.has('gate-approach')) capture = 'gate-approach';
       if (s.frames % 120 === 0 || capture || s.finished) window.__heartStoryDraw();
       if (capture) {
         s.shots.add(capture);
@@ -135,6 +138,7 @@ try {
       route: [[7, 3], [7, -8], [0, -10], [0, -12], [0, -18]], waypoint: 0,
       freeze: null, freezeBad: [], freezeSamples: {}, earlyActive: [],
       starts: [], sceneEnds: [], sourceKills: [], escapes: [], absorptions: [], heartStarts: [],
+      gateZ: b.heartPassage ? -12 : 0, gateCross: null, flightMaxY: 0,
       shots: new Set(), shotStates: {}, peak: { calls: 0, tris: 0 },
       initialHeartHp: b.heart.hp, ends: 0, finished: false,
     };
@@ -149,18 +153,19 @@ try {
       }
     });
     w.bus.on('enemyAttack', () => {
-      if (b.director.id === 'heartSoulEscape' || b.director.id === 'heartAwakening') s.earlyActive.push({ enemyAttack: true, scene: b.director.id });
+      if (b.director.id === 'heartSoulFlight' || b.director.id === 'heartAwakening') s.earlyActive.push({ enemyAttack: true, scene: b.director.id });
     });
-    const escape = soul.escape.bind(soul);
-    soul.escape = (x, z) => {
-      const ok = escape(x, z);
+    const launch = soul.launch.bind(soul);
+    soul.launch = (x, z, gateZ, coreZ, avoid) => {
+      const ok = launch(x, z, gateZ, coreZ, avoid);
+      s.gateZ = gateZ;
       s.escapes.push({ x, z, ok, frame: s.frames, position: { ...soul.position } });
       return ok;
     };
     const absorb = soul.absorb.bind(soul);
-    soul.absorb = () => {
-      if (soul.phase === 'arriving') s.absorptions.push({ time: b.director.time, scene: b.director.id, frame: s.frames });
-      absorb();
+    soul.absorb = t => {
+      if (soul.phase === 'flying') s.absorptions.push({ time: b.director.time, scene: b.director.id, frame: s.frames });
+      absorb(t);
     };
     const playScene = b.playScene.bind(b);
     b.playScene = (track, onEnd, opts) => {
@@ -202,7 +207,8 @@ try {
       savedCurrencies: { ...b.ctx.save.currencies },
       freezeBad: s.freezeBad, freezeSamples: s.freezeSamples, earlyActive: s.earlyActive,
       starts: s.starts, sceneEnds: s.sceneEnds, sourceKills: s.sourceKills, escapes: s.escapes,
-      absorptions: s.absorptions, heartStarts: s.heartStarts, escapeMid: s.escapeMid, beforeAbsorb: s.beforeAbsorb,
+      absorptions: s.absorptions, heartStarts: s.heartStarts, beforeAbsorb: s.beforeAbsorb,
+      gateCross: s.gateCross, flightMaxY: s.flightMaxY, timing: soul.timing ? { gateAt: soul.timing.gateAt, gateOpenAt: soul.timing.gateOpenAt, absorbAt: soul.timing.absorbAt, dur: soul.timing.dur } : null,
       waypoint: s.waypoint, peak: s.peak, finished: s.finished,
     });
   });
@@ -210,37 +216,38 @@ try {
   let state;
   for (let batch = 0; batch < 100; batch++) {
     state = await advance(120, 'fight');
-    if (state.sceneEnds.some(e => e.id === 'heartSoulEscape')) break;
+    if (state.sceneEnds.some(e => e.id === 'heartSoulFlight')) break;
   }
-  check(state.sceneEnds.some(e => e.id === 'heartSoulEscape' && !e.skipped && e.time >= 2.35), 'Удержание атаки преждевременно пропустило побег');
-  check(state.sourceKills.length === 1 && state.escapes.length === 1 && state.escapes[0].ok, 'Нет единственного источника души финальной элиты');
+  check(state.sceneEnds.some(e => e.id === 'heartSoulFlight' && !e.skipped && e.time >= state.timing.dur - 0.05), 'Удержание атаки преждевременно пропустило полёт света');
+  check(state.sourceKills.length === 1 && state.escapes.length === 1 && state.escapes[0].ok, 'Нет единственного источника света финальной элиты');
   const source = state.sourceKills[0], escaped = state.escapes[0];
-  check(Math.hypot(source.x - escaped.x, source.z - escaped.z) < 1e-6, 'Душа возникла не у павшей элиты');
-  check(state.escapeMid?.visible && state.escapeMid.phase === 'escaping' && state.escapeMid.position.y > 2, 'В середине побега душа не видна над источником');
-  check(state.passage === 'released' && state.soul.phase === 'hidden' && !state.heart.active, 'Побег не оставил открытый путь и скрытую душу');
+  check(Math.hypot(source.x - escaped.x, source.z - escaped.z) < 1e-6, 'Свет возник не у павшей элиты');
+  check(state.flightMaxY > 1.5 && state.flightMaxY <= 4.7, 'Свет взлетел вверх, а не полетел над полом к Сердцу');
+  check(state.gateCross && Math.abs(state.gateCross.position.x) < 1 && state.gateCross.gateOpen >= 0.5, 'Свет прошёл не через открывающиеся ворота');
+  check(state.absorptions.length === 1 && state.absorptions[0].scene === 'heartSoulFlight' && Math.abs(state.absorptions[0].time - state.timing.absorbAt) < 0.05, 'Свет вошёл в ядро не в маркер сцены');
+  check(state.beforeAbsorb?.phase === 'flying' && state.beforeAbsorb.visible, 'Свет не виден перед входом в ядро');
+  check(state.passage === 'released' && state.soul.phase === 'absorbed' && Math.abs(state.soul.awakened - 0.45) < 1e-6 && !state.heart.active, 'После полёта Сердце не тлеет за открытыми воротами');
   check(state.heart.hp === state.heart.initialHp, 'Сердце потеряло HP до начала боя');
   await page.evaluate(() => { window.__heartStory.attackHeld = false; });
   const waitFrom = state.realTime;
   while (state.realTime - waitFrom < 20) state = await advance(120, 'idle');
   report.waitedInOldHall = { duration: state.realTime - waitFrom, hero: state.hero, soul: state.soul, heart: state.heart };
-  check(state.soul.phase === 'hidden' && !state.soul.visible && state.soul.awakened === 0 && !state.heart.active, 'Душа прилетела в Сердце во время ожидания в старом зале');
+  check(state.soul.phase === 'absorbed' && !state.soul.visible && Math.abs(state.soul.awakened - 0.45) < 1e-6 && !state.heart.active, 'Сердце проснулось без героя, пока он ждал в старом зале');
   check(!state.starts.some(e => e.id === 'heartAwakening'), 'Пробуждение началось до прихода героя');
 
   for (let batch = 0; batch < 100 && !state.finished; batch++) state = await advance(120, 'walk');
   check(state.finished && state.heart.active, 'Герой не прошёл в новый зал или босс не запущен после сцены');
   check(state.starts.filter(e => e.id === 'heartAwakening').length === 1, 'Пробуждение запущено не ровно один раз');
-  check(state.absorptions.length === 1 && state.absorptions[0].time >= 2.3 - 1e-8 && state.absorptions[0].scene === 'heartAwakening', 'Поглощение произошло до нужного маркера');
-  check(state.beforeAbsorb?.phase === 'arriving' && state.beforeAbsorb.visible && state.beforeAbsorb.awakened === 0, 'Душа поглощена до 2.3 с');
-  check(state.soul.phase === 'absorbed' && !state.soul.visible && state.soul.awakened === 1, 'Пробуждение не доведено до конечного состояния');
+  check(state.soul.phase === 'awake' && !state.soul.visible && state.soul.awakened === 1, 'Пробуждение не доведено до конечного состояния');
   check(state.heartStarts.length === 1 && state.heartStarts[0].director === null && state.heartStarts[0].awakened === 1, 'Босс начал атаки до завершения Director');
   check(state.heart.hp === state.heart.initialHp, 'HP Сердца изменился до игрового боя');
-  check(state.freezeSamples.heartSoulEscape >= 100 && state.freezeSamples.heartAwakening >= 300, 'Полные сцены не прошли проверку остановки мира');
+  check(state.freezeSamples.heartSoulFlight >= 200 && state.freezeSamples.heartAwakening >= 250, 'Полные сцены не прошли проверку остановки мира');
   check(state.peak.calls <= 160 && state.peak.tris <= 260000, 'Превышен мобильный бюджет рендера');
   check(report.errors.length === 0, 'В браузере появились ошибки');
   await shot('boss-ready');
   report.final = state;
   report.shotStates = await page.evaluate(() => window.__heartStory.shotStates);
-  const awake=report.shotStates['awakened-4.6'];
+  const awake=report.shotStates['awakened-4.4'];
   for(const point of Object.values(awake.framing))check(Math.abs(point[0])<.95&&Math.abs(point[1])<.8,'Общий план обрезает героя или венец Сердца');
   report.settled = await page.evaluate(() => {
     const b=window.__vb.battle;
@@ -249,7 +256,7 @@ try {
   });
   for(const point of Object.values(report.settled.framing))check(Math.abs(point[0])<.95&&Math.abs(point[1])<.85,'Боевая камера обрезает героя или венец Сердца');
   await shot('combat-frame');
-  console.log(`✓ ${QUALITY} ${width}×${height}: элита → скрытая душа → 20 с ожидания → вход → пробуждение; ${state.peak.calls} calls / ${state.peak.tris} tris`);
+  console.log(`✓ ${QUALITY} ${width}×${height}: элита → свет по проходу в ядро → 20 с ожидания → вход → пробуждение; ${state.peak.calls} calls / ${state.peak.tris} tris`);
 } catch (error) {
   failed = true;
   report.error = String(error);

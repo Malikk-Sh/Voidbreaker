@@ -1,5 +1,5 @@
 import type { ClipDef } from '../anim/clip';
-import { HEART_SOUL, HeartSoul } from '../world/heartSoul';
+import { HEART_SOUL, type HeartSoul } from '../world/heartSoul';
 import type { CineStep, CineTrack, V3 } from './director';
 
 const aisleX = (x: number): number => Math.max(-3, Math.min(3, x));
@@ -14,79 +14,185 @@ const ready = {
 function witnessClip(id: string, dur: number, awakening: boolean): ClipDef {
   const lookUp = { ...ready, head: [-0.45, 0, 0] as V3, chest: [-0.06, 0, 0] as V3 };
   const brace = { ...ready, chest: [0.17, 0, 0] as V3, shL: [-0.5, 0, 0.32] as V3, kneeL: [0.25, 0, 0] as V3, kneeR: [0.2, 0, 0] as V3 };
+  const [b0, b1] = HEART_SOUL.beats;
   return { id, dur, mask: 'full', keys: awakening ? [
-    { t: 0, pose: ready }, { t: 0.8, pose: lookUp },
-    { t: 2.3, pose: brace }, { t: 2.65, pose: ready },
-    { t: 3.25, pose: brace }, { t: 3.7, pose: ready }, { t: dur, pose: ready },
-  ] : [
     { t: 0, pose: ready }, { t: 0.6, pose: lookUp },
-    { t: Math.min(1.9, dur - 0.2), pose: lookUp }, { t: dur, pose: ready },
+    { t: b0, pose: brace }, { t: b0 + 0.35, pose: ready },
+    { t: b1, pose: brace }, { t: b1 + 0.4, pose: ready },
+    { t: HEART_SOUL.awakeAt, pose: brace }, { t: HEART_SOUL.awakeAt + 0.6, pose: ready }, { t: dur, pose: ready },
+  ] : [
+    { t: 0, pose: ready }, { t: 0.3, pose: lookUp },
+    { t: Math.min(HEART_SOUL.burst + 0.2, dur - 0.4), pose: lookUp }, { t: Math.min(HEART_SOUL.burst + 0.8, dur - 0.2), pose: ready }, { t: dur, pose: ready },
   ] };
 }
 
-/** Душа уходит вверх над павшей элитой; камера не летит к ещё не найденному Сердцу. */
-export function heartSoulEscapeTrack(hero: V3, source: V3): CineTrack {
-  const x = source[0], z = source[2];
-  const soul = new HeartSoul();
-  soul.escape(x, z);
-  const orb = (t: number): V3 => {
-    soul.sampleEscape(t);
-    return [soul.position.x, soul.position.y, soul.position.z];
-  };
-  const first: V3 = [x + 2.8, 3.1, z + 6.8];
-  const lift: V3 = [x + 3.1, 6.4, z + 7];
-  const high: V3 = [x + 1.3, 16.8, z + 7.5];
-  const steps: CineStep[] = [
-    { t: 0, do: 'actor', who: 'hero', lookAt: [x, hero[1], z], turn: 0.3 },
-    { t: 0, do: 'clip', who: 'hero', clip: 'heartSoulWitness', definition: witnessClip('heartSoulWitness', HEART_SOUL.escapeDur, false), blend: 0.18 },
-    { t: 0, do: 'music', cue: 'silence' },
-    { t: 0, do: 'cam', path: [first, lift], look: [orb(0), orb(0.55)], dur: 0.55, fov: 46, ease: 'linear' },
-    { t: 0.55, do: 'cam', path: [lift, [x + 2.4, 11.5, z + 7.3], high], look: [orb(0.55), orb(1.2), orb(HEART_SOUL.hideAt)], dur: 1.35, fov: 48, ease: 'linear', blend: 0.12 },
-    { t: HEART_SOUL.hideAt, do: 'call', fn: 'heartSoulHide' },
-    { t: HEART_SOUL.hideAt, do: 'cam', path: [high, [x + 1.3, 17.2, z + 7.7]], look: [[x - 0.55, 18, z - 0.6]], dur: 0.5, fov: 48, ease: 'outSine', blend: 0.12 },
-  ];
-  const short: CineStep[] = steps.map((s): CineStep => {
-    if (s.do === 'cam' && s.t === HEART_SOUL.hideAt) return { ...s, dur: 0 };
-    if (s.do === 'clip') return { ...s, dur: 1.9, definition: witnessClip('heartSoulWitness', 1.9, false) };
-    return s;
-  });
-  return { id: 'heartSoulEscape', dur: HEART_SOUL.escapeDur, steps, short, skippable: true, blendOut: 0.65 };
+/** Где можно стоять камере в притворе: эллипс зала с запасом до стены. */
+export interface ForeHall { z: number; rx: number; rz: number }
+
+function inside(p: V3, hall: ForeHall, margin = 1.6): V3 {
+  const ax = hall.rx - margin, az = hall.rz - margin, dx = p[0], dz = p[2] - hall.z;
+  // Коридор к воротам: камера за светом проходит в проём по оси, стена её там не держит.
+  if (Math.abs(dx) <= 2.6 && dz < -az * 0.5) return p;
+  const k = Math.hypot(dx / ax, dz / az);
+  if (k <= 1) return p;
+  // Места позади не хватает — камера поднимается на столько же: свет остаётся далеко от объектива.
+  const x = dx / k, z = hall.z + dz / k, lost = Math.hypot(p[0] - x, p[2] - z);
+  return [x, p[1] + Math.min(2.3, lost * 0.9), z];
 }
 
-/** Arrival, absorption and two heavy beats are one continuous reveal, then a readable hero/boss frame. */
+/**
+ * Свет летит к Сердцу: камера идёт за ним низко над полом, сквозь поднимающиеся ворота в Чертог,
+ * останавливается перед Сердцем и смотрит, как свет входит в ядро. Затем — герой у открытых ворот.
+ * Время каждого шага выводится из маршрута света: камера и свет совпадают при любом месте гибели элиты.
+ */
+export function heartSoulFlightTrack(hero: V3, soul: HeartSoul, gateZ: number, hall: ForeHall): CineTrack {
+  const m = soul.timing;
+  if (!m) throw new Error('heartSoulFlightTrack: свет ещё не выпущен');
+  const route = m.route, L = route.length, core = route.points[route.points.length - 1];
+  const at = (s: number): V3 => route.at(Math.max(0, Math.min(L, s)));
+  const soulAt = (t: number): V3 => at(soul.distanceAt(t));
+  const timeAtDistance = (s: number): number => {
+    let lo = 0, hi = m.absorbAt;
+    for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (soul.distanceAt(mid) < s) lo = mid; else hi = mid; }
+    return hi;
+  };
+  // Камера в 5 м позади света по его же дороге, чуть выше и правее; взгляд — на 1.2 м впереди.
+  // В начале пути камера стоит на продолжении дороги назад: свет не оказывается вплотную к объективу.
+  const lead = route.points.find(p => Math.hypot(p[0] - route.points[1][0], p[2] - route.points[1][2]) > 2) ?? core;
+  const l0 = Math.hypot(lead[0] - route.points[1][0], lead[2] - route.points[1][2]) || 1;
+  const back = [(lead[0] - route.points[1][0]) / l0, (lead[2] - route.points[1][2]) / l0];
+  const chase = (t: number): { cam: V3; look: V3 } => {
+    const s = soul.distanceAt(t), cs = s - 5.2;
+    let p: V3, fx: number, fz: number;
+    if (cs >= 0) {
+      p = at(cs); const q = at(cs + 0.6);
+      fx = q[0] - p[0]; fz = q[2] - p[2];
+      const d = Math.hypot(fx, fz);
+      if (d < 1e-4) { fx = back[0]; fz = back[1]; } else { fx /= d; fz /= d; }
+    } else {
+      const o = at(0); fx = back[0]; fz = back[1];
+      p = [o[0] + fx * cs, Math.max(o[1], 1.6), o[2] + fz * cs];
+    }
+    const cam: V3 = [p[0] - fz * 2.3, p[1] + 1.55, p[2] + fx * 2.3];
+    const ahead = at(s + 1.2);
+    return { cam: cam[2] > gateZ + 0.5 ? inside(cam, hall) : cam, look: [ahead[0], ahead[1] - 0.25, ahead[2]] };
+  };
+  const t0 = HEART_SOUL.burst + m.hover;
+  const tStop = Math.max(t0 + 0.4, timeAtDistance(L - 9));
+  const samples = (from: number, to: number, n: number): number[] => Array.from({ length: n }, (_, i) => from + (to - from) * i / (n - 1));
+
+  // Вспышка над телом: камера сбоку, в 7 м, и за время вспышки облетает свет за спину — к воротам.
+  const start = chase(t0), source = route.points[0];
+  const tx = -source[0], tz = hall.z - source[2], td = Math.hypot(tx, tz) || 1, cx = tx / td, cz = tz / td;
+  // Сторона — к середине притвора: камера не уходит за кромку зала.
+  const sideSign = (-back[1]) * cx + back[0] * cz >= 0 ? 1 : -1;
+  const sx = -back[1] * sideSign, sz = back[0] * sideSign;
+  const side: V3 = inside([source[0] + sx * 9 - back[0] * 1.8, 4.1, source[2] + sz * 9 - back[1] * 1.8], hall);
+  const corner: V3 = inside([source[0] + sx * 5.6 - back[0] * 5, 3.7, source[2] + sz * 5.6 - back[1] * 5], hall);
+  const burstTimes = samples(0, t0, 5);
+  const burstCam: V3[] = [side, [(side[0] + corner[0]) / 2, (side[1] + corner[1]) / 2, (side[2] + corner[2]) / 2], corner, [(corner[0] + start.cam[0]) / 2, (corner[1] + start.cam[1]) / 2, (corner[2] + start.cam[2]) / 2], start.cam];
+  const burstLook = burstTimes.map(t => { const p = soulAt(Math.max(0.15, t)); return [p[0], p[1] - 0.15, p[2]] as V3; });
+  burstLook[burstLook.length - 1] = start.look;
+
+  const chaseTimes = samples(t0, tStop, 12);
+  const chaseShots = chaseTimes.map(chase);
+
+  // Перед Сердцем камера тормозит, свет уходит в ядро; кадр держится на тлеющем Сердце.
+  const holdEnd = m.absorbAt + HEART_SOUL.hold;
+  const stop = chaseShots[chaseShots.length - 1];
+  const heartCam: V3 = [2.1, 4.6, core[2] + 9.6], heartCamIn: V3 = [1.7, 4.4, core[2] + 8.7];
+  const heartLook: V3 = [0, HEART_SOUL.coreY - 0.15, core[2]];
+  const holdTimes = samples(tStop, holdEnd, 10);
+  const holdCam = holdTimes.map(t => {
+    const k = Math.min(1, (t - tStop) / Math.max(0.2, m.absorbAt - tStop + 0.25)), e = k * k * (3 - 2 * k);
+    const push = Math.max(0, (t - m.absorbAt) / HEART_SOUL.hold);
+    const base: V3 = [stop.cam[0] + (heartCam[0] - stop.cam[0]) * e, stop.cam[1] + (heartCam[1] - stop.cam[1]) * e, stop.cam[2] + (heartCam[2] - stop.cam[2]) * e];
+    return [base[0] + (heartCamIn[0] - heartCam[0]) * push, base[1] + (heartCamIn[1] - heartCam[1]) * push, base[2] + (heartCamIn[2] - heartCam[2]) * push] as V3;
+  });
+  const holdLook = holdTimes.map(t => {
+    if (t >= m.absorbAt) return heartLook;
+    const p = soulAt(t), k = Math.max(0, Math.min(1, (t - tStop) / Math.max(0.2, m.absorbAt - tStop)));
+    return [p[0] + (heartLook[0] - p[0]) * k * 0.5, p[1] + (heartLook[1] - p[1]) * k * 0.5, p[2] + (heartLook[2] - p[2]) * k * 0.5] as V3;
+  });
+  holdCam[0] = stop.cam; holdLook[0] = stop.look;
+
+  // Финал: герой у открытых ворот, за ними тлеет Сердце. У края притвора камера подходит ближе,
+  // а взгляд опускается к герою — ноги и голова остаются в кадре.
+  const gx = -hero[0], gz = gateZ - hero[2], gd = Math.hypot(gx, gz) || 1, ux = gx / gd, uz = gz / gd;
+  const wideHall = { ...hall, rx: hall.rx + 2, rz: hall.rz + 2 };
+  const heroCam = inside([hero[0] - ux * 6.8 - uz * 1.4, 4.9, hero[2] - uz * 6.8 + ux * 1.4], wideHall);
+  const heroCam2 = inside([heroCam[0] + ux * 0.6, 4.7, heroCam[2] + uz * 0.6], wideHall);
+  const reach = Math.max(1.5, Math.min(4.5, Math.hypot(heroCam[0] - hero[0], heroCam[2] - hero[2]) * 0.6));
+  const heroLook: V3 = [hero[0] + ux * reach, 1.1, hero[2] + uz * reach];
+
+  const steps: CineStep[] = [
+    { t: 0, do: 'actor', who: 'hero', lookAt: [source[0], hero[1], source[2]], turn: 0.3 },
+    { t: 0, do: 'clip', who: 'hero', clip: 'heartSoulWitness', definition: witnessClip('heartSoulWitness', m.dur, false), blend: 0.18 },
+    { t: 0, do: 'music', cue: 'silence' },
+    { t: 0, do: 'sfx', id: 'void_moment', gain: 0.45 },
+    { t: 0, do: 'cam', path: burstCam, look: burstLook, dur: t0, fov: 50, ease: 'linear' },
+    { t: t0, do: 'sfx', id: 'dash', gain: 0.55 },
+    { t: t0, do: 'actor', who: 'hero', lookAt: [0, hero[1], gateZ], turn: 0.7 },
+    { t: t0, do: 'cam', path: chaseShots.map(s => s.cam), look: chaseShots.map(s => s.look), dur: tStop - t0, fov: 50, ease: 'linear', blend: 0 },
+    { t: m.gateOpenAt, do: 'call', fn: 'heartGateOpen' },
+    { t: m.gateOpenAt, do: 'sfx', id: 'tele_grind', gain: 0.45 },
+    { t: tStop, do: 'cam', path: holdCam, look: holdLook, dur: holdEnd - tStop, fov: 50, ease: 'linear', blend: 0 },
+    { t: m.absorbAt, do: 'call', fn: 'heartSoulAbsorb' },
+    { t: m.absorbAt, do: 'sfx', id: 'heartbeat', gain: 0.75 },
+    { t: m.absorbAt, do: 'sfx', id: 'boss_bell', gain: 0.3 },
+    { t: m.absorbAt + 0.55, do: 'sfx', id: 'heartbeat', gain: 0.45 },
+    { t: holdEnd, do: 'cam', path: [heroCam, heroCam2], look: [heroLook], dur: HEART_SOUL.outro, fov: 48, ease: 'inOutSine', blend: 0 },
+  ];
+  // Повторный просмотр: без общего плана героя и с короткой паузой у Сердца; маркеры — в те же моменты.
+  const shortHold = m.absorbAt + 0.45;
+  const short = steps.flatMap<CineStep>((s): CineStep[] => {
+    if (s.do === 'cam' && s.t >= holdEnd) return [];
+    if (s.do === 'cam' && s.t === tStop) return [{ ...s, dur: shortHold - tStop }];
+    if (s.do === 'sfx' && s.t > m.absorbAt) return [];
+    if (s.do === 'clip') return [{ ...s, dur: shortHold, definition: witnessClip('heartSoulWitness', shortHold, false) }];
+    return [s];
+  });
+  return { id: 'heartSoulFlight', dur: m.dur, steps, short, skippable: true, blendOut: 0.8 };
+}
+
+/**
+ * Вход в Чертог: Сердце, принявшее свет, просыпается. Два тяжёлых удара, броня раскрывается, рёв —
+ * и общий план героя и босса. Камера не выходит за ворота нового зала.
+ */
 export function heartAwakeningTrack(hero: V3, centerZ: number): CineTrack {
+  const { beats, awakeAt, awakeningDur } = HEART_SOUL;
   // Весь отъезд остаётся перед внутренней стороной ворот (centerZ + 15).
   // Высота и чуть более близкий к герою взгляд сохраняют ноги/голову даже при входе сбоку.
   const wide: V3 = [aisleX(hero[0] * 0.5), 18.5, Math.min(hero[2] + 3, centerZ + 13.5)];
   const wideLook: V3 = [hero[0] * 0.3, 2.4, centerZ + (hero[2] - centerZ) * 0.55];
-  const incoming: V3 = [2, 10.7, centerZ + 14];
-  const incomingLook: V3 = [0, 10.8, centerZ + 4];
-  const coreCam: V3 = [1.7, 5.5, centerZ + 10.5];
   const coreLook: V3 = [0, HEART_SOUL.coreY, centerZ];
-  const openedCam: V3 = [2.1, 6.3, centerZ + 12.5];
+  const near: V3 = [1.9, 5.7, centerZ + 11.5], close: V3 = [1.6, 5.3, centerZ + 9.9], closer: V3 = [1.45, 5.05, centerZ + 9.1];
+  const roar: V3 = [2.3, 6.6, centerZ + 12.8];
+  const banner = awakeAt + 1.3;
   const steps: CineStep[] = [
     { t: 0, do: 'actor', who: 'hero', lookAt: [0, hero[1], centerZ], turn: 0.3 },
-    { t: 0, do: 'clip', who: 'hero', clip: 'heartAwakeningWitness', definition: witnessClip('heartAwakeningWitness', HEART_SOUL.arrivalDur, true), blend: 0.18 },
+    { t: 0, do: 'clip', who: 'hero', clip: 'heartAwakeningWitness', definition: witnessClip('heartAwakeningWitness', awakeningDur, true), blend: 0.18 },
     { t: 0, do: 'music', cue: 'silence' },
-    { t: 0, do: 'cam', path: [wide, [aisleX(hero[0] * 0.4), wide[1] + 0.3, wide[2] + 0.25]], look: [wideLook], dur: 0.65, fov: 56, ease: 'inOutSine' },
-    { t: 0.65, do: 'cam', path: [incoming, [1.8, 9.2, centerZ + 12.5]], look: [incomingLook, [0, 8, centerZ + 2.3]], dur: 0.95, fov: 48, ease: 'linear', blend: 0.2 },
-    { t: 1.6, do: 'cam', path: [[1.8, 9.2, centerZ + 12.5], coreCam], look: [[0, 8, centerZ + 2.3], coreLook], dur: 0.7, fov: 46, ease: 'inQuad', blend: 0.12 },
-    { t: HEART_SOUL.absorbAt, do: 'call', fn: 'heartSoulAbsorb' },
-    { t: HEART_SOUL.absorbAt, do: 'sfx', id: 'heartbeat', gain: 0.7 },
-    { t: HEART_SOUL.absorbAt, do: 'cam', path: [coreCam, [1.6, 5.35, centerZ + 10.2]], look: [coreLook], dur: 0.85, fov: 44, ease: 'outCubic', blend: 0.08 },
-    { t: 3.15, do: 'sfx', id: 'heartbeat', gain: 0.85 },
-    { t: 3.15, do: 'sfx', id: 'land_impact', gain: 0.22 },
-    { t: 3.15, do: 'cam', path: [[1.6, 5.35, centerZ + 10.2], openedCam], look: [coreLook, [0, 4.2, centerZ]], dur: 0.65, fov: 48, ease: 'outSine', blend: 0.1 },
-    { t: 3.8, do: 'cam', path: [openedCam, wide], look: [[0, 4.2, centerZ], wideLook], dur: 0.6, fov: 56, ease: 'inOutSine', blend: 0.12 },
-    { t: HEART_SOUL.awakeAt, do: 'call', fn: 'heartAwake' },
-    { t: 4.9, do: 'banner', text: 'ПОГРЕБАЛЬНОЕ СЕРДЦЕ', color: 'hunger', dur: 1.4, size: 42 },
-    { t: 4.9, do: 'cam', path: [wide, [wide[0], wide[1] + 0.3, wide[2] + 0.4]], look: [wideLook], dur: 0.7, fov: 56, ease: 'outSine', blend: 0.12 },
+    { t: 0, do: 'cam', path: [wide, [aisleX(hero[0] * 0.4), wide[1] + 0.3, wide[2] + 0.25]], look: [wideLook], dur: 0.55, fov: 56, ease: 'inOutSine' },
+    { t: 0.55, do: 'cam', path: [near, close], look: [[0, 4.4, centerZ + 1.2], coreLook], dur: beats[0] - 0.55, fov: 46, ease: 'outSine', blend: 0.25 },
+    { t: beats[0], do: 'sfx', id: 'heartbeat', gain: 0.8 },
+    { t: beats[0], do: 'sfx', id: 'land_impact', gain: 0.2 },
+    { t: beats[0], do: 'cam', path: [close, [close[0] - 0.05, close[1] - 0.05, close[2] - 0.3]], look: [coreLook], dur: beats[1] - beats[0], fov: 45, ease: 'outCubic', blend: 0.06 },
+    { t: beats[1], do: 'sfx', id: 'heartbeat', gain: 0.95 },
+    { t: beats[1], do: 'sfx', id: 'land_impact', gain: 0.32 },
+    { t: beats[1], do: 'cam', path: [[close[0] - 0.05, close[1] - 0.05, close[2] - 0.3], closer], look: [coreLook], dur: awakeAt - beats[1], fov: 43, ease: 'outCubic', blend: 0.06 },
+    { t: awakeAt, do: 'call', fn: 'heartAwake' },
+    // Рёв: камеру отбрасывает назад, броня раскрывается, ядро загорается полностью.
+    { t: awakeAt, do: 'cam', path: [closer, roar], look: [coreLook, [0, 4.2, centerZ]], dur: 0.5, fov: 50, ease: 'outCubic', blend: 0.05 },
+    { t: awakeAt + 0.5, do: 'cam', path: [roar, wide], look: [[0, 4.2, centerZ], wideLook], dur: banner - awakeAt - 0.5, fov: 56, ease: 'inOutSine', blend: 0.12 },
+    { t: banner, do: 'banner', text: 'ПОГРЕБАЛЬНОЕ СЕРДЦЕ', color: 'hunger', dur: 1.4, size: 42 },
+    { t: banner, do: 'cam', path: [wide, [wide[0], wide[1] + 0.3, wide[2] + 0.4]], look: [wideLook], dur: awakeningDur - banner, fov: 56, ease: 'outSine', blend: 0.12 },
   ];
   // Логические маркеры сохраняют абсолютное время: HeartSoul не требует отдельного short-clock.
   const short = steps.flatMap<CineStep>((s): CineStep[] => {
-    if (s.do === 'banner' || s.t >= 4.9) return [];
-    if (s.do === 'clip') return [{ ...s, dur: 4.6 }];
+    if (s.do === 'banner' || s.t >= banner) return [];
+    if (s.do === 'clip') return [{ ...s, dur: banner }];
     return [s];
   });
-  return { id: 'heartAwakening', dur: HEART_SOUL.arrivalDur, steps, short, skippable: true, blendOut: 0.8 };
+  return { id: 'heartAwakening', dur: awakeningDur, steps, short, skippable: true, blendOut: 0.8 };
 }

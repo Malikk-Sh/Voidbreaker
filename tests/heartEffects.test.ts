@@ -26,13 +26,21 @@ describe('отдельные эффекты Погребального серд�
       for(const name of ['heart-projectiles','votive-carriers','heart-firefields','heart-arteries'])expect((fx.group.getObjectByName(name) as THREE.InstancedMesh).count).toBe(0);
     }finally{fx.dispose();}
   });
-  it('ведёт отдельную душу со следом и освобождает все instance buffers один раз',()=>{
+  it('ведёт огненный дух по ходу полёта со шлейфом и искрами и освобождает все instance buffers один раз',()=>{
     const fx=new HeartEffects(),disposed=new Set<THREE.InstancedMesh>(),instances=new Set<THREE.InstancedMesh>();
     fx.group.traverse(o=>{if(o instanceof THREE.InstancedMesh){instances.add(o);o.addEventListener('dispose',()=>disposed.add(o));}});
-    fx.setSoul(0,2,-58,true);fx.setSoul(0,3,-60,true);
-    expect(fx.soul.visible).toBe(true);expect(fx.soul.position.toArray()).toEqual([0,3,-60]);
-    expect((fx.group.getObjectByName('soul-trail') as THREE.InstancedMesh).count).toBe(2);
-    fx.setSoul(0,0,0,false);expect(fx.soul.visible).toBe(false);expect((fx.group.getObjectByName('soul-trail') as THREE.InstancedMesh).count).toBe(0);
+    const v={...view(),active:false};
+    fx.setSoul(0,2,-58,true);fx.update(1/60,v);fx.setSoul(0,2.1,-58.5,true);fx.setSoul(0,2.2,-60,true);fx.update(1/60,v);
+    expect(fx.soul.visible).toBe(true);expect(fx.soul.body.position.toArray()).toEqual([0,2.2,-60]);
+    expect(fx.soul.trailPoints).toBe(3);
+    // Тело и языки пламени смотрят по ходу полёта, а не стоят шаром.
+    const forward=new THREE.Vector3(0,0,1).applyQuaternion(fx.soul.body.quaternion);expect(forward.z).toBeLessThan(-0.8);
+    for(const name of ['heart-soul-core','heart-soul-flames','heart-soul-halo','heart-soul-ribbon'])expect(fx.group.getObjectByName(name)?.visible,name).toBe(true);
+    for(let i=0;i<12;i++){fx.setSoul(0,2.2,-60-i*0.25,true);fx.update(1/60,v);}
+    expect(fx.soul.liveSparks).toBeGreaterThan(0);
+    fx.setSoul(0,0,0,false);
+    expect(fx.soul.visible).toBe(false);expect(fx.soul.trailPoints).toBe(0);expect(fx.soul.liveSparks).toBe(0);
+    expect(fx.group.getObjectByName('heart-soul-ribbon')?.visible).toBe(false);
     fx.dispose();fx.dispose();expect(disposed).toEqual(instances);expect(fx.group.children).toHaveLength(0);
   });
 });
