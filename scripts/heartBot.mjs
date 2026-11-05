@@ -1,7 +1,8 @@
 /**
  * Native movement/aim/attack/hold input shared by the browser encounter checks. Plays the Heart the intended way:
  * step out of the locked dive mark and the get-up ring, strike the core while it lies open, return orbs, relight a
- * heated bowl with any swing and shelter in the light during the dark wave.
+ * heated bowl with any swing, shelter in the light during the dark wave and, in the Funeral Flood, cut down a
+ * fire-bearer and stand under its golden dome.
  */
 export function driveHeart(b,s){
  const w=b.world,h=w.hero,r=b.heart,inp=b.ctx.input;
@@ -38,9 +39,22 @@ export function driveHeart(b,s){
  for(const rw of w.ringWaves){const d=Math.hypot(h.x-rw.x,h.z-rw.z),ahead=d-rw.r;
   const a=Math.atan2(h.x-rw.x,h.z-rw.z),gap=rw.gaps.some(g=>{let x=a-g.a;x=((x+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;return Math.abs(x)<g.w/2-0.05;});
   if(!rw.hit&&!gap&&ahead>0&&ahead<rw.speed*0.16+rw.width/2){s.mx=Math.sin(a+Math.PI);s.mz=Math.cos(a+Math.PI);inp.buffer.push('dash',inp.now);return;}}
- const danger=w.telegraphs.find(t=>t.alive&&t.t<t.dur&&t.dur-t.t<0.9&&inside(t));
+ // Под куполом в приливе удар огненосца терпят: выйти из света хуже.
+ const sheltered=!!r.flood&&r.fields.some(f=>f.kind==='wax'&&f.life>0&&Math.hypot(h.x-f.x,h.z-f.z)<f.r-0.35);
+ const danger=!sheltered&&w.telegraphs.find(t=>t.alive&&t.t<t.dur&&t.dur-t.t<0.9&&inside(t));
  if(danger&&danger.shape.k!=='ring'){const g=danger.shape,cx=g.k==='line'?g.x+g.dx*Math.max(0,Math.min(g.len,(h.x-g.x)*g.dx+(h.z-g.z)*g.dz)):g.x,cz2=g.k==='line'?g.z+g.dz*Math.max(0,Math.min(g.len,(h.x-g.x)*g.dx+(h.z-g.z)*g.dz)):g.z;
   if(danger.dur-danger.t<0.22)inp.buffer.push('dash',inp.now);leave(cx,cz2);return;}
+ // Прилив: под золотым куполом безопасно. Нет купола — срубить ближнего огненосца, его пламя станет куполом.
+ if(r.flood){
+  const dome=r.fields.filter(f=>f.kind==='wax'&&f.life>2).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
+  const bearer=[...r.carriers.values()].filter(e=>!e.dead).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
+  if(dome){
+   // Под куполом — рубить подошедшего огненосца, не выходя из света.
+   if(sheltered&&bearer&&dist(bearer.x,bearer.z)<2.4){aim(bearer.x,bearer.z);attack();return;}
+   toward(dome.x,dome.z,0.45);return;
+  }
+  if(bearer){if(toward(bearer.x,bearer.z,1.8))attack();return;}
+ }
  // 1. Под меткой падения и под встающим Сердцем не стоять.
  if((r.pose==='lock'||r.pose==='fall')&&dist(r.target.x,r.target.z)<3.8){leave(r.target.x,r.target.z);return;}
  if(r.pose==='stuck'&&r.exposed<1.35&&dist(r.body.x,r.body.z)<4.2){leave(r.body.x,r.body.z);return;}
@@ -64,12 +78,6 @@ export function driveHeart(b,s){
  // 5. Раскалённая чаша: любой удар клинком возвращает огонь.
  const warm=r.braziers.map((p,i)=>({...p,i})).filter(p=>!r.lit[p.i]&&r.heat[p.i]>=0.65).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
  if(warm){if(toward(warm.x,warm.z,1.6))attack();return;}
- // 6. Воск павшего носильщика: заряженный удар тоже отправляет огонь в Сердце.
- const field=r.fields.filter(f=>f.kind==='wax'&&f.life>2.5).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
- if(field&&dist(field.x,field.z)<6){
-  if(toward(field.x,field.z,1.55)){s.chargeAt={x:field.x,z:field.z};s.chargingUntil=w.time+1.1;s.held=true;inp.attackHeldSince=inp.now;}
-  return;
- }
- // 7. Ждать у первой чаши: падение рядом с ней раскалит её.
+ // 6. Ждать у первой чаши: падение рядом с ней раскалит её.
  const bowl=r.braziers[0];toward(bowl.x+1.6,bowl.z+1.6,1);
 }

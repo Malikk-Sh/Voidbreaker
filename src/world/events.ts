@@ -140,6 +140,16 @@ export interface GameEvents {
   heartDying: { x: number; y: number; z: number };
   /** …и лопается, возвращая огонь залу. */
   heartBurst: { x: number; y: number; z: number };
+  /** Рёв Сердца: пробуждение или начало прилива (flood). */
+  heartRoar: { x: number; y: number; z: number; flood: boolean };
+  /** Удар Погребального прилива: pulse — номер удара, safe — герой под золотым куполом. */
+  heartFlood: { x: number; z: number; pulse: number; safe: boolean };
+  /** Капля воска ударила в пол. */
+  heartDrop: { x: number; z: number; r: number };
+  /** Павший огненосец оставил золотой купол. */
+  heartDome: { x: number; z: number; r: number };
+  /** Сердце выпустило огненосцев. */
+  heartSummon: { x: number; z: number; n: number };
   resonanceFull: Record<string, never>;
   /** Способность снова готова (кольцо вокруг иконки, короткий звук). */
   abilityReady: { slot: 'q' | 'e' };

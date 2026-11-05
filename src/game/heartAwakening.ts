@@ -196,3 +196,45 @@ export function heartAwakeningTrack(hero: V3, centerZ: number): CineTrack {
   });
   return { id: 'heartAwakening', dur: awakeningDur, steps, short, skippable: true, blendOut: 0.8 };
 }
+
+/** Время сцены гибели: удары затихают, ядро лопается в burst, золотая волна идёт по залу до конца сцены. */
+export const HEART_DEATH_T = { beats: [0.7, 1.45] as const, burst: 1.9, end: 3.9 };
+
+/**
+ * Гибель Сердца: крупный план — ядро сжимается и дрожит, камера медленно обходит его; на вспышке —
+ * отъезд за спину героя и общий план зала, по которому золотая волна возвращает огонь свечам.
+ * Камера остаётся над полом Чертога (эллипс 38×30 м с запасом).
+ */
+export function heartDeathTrack(hero: V3, body: V3, centerZ: number): CineTrack {
+  const T = HEART_DEATH_T;
+  const clampHall = (p: V3): V3 => {
+    const ax = 17.2, az = 13.2, dx = p[0], dz = p[2] - centerZ, k = Math.hypot(dx / ax, dz / az);
+    return k <= 1 ? p : [dx / k, p[1], centerZ + dz / k];
+  };
+  let dx = hero[0] - body[0], dz = hero[2] - body[2];
+  const d = Math.hypot(dx, dz);
+  if (d < 0.5) { dx = -body[0]; dz = centerZ + 14 - body[2]; }
+  const n = Math.hypot(dx, dz) || 1, ux = dx / n, uz = dz / n, sx = -uz, sz = ux;
+  const core: V3 = [body[0], 2.3, body[2]];
+  const orbit = (a: number, r: number, y: number): V3 => {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    return clampHall([body[0] + (ux * ca + sx * sa) * r, y, body[2] + (uz * ca + sz * sa) * r]);
+  };
+  // Крупный план держит всё Сердце с венцом (радиус ~2.6 м): камера не входит в его лепестки.
+  const close0 = orbit(0.6, 8.8, 3.9), close1 = orbit(0.25, 7.4, 3.4);
+  const pull = orbit(0.15, 10.5, 5.4);
+  const wide0 = clampHall([hero[0] + ux * 6.5 + sx * 2, 8.2, hero[2] + uz * 6.5 + sz * 2]);
+  const wide1 = clampHall([hero[0] + ux * 7.5 + sx * 2.4, 9.4, hero[2] + uz * 7.5 + sz * 2.4]);
+  const wideLook: V3 = [(hero[0] + body[0]) / 2, 0.6, (hero[2] + body[2]) / 2];
+  const steps: CineStep[] = [
+    { t: 0, do: 'actor', who: 'hero', lookAt: [body[0], hero[1], body[2]], turn: 0.35 },
+    { t: 0, do: 'music', cue: 'silence' },
+    { t: 0, do: 'cam', path: [close0, close1], look: [core], dur: T.burst, fov: 42, ease: 'inOutSine' },
+    { t: T.beats[0], do: 'sfx', id: 'heartbeat', gain: 0.85 },
+    { t: T.beats[1], do: 'sfx', id: 'heartbeat', gain: 0.6 },
+    // Вспышка: камеру отбрасывает назад, затем — общий план за спиной героя.
+    { t: T.burst, do: 'cam', path: [close1, pull], look: [core, [body[0], 1.6, body[2]]], dur: 0.45, fov: 48, ease: 'outCubic', blend: 0 },
+    { t: T.burst + 0.45, do: 'cam', path: [wide0, wide1], look: [wideLook], dur: T.end - T.burst - 0.45, fov: 54, ease: 'inOutSine', blend: 0.3 },
+  ];
+  return { id: 'heartDeath', dur: T.end, steps, short: steps, skippable: true, blendOut: 0.6 };
+}

@@ -39,10 +39,14 @@ try{for(const q of qualities){
      if(r.phase===1&&r.attack&&!s.shots.has('phase-1'))shot='phase-1';
      if(r.shots.some(p=>p.reflected)&&!s.shots.has('reflection'))shot='reflection';
      if(r.metrics.counters>0&&!s.shots.has('counter'))shot='counter';
+     if(r.flood&&r.flood.hold&&!s.shots.has('flood'))shot='flood';
+     if(r.drops.length>2&&!s.shots.has('rain'))shot='rain';
      if(r.phase===2&&!s.shots.has('phase-2'))shot='phase-2';
      if(r.phase===3&&!s.shots.has('phase-3'))shot='phase-3';
     }
-    if(r.dead&&!s.shots.has('defeated'))shot='defeated';
+    if(b.director.id==='heartDeath'&&b.director.time>=1.2&&!s.shots.has('death-close'))shot='death-close';
+    if(b.director.id==='heartDeath'&&b.director.time>=3.1&&!s.shots.has('death-wide'))shot='death-wide';
+    if(r.dead&&!b.director.active&&!s.shots.has('defeated'))shot='defeated';
     if(s.frames%120===0){const rr=b.ctx.renderer;rr.gl.info.reset();rr.render(b.ctx.time.world);s.peak.calls=Math.max(s.peak.calls,rr.gl.info.render.calls);s.peak.tris=Math.max(s.peak.tris,rr.gl.info.render.triangles);}
     if(shot){s.shots.add(shot);break;}
    }
@@ -54,7 +58,9 @@ try{for(const q of qualities){
  }
  const check=(ok,msg)=>{if(!ok)throw new Error(`${q}: ${msg}: ${JSON.stringify(state)}`);};
  check(state.dead&&state.hp===0&&state.ends===1&&state.screen==='results'&&state.clear===1,'настоящая победа над Сердцем и награда');
- check(state.metrics.counters>0&&state.metrics.reflectedHits>0&&state.metrics.bodyHits>0&&state.metrics.spawnedTotal>=2,'контратака, возврат снаряда, удары по телу и носильщики');
+ check(state.metrics.counters>0&&state.metrics.reflectedHits>0&&state.metrics.bodyHits>0&&state.metrics.spawnedTotal>=2,'контратака, возврат снаряда, удары по телу и огненосцы');
+ check(state.metrics.floods>=2&&state.metrics.domes>=1&&state.metrics.sheltered>=1,'прилив и укрытие под золотым куполом');
+ check(state.metrics.drops>0&&state.metrics.echoes>0,'восковой дождь и эхо падений');
  check(state.phases.length===3,'три физические фазы');
  check(state.maxDark<.001,'всё свечное пламя гаснет');
  check(state.peak.calls<=160&&state.peak.tris<=260000,'бюджет рендера');check(errors.length===0,'ошибки браузера');

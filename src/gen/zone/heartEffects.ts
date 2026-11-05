@@ -22,6 +22,10 @@ export interface HeartEffectsView {
   target?: {x:number;z:number};
   exposed?: number;
   dying?: number;
+  /** Погребальный прилив: радиус тьмы от колодца, видимость, вспышка удара, вдох перед ударом. */
+  flood?: {front:number;inner:number;outer:number;level:number;crash:number;hold:boolean}|null;
+  /** Капли воскового дождя: t — с начала метки, dur — до удара. */
+  drops?: readonly {id:number;x:number;z:number;r:number;t:number;dur:number}[];
 }
 
 /**
@@ -30,9 +34,15 @@ export interface HeartEffectsView {
  */
 export const DIVE_LOOK = { shadow: 2.6, dark: [0.32, 0.6] as const, motes: 14, pillar: 0.09 };
 
-const HOT = new THREE.Color('#ff6e2b'), REFLECT = new THREE.Color('#d7a1ff');
+const HOT = new THREE.Color('#ff6e2b'), REFLECT = new THREE.Color('#d7a1ff'), WHITE = new THREE.Color('#fff6dc');
 const GOLD = new THREE.Color('#ffdb8a'), DANGER = new THREE.Color('#98243b');
-const MAX_SHOTS=48, MAX_FIELDS=24, MAX_CARRIERS=16, MAX_LINKS=32;
+const MAX_SHOTS=48, MAX_FIELDS=24, MAX_CARRIERS=16, MAX_LINKS=32, MAX_DOMES=6, MAX_DROPS=16;
+
+/**
+ * Огненосцы, купола и прилив: flame — высота пламени над головой огненосца (м); domeRise — сколько купол
+ * поднимается из упавшего пламени (с); domeFade — сколько гаснет в конце жизни; dropFall — сколько капля падает (с).
+ */
+export const WAX_LOOK = { flame: 2.05, domeRise: 0.35, domeFade: 1.5, dropFall: 0.45, dropFrom: 9 };
 
 /** Все координаты мировые; точные предупреждения атак рисует общая система телеграфов. */
 export class HeartEffects {
@@ -41,7 +51,12 @@ export class HeartEffects {
   readonly soul = new SoulSpirit();
   private readonly shots: THREE.InstancedMesh;
   private readonly halos: THREE.InstancedMesh;
+  /** Пламя над головой огненосца: внешний золотой язык и белое ядро. */
   private readonly carriers: THREE.InstancedMesh;
+  private readonly domes: THREE.InstancedMesh;
+  private readonly domeMaterial: THREE.ShaderMaterial;
+  private readonly tide: THREE.Mesh<THREE.BufferGeometry,THREE.ShaderMaterial>;
+  private readonly dropMeshes: THREE.InstancedMesh;
   private readonly fields: THREE.InstancedMesh;
   private readonly links: THREE.InstancedMesh;
   private readonly shadow: THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
@@ -62,14 +77,49 @@ export class HeartEffects {
     this.shots=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,1),bright,MAX_SHOTS);
     this.shots.name='heart-projectiles';
     this.halos=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0),halo,MAX_SHOTS);
-    this.carriers=new THREE.InstancedMesh(new THREE.TorusGeometry(0.4,0.1,4,12),bright,MAX_CARRIERS);
+    this.carriers=new THREE.InstancedMesh(octa(0.22,0.62,0.22).translate(0,0.4,0),bright,MAX_CARRIERS*2);
     this.carriers.name='votive-carriers';
+    // Купол — полусфера с ярким краем: силовой щит из света, видный сквозь тьму прилива.
+    const dome=new THREE.SphereGeometry(1,28,12,0,Math.PI*2,0,Math.PI/2);
+    this.domeMaterial=new THREE.ShaderMaterial({
+      uniforms:{boost:{value:0}},
+      vertexShader:'varying vec3 vN;varying vec3 vV;varying vec3 vC;varying float vY;void main(){vec4 p=modelViewMatrix*instanceMatrix*vec4(position,1.0);vN=normalize(normalMatrix*mat3(instanceMatrix)*normal);vV=normalize(-p.xyz);vC=instanceColor;vY=position.y;gl_Position=projectionMatrix*p;}',
+      fragmentShader:'uniform float boost;varying vec3 vN;varying vec3 vV;varying vec3 vC;varying float vY;void main(){float f=1.0-abs(dot(normalize(vN),normalize(vV)));float rim=pow(f,2.2);float band=0.5+0.5*sin(vY*18.0);gl_FragColor=vec4(vC*(0.1+rim*(0.85+boost)+band*0.05*(1.0+boost)),1.0);}',
+      transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,
+    });
+    this.domes=new THREE.InstancedMesh(dome,this.domeMaterial,MAX_DOMES);
+    this.domes.name='heart-wax-domes';
+    this.domes.setColorAt(0,GOLD);
+    // Тьма прилива — плоский слой поверх пола зала: от колодца к стенам, с окнами под куполами.
+    const domeSlots=Array.from({length:MAX_DOMES},()=>new THREE.Vector3(0,0,-1));
+    this.tide=new THREE.Mesh(new THREE.CircleGeometry(1,72).rotateX(-Math.PI/2),new THREE.ShaderMaterial({
+      uniforms:{uWell:{value:new THREE.Vector2()},uWellR:{value:new THREE.Vector2(5,4)},uHallC:{value:new THREE.Vector2()},uHallR:{value:new THREE.Vector2(19,15)},
+        uFront:{value:0},uLevel:{value:0},uCrash:{value:0},uHold:{value:0},uTime:{value:0},uDomes:{value:domeSlots}},
+      vertexShader:'varying vec3 vW;void main(){vec4 w=modelMatrix*vec4(position,1.0);vW=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}',
+      fragmentShader:[
+        'uniform vec2 uWell;uniform vec2 uWellR;uniform vec2 uHallC;uniform vec2 uHallR;uniform float uFront;uniform float uLevel;uniform float uCrash;uniform float uHold;uniform float uTime;',
+        `uniform vec3 uDomes[${MAX_DOMES}];varying vec3 vW;`,
+        'void main(){vec2 p=vW.xz;vec2 h=(p-uHallC)/uHallR;if(dot(h,h)>1.0)discard;vec2 q=(p-uWell)/uWellR;if(dot(q,q)<1.0)discard;',
+        'float d=length(p-uWell);float edge=uFront-d;if(edge<0.0)discard;float shelter=1.0;',
+        `for(int i=0;i<${MAX_DOMES};i++){if(uDomes[i].z<=0.0)continue;float dd=length(p-uDomes[i].xy)-uDomes[i].z;shelter=min(shelter,smoothstep(0.0,0.6,dd));}`,
+        // Тёмная вода с тонкими багровыми прожилками; у фронта — яркая пена; на вдохе прожилки бьются.
+        'float n=sin(p.x*0.9+sin(p.y*0.7+uTime*0.5)*1.6+uTime*0.8)+sin(p.y*1.1-uTime*0.6+sin(p.x*0.5)*1.4);float veins=1.0-smoothstep(0.0,0.12,abs(n));',
+        'float foam=1.0-smoothstep(0.0,0.7,edge);float pulse=uHold*(0.5+0.5*sin(uTime*14.0));',
+        'vec3 col=vec3(0.012,0.004,0.02)+vec3(0.55,0.04,0.1)*(veins*(0.22+pulse*0.45)+foam*0.9+uCrash*0.55);',
+        'gl_FragColor=vec4(col,uLevel*shelter*(0.86+foam*0.14));}',
+      ].join(''),
+      transparent:true,depthWrite:false,
+    }));
+    this.tide.name='heart-flood-tide'; this.tide.renderOrder=4;
+    this.dropMeshes=new THREE.InstancedMesh(octa(0.32,0.8,0.32),bright,MAX_DROPS);
+    this.dropMeshes.name='heart-wax-drops';
     const floorRing=new THREE.RingGeometry(0.82,1,40); floorRing.rotateX(-Math.PI/2);
     this.fields=new THREE.InstancedMesh(floorRing,new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0.42,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}),MAX_FIELDS);
     this.fields.name='heart-firefields';
     this.links=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0.72,blending:THREE.AdditiveBlending,depthWrite:false}),MAX_LINKS);
     this.links.name='heart-arteries';
-    for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links]) {mesh.count=0;mesh.frustumCulled=false;this.group.add(mesh);}
+    for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links,this.domes,this.dropMeshes]) {mesh.count=0;mesh.frustumCulled=false;this.group.add(mesh);}
+    this.tide.frustumCulled=false;this.tide.visible=false;this.group.add(this.tide);
     this.group.add(this.soul.group);
     // Тень падения — тёмный диск на полу, а не ещё одно свечение: где будет Сердце, видно сразу.
     const disk=new THREE.CircleGeometry(1,40); disk.rotateX(-Math.PI/2);
@@ -110,11 +160,16 @@ export class HeartEffects {
     this.shots.count=this.halos.count=shots;
     let carriers=0;
     if(visible)for(const [id,e] of v.carriers){
-      if(e.dead||carriers>=MAX_CARRIERS)continue;
-      this.carriers.setMatrixAt(carriers,mat(e.x,2.1+Math.sin(this.time*3+id)*0.1,e.z,0,this.time*1.8,Math.sin(this.time+id)*0.25));
-      this.carriers.setColorAt(carriers,GOLD);carriers++;
+      if(e.dead||carriers+1>=MAX_CARRIERS*2)continue;
+      // Пламя над головой: живое, качается, а внутри — белое ядро. Его видно в полной тьме прилива.
+      const f=0.85+Math.sin(this.time*17+id*3.1)*0.1+Math.sin(this.time*29+id)*0.06, sway=Math.sin(this.time*5+id)*0.12;
+      this.carriers.setMatrixAt(carriers,mat(e.x,WAX_LOOK.flame,e.z,sway,this.time*0.6+id,-sway,1.6,f*1.75,1.6));
+      this.carriers.setColorAt(carriers,this.tempColor.copy(GOLD).lerp(HOT,0.35));carriers++;
+      this.carriers.setMatrixAt(carriers,mat(e.x,WAX_LOOK.flame+0.08,e.z,sway,this.time*0.6+id,-sway,0.75,f*0.95,0.75));
+      this.carriers.setColorAt(carriers,WHITE);carriers++;
     }
     this.carriers.count=carriers;
+    this.updateWax(v,visible);
     let fields=0;
     if(visible)for(const f of v.fields){
       if(f.life<=0||fields>=MAX_FIELDS)continue;
@@ -153,8 +208,45 @@ export class HeartEffects {
     }
     this.links.count=links;
     this.updateDive(v,visible);
-    for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links,this.motes]){mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;}
+    for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links,this.motes,this.domes,this.dropMeshes]){mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;}
     this.soul.update(dt);
+  }
+
+  /** Золотые купола павших огненосцев, тьма прилива с окнами под ними, капли воскового дождя. */
+  private updateWax(v:HeartEffectsView,visible:boolean):void {
+    const flood=visible?v.flood??null:null, slots=this.tide.material.uniforms.uDomes.value as THREE.Vector3[];
+    let domes=0;
+    for(const f of visible?v.fields:[]){
+      if(f.kind!=='wax'||f.life<=0||domes>=MAX_DOMES)continue;
+      const age=f.dur-f.life, rise=Math.min(1,age/WAX_LOOK.domeRise), fade=Math.min(1,f.life/WAX_LOOK.domeFade);
+      const e=1-Math.pow(1-rise,3), r=f.r*(0.6+0.4*e);
+      this.domes.setMatrixAt(domes,mat(f.x,0.02,f.z,0,this.time*0.2,0,r,f.r*0.85*e,r));
+      // В приливе купол горит ярче: укрытие видно сразу.
+      this.domes.setColorAt(domes,this.tempColor.copy(GOLD).multiplyScalar(fade*(flood?1.35:0.85)));
+      slots[domes].set(f.x,f.z,f.r*e);domes++;
+    }
+    for(let i=domes;i<MAX_DOMES;i++)slots[i].set(0,0,-1);
+    this.domes.count=domes;
+    this.domeMaterial.uniforms.boost.value=flood?0.6+flood.crash*0.8:0;
+    const u=this.tide.material.uniforms;
+    this.tide.visible=!!flood&&flood.level>0.01;
+    if(flood){
+      const c=v.centerZ;
+      this.tide.position.set(0,0.07,c);this.tide.scale.setScalar(flood.outer+1);
+      (u.uWell.value as THREE.Vector2).set(0,c-0.5);(u.uHallC.value as THREE.Vector2).set(0,c);
+      u.uFront.value=flood.front;u.uLevel.value=flood.level;u.uCrash.value=flood.crash;u.uHold.value=flood.hold?1:0;u.uTime.value=this.time;
+    }
+    let drops=0;
+    for(const d of visible?v.drops??[]:[]){
+      if(drops>=MAX_DROPS)continue;
+      // Капля видна в последние доли секунды: падает сверху точно в центр метки.
+      const k=(d.t-(d.dur-WAX_LOOK.dropFall))/WAX_LOOK.dropFall;
+      if(k<0)continue;
+      const y=WAX_LOOK.dropFrom*(1-k*k)+0.3;
+      this.dropMeshes.setMatrixAt(drops,mat(d.x,y,d.z,0,this.time*3+d.id,0,1,1.2+k*0.6,1));
+      this.dropMeshes.setColorAt(drops,this.tempColor.copy(GOLD).lerp(HOT,0.5));drops++;
+    }
+    this.dropMeshes.count=drops;
   }
 
   /** Тень и столб над меткой падения; золотые искры над раскрытым ядром. */

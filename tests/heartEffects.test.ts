@@ -17,13 +17,25 @@ describe('отдельные эффекты Погребального серд�
       expect(new THREE.Vector3().setFromMatrixScale(m).x).toBeCloseTo(.82);
       shots.getColorAt(0,color);expect(color.r).toBeGreaterThan(color.b);
       v.shots[0].reflected=true;fx.update(.1,v);shots.getColorAt(0,color);expect(color.b).toBeGreaterThan(color.r);
-      expect((fx.group.getObjectByName('votive-carriers') as THREE.InstancedMesh).count).toBe(1);
+      // Огненосец несёт пламя над головой: золотой язык и белое ядро.
+      expect((fx.group.getObjectByName('votive-carriers') as THREE.InstancedMesh).count).toBe(2);
       expect((fx.group.getObjectByName('heart-firefields') as THREE.InstancedMesh).count).toBe(1);
+      // Воск павшего огненосца — золотой купол; прилив закрывает пол, оставляя окно под куполом.
+      expect((fx.group.getObjectByName('heart-wax-domes') as THREE.InstancedMesh).count).toBe(1);
+      const tide=fx.group.getObjectByName('heart-flood-tide') as THREE.Mesh<THREE.BufferGeometry,THREE.ShaderMaterial>;
+      expect(tide.visible).toBe(false);
+      fx.update(.1,{...v,flood:{front:12,inner:4.6,outer:21,level:1,crash:0,hold:false},drops:[{id:9,x:2,z:-80,r:1.5,t:1.1,dur:1.2},{id:10,x:3,z:-80,r:1.5,t:0.2,dur:1.2}]});
+      expect(tide.visible).toBe(true);expect(tide.material.uniforms.uFront.value).toBe(12);
+      const slots=tide.material.uniforms.uDomes.value as THREE.Vector3[];
+      expect(slots[0].x).toBe(-8);expect(slots[0].y).toBe(-80);expect(slots[0].z).toBeGreaterThan(0);expect(slots[1].z).toBeLessThan(0);
+      // Падает только капля, которой до удара меньше 0.45 с.
+      expect((fx.group.getObjectByName('heart-wax-drops') as THREE.InstancedMesh).count).toBe(1);
       const arteries=fx.group.getObjectByName('heart-arteries') as THREE.InstancedMesh;
       expect(arteries.count).toBe(26); // 24 участка трёх артерий, нить рождения и движущаяся искра
       v.carriers.get(4)!.state='idle';fx.update(.1,v);expect(arteries.count).toBe(24);
       v.dead=true;fx.update(.1,v);
-      for(const name of ['heart-projectiles','votive-carriers','heart-firefields','heart-arteries'])expect((fx.group.getObjectByName(name) as THREE.InstancedMesh).count).toBe(0);
+      for(const name of ['heart-projectiles','votive-carriers','heart-firefields','heart-arteries','heart-wax-domes','heart-wax-drops'])expect((fx.group.getObjectByName(name) as THREE.InstancedMesh).count).toBe(0);
+      expect(tide.visible).toBe(false);
     }finally{fx.dispose();}
   });
   it('ведёт огненный дух по ходу полёта со шлейфом и искрами и освобождает все instance buffers один раз',()=>{

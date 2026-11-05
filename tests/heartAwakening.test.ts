@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { ClipDef } from '../src/anim/clip';
-import { heartAwakeningTrack, heartSoulFlightTrack, type ForeHall } from '../src/game/heartAwakening';
+import { HEART_DEATH_T, heartAwakeningTrack, heartDeathTrack, heartSoulFlightTrack, type ForeHall } from '../src/game/heartAwakening';
 import { Director, type CineTrack, type DirectorActor, type DirectorHost } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { HEART_SOUL, HeartSoul } from '../src/world/heartSoul';
@@ -304,4 +304,27 @@ describe('кадры Сердца на мобильном экране', () => {
       }
     }
   });
+});
+
+describe('гибель Сердца: отдельная сцена', () => {
+  for (const [width, height] of [[844, 390], [740, 360]]) {
+    for (const [hero, body] of [[[0, 0, -19], [0, 1.05, -24]], [[-9, 0, -30], [-6, 1.05, -33]], [[12, 0, -26], [7.6, 1.05, -27.5]]] as [[number, number, number], [number, number, number]][]) {
+      it(`${width}×${height}, герой (${hero[0]}, ${hero[2]}): ядро в кадре до вспышки, затем общий план с героем`, () => {
+        const track = heartDeathTrack(hero, body, CENTER);
+        expect(track.skippable).toBe(true);
+        for (const t of [0.1, 0.9, 1.8]) {
+          const c = cameraAt(track, t, launched());
+          const q = project(c, width, height, new THREE.Vector3(body[0], 2.3, body[2]));
+          expect(Math.abs(q.x), `t=${t}`).toBeLessThan(0.5); expect(Math.abs(q.y), `t=${t}`).toBeLessThan(0.5);
+          expect(Math.hypot(c.pos.x / 18, (c.pos.z - CENTER) / 14)).toBeLessThanOrEqual(1);
+        }
+        const c = cameraAt(track, HEART_DEATH_T.end - 0.4, launched());
+        for (const p of [new THREE.Vector3(hero[0], 0.2, hero[2]), new THREE.Vector3(hero[0], 1.9, hero[2]), new THREE.Vector3(body[0], 1.4, body[2])]) {
+          const q = project(c, width, height, p);
+          expect(Math.abs(q.x)).toBeLessThan(0.95); expect(Math.abs(q.y)).toBeLessThan(0.85); expect(q.z).toBeLessThan(1);
+        }
+        expect(Math.hypot(c.pos.x / 18, (c.pos.z - CENTER) / 14)).toBeLessThanOrEqual(1);
+      });
+    }
+  }
 });

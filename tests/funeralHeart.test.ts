@@ -250,21 +250,16 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     until(() => heart.reflectedHits === 1, 3); expect(heart.hp).toBe(FUNERAL_HEART.hp - FUNERAL_HEART.reflectionDamage);
   });
 
-  for (const sheltered of [true, false]) it(`carrier wax ${sheltered ? 'carves a gap in' : 'does not protect a hero outside it from'} the dark ring wave`, () => {
-    const { w, heart, run, until } = setup(); heart.start();
-    until(() => heart.attack?.kind === 'pulse', 30);
-    // Остальные носильщики не мешают: проверяем только волну.
-    const [carrier, ...rest] = [...heart.carriers.values()]; expect(carrier).toBeTruthy();
-    for (const other of rest) { other.x = 0; other.z = 12; w.killEnemy(other, 0, 0, 1); }
-    for (const f of heart.fields) f.life = 0;
-    run(DT);
-    carrier.x = 0; carrier.z = 10; w.killEnemy(carrier, 0, 0, 1);
-    expect(heart.fields.some(f => f.kind === 'wax')).toBe(true); expect(heart.counters).toBe(0);
+  for (const sheltered of [true, false]) it(`a golden dome ${sheltered ? 'carves a gap in' : 'does not protect a hero outside it from'} the dark ring wave`, () => {
+    const { w, heart, until, run } = setup(); heart.start();
+    heart.fields.push({ id: 999, x: 0, z: 10, r: FUNERAL_HEART.dome, life: 90, dur: 90, kind: 'wax' });
+    until(() => heart.attack?.kind === 'pulse', 40);
+    const ring = w.telegraphs.find(t => t.alive && t.shape.k === 'ring');
+    expect(ring?.shape.k === 'ring' && (ring.shape.gaps ?? []).some(g => Math.abs(g.a) < 0.05)).toBe(true);
     w.hero.spawn(sheltered ? 0 : 4, 10, Math.PI); w.hero.invulnUntil = 0;
     const hp = w.hero.hp;
     until(() => w.ringWaves.length > 0, 2);
-    const wave = w.ringWaves[0];
-    expect(wave.gaps.length).toBeGreaterThan(0);
+    expect(w.ringWaves[0].gaps.length).toBeGreaterThan(0);
     run(2.2);
     expect(w.hero.hp === hp).toBe(sheltered);
   });
@@ -281,22 +276,85 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     if (heart.lit[0]) expect(w.ringWaves[0].gaps.some(g => Math.abs(g.a - a) < 0.05)).toBe(true);
   });
 
-  it('consumes friendly wax for a charged return and caps finite reinforcement pressure', () => {
-    const { w, heart, run, charged } = setup(); heart.start(); run(3);
-    expect(heart.carriers.size).toBe(2);
-    const carrier = [...heart.carriers.values()][0]; carrier.x = -7; carrier.z = 8;
-    w.killEnemy(carrier, 0, 0, 1);
-    const pool = heart.fields.find(f => f.kind === 'wax')!; expect(pool.life).toBe(FUNERAL_HEART.waxSeconds);
-    w.hero.spawn(pool.x - 3, pool.z, Math.PI / 2); const hp = heart.hp; charged();
-    expect(heart.fields.filter(f => f.kind === 'wax')).toHaveLength(0); expect(heart.counters).toBe(1);
-    expect(heart.hp).toBeLessThanOrEqual(hp - FUNERAL_HEART.waxDamage);
-    // Kill subsequent carriers away from braziers, so deaths cannot trigger phase-changing counters.
-    for (let i = 0; i < 120 * 60; i++) {
-      run(DT);
-      for (const enemy of [...heart.carriers.values()]) { enemy.x = 0; enemy.z = 12; w.killEnemy(enemy, 0, 0, 1); }
-      expect(heart.carriers.size).toBeLessThanOrEqual(FUNERAL_HEART.maxCarriers);
-    }
-    expect(heart.spawnedTotal).toBe(FUNERAL_HEART.carriersPerPhase); expect(heart.phase).toBe(1);
+  it('fire-bearers come only from phase II, at most two alive; each fallen bearer leaves a golden dome, not a weapon', () => {
+    const { w, heart, run, charged } = setup(); heart.start(); run(30);
+    expect(heart.spawnedTotal).toBe(0);
+    heart.phase = 2; run(1);
+    expect(heart.carriers.size).toBe(1);
+    const domes: GameEvents['heartDome'][] = []; w.bus.on('heartDome', e => domes.push(e));
+    const bearer = [...heart.carriers.values()][0]; bearer.x = -7; bearer.z = 8;
+    w.killEnemy(bearer, 0, 0, 1);
+    expect(domes).toHaveLength(1); expect(heart.metrics.domes).toBe(1);
+    const dome = heart.fields.find(f => f.kind === 'wax')!;
+    expect(dome.life).toBe(FUNERAL_HEART.domeSeconds); expect(dome.r).toBe(FUNERAL_HEART.dome);
+    expect(heart.inDome(dome.x, dome.z)).toBe(true); expect(heart.inDome(dome.x + dome.r + 0.2, dome.z)).toBe(false);
+    // Заряженный удар по куполу больше не жжёт Сердце: купол — укрытие, а не оружие.
+    w.hero.spawn(dome.x - 3, dome.z, Math.PI / 2); const hp = heart.hp; charged();
+    expect(heart.hp).toBe(hp); expect(heart.fields.some(f => f.kind === 'wax')).toBe(true); expect(heart.counters).toBe(0);
+    for (let i = 0; i < 60 * 60; i++) { run(DT); expect(heart.carriers.size).toBeLessThanOrEqual(FUNERAL_HEART.maxBearers); }
+    expect(heart.spawnedTotal).toBeGreaterThanOrEqual(3);
+  });
+
+  for (const sheltered of [true, false]) it(`the Funeral Flood opens phase II: out of reach, three fire-bearers, a tide to the walls — ${sheltered ? 'a dome shelters' : 'outside a dome it hurts'}`, () => {
+    const { w, heart, run, until, charged, faceBody, firstDive } = setup(); firstDive();
+    const summons: GameEvents['heartSummon'][] = [], crashes: GameEvents['heartFlood'][] = [], roars: GameEvents['heartRoar'][] = [];
+    w.bus.on('heartSummon', e => summons.push(e)); w.bus.on('heartFlood', e => crashes.push(e)); w.bus.on('heartRoar', e => roars.push(e));
+    heart.exposed = 30;
+    for (let i = 0; i < 40 && heart.phase === 1; i++) { faceBody(); charged(); }
+    expect(heart.phase).toBe(2);
+    until(() => heart.pose === 'flood', FUNERAL_HEART.rage + 1);
+    expect(heart.attack?.kind).toBe('flood'); expect(roars).toHaveLength(1);
+    expect(heart.lit.some(Boolean)).toBe(false); expect(heart.heat.every(h => h === 0)).toBe(true);
+    run(0.6);
+    expect(summons).toHaveLength(1); expect(heart.carriers.size).toBe(FUNERAL_HEART.bearers);
+    expect(heart.body.y).toBeGreaterThan(5);
+    const front = heart.flood!.front; run(1.5);
+    expect(heart.flood!.front).toBeGreaterThan(front); expect(heart.flood!.level).toBe(1);
+    // Недосягаемо: клинок только звенит.
+    const hp0 = heart.hp; faceBody(1.2); charged(); expect(heart.hp).toBe(hp0);
+    const [first] = [...heart.carriers.values()];
+    first.x = 0; first.z = 10; w.killEnemy(first, 0, 0, 1);
+    const dome = heart.fields.find(f => f.kind === 'wax')!;
+    expect(dome).toBeTruthy();
+    w.hero.spawn(sheltered ? dome.x : dome.x + 4.5, dome.z, Math.PI); w.hero.invulnUntil = 0;
+    const hp = w.hero.hp;
+    until(() => crashes.length === FUNERAL_HEART.flood.pulses, 8);
+    expect(heart.flood!.front).toBeGreaterThan(18);
+    // Огненосцев, не отдавших свет, тьма поглотила без купола.
+    expect(heart.carriers.size).toBe(0); expect(heart.metrics.domes).toBe(1);
+    expect(crashes.every(c => c.safe === sheltered)).toBe(true);
+    if (sheltered) { expect(w.hero.hp).toBe(hp); expect(heart.metrics.sheltered).toBe(FUNERAL_HEART.flood.pulses); }
+    else expect(hp - w.hero.hp).toBeGreaterThanOrEqual(2 * Math.round(w.hero.maxHp * FUNERAL_HEART.dmg.flood) - 1);
+    until(() => heart.flood === null, 3);
+    until(() => heart.pose === 'hover', 3);
+  });
+
+  it('wax rain (phase II) drops warned circles one after another where the hero stands and runs', () => {
+    const { w, heart, run, until } = setup(); heart.start(); run(0.1);
+    heart.phase = 2; (heart as unknown as { beginAttack(k: string): void }).beginAttack('rain');
+    expect(heart.attack?.kind).toBe('rain');
+    run(DT);
+    const first = w.telegraphs.filter(t => t.alive && t.shape.k === 'circle');
+    expect(first).toHaveLength(1); expect(first[0].dur).toBeGreaterThanOrEqual(1.2);
+    expect(first[0].shape.k === 'circle' && Math.hypot(first[0].shape.x - w.hero.x, first[0].shape.z - w.hero.z)).toBeLessThan(0.6);
+    expect(heart.drops).toHaveLength(1);
+    run(1.3); expect(heart.metrics.drops).toBe(1);
+    until(() => heart.attack === null, 5);
+    expect(heart.metrics.drops).toBe(8); expect(heart.drops).toHaveLength(0);
+  });
+
+  it('phase III dives leave echoes that strike again after a warned 1.3 s; the open landing leaves none', () => {
+    const { w, heart, run, until } = setup(); heart.start(); run(0.1);
+    heart.phase = 3; (heart as unknown as { beginAttack(k: string): void }).beginAttack('dives');
+    until(() => heart.metrics.dives === 1, 6);
+    expect(heart.echoes).toHaveLength(1);
+    const echo = heart.echoes[0];
+    const tele = w.telegraphs.find(t => t.alive && t.shape.k === 'circle' && Math.hypot(t.shape.x - echo.x, t.shape.z - echo.z) < 0.01 && t.dur === FUNERAL_HEART.echo);
+    expect(tele).toBeTruthy(); expect(FUNERAL_HEART.echo).toBeGreaterThanOrEqual(1.2);
+    until(() => heart.pose === 'stuck', 6);
+    expect(heart.metrics.dives).toBe(3);
+    until(() => heart.metrics.echoes === 2, 3);
+    run(2); expect(heart.metrics.echoes).toBe(2); expect(heart.echoes).toHaveLength(0);
   });
 
   it('a phase change is a rage, not a free window: one series stops at the threshold, armour flies off, the core stays shut', () => {
@@ -309,9 +367,25 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     expect(heart.pose).toBe('rage'); expect(heart.exposed).toBe(0);
     // В ярости клинок лишь звенит.
     const hp = heart.hp; faceBody(1.6); charged(); expect(heart.hp).toBe(hp);
-    until(() => heart.pose === 'hover', FUNERAL_HEART.rage + 1);
-    expect(heart.rage).toBe(0); expect(heart.exposed).toBe(0);
+    // После ярости новая фаза открывается приливом.
+    until(() => heart.pose === 'flood', FUNERAL_HEART.rage + 1);
+    expect(heart.rage).toBe(0); expect(heart.exposed).toBe(0); expect(heart.attack?.kind).toBe('flood');
     run(DT);
+  });
+
+  it('a scene can drive the death by its own clock: one burst, one defeat, then the fire wave keeps going', () => {
+    const { w, heart, firstDive, faceBody, slash } = setup(-27);
+    let defeated = 0; heart.onDefeated = () => defeated++;
+    const bursts: GameEvents['heartBurst'][] = []; w.bus.on('heartBurst', e => bursts.push(e));
+    firstDive(); heart.phase = 3; heart.hp = 1; faceBody(); slash();
+    expect(heart.hp).toBe(0); expect(heart.pose).toBe('dying');
+    heart.sampleDeath(1.0); expect(heart.burst).toBe(false); expect(heart.dead).toBe(false);
+    heart.sampleDeath(0.5); expect(heart.burst).toBe(false);
+    heart.sampleDeath(FUNERAL_HEART.burstAt); expect(bursts).toHaveLength(1);
+    heart.sampleDeath(FUNERAL_HEART.dying); expect(heart.dead).toBe(true); expect(defeated).toBe(1);
+    heart.sampleDeath(FUNERAL_HEART.dying + 1.6); heart.sampleDeath(1);
+    expect(bursts).toHaveLength(1); expect(defeated).toBe(1);
+    expect(heart.visibilityAt(14, -27)).toBe(1); expect(heart.visibilityAt(-14, -38)).toBe(1);
   });
 
   it('changes all three phases through real windows, then bursts and cleans every threat exactly once', () => {
@@ -320,7 +394,7 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     const bursts: GameEvents['heartBurst'][] = []; w.bus.on('heartBurst', e => bursts.push(e));
     heart.start();
     const phases = [heart.phase];
-    for (let i = 0; i < 1200 && !heart.dead && heart.dying === 0; i++) {
+    for (let i = 0; i < 2400 && !heart.dead && heart.dying === 0; i++) {
       if (heart.pose === 'stuck' && heart.exposed > 0.6) { besideBody(); charged(); }
       else run(0.25);
       expect(w.hero.dead).toBe(false);
@@ -330,6 +404,8 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     expect(heart.dying).toBeGreaterThan(0); expect(heart.dead).toBe(false); expect(defeated).toBe(0);
     // Гибель: огонь ещё не вернулся, все угрозы уже убраны.
     expect(heart.carriers.size).toBe(0); expect(heart.shots).toHaveLength(0); expect(heart.fields).toHaveLength(0);
+    expect(heart.drops).toHaveLength(0); expect(heart.echoes).toHaveLength(0); expect(heart.flood).toBeNull();
+    expect(heart.metrics.floods).toBeGreaterThanOrEqual(2);
     expect(w.ringWaves.filter(r => r.owner === -941)).toHaveLength(0);
     expect(w.enemies.every(e => e.dead)).toBe(true); expect(w.telegraphs.every(t => !t.alive || t.t >= t.dur)).toBe(true);
     run(FUNERAL_HEART.burstAt + 0.1); expect(bursts).toHaveLength(1); expect(heart.burst).toBe(true);

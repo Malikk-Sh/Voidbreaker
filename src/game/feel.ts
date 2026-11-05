@@ -602,6 +602,53 @@ export class FeelSystem {
         this.audio.play('void_moment', { gain: 0.6, delay: 0.3 });
         this.vfx.lights.flash(e.x, e.y, e.z, C.core, 5, 9, 0.8);
       }),
+      b.on('heartRoar', (e) => {
+        // Рёв: пробуждение или начало прилива. Свет зала гаснет, пол дрожит, камера отступает.
+        this.cam.addTrauma(e.flood ? 0.7 : 0.55);
+        this.cam.zoomPunch += 0.06;
+        this.chroma = Math.max(this.chroma, soft() ? 0.15 : 0.45);
+        this.vfx.rings.spawn(e.x, e.z, 1, 16, 1.2, C.hungerHot, 0.55, soft() ? 0.4 : 1);
+        this.vfx.lights.flash(e.x, e.y, e.z, C.hungerHot, 7, 16, 0.7);
+        this.vfx.debris.burst(e.x, e.y, e.z, 0, 0, Math.round(14 * this.vfx.quality), 8, 0.3);
+        this.audio.play('tele_roar', { gain: 1, pitch: 0.45 });
+        this.audio.play('boss_bell', { gain: 0.65, pitch: 0.6, delay: 0.08 });
+        if (e.flood) { this.audio.play('amb_drop', { gain: 0.8 }); this.audio.duck(0.6, 1.2); }
+        this.input.vibrate(90);
+      }),
+      b.on('heartSummon', () => {
+        this.audio.play('tele_choir', { gain: 0.55, pitch: 1.2 });
+        this.audio.play('blade_ignite', { gain: 0.4, pitch: 0.8, delay: 0.15 });
+      }),
+      b.on('heartDome', (e) => {
+        // Пламя огненосца падает на пол и поднимается золотым куполом — здесь можно укрыться.
+        const q = this.vfx.quality;
+        this.vfx.rings.spawn(e.x, e.z, 0.4, e.r * 1.6, 0.6, C.gold, 0.6, soft() ? 0.5 : 1);
+        this.vfx.lights.flash(e.x, 1.2, e.z, C.gold, 5, 7, 0.6);
+        this.vfx.burst(Math.round(14 * q), { x: e.x, y: 0.4, z: e.z, life: 0.9, size: 0.12, size1: 0.02, color: C.gold, gravity: -3, drag: 1.6, frame: 'spark' }, { v: 3, vy: 3.5 });
+        this.audio.play('chime_ring', { gain: 0.7, pitch: 1.1, pan: this.pan(e.x) });
+        this.audio.play('bell_strike', { gain: 0.35, pitch: 1.6, pan: this.pan(e.x), delay: 0.05 });
+      }),
+      b.on('heartFlood', (e) => {
+        // Удар прилива: тьма вспыхивает по всему залу; под куполом — только золотой звон.
+        const h = this.w.hero, q = this.vfx.quality;
+        this.cam.addTrauma(e.safe ? 0.35 : 0.75);
+        this.time.addHitstop(e.pulse === 0 ? 0.08 : 0.04);
+        this.chroma = Math.max(this.chroma, soft() ? 0.2 : e.safe ? 0.3 : 0.7);
+        this.vfx.rings.spawn(e.x, e.z, 4.6, 22, 0.7, C.hungerHot, 0.45, soft() ? 0.4 : 1);
+        this.vfx.burst(Math.round(18 * q), { x: h.x, y: 0.2, z: h.z, life: 0.8, size: 0.5, size1: 1.3, color: C.dark, alpha: 0.7, drag: 2.2, frame: 'smoke' }, { v: 5, vy: 1.4 }, false);
+        this.audio.play('well_boom', { gain: 0.9, pitch: 0.55 + e.pulse * 0.08 });
+        this.audio.play('sub_pulse', { gain: 0.8, pitch: 0.7 });
+        if (e.safe) { this.audio.play('chime_ring', { gain: 0.45, pitch: 1.4 }); this.vfx.lights.flash(h.x, 1.4, h.z, C.gold, 4, 5, 0.35); }
+        this.input.vibrate(e.safe ? 30 : 90);
+      }),
+      b.on('heartDrop', (e) => {
+        const near = this.near(e.x, e.z, 6);
+        this.cam.addTrauma(near ? 0.16 : 0.05);
+        this.vfx.rings.spawn(e.x, e.z, 0.3, e.r * 1.5, 0.4, C.ember, 0.5, soft() ? 0.4 : 0.9);
+        this.vfx.burst(Math.round(8 * this.vfx.quality), { x: e.x, y: 0.2, z: e.z, life: 0.5, size: 0.12, size1: 0.02, color: C.ember, gravity: -9, drag: 1.2, frame: 'spark' }, { v: 4, vy: 4 });
+        this.vfx.lights.flash(e.x, 0.6, e.z, C.ember, 3, 4, 0.25);
+        this.audio.play('proj_hit', { gain: 0.55, pitch: 0.7, pan: this.pan(e.x) });
+      }),
       b.on('heartBurst', (e) => {
         // Ядро лопается: белая вспышка, золотая волна по всему залу, огонь возвращается свечам.
         this.whiteFlash(0.55);
