@@ -108,8 +108,8 @@ export interface FuneralHeartView {
   readonly open: number;
   /** Ярость между фазами 0…1 (0 — нет). */
   readonly rage: number;
-  /** Гибель 0…1 (0 — жив); burst — ядро уже лопнуло. */
-  readonly dying: number; readonly burst: boolean;
+  /** Гибель 0…1 (0 — жив); burst — ядро уже лопнуло; sinceBurst — секунд после вспышки (меньше нуля — её не было). */
+  readonly dying: number; readonly burst: boolean; readonly sinceBurst: number;
   readonly flood: HeartFlood | null;
   readonly drops: readonly HeartDrop[];
   readonly echoes: readonly HeartEcho[];
@@ -209,6 +209,7 @@ export class FuneralHeart implements FuneralHeartView {
   }
 
   get view(): FuneralHeartView { return this; }
+  get sinceBurst(): number { return this.burst ? this.deathT - FUNERAL_HEART.burstAt : -1; }
   get counters(): number { return this.metrics.counters; }
   get reflectedHits(): number { return this.metrics.reflectedHits; }
   get bodyHits(): number { return this.metrics.bodyHits; }

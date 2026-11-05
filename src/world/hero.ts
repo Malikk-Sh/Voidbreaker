@@ -519,11 +519,14 @@ export class Hero implements Actor {
         if (m?.wave) this.world.abilities.bladeWave(this.x, this.z, this.facing, m.wave.mult, m.wave.dist, m.wave.r);
         const r = m?.hitbox.shape === 'circle' ? m.hitbox.radius : 3;
         const off = 0.7;
-        this.world.bus.emit('impact', { x: this.x + Math.sin(this.facing) * off, z: this.z + Math.cos(this.facing) * off, r, kind: 'rift' });
+        this.world.bus.emit('impact', { x: this.x + Math.sin(this.facing) * off, z: this.z + Math.cos(this.facing) * off, r, kind: 'rift', hero: true });
         // трещина на полу: Нисходящий разлом, Звездопад, полный заряд (план §6.2)
         if (m && (m.id === 'rift' || m.id === 'skyfall' || (this.state === 'charged' && m.wave))) {
           const len = m.hitbox.shape === 'line' ? m.hitbox.length : m.hitbox.shape === 'circle' ? m.hitbox.radius * 2 : 4.5;
           this.world.abilities.addFloorRift(this.x, this.z, this.facing, len);
+          const dx = Math.sin(this.facing), dz = Math.cos(this.facing), kind = m.id === 'rift' ? 'rift' : m.id === 'skyfall' ? 'skyfall' : 'cleave';
+          // Разлом полного заряда бежит вместе с волной клинка — на всю её дальность.
+          this.world.bus.emit('heroCrack', { x: this.x + dx * off, z: this.z + dz * off, dx, dz, len: kind === 'cleave' && m.wave ? Math.max(len, m.wave.dist * 0.85) : len, kind });
           if (this.stats.tripleRift) for (const s of [-0.45, 0.45]) this.world.abilities.addFloorRift(this.x, this.z, this.facing + s, len * 0.8);
         }
         break;

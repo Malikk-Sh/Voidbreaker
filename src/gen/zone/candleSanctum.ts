@@ -6,6 +6,7 @@ import { box, lathe, octa, prism, shard, starPlate } from '../geom/prims';
 import { chain, GOLD, OBS, OBS_DEEP, WAX } from '../geom/kit';
 import { obsidianMaterial } from '../../render/materials';
 import type { LightPoolDef } from './arenaView';
+import { inHeartWell, makePiece, piecePose, REMAINS, type RemainsPiece } from './heartRemains';
 
 export interface HeartBodyVisual {
   centerZ: number;
@@ -29,7 +30,30 @@ export interface HeartBodyVisual {
   burst?: boolean;
   /** До боя: ядро светится принятым светом (золото) вместо багрового, 0…1. */
   glow?: number;
+  /**
+   * Секунд после вспышки ядра (из сцены гибели); меньше нуля — вспышки не было. Нет поля, а Сердце мертво —
+   * вспышка была давно: обруч и броня уже рассыпались.
+   */
+  sinceBurst?: number;
 }
+
+/** Куски Сердца после вспышки: звенья и шипы обруча, пластины брони. */
+interface HeartRemainsSet { links: RemainsPiece[]; spikes: RemainsPiece[]; plates: RemainsPiece[] }
+
+/** Звенья и шипы обруча-астролябии над Сердцем: углы на кольце (рад) и их позы в обруче. */
+const CROWN_R = 1.8;
+const CROWN_LINKS = Array.from({ length: 18 }, (_, i) => i).filter(i => i % 6 !== 0).map(i => i / 18 * Math.PI * 2);
+const CROWN_SPIKES = Array.from({ length: 18 }, (_, i) => i).filter(i => i % 6 !== 0 && i % 3 === 0).map(i => i / 18 * Math.PI * 2);
+const LINK_LOCAL = CROWN_LINKS.map(a => mat(Math.sin(a) * CROWN_R, 0, Math.cos(a) * CROWN_R, 0, a + Math.PI / 2));
+const SPIKE_LOCAL = CROWN_SPIKES.map(a => mat(Math.sin(a) * CROWN_R, 0.08, Math.cos(a) * CROWN_R));
+/**
+ * Как разлетаются остатки во вспышке (м/с, рад/с) и когда рассыпаются (с после вспышки): звенья обруча легче
+ * и летят дальше, пластины брони тяжелее; сорванные раньше пластины трескаются, когда до них доходит волна.
+ */
+export const REMAINS_FLING = {
+  link: { out: 5.5, up: 3.6, spin: 9 }, spike: { out: 4.2, up: 4.6, spin: 11 }, plate: { out: 3.4, up: 3.0, spin: 5 },
+  linkCrumble: [1.05, 0.45] as const, plateCrumble: [1.15, 0.35] as const, restCrumble: 0.25,
+};
 
 /**
  * Вид Сердца: scale — во сколько раз оно крупнее прежнего ромба (силуэт читается как босс, а не как деталь
@@ -68,7 +92,8 @@ export class CandleSanctum {
   readonly caster: THREE.Mesh;
   private readonly heart: THREE.InstancedMesh;
   private readonly core: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
-  private readonly crown: THREE.Mesh;
+  private readonly crownLinks: THREE.InstancedMesh;
+  private readonly crownSpikes: THREE.InstancedMesh;
   private readonly fire: THREE.InstancedMesh;
   private readonly chargeRings: THREE.InstancedMesh;
   private readonly embers: THREE.InstancedMesh;
@@ -84,6 +109,14 @@ export class CandleSanctum {
   /** Сорванные в ярости пластины: где отделились, куда летят (координаты зала) и сколько летят. */
   private readonly flying: ({ x: number; y: number; z: number; tx: number; tz: number; t: number; spin: number } | null)[] = [null, null, null, null, null, null];
   private lastPlates = 6;
+  /** Последние живые позы обруча и брони: из них во вспышке рождаются разлетающиеся куски. */
+  private readonly aliveLinks = CROWN_LINKS.map(() => new THREE.Matrix4());
+  private readonly aliveSpikes = CROWN_SPIKES.map(() => new THREE.Matrix4());
+  private readonly alivePlates = Array.from({ length: 6 }, () => new THREE.Matrix4());
+  private remains: HeartRemainsSet | null = null;
+  /** Куски, которые сейчас рассыпаются: где они (координаты зала) и насколько (0…1) — для пепла и искр. */
+  readonly crumbling: { x: number; y: number; z: number; k: number }[] = [];
+  private readonly _crown = new THREE.Matrix4();
 
   constructor(density = 1) {
     this.root.name = 'Погребальное сердце';
@@ -159,14 +192,14 @@ export class CandleSanctum {
     this.heart = new THREE.InstancedMesh(heartShape.build(), material, 6); this.heart.name = 'heart-armour'; this.heart.frustumCulled = false; this.root.add(this.heart);
     this.core = new THREE.Mesh(octa(0.78, 1.52, 0.78), new THREE.MeshBasicMaterial({ color: '#d33545', transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.core.name = 'heart-core'; this.core.position.set(0, 3.8, 0); this.root.add(this.core);
-    const crown = new GeomBuilder(); crown.rng = new Rng('candle:astrolabe');
-    for (let i = 0; i < 18; i++) {
-      if (i % 6 === 0) continue;
-      const a = i / 18 * Math.PI * 2;
-      crown.add(box(0.13, 0.12, 0.65), { matrix: mat(Math.sin(a) * 1.8, 0, Math.cos(a) * 1.8, 0, a + Math.PI / 2), color: GOLD, surface: SURF.metal });
-      if (i % 3 === 0) crown.add(shard(0.55, 0.12, 4, 0.05, i), { matrix: mat(Math.sin(a) * 1.8, 0.08, Math.cos(a) * 1.8), color: GOLD });
-    }
-    this.crown = new THREE.Mesh(crown.build(), material); this.crown.position.set(0, 4.4, 0); this.root.add(this.crown);
+    // Обруч-астролябия — отдельные звенья и шипы: во вспышке гибели он разлетается на куски.
+    const link = new GeomBuilder(); link.rng = new Rng('candle:astrolabe');
+    link.add(box(0.13, 0.12, 0.65), { color: GOLD, surface: SURF.metal });
+    const spike = new GeomBuilder(); spike.rng = new Rng('candle:astrolabe-spike');
+    spike.add(shard(0.55, 0.12, 4, 0.05, 3), { color: GOLD });
+    this.crownLinks = new THREE.InstancedMesh(link.build(), material, CROWN_LINKS.length); this.crownLinks.name = 'heart-crown';
+    this.crownSpikes = new THREE.InstancedMesh(spike.build(), material, CROWN_SPIKES.length); this.crownSpikes.name = 'heart-crown-spikes';
+    for (const m of [this.crownLinks, this.crownSpikes]) { m.frustumCulled = false; this.root.add(m); }
     const flameShape = new GeomBuilder(); flameShape.rng = new Rng('candle:altar-fire');
     for (let i = 0; i < 5; i++) flameShape.add(octa(0.16, 0.65 - (i % 2) * 0.18, 0.16), { matrix: mat(Math.sin(i * 2.4) * 0.16, 0.35, Math.cos(i * 2.4) * 0.16), color: '#ffb35e' });
     this.fire = new THREE.InstancedMesh(flameShape.build(), new THREE.MeshBasicMaterial({ color: '#ffd69a', transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }), 3);
@@ -216,24 +249,29 @@ export class CandleSanctum {
         tx: Math.sin(a + 0.4) * 6.4, tz: Math.cos(a + 0.4) * 5.3 - 0.5, t: dt === 0 ? HEART_LOOK.plateFly : 0, spin: (i % 2 ? -1 : 1) * (2 + i) };
     }
     this.lastPlates = plates;
-    for (let i = 0; i < 6; i++) {
+    // Секунд после вспышки ядра: с этого момента обруч и броня — разлетающиеся куски, а не части Сердца.
+    const sinceBurst = boss?.sinceBurst ?? (dead || burst ? Infinity : -1);
+    if (sinceBurst < 0) this.remains = null;
+    const alive = sinceBurst < 0 || !this.remains;
+    for (let i = 0; i < 6 && sinceBurst < 0; i++) {
       const a = i / 6 * Math.PI * 2 + 0.25 + this.time * 0.05 * (1 - this.stuckK);
       const detached = i >= plates, fly = this.flying[i];
       if (detached && fly) {
         fly.t = Math.min(HEART_LOOK.plateFly, fly.t + dt);
         const u = fly.t / HEART_LOOK.plateFly;
         const x = fly.x + (fly.tx - fly.x) * u, z = fly.z + (fly.tz - fly.z) * u;
-        const y = fly.y + (0.15 - fly.y) * u * u + Math.sin(u * Math.PI) * 2.2 - this.fracture * 0.4;
+        const y = fly.y + (0.15 - fly.y) * u * u + Math.sin(u * Math.PI) * 2.2;
         this.matrix.copy(mat(x, y, z, 0.9 + fly.spin * (1 - u) * u * 3, a + fly.spin * u, 1.2 * u, S * 0.8, S * 0.8, S * 0.8));
       } else if (detached) {
         this.matrix.copy(mat(bodyX + Math.sin(a) * 6, 0.15, bodyZ + Math.cos(a) * 5, 0.9, a, 1.2, S * 0.8, S * 0.8, S * 0.8));
       } else {
         // Лепестки: сомкнуты в воздухе, раскрываются, когда Сердце лежит; в ярости дрожат.
-        const r = (0.45 + open * 1.15) * S + this.fracture * 2.2;
-        const y = bodyY + Math.cos(this.time * 1.1 + i) * 0.06 * this.wake - this.fracture * (2 + i * 0.3) + Math.sin(a) * tilt * r * 0.6;
+        const r = (0.45 + open * 1.15) * S;
+        const y = bodyY + Math.cos(this.time * 1.1 + i) * 0.06 * this.wake + Math.sin(a) * tilt * r * 0.6;
         const petal = open * 0.55 + rage * 0.15 * Math.sin(this.time * 30 + i);
-        this.matrix.copy(mat(bodyX + jx + Math.sin(a) * r, y, bodyZ + jz + Math.cos(a) * r, petal + tilt * Math.cos(a), a + this.fracture, (i % 2 ? -1 : 1) * open * 0.24, S, S, S));
+        this.matrix.copy(mat(bodyX + jx + Math.sin(a) * r, y, bodyZ + jz + Math.cos(a) * r, petal + tilt * Math.cos(a), a, (i % 2 ? -1 : 1) * open * 0.24, S, S, S));
       }
+      this.alivePlates[i].copy(this.matrix);
       this.heart.setMatrixAt(i, this.matrix);
     }
     for (let i = 0; i < 3; i++) {
@@ -266,9 +304,18 @@ export class CandleSanctum {
     this.core.material.color.lerp(GOLD_FIRE, Math.min(1, Math.max((boss?.hitFlash ?? 0) * 0.9, boss?.glow ?? 0)));
     this.core.material.opacity = dead || burst ? Math.max(0, 0.6 * (1 - this.fracture)) * (burst ? 0 : 1)
       : 0.08 + this.wake * ((exposed ? 0.82 : tracking || rage > 0 ? 0.76 : 0.66) + beatK * 0.18);
-    this.crown.position.set(bodyX + jx, bodyY + 0.6 * S + this.fracture * 0.5 - this.stuckK * 0.5, bodyZ + jz);
-    this.crown.scale.setScalar(S * (1 + rage * 0.12));
-    this.crown.rotation.set(0.15 + phase * 0.03 + tilt, this.time * (0.015 + this.wake * 0.045 + rage * 2.4), -0.12 - open * 0.2);
+    if (sinceBurst < 0) {
+      this._crown.copy(mat(bodyX + jx, bodyY + 0.6 * S - this.stuckK * 0.5, bodyZ + jz,
+        0.15 + phase * 0.03 + tilt, this.time * (0.015 + this.wake * 0.045 + rage * 2.4), -0.12 - open * 0.2, S * (1 + rage * 0.12)));
+      LINK_LOCAL.forEach((m, i) => { this.aliveLinks[i].multiplyMatrices(this._crown, m); this.crownLinks.setMatrixAt(i, this.aliveLinks[i]); });
+      SPIKE_LOCAL.forEach((m, i) => { this.aliveSpikes[i].multiplyMatrices(this._crown, m); this.crownSpikes.setMatrixAt(i, this.aliveSpikes[i]); });
+      this.crumbling.length = 0;
+    } else {
+      if (alive) this.remains = this.breakApart(bodyX, bodyZ, plates);
+      this.updateRemains(sinceBurst);
+    }
+    this.crownLinks.instanceMatrix.needsUpdate = true;
+    this.crownSpikes.instanceMatrix.needsUpdate = true;
     const colors = this.guides.geometry.getAttribute('color') as THREE.BufferAttribute;
     for (let i = 0; i < this.guideSectors.length; i++) {
       const lit = dead || state.lit[this.guideSectors[i]];
@@ -277,5 +324,39 @@ export class CandleSanctum {
       colors.setXYZ(i, c.r * k, c.g * k, c.b * k);
     }
     colors.needsUpdate = true;
+  }
+
+  /**
+   * Вспышка ядра: обруч рвётся на звенья и шипы, оставшиеся пластины срываются с ядра, сорванные раньше лежат
+   * и трескаются, когда до них доходит золотая волна. Позы — последние живые: куски летят из того, что видно.
+   */
+  private breakApart(bodyX: number, bodyZ: number, attached: number): HeartRemainsSet {
+    const c = { x: bodyX, z: bodyZ }, F = REMAINS_FLING;
+    // Порядок рассыпания вразнобой, а не по кругу: обруч не «стирается» по часовой стрелке.
+    const spread = (i: number, n: number, [at, d]: readonly [number, number]) => at + d * ((i * 7) % n) / n;
+    const links = this.aliveLinks.map((m, i) => makePiece(m, `heart:link:${i}`, F.link, spread(i, CROWN_LINKS.length, F.linkCrumble), c));
+    const spikes = this.aliveSpikes.map((m, i) => makePiece(m, `heart:spike:${i}`, F.spike, spread(i + 2, CROWN_SPIKES.length + 2, F.linkCrumble), c));
+    const plates = this.alivePlates.map((m, i) => {
+      const y = m.elements[13], x = m.elements[12], z = m.elements[14];
+      // Пластина на ядре или ещё в полёте — её бросает; лежащая у кромки колодца трескается на месте.
+      if (i < attached || y > REMAINS.floorY + 0.5) return makePiece(m, `heart:plate:${i}`, F.plate, spread(i, 6, F.plateCrumble), c);
+      return makePiece(m, `heart:plate:${i}`, null, F.restCrumble + Math.hypot(x - bodyX, z - bodyZ) / REMAINS.wave + (i % 3) * 0.06, c);
+    });
+    return { links, spikes, plates };
+  }
+
+  private updateRemains(u: number): void {
+    const r = this.remains;
+    if (!r) return;
+    this.crumbling.length = 0;
+    const place = (mesh: THREE.InstancedMesh, pieces: RemainsPiece[]) => pieces.forEach((p, i) => {
+      const k = piecePose(p, u, this.matrix);
+      mesh.setMatrixAt(i, this.matrix);
+      const e = this.matrix.elements;
+      if (k > 0 && k < 1 && !inHeartWell(e[12], e[14])) this.crumbling.push({ x: e[12], y: e[13], z: e[14], k });
+    });
+    place(this.crownLinks, r.links);
+    place(this.crownSpikes, r.spikes);
+    place(this.heart, r.plates);
   }
 }

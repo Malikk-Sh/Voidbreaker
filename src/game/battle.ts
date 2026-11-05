@@ -9,6 +9,8 @@ import { BattleVfx } from '../vfx/battleVfx';
 import { ContactShadows } from '../render/contactShadows';
 import { segmentBlocked, XRAY } from '../world/occlusion';
 import { BOSS_SCAR_LIFE, FloorScars, SCAR_LIFE } from '../vfx/scars';
+import { FX } from '../render/fx';
+import type { GameEvents } from '../world/events';
 import { ArenaEvents } from './arenaEvents';
 import { Abilities, type Loadout } from '../world/abilities';
 import { Arena } from '../world/arena';
@@ -133,6 +135,15 @@ export const MUSIC_LEVEL = { explore: 0.1, fight: 0.3, final: 1 };
 export const FINAL_TRANSPOSE = 100;
 /** Тишина перед фирменной атакой: за сколько до удара (с) и до какой громкости (−18 дБ). */
 export const SIG = { lead: 0.5, level: 0.126 };
+/**
+ * Разломы от клинка Пилота: ширина (м), жар 0…1, скорость, с которой разлом бежит от точки удара (м/с), крошка
+ * обсидиана; у Звездопада ещё кратер (радиус, м). Полный заряд бежит со скоростью волны клинка (20 м/с).
+ */
+export const HERO_CRACK = {
+  cleave: { width: 1.5, heat: 1, speed: 20, chips: 10, crater: 0 },
+  rift: { width: 1.8, heat: 1, speed: 26, chips: 12, crater: 0 },
+  skyfall: { width: 1.3, heat: 0.8, speed: 16, chips: 16, crater: 2.4 },
+} as const;
 
 export class Battle {
   readonly world: World;
@@ -535,11 +546,15 @@ export class Battle {
     // следы боя: тяжёлые удары оставляют трещины и сколы (к концу боя арена выглядит иначе)
     // арена помнит бой (план §8.5): где Пилот много бил, ответный удар раскалывает пол сильнее
     b.on('impact', (e) => {
+      // удар клинка Пилота в пол раскалывает его своим разломом (heroCrack)
+      if (FX.cracks && e.hero) return;
       if (e.r < 2 || (e.kind !== 'slam' && e.r < 3)) return;
       const wear = this.events.wearAt(e.x, e.z);
       this.scar(e.x, e.z, Math.min(4, e.r * 0.75 * (1 + 0.6 * wear)), 0.9 + 0.3 * wear);
     });
     b.on('strike', (e) => { if (e.source === 'blade' && (e.feel === 'heavy' || e.feel === 'break')) this.scar(e.x, e.z, e.feel === 'break' ? 1.8 : 1.2, 0.7); });
+    // Тяжёлый удар Пилота раскалывает пол: раскалённый разлом бежит от точки удара, у Звездопада — ещё кратер.
+    b.on('heroCrack', (e) => { if (FX.cracks) this.heroCrack(e); });
     b.on('stun', () => {
       if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Враг оглушён — финишер или заряженный удар: РАСКОЛ'); }
     });
@@ -911,10 +926,16 @@ export class Battle {
     const h=this.world.hero;
     const prelude=heart.active||heart.dead?null:this.heartPrelude();
     this.sanctum?.update(dt, { drain: heart.active || heart.dead ? 1 : 0, lit: heart.lit, broken: heart.dead, carried: 0, chargingIndex: -1, charge: 0, hero: {x:h.x,z:h.z-heart.centerZ},
-      boss: {...heart.view, beat:prelude?prelude.beat:heart.beat, awakening:this.heartSoul.awakened, ...(prelude?{open:prelude.open,glow:prelude.glow}:{})} });
+      boss: {...heart.view, beat:prelude?prelude.beat:heart.beat, awakening:this.heartSoul.awakened, sinceBurst:heart.sinceBurst, ...(prelude?{open:prelude.open,glow:prelude.glow}:{})} });
     // Принявшее свет Сердце светится сквозь сомкнутую броню: его видно и из притвора.
     const prePulse=prelude?heartbeatPulse(prelude.beat):0;
     if (prelude && prelude.light>0) this.vfx.lights.add(0,HEART_SOUL.coreY,heart.centerZ-0.5,C.gold,(1.6+prePulse*1.8)*prelude.light,8);
+    // Обруч и броня рассыпаются после вспышки: золотые искры и тёмный пепел поднимаются от каждого куска.
+    if (this.sanctum && heart.burst && dt > 0) for (const c of this.sanctum.crumbling) {
+      const z=c.z+heart.centerZ;
+      if (fxRng.next() < 0.7) this.vfx.add.emit({ x: c.x+fxRng.spread(0.25), y: c.y+0.1, z: z+fxRng.spread(0.25), vx: fxRng.spread(0.5), vy: fxRng.range(1.2, 2.8), vz: fxRng.spread(0.5), life: fxRng.range(0.5, 0.9), size: 0.14, size1: 0.02, color: C.gold, drag: 0.8, frame: 'dot' });
+      if (fxRng.next() < 0.35) this.vfx.norm.emit({ x: c.x, y: c.y+0.15, z, vx: fxRng.spread(0.3), vy: fxRng.range(0.6, 1.2), vz: fxRng.spread(0.3), life: 1.2, size: 0.3, size1: 0.8, color: [0.07, 0.06, 0.07], alpha: 0.45, drag: 1, frame: 'smoke' });
+    }
     this.heartFx?.setPrelude(heart.body.x,heart.body.y,heart.body.z,prelude?prelude.glow*prelude.light:0,prePulse);
     const p=this.heartSoul.position;
     // В сцене гибели из лопнувшего ядра поднимается освобождённый свет — тот же огненный дух.
@@ -1029,6 +1050,22 @@ export class Battle {
         for (let i = 0; i < 46; i++) this.vfx.norm.emit({ x: x + fxRng.spread(9), y: fxRng.range(7, 11), z: z + fxRng.spread(8), vy: -fxRng.range(0.5, 1.5), gravity: -1.5, life: 2.6, size: fxRng.range(0.15, 0.35), size1: 0.6, color: C.dust, alpha: 0.4, drag: 0.6, frame: 'smoke' });
       },
     };
+  }
+
+  /**
+   * Разлом от клинка Пилота: идёт по целому полу от точки удара (над провалом обрывается), раскалён и бежит
+   * вместе с волной; от точки удара летит обсидиановая крошка. Звездопад вдобавок выбивает кратер.
+   */
+  private heroCrack(e: GameEvents['heroCrack']): void {
+    if (!this.arena.walkable(e.x, e.z)) return;
+    const T = HERO_CRACK[e.kind];
+    let len = 0;
+    while (len < e.len && this.arena.walkable(e.x + e.dx * (len + 0.5), e.z + e.dz * (len + 0.5))) len += 0.5;
+    if (len >= 1) this.scars.addFissure(e.x, e.z, e.dx, e.dz, len, T.width, 1, { heat: T.heat, speed: T.speed });
+    if (e.kind === 'skyfall') this.scars.add(e.x, e.z, T.crater, 1, { heat: T.heat });
+    const q = this.vfx.quality;
+    this.vfx.debris.burst(e.x, 0.15, e.z, e.dx, e.dz, Math.round(T.chips * q), 5, 0.16);
+    this.vfx.burst(Math.round(10 * q), { x: e.x, y: 0.2, z: e.z, life: 1.4, size: 0.5, size1: 1.6, color: C.dust, alpha: 0.4, drag: 2.4, frame: 'smoke' }, { v: 4, vy: 0.5 }, false);
   }
 
   /** След боя, если пол под ним цел; рядом с недавним — не дублировать. */

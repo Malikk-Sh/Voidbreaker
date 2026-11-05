@@ -54,7 +54,12 @@ export interface GameEvents {
   /** Рывок пошёл скольжением по трещине. */
   slide: { x: number; z: number; dirX: number; dirZ: number };
   chargeReady: { level: number };
-  impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell' };
+  impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell'; hero?: boolean };
+  /**
+   * Клинок Пилота раскалывает пол: cleave — полный заряд (разлом бежит вместе с волной клинка), rift — Нисходящий
+   * разлом, skyfall — Звездопад. x, z — точка удара, dx, dz — направление, len — длина разлома (м).
+   */
+  heroCrack: { x: number; z: number; dx: number; dz: number; len: number; kind: 'cleave' | 'rift' | 'skyfall' };
   /** Фирменная (неостановимая) атака Стража/босса началась: удар через impactIn с мирового времени (план §8.7, п. 5). */
   signature: { x: number; z: number; impactIn: number };
   /** Раскол: финишер или полный заряд по оглушённому врагу — взрыв трещин, оглушение кончается. */

@@ -705,7 +705,8 @@ export class BattleVfx {
 
     // способности: серпы, колодцы, волны, фазовый разрез, трещины на полу
     const ab = w.abilities as Abilities;
-    this.rifts.sync(ab.floorRifts);
+    // рельефные трещины несут свой жар — неоновый разлом остаётся только при ?fx=cracks
+    this.rifts.sync(FX.cracks ? [] : ab.floorRifts);
     this.spikes.update(dtW);
     this.chains.sync(w);
     this.bellSats.sync(w);
@@ -715,7 +716,8 @@ export class BattleVfx {
       this.lights.add(b.x, b.y, b.z, C.hunger, 1 + b.glow * 2, 5);
     }
     for (const r of ab.floorRifts) {
-      if (!fxRng.chance(0.5 * this.quality)) continue;
+      // у рельефных трещин искр меньше: они тлеют, а не горят
+      if (!fxRng.chance((FX.cracks ? 0.2 : 0.5) * this.quality)) continue;
       const d = fxRng.next() * r.len;
       this.add.emit({ x: r.x + r.dx * d, y: 0.1, z: r.z + r.dz * d, vy: 1.2, life: 0.4, size: 0.08, size1: 0.01, color: C.voidHot, frame: 'spark', stretch: 0.6 });
     }

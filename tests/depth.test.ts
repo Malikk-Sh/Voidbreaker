@@ -106,6 +106,29 @@ describe('разломы на полу и скольжение (план §6.2)'
     expect(r.hit).toBe(true);
   });
 
+  it('полный заряд раскалывает пол: разлом для рывка и рельефная трещина на всю дальность волны клинка', () => {
+    const { w, e } = setup();
+    const h = w.hero;
+    e.x = 0; e.z = -1;
+    const cracks: { len: number; kind: string; dx: number; dz: number }[] = [];
+    w.bus.on('heroCrack', (c) => cracks.push(c));
+    let impactFromHero = false;
+    w.bus.on('impact', (c) => { if (c.hero) impactFromHero = true; });
+    const inp = input();
+    (inp as { attackHeld: boolean; attackHeldSince: number }).attackHeld = true;
+    for (let t = 0; t < 1.4; t += DT) { inp.now = t; w.step(DT, DT, inp); }
+    expect(h.chargeLevel).toBe(2);
+    (inp as { attackHeld: boolean }).attackHeld = false;
+    for (let t = 0; t < 0.7; t += DT) { inp.now = 1.4 + t; w.step(DT, DT, inp); }
+    expect(cracks).toHaveLength(1);
+    expect(cracks[0].kind).toBe('cleave');
+    expect(cracks[0].len).toBeGreaterThanOrEqual(9 * 0.85 - 1e-6);
+    // Пилот смотрит на −z (spawn с углом π): трещина бежит туда же.
+    expect(cracks[0].dz).toBeLessThan(-0.9);
+    expect(impactFromHero).toBe(true);
+    expect((w.abilities as Abilities).floorRifts.length).toBe(1);
+  });
+
   it('рывок поперёк трещины — обычный', () => {
     const r = dash(false);
     expect(r.sliding).toBe(false);
