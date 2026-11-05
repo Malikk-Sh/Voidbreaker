@@ -63,10 +63,10 @@ import { HEART_HALL, HeartPassage, heartArena } from '../world/heartPassage';
 import { addHeartHall } from '../gen/zone/heartHall';
 import { HeartEffects } from '../gen/zone/heartEffects';
 import { HEART_SOUL, HeartSoul } from '../world/heartSoul';
-import { HEART_DEATH_T, heartAwakeningTrack, heartDeathTrack, heartSoulFlightTrack } from './heartAwakening';
+import { HEART_DEATH_T, HEART_INTRO_T, heartDeathTrack, heartIntroTrack, heartSoulFlightTrack, releasedLight } from './heartAwakening';
 import { heartbeatPulse, type CandleSanctum } from '../gen/zone/candleSanctum';
 import type { BridgeCollapseView } from '../gen/zone/bridgeCollapse';
-import { stageById } from '../data/stages';
+import { HEART_STAGE, stageById } from '../data/stages';
 
 
 const _top = new THREE.Vector3();
@@ -169,10 +169,15 @@ export class Battle {
   private heartGateView: { update(open: number): void } | null = null;
   /** Свет вырывается из элиты не сразу: сначала она рассыпается, затем — полсекунды тишины. */
   private pendingHeartSoul: { x: number; z: number; delay: number } | null = null;
-  private dormantBeat = 0;
   /** Сердце погибло: сцена гибели ждёт своего кадра; победа — после неё. */
   private pendingHeartDeath = false;
   private heartWon = false;
+  /** 1-4: свет элиты вошёл в Сердце — этап закончен. */
+  private heartLightDone = false;
+  /** Отдельный этап боя с Сердцем: вступление ждёт первого кадра; жернова собираются в нём. */
+  private readonly heartStage: boolean;
+  private pendingHeartIntro = false;
+  private heartStonesShown = false;
   private heartSkipArmed = false;
   private sanctum: CandleSanctum | null = null;
   private bridgeCollapse: BridgeCollapseView | null = null;
@@ -246,7 +251,8 @@ export class Battle {
     const Q = QUALITY[r.quality];
     const path = stage.id === '1-3' && !opts.replay;
     const joined = path && !opts.singleStage;
-    const withHeart = joined || (stage.id === '1-4' && !opts.replay);
+    this.heartStage = stage.id === HEART_STAGE;
+    const withHeart = joined || this.heartStage || (stage.id === '1-4' && !opts.replay);
     this.heartForeZ = joined ? CATHEDRAL.hallZ : 0;
     this.arena = new Arena(joined ? cathedralArena() : path ? gatePathArena(ARENAS[stage.arena]) : withHeart ? heartArena(ARENAS.candles, 0) : ARENAS[stage.arena]);
     this.gatePath = path ? new GatePath(this.arena) : null;
@@ -380,6 +386,7 @@ export class Battle {
       ctx.hud.stageTitle('ПУТЬ К ВРАТАМ', '1-3 · Собор Падших Звёзд', 'Пройди через галерею', 2.8, 52);
       ctx.hud.showHint('Пройди через галерею к Вратам', 8);
     }
+    else if (this.heartStage) this.prepareHeartStage();
     else if (!stage.boss) {
       // пролёт над ареной; первая волна — когда камера опустится к Пилоту
       const ab = encounterBounds(this.arena.def);
@@ -389,7 +396,7 @@ export class Battle {
     }
     // в прологе музыка 1-1 вступает после титула; тема босса — с его именем в интро (план §8.3)
     if (stage.boss) { this.runner.introTime = 0.05; ctx.music.preload(hierophantSong()); }
-    else if (!opts.prologue && !this.replay) ctx.music.play(stageSong(stage.id), 0.3);
+    else if (!opts.prologue && !this.replay && !this.heartStage) ctx.music.play(stageSong(stage.id), 0.3);
     // тема Стража запекается заранее — переключение на его появлении без паузы
     const guardianWave = stage.waves.find((wv) => wv.guardian);
     if (guardianWave) ctx.music.preload(guardianSong(guardianWave.spawns[0].enemy));
@@ -436,10 +443,10 @@ export class Battle {
       if (e.index + 1 < e.total && !this.stage.boss) S.audio.play('riser', { delay: Math.max(0, BREATHER - RISER_LEN), gain: 0.7, vary: 0 });
       if (e.index + 1 >= e.total) { S.music.final = false; S.audio.musicTranspose = 0; }
     });
-    b.on('heartDying', () => { if (this.heart && this.stage.id === '1-4') this.pendingHeartDeath = true; });
+    b.on('heartDying', () => { if (this.heart && this.heartStage) this.pendingHeartDeath = true; });
     b.on('stageClear', () => {
-      // Волны притвора заканчиваются перед настоящим боссом: награда ждёт победы над Сердцем.
-      if (this.stage.id === '1-4' && this.heartPassage?.phase !== 'complete' && this.heart) {
+      // 1-4 заканчивается не последней волной, а светом элиты, вошедшим в Сердце.
+      if (this.stage.id === '1-4' && this.heart && !this.heartLightDone) {
         this.endT = -1; this.world.magnet = true; return;
       }
       this.outcome = 'won';
@@ -678,13 +685,6 @@ export class Battle {
 
   /** Отладочный переход сохраняет короткий адрес ?stage=1-3&wave=2 для дуэли со Стражем. */
   skipToWave(index: number): void {
-    if (this.stage.id === '1-4' && index >= this.stage.waves.length && this.heartPassage) {
-      this.cine.clear(this.cam); this.runner.phase = 'clear';
-      this.heartSoul.launch(0, this.heartForeZ-7, this.heartForeZ+HEART_HALL.gateZ, this.heart!.centerZ-0.5); this.heartSoul.absorb();
-      this.heartPassage.release(); this.heartPassage.step(2);
-      const h=this.world.hero; h.spawn(0, this.heartForeZ+HEART_HALL.enterZ+0.8, Math.PI);
-      this.cam.snap(h.x,h.z); this.ctx.hud.foldTitle(); return;
-    }
     if (this.gatePath) {
       this.gatePath.enterCombat();
       this.world.hero.spawn(0, 5, Math.PI);
@@ -765,10 +765,27 @@ export class Battle {
   }
 
   private isHeartScene(): boolean {
-    return this.director.id === 'heartSoulFlight' || this.director.id === 'heartAwakening' || this.director.id === 'heartDeath';
+    return this.director.id === 'heartSoulFlight' || this.director.id === 'heartIntro' || this.director.id === 'heartDeath';
+  }
+
+  /**
+   * Этап боя с Сердцем: Сердце уже приняло свет и тлеет, ворота за спиной открыты; герой стоит за порогом Чертога.
+   * Вступление начнётся в первом кадре боя.
+   */
+  private prepareHeartStage(): void {
+    const heart = this.heart!, passage = this.heartPassage!, h = this.world.hero;
+    this.runner.introTime = Infinity;
+    this.heartSoul.launch(0, this.heartForeZ - 6, this.heartForeZ + HEART_HALL.gateZ, heart.centerZ - 0.5); this.heartSoul.absorb();
+    passage.release(); passage.step(2); this.heartGateView?.update(passage.gateOpen);
+    heart.body.y = 0.8;
+    h.spawn(0, heart.centerZ + 9.6, Math.PI);
+    this.cam.snap(h.x, h.z);
+    this.pendingHeartIntro = true;
   }
 
   private heartVictory(): void {
+    // Победа уже показана сценой гибели: награда сразу после неё, без второго облёта.
+    if (this.heartStage) this.finisherVictory = true;
     this.heartPassage!.win(); this.journey?.win();
     this.world.rank.endWave(); this.world.magnet = true;
     this.world.bus.emit('stageClear', {});
@@ -776,14 +793,21 @@ export class Battle {
 
   private updateHeartPassage(dt: number): void {
     const passage=this.heartPassage, heart=this.heart, soul=this.heartSoul, h=this.world.hero;
-    if (!passage || !heart || this.stage.id !== '1-4' || h.dead) return;
+    if (!passage || !heart || !(this.stage.id === '1-4' || this.heartStage) || h.dead) return;
     // Гибель Сердца — отдельная сцена: мир стоит, ядро лопается по времени Director.
     if (this.director.id === 'heartDeath') heart.sampleDeath(this.director.time);
     if (this.pendingHeartDeath && !this.director.active && !this.cine.active) {
       this.pendingHeartDeath = false;
       const b = heart.body;
       this.ctx.input.buffer.clear(); this.heartSkipArmed = false;
-      this.playScene(heartDeathTrack([h.x,h.y,h.z],[b.x,b.y,b.z],heart.centerZ), () => {
+      let shown = false;
+      this.sceneCalls.set('heartVictory', () => {
+        if (shown) return;
+        shown = true; h.victory();
+        this.world.bus.emit('bossVictory', { x: h.x, y: h.y, z: h.z, facing: h.facing, tone: 'gold' });
+        this.ctx.hud.bigBanner('СЕРДЦЕ УГАСЛО', 'Огонь вернулся в Чертог', 'gold', 2.2, 50);
+      });
+      this.playScene(heartDeathTrack([h.x,h.y,h.z],[b.x,b.y,b.z],heart.centerZ,h.facing), () => {
         heart.sampleDeath(HEART_DEATH_T.end + 0.5);
         this.ctx.input.buffer.clear();
         if (this.heartWon) { this.heartWon = false; this.heartVictory(); }
@@ -791,7 +815,7 @@ export class Battle {
       return;
     }
     if (this.director.id === 'heartSoulFlight') soul.sampleFlight(this.director.time);
-    else if (this.director.id === 'heartAwakening') soul.sampleAwakening(this.director.time);
+    else if (this.director.id === 'heartIntro') this.stepHeartIntro(dt);
     // Ворота поднимаются и во время сцены: свет летит сквозь уже открывающийся проход.
     passage.step(dt); this.heartGateView?.update(passage.gateOpen);
     if (this.pendingHeartSoul && this.pendingHeartSoul.delay > 0) this.pendingHeartSoul.delay -= dt;
@@ -812,38 +836,48 @@ export class Battle {
         this.world.bus.emit('shake', {trauma:0.1});
       });
       this.ctx.input.buffer.clear();
+      // Полёт света — финал Чертога: Сердце приняло свет, этап пройден.
       this.playScene(heartSoulFlightTrack([h.x,h.y,h.z],soul,gateZ,{z:this.heartForeZ,rx:13.5,rz:10.5}), () => {
         soul.absorb(); passage.release(); h.resumeAfterVictory(); this.ctx.input.buffer.clear();
+        this.heartLightDone = true;
+        this.world.bus.emit('stageClear', {});
       }, {hud:false});
       return;
     }
-    if (!this.director.active && !this.cine.active) {
-      // Сердце за воротами тлеет и тихо бьётся: его слышно, пока герой не войдёт.
-      if (soul.phase === 'absorbed') {
-        this.dormantBeat += dt;
-        if (this.dormantBeat >= 2.4) {
-          this.dormantBeat = 0;
-          const d = Math.hypot(h.x, h.z-heart.centerZ), gain = Math.max(0.08, Math.min(0.45, 0.45 - (d-12)*0.012));
-          this.ctx.audio.play('heartbeat', { gain, pitch: 0.75 });
-        }
-      }
-      if (soul.phase === 'absorbed' && passage.enter(h.x,h.z)) {
-        soul.beginAwakening(); this.heartSkipArmed=false;
-        this.sceneCalls.set('heartAwake', () => {
-          soul.sampleAwakening(HEART_SOUL.awakeAt);
-          this.world.bus.emit('heartRoar', { x: 0, y: HEART_SOUL.coreY, z: heart.centerZ-0.5, flood: false });
-        });
-        this.ctx.input.buffer.clear();
-        this.playScene(heartAwakeningTrack([h.x,h.y,h.z],heart.centerZ), () => {
-          soul.awake();
-          passage.activate(); this.heartGateView?.update(passage.gateOpen);
-          h.resumeAfterVictory(); this.ctx.input.buffer.clear();
-          this.world.magnet=false; heart.start();
-          this.ctx.music.play(guardianSong('gateGuardian'), 0.65);
-          this.ctx.hud.foldTitle();
-        }, {hud:false});
-      }
+    if (this.pendingHeartIntro && !this.director.active && !this.cine.active) {
+      this.pendingHeartIntro = false;
+      soul.beginAwakening(); this.heartSkipArmed=false;
+      const coreZ=heart.centerZ-0.5;
+      this.sceneCalls.set('heartRise', () => { this.world.bus.emit('shake', {trauma:0.2}); });
+      this.sceneCalls.set('heartAwake', () => {
+        soul.sampleAwakening(HEART_SOUL.awakeAt);
+        this.world.bus.emit('heartRoar', { x: 0, y: HEART_SOUL.coreY, z: coreZ, flood: false });
+        this.ctx.music.play(guardianSong('gateGuardian'), 0.65);
+      });
+      this.sceneCalls.set('heartStones', () => {
+        this.heartStonesShown = true;
+        for (const st of heart.stones) { st.grow = 0; this.world.bus.emit('heartStoneRegrow', { x: st.x, z: st.z, index: heart.stones.indexOf(st) }); }
+      });
+      this.ctx.input.buffer.clear();
+      this.playScene(heartIntroTrack([h.x,h.y,h.z],heart.centerZ), () => {
+        soul.awake(); this.heartStonesShown = true;
+        for (const st of heart.stones) st.grow = 1;
+        heart.body.y = Math.max(heart.body.y, HEART_SOUL.coreY);
+        passage.activate(); this.heartGateView?.update(passage.gateOpen);
+        h.resumeAfterVictory(); this.ctx.input.buffer.clear();
+        this.world.magnet=false; heart.start();
+        this.ctx.hud.foldTitle();
+      }, {hud:false});
     }
+  }
+
+  /** Вступление: Сердце поднимается из колодца, жернова собираются над чашами. */
+  private stepHeartIntro(dt: number): void {
+    const heart = this.heart!, t = this.director.time;
+    this.heartSoul.sampleAwakening(t);
+    const k = Math.max(0, Math.min(1, (t - HEART_INTRO_T.rise) / 1.3)), e = k * k * (3 - 2 * k);
+    heart.body.y = 0.8 + (HEART_SOUL.coreY - 0.8) * e;
+    for (const st of heart.stones) st.grow = Math.min(1, st.grow + dt / 0.9);
   }
 
   /**
@@ -853,7 +887,7 @@ export class Battle {
   private heartPrelude(): { beat: number; open: number; light: number; glow: number } {
     const soul=this.heartSoul, H=HEART_SOUL;
     const since=(t:number,beats:readonly number[])=>{let last=-1;for(const b of beats)if(t>=b)last=b;return last<0?0.6:Math.min(0.6,t-last);};
-    if (this.director.id==='heartAwakening') {
+    if (this.director.id==='heartIntro') {
       // Принятый свет горит золотом; на рёве броня распахивается, ядро наливается багровым, к бою броня смыкается.
       const t=this.director.time, g=(x:number)=>Math.exp(-((x/0.25)**2));
       const open=t<H.awakeAt?0.55+0.15*g(t-H.beats[0])+0.25*g(t-H.beats[1])
@@ -883,8 +917,11 @@ export class Battle {
     if (prelude && prelude.light>0) this.vfx.lights.add(0,HEART_SOUL.coreY,heart.centerZ-0.5,C.gold,(1.6+prePulse*1.8)*prelude.light,8);
     this.heartFx?.setPrelude(heart.body.x,heart.body.y,heart.body.z,prelude?prelude.glow*prelude.light:0,prePulse);
     const p=this.heartSoul.position;
-    this.heartFx?.setSoul(p.x,p.y,p.z,this.heartSoul.visible);
-    this.heartFx?.update(dt,heart.view);
+    // В сцене гибели из лопнувшего ядра поднимается освобождённый свет — тот же огненный дух.
+    const freed=this.director.id==='heartDeath'?releasedLight(this.director.time,[heart.body.x,heart.body.y,heart.body.z]):null;
+    if (freed) { this.heartFx?.setSoul(freed[0],freed[1],freed[2],true); this.vfx.lights.add(freed[0],freed[1],freed[2],C.gold,5,9); }
+    else this.heartFx?.setSoul(p.x,p.y,p.z,this.heartSoul.visible);
+    this.heartFx?.update(dt,heart.view,this.heartStonesShown);
     if (this.heartSoul.visible) this.vfx.lights.add(p.x,p.y,p.z,C.gold,4,7);
     // Огненосцы — живые огни в тёмном зале; купола светят сильнее в приливе: укрытие видно издалека.
     for(const e of heart.carriers.values()) if(!e.dead) this.vfx.lights.add(e.x,2.1,e.z,C.gold,1.8,4.5);
@@ -1138,7 +1175,7 @@ export class Battle {
     const reveal = clamp((GATE_PATH.revealZ - h.z) / 6.5, 0, 1);
     const opening = path?.phase === 'opening';
     const showCollapse = this.collapseOverview > 0;
-    const hallFrame = !!this.heart && ['awakening','combat','complete'].includes(this.heartPassage?.phase ?? '') && this.stage.id === '1-4';
+    const hallFrame = !!this.heart && ['awakening','combat','complete'].includes(this.heartPassage?.phase ?? '') && this.heartStage;
     const tilt = showCollapse ? 1.1 : hallFrame ? 1.16 : gallery ? 0.3 + 0.43 * reveal : bridging ? 0.58 : opening ? 0.62 : focusBoss ? this.camPreset.boss : this.camPreset.tilt;
     const lookHeight = showCollapse ? 0.4 : hallFrame ? 2.2 : gallery ? 1.25 * (1 - reveal) : opening ? 1.6 : bridging ? 1 : explore ? 0.8 : 0;
     cam.lookHeight += (lookHeight - cam.lookHeight) * (1 - Math.exp(-realDt * 3));

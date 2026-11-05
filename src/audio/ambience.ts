@@ -19,6 +19,7 @@ export const AMBIENCE: Record<string, AmbienceDef> = {
   '1-2': { wind: 0.3, choir: 0.6, bell: 0.6, drops: 9 },   // нефы: хор за стенами
   '1-3': { wind: 0.8, choir: 0.25, bell: 0.4, drops: 3 },  // ворота открыты в бездну
   '1-4': { wind: 0.15, choir: 0.7, bell: 0, drops: 11 },   // свечной зал: тихо, капает воск и вода
+  '1-4b': { wind: 0.2, choir: 0.5, bell: 0.3, drops: 8 },  // Чертог Последнего Огня: сердце бьётся в тишине
   '1-5': { wind: 1, choir: 0.1, bell: 0.4, drops: 0 },     // мост: только ветер бездны
   '1-6': { wind: 0.6, choir: 0.3, bell: 2.2, drops: 4 },   // колокольня
   '1-7': { wind: 0.55, choir: 0.35, bell: 0.3, drops: 6 }, // клуатр: двор под открытым небом

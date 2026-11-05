@@ -150,6 +150,17 @@ export interface GameEvents {
   heartDome: { x: number; z: number; r: number };
   /** Сердце выпустило огненосцев. */
   heartSummon: { x: number; z: number; n: number };
+  /** Клинок по жернову: left — сколько осталось 0…1. */
+  heartStoneHit: { x: number; z: number; index: number; left: number; heavy: boolean };
+  /** Жернов разбит: left — сколько жерновов ещё цело. */
+  heartStoneBreak: { x: number; z: number; index: number; left: number };
+  /** Сердце собрало разбитый жернов заново (новая фаза). */
+  heartStoneRegrow: { x: number; z: number; index: number };
+  /** Жернов бросил каменный диск по направлению (dx, dz). */
+  heartDisc: { x: number; z: number; dx: number; dz: number };
+  heartDiscEnd: { x: number; z: number };
+  /** Удар по раскрытому ядру ушёл в щит жерновов: intact — сколько их цело. */
+  heartWard: { x: number; y: number; z: number; intact: number };
   resonanceFull: Record<string, never>;
   /** Способность снова готова (кольцо вокруг иконки, короткий звук). */
   abilityReady: { slot: 'q' | 'e' };

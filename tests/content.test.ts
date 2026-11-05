@@ -4,7 +4,7 @@ import { BellRinger, GateGuardian } from '../src/world/boss/guardians';
 import { Hierophant } from '../src/world/boss/hierophant';
 import type { ScriptedEnemy } from '../src/world/boss/scripted';
 import type { World } from '../src/world/world';
-import { ZONE1 } from '../src/data/stages';
+import { ZONE1, HEART_STAGE } from '../src/data/stages';
 import { ENEMIES } from '../src/data/enemies';
 import { ABILITIES } from '../src/data/abilities';
 import { ARENAS } from '../src/data/arenas';
@@ -87,18 +87,22 @@ describe('паттерны Стражей и Иерофанта (Tech §17)', ()
 
 describe('данные Зоны 01', () => {
   // решение автора: Зона 01 расширена тремя этапами перед боссом (было 6 + босс)
-  it('10 этапов: 9 обычных + босс, индексы и арены корректны', () => {
-    expect(ZONE1).toHaveLength(10);
+  it('11 этапов: 9 обычных, бой с Сердцем и босс; ступени и арены корректны', () => {
+    expect(ZONE1).toHaveLength(11);
     expect(ZONE1.filter((d) => d.boss)).toHaveLength(1);
-    ZONE1.forEach((d, i) => {
-      expect(d.index).toBe(i);
+    // Бой с Сердцем идёт сразу за 1-4 и делит с ним ступень; остальные ступени — по порядку.
+    expect(ZONE1.findIndex((d) => d.id === HEART_STAGE)).toBe(ZONE1.findIndex((d) => d.id === '1-4') + 1);
+    let last = -1;
+    for (const d of ZONE1) {
+      expect(d.index, d.id).toBe(d.id === HEART_STAGE ? last : last + 1);
+      last = d.index;
       expect(ARENAS[d.arena], `арена ${d.arena}`).toBeTruthy();
-    });
+    }
   });
 
   it('волны ссылаются на существующих врагов, способности — на существующие', () => {
     for (const d of ZONE1) {
-      if (!d.boss) expect(d.waves.length).toBeGreaterThan(0);
+      if (!d.boss && !d.encounter) expect(d.waves.length).toBeGreaterThan(0);
       for (const w of d.waves) {
         for (const s of [...w.spawns, ...(w.triggers ?? []).map((t) => t.spawn)]) {
           expect(ENEMIES[s.enemy], `${d.id}: ${s.enemy}`).toBeTruthy();

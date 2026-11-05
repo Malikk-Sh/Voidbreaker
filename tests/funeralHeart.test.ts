@@ -58,20 +58,20 @@ function setup(centerZ = 0) {
   };
   /** Первое падение боя: Сердце выслеживает героя, падает в его точку и лежит открытым. */
   const firstDive = () => {
-    heart.start(); until(() => heart.pose === 'stuck', 8);
+    heart.start(); until(() => heart.pose === 'stuck', 18);
     expect(heart.exposed).toBeGreaterThan(2.5);
   };
-  /** Огонь: падение рядом с чашей раскаляет её, обычный удар клинком зажигает. */
-  const igniteFirst = () => {
-    const bowl = heart.braziers[0];
-    w.hero.spawn(bowl.x + 2.2, bowl.z, -Math.PI / 2);
-    heart.start(); until(() => heart.pose === 'stuck', 8);
-    expect(heart.heat[0]).toBeGreaterThan(0.9);
-    w.hero.spawn(bowl.x + 1.6, bowl.z, -Math.PI / 2); slash();
-    expect(heart.lit[0]).toBe(true);
-    return 0;
+  /** Встать у жернова лицом к нему. */
+  const faceStone = (i: number) => {
+    const st = heart.stones[i], dx = st.x - 0, dz = st.z - (heart.centerZ - 0.5), d = Math.hypot(dx, dz) || 1;
+    w.hero.spawn(st.x - dx / d * 1.6, st.z - dz / d * 1.6, Math.atan2(dx, dz));
   };
-  return { w, heart, input, run, until, slash, charged, faceBody, besideBody, firstDive, igniteFirst };
+  /** Разбить жернов заряженными ударами. */
+  const breakStone = (i: number) => {
+    for (let k = 0; k < 12 && !heart.stones[i].broken; k++) { faceStone(i); charged(); }
+    expect(heart.stones[i].broken).toBe(true);
+  };
+  return { w, heart, input, run, until, slash, charged, faceBody, besideBody, firstDive, faceStone, breakStone };
 }
 
 describe('Funeral Heart: an independent, damageable encounter', () => {
@@ -104,16 +104,17 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     expect(heart.body.y).toBe(FUNERAL_HEART.hover[0]); const initialBody = { ...heart.body };
     expect(heart.start()).toBe(true); expect(heart.start()).toBe(false);
     run(DT); expect(heart.body.x).toBe(initialBody.x); expect(heart.body.z).toBe(initialBody.z); expect(heart.body.y).toBeCloseTo(initialBody.y, 2);
-    run(1.9); expect(heart.attack?.kind).toBe('dive'); expect(heart.pose).toBe('track');
+    until(() => heart.attack?.kind === 'dive' && heart.pose === 'track', 12);
     const before = { t: heart.attack!.t, hp: heart.hp, pose: heart.pose, body: { ...heart.body }, spawned: heart.spawnedTotal };
     run(8, false);
     expect({ t: heart.attack!.t, hp: heart.hp, pose: heart.pose, body: heart.body, spawned: heart.spawnedTotal }).toEqual(before);
     expect(heart.shots).toHaveLength(0);
-    until(() => heart.pose === 'stuck', 5); expect(heart.metrics.dives).toBe(1);
+    until(() => heart.pose === 'stuck', 6); expect(heart.metrics.dives).toBe(1);
   });
 
   it('dives where the hero stood: a shadow tracks, then a locked mark warns at least 1.2 s; standing still is punished', () => {
     const { w, heart, run, until } = setup(); heart.start();
+    until(() => heart.attack?.kind === 'dive', 12);
     w.hero.invulnUntil = 0;
     until(() => heart.pose === 'lock', 4);
     // Метка стоит там, где был герой, и не двигается за ним после фиксации.
@@ -156,27 +157,57 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     const chip = hp - heart.hp;
     expect(clanks.length).toBe(1); expect(chip).toBeGreaterThan(0);
     const open = setup(); open.firstDive(); open.faceBody(); hp = open.heart.hp; open.slash();
-    expect(hp - open.heart.hp).toBeGreaterThan(chip * 4);
+    expect(hp - open.heart.hp).toBeGreaterThan(chip * 3);
   });
 
-  it('a dive near a bowl heats it; any blade swing returns the fire, which knocks the heart down toward the bowl', () => {
-    const { w, heart, run, until, slash } = setup();
-    const bowl = heart.braziers[0];
-    w.hero.spawn(bowl.x + 2.2, bowl.z, -Math.PI / 2);
-    heart.start(); until(() => heart.pose === 'stuck', 8);
-    expect(heart.heat[0]).toBeGreaterThan(0.9); expect(heart.lit[0]).toBe(false);
-    // Пока Сердце лежит рядом, проверим розжиг на поднявшемся: ждём, когда оно вернётся в воздух.
-    until(() => heart.pose === 'hover', 5);
-    w.hero.spawn(bowl.x + 1.6, bowl.z, -Math.PI / 2);
-    const hp = heart.hp; slash();
-    expect(heart.lit[0]).toBe(true); expect(heart.flameLife[0]).toBeGreaterThan(13);
-    expect(heart.counters).toBe(1); expect(heart.hp).toBeLessThanOrEqual(hp - FUNERAL_HEART.counterDamage);
-    expect(heart.pose).toBe('knock');
-    run(0.6); expect(heart.pose).toBe('stuck'); expect(heart.exposed).toBeGreaterThan(2);
-    expect(w.arena.walkable(heart.body.x, heart.body.z)).toBe(true);
-    // Сброшено на кольцо в сторону огня.
-    const toBowl = Math.atan2(bowl.x, bowl.z + 0.5), toBody = Math.atan2(heart.body.x, heart.body.z + 0.5);
-    expect(Math.abs(toBowl - toBody)).toBeLessThan(0.5);
+  it('a millstone cracks under the blade; breaking it snaps its artery: the heart falls toward it, takes damage, the sector relights', () => {
+    const { w, heart, run, slash, faceStone, breakStone } = setup(); heart.start(); run(0.2);
+    const hits: GameEvents['heartStoneHit'][] = [], breaks: GameEvents['heartStoneBreak'][] = [];
+    w.bus.on('heartStoneHit', e => hits.push(e)); w.bus.on('heartStoneBreak', e => breaks.push(e));
+    faceStone(0); slash();
+    expect(hits).toHaveLength(1); expect(heart.stones[0].hp).toBeLessThan(heart.stones[0].maxHp); expect(heart.stones[0].broken).toBe(false);
+    expect(heart.lit[0]).toBe(false);
+    const hp = heart.hp;
+    breakStone(0);
+    expect(breaks).toHaveLength(1); expect(heart.metrics.stones).toBe(1); expect(heart.intactStones).toBe(2);
+    expect(heart.hp).toBeLessThanOrEqual(hp - FUNERAL_HEART.stone.damage * 0.99);
+    expect(heart.lit[0]).toBe(true); expect(heart.visibilityAt(heart.stones[0].x, heart.stones[0].z + 2)).toBe(1);
+    run(0.7); expect(heart.pose).toBe('stuck'); expect(heart.exposed).toBeGreaterThan(2);
+    const st = heart.stones[0], toStone = Math.atan2(st.x, st.z - heart.centerZ + 0.5), toBody = Math.atan2(heart.body.x, heart.body.z - heart.centerZ + 0.5);
+    expect(Math.abs(toStone - toBody)).toBeLessThan(0.5);
+  });
+
+  it('intact millstones shield the open core: with all of them broken the blow lands in full', () => {
+    const one = setup(); one.firstDive(); one.heart.exposed = 30; one.faceBody(); let hp = one.heart.hp; one.charged();
+    const shielded = hp - one.heart.hp;
+    expect(one.heart.metrics.warded).toBeGreaterThan(0); expect(shielded).toBeGreaterThan(0);
+    const two = setup(); two.firstDive(); for (const st of two.heart.stones) st.broken = true;
+    two.heart.exposed = 30; two.faceBody(); hp = two.heart.hp; two.charged();
+    expect(hp - two.heart.hp).toBeGreaterThan(shielded * 1.6); expect(two.heart.metrics.warded).toBe(0);
+  });
+
+  it('intact millstones roll stone discs at the hero along a warned lane; a broken one stays silent', () => {
+    const { w, heart, run, until, breakStone } = setup(); heart.start(); run(0.1);
+    breakStone(2);
+    w.hero.spawn(0, 10, Math.PI);
+    const lanes = () => w.telegraphs.filter(t => t.alive && t.t < t.dur && t.shape.k === 'line' && Math.abs(t.dur - FUNERAL_HEART.stone.warn) < 1e-6);
+    until(() => lanes().length > 0, 25);
+    expect(lanes()).toHaveLength(2); expect(FUNERAL_HEART.stone.warn).toBeGreaterThanOrEqual(1.2);
+    for (const t of lanes()) expect(t.shape.k === 'line' && Math.hypot(t.shape.x - heart.stones[2].x, t.shape.z - heart.stones[2].z)).toBeGreaterThan(1);
+    w.hero.invulnUntil = 0; const hp = w.hero.hp;
+    until(() => heart.discs.length === 2, 2);
+    until(() => heart.discs.length === 0, 4);
+    expect(heart.metrics.discs).toBe(2); expect(w.hero.hp).toBeLessThan(hp);
+  });
+
+  it('the fan sweep fires a visible lance along every warned beam', () => {
+    const { heart, run, until } = setup(); heart.start(); run(0.1);
+    (heart as unknown as { beginAttack(k: string): void }).beginAttack('sweep');
+    until(() => heart.metrics.lances >= 5, 4);
+    expect(heart.lances.length).toBeGreaterThan(0);
+    const l = heart.lances[heart.lances.length - 1];
+    expect(Math.hypot(l.x1 - l.x0, l.z1 - l.z0)).toBeGreaterThan(12);
+    run(1); expect(heart.lances).toHaveLength(0);
   });
 
   it('takes one body hit from a real empty-floor World slash and damage from released abilities', () => {
@@ -231,14 +262,15 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     const step = heart.step.bind(heart);
     heart.step = (dt, enabled = true) => { const before = { ...heart.body }; step(dt, enabled); maxStep = Math.max(maxStep, Math.hypot(heart.body.x - before.x, heart.body.z - before.z)); };
     const hp = heart.hp; slash();
-    until(() => heart.reflectedHits === 1, 3);
-    expect(heart.hp).toBe(hp - FUNERAL_HEART.reflectionDamage); expect(heart.bodyHits).toBe(0);
+    // Веер из трёх сфер: взмах может вернуть не одну.
+    until(() => heart.reflectedHits >= 1, 3);
+    expect(heart.hp).toBeLessThanOrEqual(hp - FUNERAL_HEART.reflectionDamage); expect(heart.bodyHits).toBe(0);
     expect(heart.pose).toBe('knock');
     // The return pulls the Heart toward the ring instead of teleporting it in the impact frame.
     expect(maxStep).toBeLessThan(0.9);
     run(0.7); expect(heart.pose).toBe('stuck'); expect(heart.exposed).toBeGreaterThan(1.8);
     expect(w.arena.walkable(heart.body.x, heart.body.z)).toBe(true);
-    expect(heart.reflectedHits).toBe(1); expect(heart.metrics.knockdowns).toBe(1);
+    expect(heart.reflectedHits).toBeGreaterThanOrEqual(1); expect(heart.metrics.knockdowns).toBe(1);
   });
 
   it('returns an orb through the real perfect-dash window and records the perfect dodge', () => {
@@ -247,7 +279,7 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     const shot = heart.shots[0]; w.hero.spawn(shot.x, shot.z + 1.4, Math.PI);
     input.moveX = 1; input.buffer.push('dash', input.now); run(0.05); input.moveX = 0;
     expect(shot.reflected).toBe(true); expect(w.run.perfectDodges).toBe(1);
-    until(() => heart.reflectedHits === 1, 3); expect(heart.hp).toBe(FUNERAL_HEART.hp - FUNERAL_HEART.reflectionDamage);
+    until(() => heart.reflectedHits >= 1, 3); expect(heart.hp).toBeLessThanOrEqual(FUNERAL_HEART.hp - FUNERAL_HEART.reflectionDamage);
   });
 
   for (const sheltered of [true, false]) it(`a golden dome ${sheltered ? 'carves a gap in' : 'does not protect a hero outside it from'} the dark ring wave`, () => {
@@ -264,16 +296,26 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     expect(w.hero.hp === hp).toBe(sheltered);
   });
 
-  it('a lit bowl carves its own gap in the wave; the telegraph shows the gaps before the wave', () => {
-    const { w, heart, until, igniteFirst } = setup(); igniteFirst();
-    until(() => heart.attack?.kind === 'pulse', 40);
+  it('a broken millstone frees its fire: the lit bowl carves a gap in the wave, shown on the telegraph first', () => {
+    const { w, heart, until, run, breakStone } = setup(); heart.start(); run(0.1); breakStone(0);
+    until(() => heart.attack?.kind === 'pulse', 60);
     const ring = w.telegraphs.find(t => t.alive && t.shape.k === 'ring');
     expect(ring).toBeTruthy();
     const gaps = ring!.shape.k === 'ring' ? ring!.shape.gaps ?? [] : [];
     const bowl = heart.braziers[0], a = Math.atan2(bowl.x, bowl.z + 0.5);
-    if (heart.lit[0]) expect(gaps.some(g => Math.abs(g.a - a) < 0.05)).toBe(true);
+    expect(gaps.some(g => Math.abs(g.a - a) < 0.05)).toBe(true);
     until(() => w.ringWaves.length > 0, 3);
-    if (heart.lit[0]) expect(w.ringWaves[0].gaps.some(g => Math.abs(g.a - a) < 0.05)).toBe(true);
+    expect(w.ringWaves[0].gaps.some(g => Math.abs(g.a - a) < 0.05)).toBe(true);
+  });
+
+  it('the phase change regrows every millstone: the shield is whole again and the freed fire goes out', () => {
+    const { heart, charged, faceBody, firstDive, breakStone } = setup(); firstDive();
+    breakStone(1); expect(heart.intactStones).toBe(2); expect(heart.lit[1]).toBe(true);
+    heart.exposed = 60;
+    for (let i = 0; i < 80 && heart.phase === 1; i++) { faceBody(); charged(); }
+    expect(heart.phase).toBe(2);
+    expect(heart.intactStones).toBe(3); expect(heart.stones.every(s => s.hp === FUNERAL_HEART.stone.hp[1])).toBe(true);
+    expect(heart.lit[1]).toBe(false);
   });
 
   it('fire-bearers come only from phase II, at most two alive; each fallen bearer leaves a golden dome, not a weapon', () => {

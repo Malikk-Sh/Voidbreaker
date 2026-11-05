@@ -94,7 +94,7 @@ export function resultsScreen(app: App, d: ResultsData): HTMLElement {
   const el = h('div', { class: 'vb-screen vb-fade', style: { display: 'grid', placeItems: 'center', background: won ? 'radial-gradient(ellipse at center, rgba(10,16,24,.55), rgba(5,7,10,.92))' : 'radial-gradient(ellipse at center, rgba(40,6,12,.55), rgba(5,7,10,.94))' } },
     h('div', { class: 'vb-col vb-scroll', style: { alignItems: 'center', gap: short ? '4px' : '10px', maxWidth: '92vw', maxHeight: 'calc(100% - 74px)', marginBottom: '60px' } },
       titleCanvas(won ? (def.boss ? 'Звезда вспыхнула' : 'Этап пройден') : 'Пустота отступает…', short ? 26 : 36, { color: won ? 'gold' : 'hunger', glow: 1, spacing: 0.08 }),
-      h('div', { class: 'vb-caps', style: { color: UI.dim, marginTop: '-10px' } }, `${def.boss ? 'Босс' : `Этап ${def.id}`} · ${def.name}`),
+      h('div', { class: 'vb-caps', style: { color: UI.dim, marginTop: '-10px' } }, `${def.boss ? 'Босс' : `Этап ${def.label ?? def.id}`} · ${def.name}`),
       body,
       extras.length ? h('div', { class: 'vb-col', style: { width: 'min(560px, 90vw)' } }, ...extras) : null,
     ),

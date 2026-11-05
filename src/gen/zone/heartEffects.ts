@@ -3,8 +3,9 @@ import { mat, matAlong } from '../geom/build';
 import { octa } from '../geom/prims';
 import type { Shape } from '../../world/combat';
 import { SoulSpirit } from './soulSpirit';
+import { HeartMillstones, type MillstoneView } from './millstones';
 
-export interface HeartEffectsView {
+export interface HeartEffectsView extends Omit<MillstoneView, 'active' | 'dead' | 'body'> {
   centerZ: number;
   active: boolean;
   dead: boolean;
@@ -49,6 +50,8 @@ export class HeartEffects {
   readonly group = new THREE.Group();
   /** Свет павшей элиты по пути к Сердцу: огненный дух со шлейфом. */
   readonly soul = new SoulSpirit();
+  /** Жернова над чашами, их диски, копья веера, щит и лучи гибели. */
+  readonly mills = new HeartMillstones();
   private readonly shots: THREE.InstancedMesh;
   private readonly halos: THREE.InstancedMesh;
   /** Пламя над головой огненосца: внешний золотой язык и белое ядро. */
@@ -121,6 +124,7 @@ export class HeartEffects {
     for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links,this.domes,this.dropMeshes]) {mesh.count=0;mesh.frustumCulled=false;this.group.add(mesh);}
     this.tide.frustumCulled=false;this.tide.visible=false;this.group.add(this.tide);
     this.group.add(this.soul.group);
+    this.group.add(this.mills.group);
     // Тень падения — тёмный диск на полу, а не ещё одно свечение: где будет Сердце, видно сразу.
     const disk=new THREE.CircleGeometry(1,40); disk.rotateX(-Math.PI/2);
     this.shadow=new THREE.Mesh(disk,new THREE.MeshBasicMaterial({color:'#05010a',transparent:true,opacity:0,depthWrite:false}));
@@ -144,7 +148,8 @@ export class HeartEffects {
     this.motes.count=0;
   }
 
-  update(dt:number,v:HeartEffectsView):void {
+  /** showStones — жернова видны и до начала боя (собираются во вступлении). */
+  update(dt:number,v:HeartEffectsView,showStones=false):void {
     if(this.disposed)return;
     this.time+=dt;
     const visible=v.active&&!v.dead;
@@ -180,19 +185,20 @@ export class HeartEffects {
     }
     this.fields.count=fields;
     let links=0;
+    // Артерии: целый жернов питает Сердце — по нити бежит багровый ток, в разгоне нить толще и золотая.
     if(visible)for(let i=0;i<v.braziers.length&&i<3;i++) {
-      const b=v.braziers[i], heat=Math.max(0,Math.min(1,v.heat[i]??0));
-      const active=v.lit[i]||heat>0;
-      const draining=v.attack?.kind==='drain'&&v.attack.targetIndex===i;
+      const st=v.stones?.[i];
+      if(st&&st.broken)continue;
+      const b=v.braziers[i], charge=Math.max(0,Math.min(1,st?.charge??v.heat[i]??0)), y0=2.15;
       for(let j=0;j<8&&links<MAX_LINKS;j++){
         const t0=j/8,t1=(j+0.82)/8;
-        const ax=b.x+(v.body.x-b.x)*t0, ay=1.35+(v.body.y-1.35)*t0+Math.sin(t0*Math.PI)*0.25, az=b.z+(v.body.z-b.z)*t0;
-        const cx=b.x+(v.body.x-b.x)*t1, cy=1.35+(v.body.y-1.35)*t1+Math.sin(t1*Math.PI)*0.25, cz=b.z+(v.body.z-b.z)*t1;
+        const ax=b.x+(v.body.x-b.x)*t0, ay=y0+(v.body.y-y0)*t0+Math.sin(t0*Math.PI)*0.4, az=b.z+(v.body.z-b.z)*t0;
+        const cx=b.x+(v.body.x-b.x)*t1, cy=y0+(v.body.y-y0)*t1+Math.sin(t1*Math.PI)*0.4, cz=b.z+(v.body.z-b.z)*t1;
         const dx=cx-ax,dy=cy-ay,dz=cz-az, length=Math.hypot(dx,dy,dz);
-        const pulse=0.45+0.55*Math.max(0,Math.sin(this.time*5-j*0.7));
-        const thickness=active?0.045+heat*0.055:0.025;
+        const pulse=0.45+0.55*Math.max(0,Math.sin(this.time*6-j*0.9));
+        const thickness=0.05+charge*0.07+(st?.hitFlash??0)*0.04;
         this.links.setMatrixAt(links,matAlong((ax+cx)/2,(ay+cy)/2,(az+cz)/2,dx,dy,dz,thickness,length,thickness));
-        this.tempColor.copy(draining?HOT:active?GOLD:DANGER).multiplyScalar(draining?0.75+pulse*0.6:active?0.3+heat*0.5+pulse*0.4:0.22);
+        this.tempColor.copy(DANGER).lerp(GOLD,charge).multiplyScalar(0.45+pulse*0.55+charge*0.4);
         this.links.setColorAt(links,this.tempColor);links++;
       }
     }
@@ -210,6 +216,7 @@ export class HeartEffects {
     this.updateDive(v,visible);
     for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links,this.motes,this.domes,this.dropMeshes]){mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;}
     this.soul.update(dt);
+    this.mills.update(dt,{...v,active:v.active||showStones,dead:v.dead,body:v.body});
   }
 
   /** Золотые купола павших огненосцев, тьма прилива с окнами под ними, капли воскового дождя. */

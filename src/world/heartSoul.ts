@@ -11,14 +11,14 @@ export interface SoulObstacle { x: number; z: number; r: number }
  * ceiling — выше этой высоты свет не поднимается; gateLead — за сколько до пролёта света начинают подниматься ворота;
  * hold — крупный план Сердца, принявшего свет; outro — общий план героя у открытых ворот;
  * dormant — насколько разгорается Сердце, приняв свет (дальше оно тлеет и ждёт героя).
- * Пробуждение при входе героя: awakeningDur, удары сердца beats, раскрытие awakeAt, полный свет awakenedAt.
+ * Пробуждение в начале боя (сцена heartIntro): awakeningDur, удары сердца beats, рёв awakeAt, полный свет awakenedAt.
  */
 export const HEART_SOUL = {
   burst: 0.62, speed: 13, accel: 0.4, brake: 0.55,
   flyY: 2.2, coreY: 3.8, ceiling: 4.7,
   gateLead: 0.9, hold: 1.05, outro: 1.2,
   dormant: 0.45,
-  awakeningDur: 4.9, beats: [0.9, 1.6] as const, awakeAt: 2.3, awakenedAt: 2.7,
+  awakeningDur: 9.0, beats: [4.1, 4.7] as const, awakeAt: 5.3, awakenedAt: 5.7,
 } as const;
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));

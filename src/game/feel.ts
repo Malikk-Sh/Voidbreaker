@@ -649,6 +649,51 @@ export class FeelSystem {
         this.vfx.lights.flash(e.x, 0.6, e.z, C.ember, 3, 4, 0.25);
         this.audio.play('proj_hit', { gain: 0.55, pitch: 0.7, pan: this.pan(e.x) });
       }),
+      b.on('heartStoneHit', (e) => {
+        // Камень жернова отвечает клинку: искры, крошка, глухой звон; чем меньше осталось, тем ярче трещины.
+        const q = this.vfx.quality;
+        this.time.addHitstop(e.heavy ? 0.06 : 0.03);
+        this.cam.addTrauma(e.heavy ? 0.22 : 0.1);
+        this.vfx.hitSparks(e.x, 2.1, e.z, 0, 1, e.heavy ? 1 : 0.6, false);
+        this.vfx.debris.burst(e.x, 2.1, e.z, 0, 0, Math.round((e.heavy ? 6 : 3) * q), 4, 0.12);
+        this.vfx.lights.flash(e.x, 2.1, e.z, C.gold, 2 + (1 - e.left) * 3, 4, 0.15);
+        this.audio.play('hit_armor', { gain: 0.6, pitch: 0.65 + (1 - e.left) * 0.3, pan: this.pan(e.x) });
+        this.audio.play('shatter_stone', { gain: 0.25 + (1 - e.left) * 0.3, pitch: 1.3, pan: this.pan(e.x) });
+      }),
+      b.on('heartStoneBreak', (e) => {
+        // Жернов разбит: колесо разлетается, артерия рвётся, огонь возвращается в чашу.
+        const q = this.vfx.quality;
+        this.time.addHitstop(0.12);
+        this.cam.addTrauma(0.6);
+        this.cam.zoomPunch += 0.05;
+        this.vfx.debris.burst(e.x, 2.1, e.z, 0, 0, Math.round(22 * q), 9, 0.35);
+        this.vfx.burst(Math.round(20 * q), { x: e.x, y: 2.1, z: e.z, life: 0.9, size: 0.14, size1: 0.02, color: C.gold, gravity: -6, drag: 1.4, frame: 'spark' }, { v: 7, vy: 4 });
+        this.vfx.rings.spawn(e.x, e.z, 0.5, 6, 0.6, C.gold, 0.6, soft() ? 0.5 : 1);
+        this.vfx.lights.flash(e.x, 2, e.z, C.gold, 8, 10, 0.6);
+        this.audio.play('shatter_stone', { gain: 1, pitch: 0.8, pan: this.pan(e.x) });
+        this.audio.play('bell_crack', { gain: 0.7, pitch: 0.9, pan: this.pan(e.x), delay: 0.05 });
+        this.audio.play('chain_drop', { gain: 0.5, pan: this.pan(e.x), delay: 0.12 });
+        this.input.vibrate(80);
+      }),
+      b.on('heartStoneRegrow', (e) => {
+        this.vfx.burst(Math.round(12 * this.vfx.quality), { x: e.x, y: 0.4, z: e.z, life: 0.8, size: 0.12, size1: 0.02, color: C.hungerHot, gravity: 6, drag: 1.6, frame: 'spark' }, { v: 2, vy: 4 });
+        this.vfx.lights.flash(e.x, 2, e.z, C.hungerHot, 4, 6, 0.5);
+        this.audio.play('tele_grind', { gain: 0.5, pitch: 0.8, pan: this.pan(e.x) });
+      }),
+      b.on('heartDisc', (e) => {
+        this.vfx.burst(Math.round(8 * this.vfx.quality), { x: e.x + e.dx, y: 0.3, z: e.z + e.dz, life: 0.6, size: 0.4, size1: 1, color: C.dust, alpha: 0.4, drag: 2.5, frame: 'smoke' }, { v: 3, vy: 0.5 }, false);
+        this.audio.play('step_heavy', { gain: 0.7, pitch: 0.7, pan: this.pan(e.x) });
+        this.audio.play('tele_grind', { gain: 0.35, pitch: 1.4, pan: this.pan(e.x) });
+      }),
+      b.on('heartDiscEnd', (e) => {
+        this.vfx.debris.burst(e.x, 0.4, e.z, 0, 0, Math.round(5 * this.vfx.quality), 4, 0.15);
+        this.audio.play('shatter_stone', { gain: 0.3, pitch: 1.1, pan: this.pan(e.x) });
+      }),
+      b.on('heartWard', (e) => {
+        // Удар ушёл в щит жерновов: багровая рябь вокруг ядра — сначала разбей жернова.
+        this.vfx.rings.spawn(e.x, e.z, 2.2, 3.4, 0.3, C.hungerHot, 0.45, soft() ? 0.4 : 0.8);
+        this.audio.play('hit_armor', { gain: 0.35, pitch: 1.5, pan: this.pan(e.x) });
+      }),
       b.on('heartBurst', (e) => {
         // Ядро лопается: белая вспышка, золотая волна по всему залу, огонь возвращается свечам.
         this.whiteFlash(0.55);

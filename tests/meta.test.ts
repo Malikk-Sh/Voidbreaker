@@ -80,8 +80,8 @@ describe('награды этапа (GDD §3.3)', () => {
     expect(r.unlocks).toEqual([]);
   });
 
-  // после трёх новых этапов: 18 из 27 звёзд (та же доля ⅔, что 12 из 18) и пройдены «Хоры»
-  it('открытие этапов и врат босса (18 из 27 звёзд)', () => {
+  // после трёх новых этапов и боя с Сердцем: 20 из 30 звёзд (та же доля ⅔, что 12 из 18) и пройдены «Хоры»
+  it('открытие этапов и врат босса (20 из 30 звёзд)', () => {
     const s = newSave();
     const boss = ZONE1.find((d) => d.boss)!;
     expect(stageUnlocked(s, ZONE1[0])).toBe(true);
@@ -93,13 +93,23 @@ describe('награды этапа (GDD §3.3)', () => {
       // до последнего этапа врата закрыты
       if (i < regular.length - 1) expect(stageUnlocked(s, boss)).toBe(false);
     });
-    expect(zoneStars(s)).toBe(18);
+    expect(zoneStars(s)).toBe(20);
     expect(stageUnlocked(s, ZONE1[1])).toBe(true);
     expect(stageUnlocked(s, boss)).toBe(true);
     // кто уже побеждал Иерофанта — врата открыты и без новых звёзд
     const old = newSave();
     old.stages[boss.id] = { ...(old.stages[boss.id] ?? {}), clears: 1 } as typeof old.stages[string];
     expect(stageUnlocked(old, boss)).toBe(true);
+    // Сохранение до разделения 1-4: пройденный 1-5 не закрывается, хотя боя с Сердцем ещё не было.
+    const split = newSave(), at = (id: string) => ZONE1.find((d) => d.id === id)!;
+    for (const id of ['1-1', '1-2', '1-3', '1-4', '1-5']) split.stages[id] = { ...(split.stages[id] ?? {}), clears: 1 } as typeof split.stages[string];
+    expect(stageUnlocked(split, at('1-4b'))).toBe(true);
+    expect(stageUnlocked(split, at('1-5'))).toBe(true);
+    expect(stageUnlocked(split, at('1-6'))).toBe(true);
+    const fresh = newSave();
+    for (const id of ['1-1', '1-2', '1-3', '1-4']) fresh.stages[id] = { ...(fresh.stages[id] ?? {}), clears: 1 } as typeof fresh.stages[string];
+    expect(stageUnlocked(fresh, at('1-4b'))).toBe(true);
+    expect(stageUnlocked(fresh, at('1-5'))).toBe(false);
   });
 
   it('победа над боссом: Эфир, реликвия, учёт попыток', () => {

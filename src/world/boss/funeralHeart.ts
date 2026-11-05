@@ -17,8 +17,11 @@ import type { AimTarget, World } from '../world';
  * hp — запас; armor — доля урона клинка по закрытой броне; stuck / knockdown / counterDown — сколько Сердце лежит
  * открытым после промаха падением, после отбитой сферы и после контратаки огнём (по фазам); getUp — за сколько
  * до подъёма появляется метка удара при подъёме; rage / dying — длительность ярости между фазами и гибели;
- * hover — высота над колодцем по фазам; dmg — доли HP героя за попадание; heatRadius — падение рядом с чашей
- * нагревает её; igniteHeat — с какого жара чашу зажигает любой удар клинком.
+ * hover — высота над колодцем по фазам; dmg — доли HP героя за попадание.
+ * stone — три жернова над чашами, они питают Сердце: hp по фазам; r — радиус попадания клинком; damage — удар
+ * по Сердцу, когда жернов разбит (рвётся артерия, Сердце падает к нему); every — как часто целые жернова катят диски
+ * (по фазам), warn — метка диска, discSpeed / discR / len — скорость, радиус и дальность диска; shield — доля урона
+ * по раскрытому ядру при 0, 1, 2, 3 целых жерновах.
  * dome / domeSeconds — радиус и жизнь золотого купола; bearers — огненосцев на прилив, maxBearers — живых вне прилива;
  * flood — прилив по фазам: tide — сколько тьма разливается от колодца до стен, hold — вдох перед ударом,
  * pulses / pulseGap — удары прилива; echo — через сколько эхо падения бьёт в III фазе.
@@ -33,22 +36,25 @@ export const FUNERAL_HEART = {
   hover: [3.8, 3.3, 2.9],
   flood: { tide: [5.4, 5.0, 4.3], hold: 0.75, pulses: 3, pulseGap: 0.45, height: 7.2, inner: 4.6, outer: 21 },
   echo: 1.3,
-  dmg: { dive: 0.3, quake: 0.12, getUp: 0.12, orb: 0.15, pulse: 0.22, sweep: 0.14, flood: 0.2, drop: 0.12, echo: 0.15 },
-  heatRadius: 4.5, igniteHeat: 0.6,
+  dmg: { dive: 0.3, quake: 0.12, getUp: 0.12, orb: 0.15, pulse: 0.22, sweep: 0.14, flood: 0.2, drop: 0.12, echo: 0.15, disc: 0.13 },
+  stone: { hp: [110, 130, 150], r: 1.35, damage: 60, every: [9, 7.5, 6], warn: 1.2, discSpeed: 10, discR: 0.75, len: 18, shield: [1, 0.8, 0.65, 0.5] },
 } as const;
 
 /** Как Сердце ведёт себя по фазам: выслеживание перед падением, предупреждение, паузы, сферы, волна. */
 const PHASE = [
-  { track: 0.95, warn: 1.4, gap: 1.3, orbs: [0], orbSpeed: 4.8, volleys: 1, waveSpeed: 7.5, drops: 0, spawnEvery: 0 },
+  { track: 0.95, warn: 1.4, gap: 1.3, orbs: [-0.3, 0, 0.3], orbSpeed: 4.8, volleys: 1, waveSpeed: 7.5, drops: 0, spawnEvery: 0 },
   { track: 0.75, warn: 1.3, gap: 0.9, orbs: [-0.32, 0, 0.32], orbSpeed: 5.4, volleys: 1, waveSpeed: 8.5, drops: 8, spawnEvery: 12 },
   { track: 0.5, warn: 1.2, gap: 0.6, orbs: [-0.32, 0, 0.32], orbSpeed: 5.8, volleys: 2, waveSpeed: 9.5, drops: 12, spawnEvery: 9.5 },
 ] as const;
 
-/** Порядок приёмов по фазам. Прилив открывает II и III фазы, а в III фазе приходит ещё раз. */
+/**
+ * Порядок приёмов по фазам. Дальние приёмы (сферы, веер копий, дождь) — чаще, падение на героя — реже.
+ * Прилив открывает II и III фазы, а в III фазе приходит ещё раз.
+ */
 const PATTERNS: readonly (readonly HeartAttack['kind'][])[] = [
-  ['dive', 'orbs', 'dive', 'pulse', 'orbs', 'dive', 'drain'],
-  ['dive', 'rain', 'orbs', 'dive', 'sweep', 'orbs', 'dive', 'double', 'rain', 'drain'],
-  ['dives', 'rain', 'orbs', 'dives', 'sweep', 'orbs', 'dives', 'double', 'flood', 'orbs', 'drain'],
+  ['orbs', 'dive', 'orbs', 'sweep', 'pulse', 'orbs', 'dive', 'sweep'],
+  ['orbs', 'rain', 'dive', 'sweep', 'orbs', 'double', 'orbs', 'sweep', 'dive', 'rain'],
+  ['orbs', 'sweep', 'dives', 'rain', 'orbs', 'double', 'sweep', 'orbs', 'dives', 'flood'],
 ];
 
 export type HeartPose = 'hover' | 'track' | 'lock' | 'fall' | 'stuck' | 'knock' | 'rise' | 'rage' | 'flood' | 'dying';
@@ -63,7 +69,7 @@ export interface HeartField {
   kind: 'wax' | 'counter';
 }
 export interface HeartAttack {
-  kind: 'dive' | 'dives' | 'pulse' | 'double' | 'sweep' | 'drain' | 'orbs' | 'rain' | 'flood';
+  kind: 'dive' | 'dives' | 'pulse' | 'double' | 'sweep' | 'orbs' | 'rain' | 'flood';
   x: number; z: number; t: number; dur: number; shapes: Shape[]; targetIndex?: number;
 }
 /**
@@ -75,6 +81,15 @@ export interface HeartFlood { t: number; front: number; inner: number; outer: nu
 export interface HeartDrop { id: number; x: number; z: number; r: number; t: number; dur: number }
 /** Эхо падения III фазы: тень на месте удара бьёт ещё раз. */
 export interface HeartEcho { id: number; x: number; z: number; r: number; t: number; dur: number }
+/**
+ * Жернов над чашей: питает Сердце щитом и катит диски. hitFlash — вспышка удара 0…1; charge — разгон перед
+ * броском диска 0…1; grow — сборка заново после ярости 0…1.
+ */
+export interface HeartStone { x: number; z: number; hp: number; maxHp: number; broken: boolean; hitFlash: number; charge: number; grow: number }
+/** Каменный диск, который жернов катит по полу. */
+export interface HeartDisc { id: number; x: number; z: number; dx: number; dz: number; r: number; travelled: number; len: number; alive: boolean; hit: boolean }
+/** Копьё веера: летит от Сердца до конца луча; t — с выстрела, dur — сколько видно. */
+export interface HeartLance { id: number; x0: number; z0: number; x1: number; z1: number; t: number; dur: number }
 export interface FuneralHeartView {
   readonly centerZ: number;
   readonly active: boolean; readonly dead: boolean;
@@ -98,8 +113,11 @@ export interface FuneralHeartView {
   readonly flood: HeartFlood | null;
   readonly drops: readonly HeartDrop[];
   readonly echoes: readonly HeartEcho[];
+  readonly stones: readonly HeartStone[];
+  readonly discs: readonly HeartDisc[];
+  readonly lances: readonly HeartLance[];
   readonly metrics: { counters: number; reflectedHits: number; bodyHits: number; spawnedTotal: number; dives: number; knockdowns: number; clanks: number;
-    floods: number; crashes: number; sheltered: number; domes: number; drops: number; echoes: number };
+    floods: number; crashes: number; sheltered: number; domes: number; drops: number; echoes: number; stones: number; discs: number; lances: number; warded: number };
 }
 
 interface Step { at: number; run: () => void; done: boolean }
@@ -132,7 +150,13 @@ export class FuneralHeart implements FuneralHeartView {
   readonly carriers = new Map<number, Enemy>();
   readonly body: { x: number; y: number; z: number; r: number };
   readonly metrics = { counters: 0, reflectedHits: 0, bodyHits: 0, spawnedTotal: 0, dives: 0, knockdowns: 0, clanks: 0,
-    floods: 0, crashes: 0, sheltered: 0, domes: 0, drops: 0, echoes: 0 };
+    floods: 0, crashes: 0, sheltered: 0, domes: 0, drops: 0, echoes: 0, stones: 0, discs: 0, lances: 0, warded: 0 };
+  readonly stones: HeartStone[];
+  readonly discs: HeartDisc[] = [];
+  readonly lances: HeartLance[] = [];
+  private nextVolley: number = FUNERAL_HEART.stone.every[0];
+  private volley: { t: number; tele: (Telegraph | null)[]; dirs: { dx: number; dz: number }[] } | null = null;
+  private lastWard = -99;
   flood: HeartFlood | null = null;
   readonly drops: HeartDrop[] = [];
   readonly echoes: HeartEcho[] = [];
@@ -163,6 +187,8 @@ export class FuneralHeart implements FuneralHeartView {
 
   constructor(private readonly w: World, readonly centerZ: number) {
     this.braziers = BRAZIERS.map(b => ({ x: b.x, z: centerZ + b.z }));
+    const hp = FUNERAL_HEART.stone.hp[0];
+    this.stones = this.braziers.map(b => ({ x: b.x, z: b.z, hp, maxHp: hp, broken: false, hitFlash: 0, charge: 0, grow: 1 }));
     this.body = { x: 0, y: FUNERAL_HEART.hover[0], z: centerZ - 0.5, r: 2.5 };
     this.target.x = 0; this.target.z = centerZ - 0.5;
     const heart = this;
@@ -178,7 +204,7 @@ export class FuneralHeart implements FuneralHeartView {
       w.bus.on('ability', e => this.ability(e)),
       w.bus.on('perfectDodge', e => this.reflectNear(e.x, e.z, e.sx, e.sz)),
       w.bus.on('kill', e => this.carrierDied(e.target.id, e.x, e.z)),
-      w.bus.on('heroDeath', () => { this.enabled = false; this.cancelAttack(); }),
+      w.bus.on('heroDeath', () => { this.enabled = false; this.cancelAttack(); this.cancelVolley(); }),
     ];
   }
 
@@ -219,6 +245,8 @@ export class FuneralHeart implements FuneralHeartView {
       const d = Math.hypot(x - this.body.x, z - this.body.z);
       return Math.max(0, Math.min(1, (r - d) / 3));
     }
+    // В гибели Сердце забирает весь свет: он вернётся волной после вспышки.
+    if (this.dying > 0) return 0;
     if (this.lit[sectorAt(x, z, this.centerZ)]) return 1;
     const drain = Math.min(1, this.clock / 2.2);
     if (drain >= 1) return 0;
@@ -239,11 +267,16 @@ export class FuneralHeart implements FuneralHeartView {
       : this.pose === 'stuck' ? 1.6 : this.phase === 3 ? 1.35 : this.phase === 2 ? 1.1 : 0.85;
     this.beatClock += dt * rate; this.beat = this.beatClock % 1;
     this.hitFlash = Math.max(0, this.hitFlash - dt * 4);
+    // Разбитый жернов отдаёт огонь своей чаше: сектор снова светел (прилив гасит свет на время).
     for (let i = 0; i < 3; i++) {
-      this.heat[i] = Math.max(0, this.heat[i] - dt * 0.055);
-      this.flameLife[i] = Math.max(0, this.flameLife[i] - dt);
-      this.lit[i] = this.flameLife[i] > 0;
+      const st = this.stones[i];
+      st.hitFlash = Math.max(0, st.hitFlash - dt * 4);
+      st.grow = Math.min(1, st.grow + dt / 0.8);
+      this.lit[i] = st.broken && !this.flood;
+      this.flameLife[i] = this.lit[i] ? 1 : 0;
+      this.heat[i] = st.broken ? 0 : st.charge;
     }
+    this.stepLances(dt);
     if (this.pose === 'dying') { this.stepDying(dt); return; }
     this.stepPose(dt);
     this.stepShots(dt);
@@ -251,6 +284,8 @@ export class FuneralHeart implements FuneralHeartView {
     this.stepFields(dt);
     this.stepDrops(dt);
     this.stepEchoes(dt);
+    this.stepStones(dt);
+    this.stepDiscs(dt);
     if (!this.active || this.dying > 0) return;
     for (const [id, enemy] of this.carriers) if (enemy.dead) this.carriers.delete(id);
     // Вне прилива огненосцы приходят по одному: с II фазы их купола укрывают и от тёмной волны.
@@ -399,7 +434,6 @@ export class FuneralHeart implements FuneralHeartView {
     // Returning the orb has a readable interval of its own, without an overlapping wave.
     if (this.shots.some(s => s.alive && !s.reflected)) { this.nextAttack = 0.25; return; }
     this.attackIndex++;
-    if (kind === 'drain' && !this.lit.some(Boolean)) { this.beginNextAttack(); return; }
     this.beginAttack(kind);
   }
 
@@ -445,7 +479,7 @@ export class FuneralHeart implements FuneralHeartView {
       end = windup + (waves - 1) * 1.1 + 0.3;
     } else if (kind === 'sweep') {
       // Маятник: лучи от Сердца ложатся по кругу один за другим; каждый предупреждён не меньше 1.2 с.
-      const beams = this.phase === 3 ? 2 : 1, n = this.phase === 3 ? 8 : 7, arc = this.phase === 3 ? 1.7 : 1.5;
+      const beams = this.phase === 3 ? 2 : 1, n = this.phase === 3 ? 8 : this.phase === 2 ? 7 : 5, arc = this.phase === 3 ? 1.7 : this.phase === 2 ? 1.5 : 1.2;
       const a0 = Math.atan2(this.w.hero.x - o.x, this.w.hero.z - o.z) - arc / 2, warn = Math.max(1.2, t.warn - 0.1), stepT = 0.2;
       for (let i = 0; i < n; i++) {
         for (let k = 0; k < beams; k++) {
@@ -453,6 +487,9 @@ export class FuneralHeart implements FuneralHeartView {
           const shape: Shape = { k: 'line', x: o.x + Math.sin(a) * 4.2, z: o.z + Math.cos(a) * 4.2, dx: Math.sin(a), dz: Math.cos(a), len: 17, w: 1.8 };
           at(i * stepT, () => { tele(shape, warn); });
           at(i * stepT + warn, () => {
+            // Копьё летит из Сердца вдоль луча: веер виден, а не только его метка.
+            this.lances.push({ id: ++this.entityId, x0: this.body.x, z0: this.body.z, x1: shape.x + shape.dx * shape.len, z1: shape.z + shape.dz * shape.len, t: 0, dur: 0.55 });
+            this.metrics.lances++;
             this.strike(shape, FUNERAL_HEART.dmg.sweep, 3);
             this.w.bus.emit('heartBeam', { x: shape.x, z: shape.z, dx: shape.dx, dz: shape.dz, len: shape.len, first: i === 0 && k === 0 });
           });
@@ -480,7 +517,7 @@ export class FuneralHeart implements FuneralHeartView {
       const F = FUNERAL_HEART.flood, tide = F.tide[this.phase - 1], crashAt = 0.5 + tide + F.hold;
       const lastPulse = crashAt + (F.pulses - 1) * F.pulseGap;
       this.setPose('flood'); this.metrics.floods++;
-      for (let i = 0; i < 3; i++) { this.flameLife[i] = 0; this.lit[i] = false; this.heat[i] = 0; }
+      this.cancelVolley();
       this.flood = { t: 0, front: F.inner, inner: F.inner, outer: F.outer, level: 0, crash: 0, pulse: 0, hold: false };
       this.floodTiming = { tide, crashAt, recede: lastPulse + 0.3 };
       this.w.bus.emit('heartRoar', { x: this.body.x, y: this.body.y, z: this.body.z, flood: true });
@@ -492,17 +529,6 @@ export class FuneralHeart implements FuneralHeartView {
       for (let k = 0; k < F.pulses; k++) at(crashAt + k * F.pulseGap, () => this.floodCrash(k));
       at(lastPulse + 0.3, () => this.setPose('rise'));
       end = lastPulse + 1.4;
-    } else {
-      const index = this.flameLife.indexOf(Math.max(...this.flameLife)), b = this.braziers[index];
-      view.targetIndex = index; view.x = b.x; view.z = b.z;
-      tele({ k: 'circle', x: b.x, z: b.z, r: 2.6 }, 2.2, true);
-      this.w.bus.emit('telegraph', { kind: 'bell', x: b.x, z: b.z, src: 'funeralHeart' });
-      at(2.2, () => {
-        this.flameLife[index] = 0; this.lit[index] = false; this.heat[index] = 0.5;
-        this.w.bus.emit('shockwave', { x: b.x, z: b.z, r: 3, color: 'hunger', strength: 0.6 });
-        this.strike({ k: 'circle', x: b.x, z: b.z, r: 2.6 }, FUNERAL_HEART.dmg.sweep, 3);
-      });
-      end = 2.5;
     }
     view.dur = end;
     this.sequence = { view, steps, telegraphs }; this.attack = view;
@@ -523,11 +549,6 @@ export class FuneralHeart implements FuneralHeartView {
     this.w.heroStrike({ k: 'circle', x, z, r: 2.6 }, new Set(), {
       mult: 2.5, stun: 12, knockback: 2, feel: 'heavy', dirX: 0, dirZ: 1, source: 'env', noResonance: true,
     });
-    // Удар о пол рядом с чашей раскаляет её: золотое кольцо пульсирует, клинок её зажжёт.
-    for (let i = 0; i < 3; i++) {
-      const b = this.braziers[i];
-      if (!this.lit[i] && Math.hypot(b.x - x, b.z - z) <= FUNERAL_HEART.heatRadius) this.heat[i] = 1;
-    }
     this.w.bus.emit('heartSlam', { x, z, r: 2.6, big: last, open: last });
     this.w.bus.emit('impact', { x, z, r: 2.6, kind: 'slam' });
     if (!this.active) return;
@@ -592,8 +613,6 @@ export class FuneralHeart implements FuneralHeartView {
       }
       s.x += s.vx * dt; s.z += s.vz * dt;
       if (s.reflected) {
-        for (let i = 0; i < 3; i++) if (!this.lit[i] && segmentDistance(this.braziers[i].x, this.braziers[i].z, oldX, oldZ, s.x, s.z) <= 1.8) this.ignite(i, false);
-        if (!this.active) return;
         if (segmentDistance(this.body.x, this.body.z, oldX, oldZ, s.x, s.z) <= this.body.r + s.r) {
           s.alive = false; this.metrics.reflectedHits++;
           this.damage(FUNERAL_HEART.reflectionDamage, 'reflection');
@@ -628,12 +647,15 @@ export class FuneralHeart implements FuneralHeartView {
     this.slashKeys.add(key); this.lastSlashAt = this.w.time;
     const shape = slashShape(event), charged = event.move === 'charged' || this.w.hero.state === 'charged';
     for (const shot of this.shots) if (overlaps(shape, shot.x, shot.z, shot.r + 0.25)) this.reflect(shot);
-    // Раскалённую чашу зажигает любой удар клинком; заряженный возвращает огонь сильнее.
-    for (let i = 0; i < 3; i++) if (!this.lit[i] && this.heat[i] >= FUNERAL_HEART.igniteHeat && overlaps(shape, this.braziers[i].x, this.braziers[i].z, 1.35)) this.ignite(i, charged);
-    if (!this.active || this.dying > 0) return;
-    if (!overlaps(shape, this.body.x, this.body.z, this.body.r) || this.body.y > 4.2) return;
     const move = [...VOID_BLADE.combo, VOID_BLADE.flurry, VOID_BLADE.lunge, VOID_BLADE.rising, VOID_BLADE.skycut, VOID_BLADE.skyfall, VOID_BLADE.cross, VOID_BLADE.counter].find(m => m.id === event.move);
     const mult = charged ? (this.w.hero.chargeLevel >= 2 ? 4.5 : 3) : (move?.dmg ?? 1);
+    // Жернова принимают клинок: трещины, искры, и в конце — разбитый камень.
+    for (let i = 0; i < 3; i++) if (!this.stones[i].broken && overlaps(shape, this.stones[i].x, this.stones[i].z, FUNERAL_HEART.stone.r)) {
+      const hit = computeDamage({ ...this.w.hero.stats }, mult, 0, false, () => this.w.rng.next(), 1);
+      this.hitStone(i, hit.dmg, charged);
+      if (!this.active || this.dying > 0) return;
+    }
+    if (!overlaps(shape, this.body.x, this.body.z, this.body.r) || this.body.y > 4.2) return;
     const h = this.w.hero, perfect = h.consumePerfectBuff();
     const result = computeDamage({ ...h.stats, forceCrit: perfect }, mult, 0, false, () => this.w.rng.next(), perfect ? 1.3 : 1);
     this.metrics.bodyHits++;
@@ -651,6 +673,11 @@ export class FuneralHeart implements FuneralHeartView {
     const shape: Shape = event.id === 'crescent'
       ? { k: 'line', x: event.x, z: event.z, dx: Math.sin(h.facing), dz: Math.cos(h.facing), len: 8, w: 2.5 }
       : { k: 'circle', x: event.x, z: event.z, r: event.id === 'well' ? 4.5 : 3.5 };
+    for (let i = 0; i < 3; i++) if (!this.stones[i].broken && overlaps(shape, this.stones[i].x, this.stones[i].z, FUNERAL_HEART.stone.r)) {
+      const hit = computeDamage({ ...h.stats, dmgBonus: h.stats.dmgBonus + h.stats.abilityDmg }, event.id === 'well' ? 2.4 : 1.8, 0, false, () => this.w.rng.next(), 1);
+      this.hitStone(i, hit.dmg, true);
+      if (!this.active || this.dying > 0) return;
+    }
     if (!overlaps(shape, this.body.x, this.body.z, this.body.r)) return;
     const perfect = h.consumePerfectBuff();
     const result = computeDamage({ ...h.stats, dmgBonus: h.stats.dmgBonus + h.stats.abilityDmg, forceCrit: perfect },
@@ -659,11 +686,100 @@ export class FuneralHeart implements FuneralHeartView {
     h.addResonance(RESONANCE.perHit); this.w.rank.hit(false); this.w.rank.used(event.id);
   }
 
-  private ignite(index: number, charged: boolean): void {
-    if (!this.canAct || this.lit[index]) return;
-    this.lit[index] = true; this.flameLife[index] = FUNERAL_HEART.flameSeconds; this.heat[index] = 0;
-    const b = this.braziers[index];
-    this.counterPulse(b.x, b.z, FUNERAL_HEART.counterDamage * (charged ? 1.4 : 1), true);
+  /** Удар по жернову. Последний удар разбивает его: артерия рвётся, огонь возвращается в чашу, Сердце падает к нему. */
+  private hitStone(index: number, amount: number, heavy: boolean): void {
+    const st = this.stones[index];
+    if (!this.canAct || st.broken || !(amount > 0)) return;
+    st.hp = Math.max(0, st.hp - amount); st.hitFlash = 1;
+    this.w.bus.emit('heartStoneHit', { x: st.x, z: st.z, index, left: st.hp / st.maxHp, heavy });
+    this.w.rank.hit(heavy); this.w.rank.used('blade');
+    if (st.hp > 0) return;
+    st.broken = true; st.charge = 0; this.metrics.stones++;
+    const v = this.volley, tele = v?.tele[index];
+    if (tele) { tele.alive = false; v!.tele[index] = null; }
+    this.w.bus.emit('heartStoneBreak', { x: st.x, z: st.z, index, left: this.stones.filter(x => !x.broken).length });
+    this.counterPulse(st.x, st.z, FUNERAL_HEART.stone.damage, true);
+  }
+
+  /** Сколько жерновов ещё питает Сердце. */
+  get intactStones(): number { return this.stones.filter(x => !x.broken).length; }
+
+  /**
+   * Целые жернова по очереди с Сердцем катят диски: каждый показывает дорожку к герою, разгоняется и через
+   * warn с бросает каменный диск. Пока Сердце выслеживает, падает, в ярости или в приливе, жернова молчат.
+   */
+  private stepStones(dt: number): void {
+    const S = FUNERAL_HEART.stone, h = this.w.hero;
+    if (this.volley) {
+      const v = this.volley;
+      v.t += dt;
+      for (let i = 0; i < 3; i++) if (v.tele[i]) this.stones[i].charge = Math.min(1, v.t / S.warn);
+      if (v.t >= S.warn) {
+        for (let i = 0; i < 3; i++) {
+          const st = this.stones[i];
+          if (!v.tele[i] || st.broken) continue;
+          v.tele[i]!.alive = false; st.charge = 0;
+          const d = v.dirs[i];
+          this.discs.push({ id: ++this.entityId, x: st.x + d.dx * 1.2, z: st.z + d.dz * 1.2, dx: d.dx, dz: d.dz, r: S.discR, travelled: 0, len: S.len, alive: true, hit: false });
+          this.metrics.discs++;
+          this.w.bus.emit('heartDisc', { x: st.x, z: st.z, dx: d.dx, dz: d.dz });
+        }
+        this.volley = null;
+        this.nextVolley = S.every[this.phase - 1];
+      }
+      return;
+    }
+    const quiet = this.pose !== 'hover' && this.pose !== 'stuck' && this.pose !== 'rise';
+    if (quiet || !this.canAct || this.intactStones === 0) return;
+    this.nextVolley -= dt;
+    if (this.nextVolley > 0) return;
+    const tele: (Telegraph | null)[] = [null, null, null], dirs: { dx: number; dz: number }[] = [];
+    for (let i = 0; i < 3; i++) {
+      const st = this.stones[i];
+      const dx = h.x - st.x, dz = h.z - st.z, d = Math.hypot(dx, dz) || 1;
+      dirs.push({ dx: dx / d, dz: dz / d });
+      if (st.broken) continue;
+      tele[i] = this.w.addTelegraph({ k: 'line', x: st.x, z: st.z, dx: dx / d, dz: dz / d, len: S.len, w: S.discR * 2 + 0.2 }, S.warn);
+    }
+    this.volley = { t: 0, tele, dirs };
+    this.w.bus.emit('telegraph', { kind: 'hum', x: this.stones[0].x, z: this.stones[0].z, src: 'funeralHeart' });
+  }
+
+  private stepDiscs(dt: number): void {
+    const S = FUNERAL_HEART.stone, h = this.w.hero;
+    for (const d of this.discs) {
+      if (!d.alive) continue;
+      const step = S.discSpeed * dt, ox = d.x, oz = d.z;
+      d.x += d.dx * step; d.z += d.dz * step; d.travelled += step;
+      if (!d.hit && segmentDistance(h.x, h.z, ox, oz, d.x, d.z) <= h.radius + d.r) {
+        const res = this.w.enemyStrike({ x: ox - d.dx, z: oz - d.dz, id: -941, kind: 'Погребальное Сердце' }, { k: 'circle', x: d.x, z: d.z, r: d.r + 0.1 }, h.maxHp * FUNERAL_HEART.dmg.disc, 3.5);
+        if (res !== 'miss') d.hit = true;
+      }
+      if (d.travelled >= d.len || !this.w.arena.walkable(d.x, d.z)) { d.alive = false; this.w.bus.emit('heartDiscEnd', { x: d.x, z: d.z }); }
+    }
+    for (let i = this.discs.length - 1; i >= 0; i--) if (!this.discs[i].alive) this.discs.splice(i, 1);
+  }
+
+  private stepLances(dt: number): void {
+    for (const l of this.lances) l.t += dt;
+    for (let i = this.lances.length - 1; i >= 0; i--) if (this.lances[i].t >= this.lances[i].dur) this.lances.splice(i, 1);
+  }
+
+  private cancelVolley(): void {
+    if (this.volley) for (const t of this.volley.tele) if (t) t.alive = false;
+    this.volley = null;
+    for (const st of this.stones) st.charge = 0;
+  }
+
+  /** Новая фаза: Сердце собирает жернова заново — щит снова полон, огонь чаш гаснет. */
+  private regrowStones(): void {
+    const hp = FUNERAL_HEART.stone.hp[this.phase - 1];
+    for (let i = 0; i < 3; i++) {
+      const st = this.stones[i];
+      st.hp = st.maxHp = hp; st.charge = 0;
+      if (st.broken) { st.broken = false; st.grow = 0; this.w.bus.emit('heartStoneRegrow', { x: st.x, z: st.z, index: i }); }
+    }
+    this.nextVolley = FUNERAL_HEART.stone.every[this.phase - 1] + 2;
   }
 
   private counterPulse(x: number, z: number, damage: number, knock: boolean): void {
@@ -675,7 +791,7 @@ export class FuneralHeart implements FuneralHeartView {
     this.w.heroRing(x, z, 5, 12, 1.6, 28);
     this.damage(damage, 'counter');
     if (!this.active || this.dying > 0 || !knock) return;
-    // Огонь чаши бьёт в Сердце и сбрасывает его на кольцо — в сторону огня.
+    // Порванная артерия бьёт в Сердце и сбрасывает его на кольцо — в сторону разбитого жернова.
     this.knockDown(Math.atan2(x, z - this.centerZ + 0.5), FUNERAL_HEART.counterDown[this.phase - 1]);
     this.nextAttack = Math.max(this.nextAttack, 1.2);
   }
@@ -692,7 +808,13 @@ export class FuneralHeart implements FuneralHeartView {
       }
       if (sealed) return;
     }
-    const mul = source === 'body' ? (this.exposed > 0 ? 1 : FUNERAL_HEART.armor) : 1;
+    // Щит жерновов: пока они целы, раскрытое ядро принимает лишь часть удара — его видно и слышно.
+    const intact = this.intactStones, ward = source === 'body' && this.exposed > 0 ? FUNERAL_HEART.stone.shield[intact] : 1;
+    if (ward < 1) {
+      this.metrics.warded++;
+      if (this.w.time - this.lastWard > 0.2) { this.lastWard = this.w.time; this.w.bus.emit('heartWard', { x: b.x, y: b.y, z: b.z, intact }); }
+    }
+    const mul = source === 'body' ? (this.exposed > 0 ? ward : FUNERAL_HEART.armor) : 1;
     const dealt = Math.max(1, Math.round(amount * mul));
     // Одна серия не перепрыгивает фазу: HP останавливается на пороге, затем ярость.
     const gate = this.phase === 1 ? this.maxHp * 2 / 3 : this.phase === 2 ? this.maxHp / 3 : 0;
@@ -705,7 +827,8 @@ export class FuneralHeart implements FuneralHeartView {
 
   private beginRage(phase: 2 | 3): void {
     this.phase = phase;
-    this.cancelAttack(); this.clearEchoes(); this.getUp = null; this.knock = null; this.fall = null;
+    this.cancelAttack(); this.cancelVolley(); this.clearEchoes(); this.getUp = null; this.knock = null; this.fall = null;
+    this.regrowStones();
     this.exposed = 0; this.setPose('rage'); this.rage = 0;
     this.w.bus.emit('bossPhase', { phase });
     this.w.bus.emit('heartRage', { x: this.body.x, y: this.body.y, z: this.body.z, phase });
@@ -871,7 +994,7 @@ export class FuneralHeart implements FuneralHeartView {
   }
 
   private cleanup(): void {
-    this.cancelAttack(); this.clearEchoes(); this.shots.length = 0; this.fields.length = 0;
+    this.cancelAttack(); this.cancelVolley(); this.clearEchoes(); this.shots.length = 0; this.fields.length = 0; this.discs.length = 0;
     // Волны Сердца, ещё бегущие по залу, исчезают вместе с ним.
     for (const r of this.w.ringWaves) if (r.owner === -941) r.alive = false;
     this.w.ringWaves = this.w.ringWaves.filter(r => r.alive);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { ClipDef } from '../src/anim/clip';
-import { HEART_DEATH_T, heartAwakeningTrack, heartDeathTrack, heartSoulFlightTrack, type ForeHall } from '../src/game/heartAwakening';
+import { HEART_DEATH_T, HEART_INTRO_T, heartDeathTrack, heartIntroTrack, heartSoulFlightTrack, releasedLight, type ForeHall } from '../src/game/heartAwakening';
 import { Director, type CineTrack, type DirectorActor, type DirectorHost } from '../src/game/director';
 import { CameraRig } from '../src/world/camera';
 import { HEART_SOUL, HeartSoul } from '../src/world/heartSoul';
@@ -147,13 +147,16 @@ function directorFixture(mode: Mode, soul: HeartSoul) {
 describe('Director: полёт света и пробуждение Сердца', () => {
   it('маркеры заданы в точные моменты, без ожидания касания', () => {
     const soul = launched();
-    const flight = heartSoulFlightTrack([1, 0, 3], soul, GATE, HALL), awake = heartAwakeningTrack([0, 0, -17], CENTER);
+    const flight = heartSoulFlightTrack([1, 0, 3], soul, GATE, HALL), awake = heartIntroTrack([0, 0, CENTER + 9.6], CENTER);
     const m = soul.timing!;
     expect(flight.dur).toBeCloseTo(m.dur);
     expect(awake.dur).toBeCloseTo(HEART_SOUL.awakeningDur);
     expect(flight.steps.find(s => s.do === 'call' && s.fn === 'heartGateOpen')?.t).toBeCloseTo(m.gateOpenAt);
     expect(flight.steps.find(s => s.do === 'call' && s.fn === 'heartSoulAbsorb')?.t).toBeCloseTo(m.absorbAt);
     expect(awake.steps.find(s => s.do === 'call' && s.fn === 'heartAwake')?.t).toBe(HEART_SOUL.awakeAt);
+    expect(awake.steps.find(s => s.do === 'call' && s.fn === 'heartRise')?.t).toBe(HEART_INTRO_T.rise);
+    expect(awake.steps.find(s => s.do === 'call' && s.fn === 'heartStones')?.t).toBe(HEART_INTRO_T.stones);
+    expect(HEART_SOUL.beats[0]).toBeGreaterThan(HEART_INTRO_T.rise);
     for (const track of [flight, awake]) {
       expect(track.short).toBeDefined();
       for (const steps of [track.steps, track.short!]) expect(steps.some(s => s.do === 'wait' || s.do === 'tap')).toBe(false);
@@ -181,18 +184,18 @@ describe('Director: полёт света и пробуждение Сердца
       expect(soul.position).toEqual({ x: 0, y: HEART_SOUL.coreY, z: CORE });
       expect(soul.beginAwakening()).toBe(true);
       f.calls.length = 0;
-      f.play(heartAwakeningTrack([0, 0, -17], CENTER), () => soul.awake());
-      for (let t = 0; t < 7; t += DT) {
+      f.play(heartIntroTrack([0, 0, CENTER + 9.6], CENTER), () => soul.awake());
+      for (let t = 0; t < 11; t += DT) {
         f.director.update(DT, f.rig);
         if (f.director.active) soul.sampleAwakening(f.director.time);
       }
       expect(f.ended()).toBe(true);
-      expect(f.calls).toEqual(['heartAwake']);
+      expect(f.calls).toEqual(['heartRise', 'heartAwake', 'heartStones']);
       if (mode === 'full') expect(f.endTime()).toBeCloseTo(HEART_SOUL.awakeningDur, 1);
       if (mode === 'short') expect(f.endTime()).toBeLessThan(HEART_SOUL.awakeningDur - 0.8);
       expect(soul.phase).toBe('awake');
       expect(soul.awakened).toBe(1);
-      expect(f.hero).toMatchObject({ x: 1, y: 0, z: 3 });
+      expect(f.hero.y).toBe(0);
       expect(f.rig.cine).toBe(null);
     });
   }
@@ -258,32 +261,34 @@ describe('кадры Сердца на мобильном экране', () => {
 
     for (const centerZ of [-27, -82]) {
       for (const heroX of [-5, 0, 5]) {
-        it(`${width}×${height}, центр ${centerZ}, герой x=${heroX}: общие планы пробуждения держат ноги, голову и ядро`, () => {
-          const hero: [number, number, number] = [heroX, 0, centerZ + 10];
-          const track = heartAwakeningTrack(hero, centerZ);
-          for (const [mode, t] of [['full', 0.05], ['full', 3.95], ['full', 4.6], ['short', 3.5]] as const) {
+        it(`${width}×${height}, центр ${centerZ}, герой x=${heroX}: вступление держит героя и Сердце в общих планах`, () => {
+          const hero: [number, number, number] = [heroX, 0, centerZ + 9.6];
+          const walked = [heroX * 0.6, 0, hero[2] - 2.4];
+          const track = heartIntroTrack(hero, centerZ);
+          for (const [mode, t] of [['full', 0.05], ['full', HEART_INTRO_T.title + 0.5], ['full', HEART_SOUL.awakeningDur - 0.3], ['short', HEART_INTRO_T.title + 0.3]] as const) {
             const c = cameraAt(track, t, launched(), mode);
             expect(c).not.toBeNull();
+            const at = t < HEART_INTRO_T.walk ? hero : walked;
             const anchors = [
-              new THREE.Vector3(heroX, 0.2, hero[2]), new THREE.Vector3(heroX, 1.9, hero[2]),
+              new THREE.Vector3(at[0], 0.2, at[2]), new THREE.Vector3(at[0], 1.9, at[2]),
               new THREE.Vector3(0, HEART_SOUL.coreY, centerZ), new THREE.Vector3(0, HEART_SOUL.coreY + 1.6, centerZ),
             ];
             for (const [i, anchor] of anchors.entries()) {
-              const q = project(c, width, height, anchor), at = `${mode} t=${t}, anchor=${i}`;
-              expect(Math.abs(q.x), at).toBeLessThan(0.95);
-              expect(Math.abs(q.y), at).toBeLessThan(0.75);
-              expect(q.z, at).toBeGreaterThan(-1);
-              expect(q.z, at).toBeLessThan(1);
+              const q = project(c, width, height, anchor), msg = `${mode} t=${t}, anchor=${i}`;
+              expect(Math.abs(q.x), msg).toBeLessThan(0.95);
+              expect(Math.abs(q.y), msg).toBeLessThan(0.85);
+              expect(q.z, msg).toBeGreaterThan(-1);
+              expect(q.z, msg).toBeLessThan(1);
             }
           }
         });
       }
 
-      it(`${width}×${height}, центр ${centerZ}: удары сердца и рёв — ядро и венец в кадре`, () => {
-        const track = heartAwakeningTrack([0, 0, centerZ + 10], centerZ);
-        for (const t of [0.95, 1.3, 1.7, 2.2, 2.45]) {
+      it(`${width}×${height}, центр ${centerZ}: подъём, удары сердца и рёв — ядро и венец в кадре`, () => {
+        const track = heartIntroTrack([0, 0, centerZ + 9.6], centerZ);
+        for (const t of [4.95, 5.2, 5.5, 5.8]) {
           const c = cameraAt(track, t, launched());
-          for (const anchor of [new THREE.Vector3(0, HEART_SOUL.coreY, centerZ), new THREE.Vector3(0, HEART_SOUL.coreY + 1.6, centerZ)]) {
+          for (const anchor of [new THREE.Vector3(0, HEART_SOUL.coreY, centerZ - 0.5), new THREE.Vector3(0, HEART_SOUL.coreY + 1.6, centerZ - 0.5)]) {
             const q = project(c, width, height, anchor);
             expect(Math.abs(q.x), `t=${t}`).toBeLessThan(0.9);
             expect(Math.abs(q.y), `t=${t}`).toBeLessThan(0.9);
@@ -297,7 +302,7 @@ describe('кадры Сердца на мобильном экране', () => {
 
   it('камера пробуждения остаётся внутри новых ворот в полной и короткой версиях', () => {
     for (const centerZ of [-27, -82]) for (const heroX of [-5, 0, 5]) {
-      const track = heartAwakeningTrack([heroX, 0, centerZ + 10], centerZ);
+      const track = heartIntroTrack([heroX, 0, centerZ + 9.6], centerZ);
       for (const steps of [track.steps, track.short!]) for (const step of steps) {
         if (step.do !== 'cam') continue;
         for (const point of step.path) expect(point[2], `centerZ=${centerZ}, heroX=${heroX}, t=${step.t}`).toBeLessThanOrEqual(centerZ + 14);
@@ -309,7 +314,7 @@ describe('кадры Сердца на мобильном экране', () => {
 describe('гибель Сердца: отдельная сцена', () => {
   for (const [width, height] of [[844, 390], [740, 360]]) {
     for (const [hero, body] of [[[0, 0, -19], [0, 1.05, -24]], [[-9, 0, -30], [-6, 1.05, -33]], [[12, 0, -26], [7.6, 1.05, -27.5]]] as [[number, number, number], [number, number, number]][]) {
-      it(`${width}×${height}, герой (${hero[0]}, ${hero[2]}): ядро в кадре до вспышки, затем общий план с героем`, () => {
+      it(`${width}×${height}, герой (${hero[0]}, ${hero[2]}): ядро в кадре до вспышки, свет уходит к своду, затем победа героя`, () => {
         const track = heartDeathTrack(hero, body, CENTER);
         expect(track.skippable).toBe(true);
         for (const t of [0.1, 0.9, 1.8]) {
@@ -318,12 +323,20 @@ describe('гибель Сердца: отдельная сцена', () => {
           expect(Math.abs(q.x), `t=${t}`).toBeLessThan(0.5); expect(Math.abs(q.y), `t=${t}`).toBeLessThan(0.5);
           expect(Math.hypot(c.pos.x / 18, (c.pos.z - CENTER) / 14)).toBeLessThanOrEqual(1);
         }
+        for (const t of [HEART_DEATH_T.ascend + 0.6, HEART_DEATH_T.ascend + 1.3]) {
+          const light = releasedLight(t, body)!, c = cameraAt(track, t, launched());
+          expect(light).not.toBeNull();
+          const q = project(c, width, height, new THREE.Vector3(...light));
+          expect(Math.abs(q.x), `t=${t}`).toBeLessThan(0.9); expect(Math.abs(q.y), `t=${t}`).toBeLessThan(0.9); expect(q.z).toBeLessThan(1);
+          expect(Math.hypot(c.pos.x / 18, (c.pos.z - CENTER) / 14)).toBeLessThanOrEqual(1);
+        }
+        expect(releasedLight(HEART_DEATH_T.ascendEnd, body)![1]).toBeGreaterThan(12);
         const c = cameraAt(track, HEART_DEATH_T.end - 0.4, launched());
-        for (const p of [new THREE.Vector3(hero[0], 0.2, hero[2]), new THREE.Vector3(hero[0], 1.9, hero[2]), new THREE.Vector3(body[0], 1.4, body[2])]) {
+        for (const p of [new THREE.Vector3(hero[0], 0.2, hero[2]), new THREE.Vector3(hero[0], 1.9, hero[2])]) {
           const q = project(c, width, height, p);
           expect(Math.abs(q.x)).toBeLessThan(0.95); expect(Math.abs(q.y)).toBeLessThan(0.85); expect(q.z).toBeLessThan(1);
         }
-        expect(Math.hypot(c.pos.x / 18, (c.pos.z - CENTER) / 14)).toBeLessThanOrEqual(1);
+        expect(track.steps.find(st => st.do === 'call' && st.fn === 'heartVictory')).toBeTruthy();
       });
     }
   }
