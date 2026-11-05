@@ -7,11 +7,12 @@ import { Rng } from '../../core/rng';
  * полу и рассыпается пеплом до кадра победы. Каждый кусок — функция времени после вспышки, поэтому полная,
  * короткая и пропущенная сцены дают одно и то же: после done от Сердца остаётся только колодец.
  *
- * gravity — м/с²; floorY — высота пола зала; crumble — сколько рассыпается кусок (с); sinkTo — куда падают
- * куски, угодившие в колодец; done — к этому моменту после вспышки не остаётся ни одного куска;
- * wave — скорость золотой волны (м/с), той же, что возвращает огонь свечам.
+ * Времена и скорости кусков заданы в «своём» времени; slow растягивает его (гибель на 20 % медленнее): кусок
+ * через u с после вспышки стоит так, как стоял бы через u / slow. gravity — м/с²; floorY — высота пола зала;
+ * crumble — сколько рассыпается кусок (с); sinkTo — куда падают куски, угодившие в колодец; wave — скорость
+ * золотой волны (м/с) в своём времени; done — к этому моменту (с после вспышки, настоящих) кусков не остаётся.
  */
-export const REMAINS = { gravity: 11, floorY: 0.08, crumble: 0.55, sinkTo: -6, done: 2.2, wave: 16 };
+export const REMAINS = { gravity: 11, floorY: 0.08, crumble: 0.55, sinkTo: -6, wave: 16, slow: 1.2, done: 2.2 * 1.2 };
 
 /** Колодец под Сердцем (координаты зала): внутри эллипса пола нет. */
 export function inHeartWell(x: number, z: number): boolean { return Math.hypot(x / 5.4, (z + 0.5) / 4.4) < 1; }
@@ -24,9 +25,9 @@ export interface RemainsPiece {
   readonly v: THREE.Vector3;
   readonly axis: THREE.Vector3;
   readonly spin: number;
-  /** Когда кусок начинает рассыпаться (с после вспышки). */
+  /** Когда кусок начинает рассыпаться (с после вспышки, в своём времени куска — см. REMAINS.slow). */
   readonly crumbleAt: number;
-  /** Когда кусок ложится на пол (с после вспышки); Infinity — улетел в колодец. */
+  /** Когда кусок ложится на пол (с после вспышки, в своём времени); Infinity — улетел в колодец. */
   readonly landAt: number;
 }
 
@@ -69,6 +70,7 @@ export function makePiece(start: THREE.Matrix4, seed: string, fling: { out: numb
 export function piecePose(p: RemainsPiece, u: number, out: THREE.Matrix4): number {
   if (u <= 0) { out.compose(p.pos, p.quat, p.scale); return 0; }
   if (u >= REMAINS.done) { out.compose(p.pos, p.quat, _s.set(0, 0, 0)); return 1; }
+  u /= REMAINS.slow;
   const g = REMAINS.gravity, t = Math.min(u, p.landAt);
   _p.set(p.pos.x + p.v.x * t, p.pos.y + p.v.y * t - 0.5 * g * t * t, p.pos.z + p.v.z * t);
   if (Number.isFinite(p.landAt) && u >= p.landAt) _p.y = REMAINS.floorY;

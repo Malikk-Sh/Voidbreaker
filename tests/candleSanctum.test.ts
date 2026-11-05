@@ -90,6 +90,17 @@ describe('Погребальное сердце: после вспышки от 
     s.root.traverse(o => { if (o instanceof THREE.InstancedMesh) expect(Array.from(o.instanceMatrix.array).every(Number.isFinite)).toBe(true); });
   });
 
+  it('удары сердца в гибели срывают последние пластины: к вспышке они лежат у кромки колодца', () => {
+    const s = make(), plates = parts(s)[2];
+    for (let i = 0; i < 30; i++) s.update(1 / 60, state(bossAt({ plates: 2 })));
+    const near = (i: number) => Math.hypot(centreOf(plates, i).x, centreOf(plates, i).z);
+    expect(near(0)).toBeLessThan(3.5); expect(near(1)).toBeLessThan(3.5);
+    s.update(1 / 60, state(bossAt({ dying: 0.3, plates: 1 })));
+    for (let i = 0; i < 30; i++) s.update(1 / 60, state(bossAt({ dying: 0.5, plates: 0 })));
+    // полёт сорванной в гибели пластины короче обычного: обе уже лежат у кромки
+    for (let i = 0; i < 6; i++) { expect(near(i)).toBeGreaterThan(4); expect(centreOf(plates, i).y).toBeLessThan(0.5); }
+  });
+
   it('пропущенная сцена и мёртвое Сердце без времени вспышки сразу дают пустой колодец', () => {
     for (const extra of [{ sinceBurst: 6 }, {}]) {
       const s = make();
@@ -106,7 +117,7 @@ describe('Погребальное сердце: после вспышки от 
     piecePose(a, 0.7, ma); piecePose(b, 0.7, mb);
     expect(ma.elements).toEqual(mb.elements);
     expect(Number.isFinite(a.landAt)).toBe(true);
-    piecePose(a, a.landAt + 0.05, ma);
+    piecePose(a, a.landAt * REMAINS.slow + 0.05, ma);
     expect(new THREE.Vector3().setFromMatrixPosition(ma).y).toBeLessThanOrEqual(REMAINS.floorY);
     // Брошенный внутрь колодца кусок не ложится на воздух над ямой.
     const pit = makePiece(new THREE.Matrix4().makeTranslation(0.4, 2.2, 0), 'pit', { out: 0.3, up: 1, spin: 4 }, 1.1);

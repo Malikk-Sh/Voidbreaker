@@ -20,10 +20,10 @@ export type ScarKind = 'crater' | 'fissure';
  */
 export const SCAR_HEAT = { dur: 3.0, flash: 0.22 };
 /**
- * Сила жара (ревью: «трещины светятся слишком сильно»): тление внутри трещины, короткая вспышка в момент удара,
+ * Сила жара (ревью: «трещины светятся слишком сильно», затем «всё ещё ярко»): тление внутри трещины, вспышка удара,
  * ореол на полу рядом и белое ядро. Тление тусклое — его хватает, чтобы видеть разлом для скольжения рывком.
  */
-export const SCAR_GLOW = { ember: 0.26, flash: 0.5, halo: 0.07, haloFlash: 0.18, core: 0.45, centre: 0.25 };
+export const SCAR_GLOW = { ember: 0.15, flash: 0.32, halo: 0.035, haloFlash: 0.1, core: 0.28, centre: 0.14 };
 
 export interface ScarOpts {
   /** Жар Пилота 0…1: фиолетовое свечение в трещинах, остывает за SCAR_HEAT.dur. Удары врагов — без жара. */
@@ -35,7 +35,7 @@ export interface ScarOpts {
 /**
  * Следы боя (план §8.5): трещины и выбоины в местах тяжёлых ударов — к концу боя арена выглядит иначе.
  *
- * Два слоя на одном буфере экземпляров. Рельеф (обычное смешивание): тёмные трещины с подсвеченной ключевым светом
+ * Два слоя на одном буфере экземпляров. Рельеф (модуляция ×2 — умножает освещённый пол, сам не светит): тёмные трещины с подсвеченной ключевым светом
  * кромкой и тенью с другой стороны, выбоина в центре, сдвинутые плиты-осколки, каменная пыль, которая оседает.
  * Жар (сложение): у ударов Пилота трещины сперва раскалены добела и бегут от точки удара, потом остывают в
  * фиолетовый и гаснут. Узор — от сида: кратер — сеть Вороного в лог-полярных координатах (лучи и кольца, как
@@ -69,9 +69,12 @@ export class FloorScars {
     this.geometry = g;
     const uniforms = { uTime: G.uTime, uLife: { value: life }, uKeyDir: G.uShadowDir, uHeatDur: { value: SCAR_HEAT.dur }, uFlash: { value: SCAR_HEAT.flash },
       uGlow: { value: new THREE.Vector3(K.ember, K.flash, K.core) }, uHalo: { value: new THREE.Vector3(K.halo, K.haloFlash, K.centre) } };
+    // Модуляция ×2: результат = 2 · цвет следа · цвет пола. Рельеф зависит от света вокруг, сам не светится.
     const relief = new THREE.ShaderMaterial({
       uniforms, vertexShader: VERT, fragmentShader: COMMON + RELIEF,
       transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.DstColorFactor, blendDst: THREE.SrcColorFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     const glow = new THREE.ShaderMaterial({
       uniforms, vertexShader: VERT, fragmentShader: COMMON + GLOW,
@@ -267,19 +270,21 @@ const RELIEF = /* glsl */ `
     float dust = n1(a / TAU * 14.0 + vSeed * 3.0) * (1.0 - smoothstep(0.35, 1.0, r)) * smoothstep(pitR, pitR * 2.0, r)
       * mix(1.0, 0.35, smoothstep(0.0, 10.0, vAge)) * open;
     float edgeFade = vKind < 0.5 ? smoothstep(1.0, 0.92, r) : smoothstep(1.0, 0.8, abs(vP.y)) * smoothstep(1.0, 0.96, abs(vP.x));
-    vec3 col = vec3(0.32, 0.34, 0.39);
-    float alpha = dust * 0.16;
-    vec3 lipCol = vec3(0.5, 0.53, 0.6);
-    col = mix(col, slab > 0.0 ? vec3(0.4, 0.42, 0.48) : vec3(0.0), min(1.0, abs(slab) * 4.0)); alpha = max(alpha, abs(slab) * 0.32);
-    col = mix(col, lipCol, rim); alpha = max(alpha, rim * 0.45);
-    col = mix(col, lipCol, chipped * 0.8); alpha = max(alpha, chipped * 0.22);
-    col = mix(col, lipCol, lit); alpha = max(alpha, lit * 0.5);
-    col = mix(col, vec3(0.0), shade); alpha = max(alpha, shade * 0.55);
-    col = mix(col, vec3(0.006, 0.007, 0.012), pit); alpha = max(alpha, pit * 0.75);
-    col = mix(col, vec3(0.008, 0.009, 0.014), crack); alpha = max(alpha, crack * 0.9);
-    alpha *= vK * edgeFade;
-    if (alpha < 0.004) discard;
-    gl_FragColor = vec4(col, alpha);
+    // Рельеф не светит сам: он умножает уже освещённый пол (смешивание «модуляция ×2», 0.5 — без изменений).
+    // m — во сколько раз стала ярче или темнее точка пола: в тёмном углу трещина почти не видна, под свечой и
+    // в золотом куполе — светлые сколы и глубокая тень.
+    float m = 1.0;
+    m *= mix(1.0, 1.12, dust * 0.5);
+    m *= mix(1.0, slab > 0.0 ? 1.18 : 0.72, min(1.0, abs(slab) * 2.5));
+    m *= mix(1.0, 1.45, rim * 0.8);
+    m *= mix(1.0, 1.3, chipped * 0.6);
+    m *= mix(1.0, 1.6, lit * 0.8);
+    m *= mix(1.0, 0.35, shade * 0.85);
+    m *= mix(1.0, 0.12, pit * 0.85);
+    m *= mix(1.0, 0.06, crack * 0.92);
+    m = mix(1.0, m, vK * edgeFade);
+    if (abs(m - 1.0) < 0.004) discard;
+    gl_FragColor = vec4(vec3(0.5 * m), 1.0);
   }
 `;
 

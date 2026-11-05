@@ -46,8 +46,8 @@ try{for(const q of qualities){
      if(r.phase===2&&!s.shots.has('phase-2'))shot='phase-2';
      if(r.phase===3&&!s.shots.has('phase-3'))shot='phase-3';
     }
-    if(b.director.id==='heartDeath'&&b.director.time>=1.2&&!s.shots.has('death-close'))shot='death-close';
-    if(b.director.id==='heartDeath'&&b.director.time>=3.1&&!s.shots.has('death-wide'))shot='death-wide';
+    if(b.director.id==='heartDeath'&&b.director.time>=1.44&&!s.shots.has('death-close'))shot='death-close';
+    if(b.director.id==='heartDeath'&&b.director.time>=3.72&&!s.shots.has('death-wide'))shot='death-wide';
     if(r.dead&&!b.director.active&&!s.shots.has('defeated'))shot='defeated';
     if(s.frames%120===0){const rr=b.ctx.renderer;rr.gl.info.reset();rr.render(b.ctx.time.world);s.peak.calls=Math.max(s.peak.calls,rr.gl.info.render.calls);s.peak.tris=Math.max(s.peak.tris,rr.gl.info.render.triangles);}
     if(shot){s.shots.add(shot);break;}

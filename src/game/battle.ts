@@ -189,6 +189,8 @@ export class Battle {
   private readonly heartStage: boolean;
   private pendingHeartIntro = false;
   private heartStonesShown = false;
+  /** Сколько пластин брони было на ядре в прошлом кадре: в гибели удар сердца срывает их со звоном. */
+  private heartPlatesSeen = 6;
   private heartSkipArmed = false;
   private sanctum: CandleSanctum | null = null;
   private bridgeCollapse: BridgeCollapseView | null = null;
@@ -926,10 +928,17 @@ export class Battle {
     const h=this.world.hero;
     const prelude=heart.active||heart.dead?null:this.heartPrelude();
     this.sanctum?.update(dt, { drain: heart.active || heart.dead ? 1 : 0, lit: heart.lit, broken: heart.dead, carried: 0, chargingIndex: -1, charge: 0, hero: {x:h.x,z:h.z-heart.centerZ},
-      boss: {...heart.view, beat:prelude?prelude.beat:heart.beat, awakening:this.heartSoul.awakened, sinceBurst:heart.sinceBurst, ...(prelude?{open:prelude.open,glow:prelude.glow}:{})} });
+      boss: {...heart.view, beat:prelude?prelude.beat:heart.beat, awakening:this.heartSoul.awakened, sinceBurst:heart.sinceBurst, plates:heart.plates, ...(prelude?{open:prelude.open,glow:prelude.glow}:{})} });
     // Принявшее свет Сердце светится сквозь сомкнутую броню: его видно и из притвора.
     const prePulse=prelude?heartbeatPulse(prelude.beat):0;
     if (prelude && prelude.light>0) this.vfx.lights.add(0,HEART_SOUL.coreY,heart.centerZ-0.5,C.gold,(1.6+prePulse*1.8)*prelude.light,8);
+    // В гибели каждый удар сердца срывает пластину брони: крошка обсидиана и тяжёлый звон.
+    if (heart.dying > 0 && !heart.burst && heart.plates < this.heartPlatesSeen && dt > 0) {
+      this.vfx.debris.burst(heart.body.x, heart.body.y, heart.body.z, 0, 0, Math.round(10 * this.vfx.quality), 6, 0.3);
+      this.ctx.audio.play('hit_armor', { gain: 0.7, pitch: 0.6 });
+      this.ctx.audio.play('shatter_stone', { gain: 0.4, pitch: 0.8, delay: 0.05 });
+    }
+    this.heartPlatesSeen = heart.plates;
     // Обруч и броня рассыпаются после вспышки: золотые искры и тёмный пепел поднимаются от каждого куска.
     if (this.sanctum && heart.burst && dt > 0) for (const c of this.sanctum.crumbling) {
       const z=c.z+heart.centerZ;

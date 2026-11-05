@@ -17,6 +17,8 @@ import type { AimTarget, World } from '../world';
  * hp — запас; armor — доля урона клинка по закрытой броне; stuck / knockdown / counterDown — сколько Сердце лежит
  * открытым после промаха падением, после отбитой сферы и после контратаки огнём (по фазам); getUp — за сколько
  * до подъёма появляется метка удара при подъёме; rage / dying — длительность ярости между фазами и гибели;
+ * гибель идёт на 20 % медленнее прежней (ревью: «придать вес моменту»): burstAt — когда лопается ядро, deathBeats —
+ * два последних удара сердца, каждый срывает с ядра оставшуюся пластину брони, deathWave — скорость золотой волны (м/с);
  * hover — высота над колодцем по фазам; dmg — доли HP героя за попадание.
  * stone — три жернова над чашами, они питают Сердце: hp по фазам; r — радиус попадания клинком; damage — удар
  * по Сердцу, когда жернов разбит (рвётся артерия, Сердце падает к нему); every — как часто целые жернова катят диски
@@ -32,7 +34,7 @@ export const FUNERAL_HEART = {
   dome: 2.4, domeSeconds: 12, bearers: 3, maxBearers: 2, bearerHp: 0.6,
   armor: 0.12,
   stuck: [3.0, 2.7, 2.4], knockdown: [2.7, 2.4, 2.2], counterDown: [3.2, 2.9, 2.6], getUp: 1.25,
-  rage: 2.4, dying: 2.6, burstAt: 1.9,
+  rage: 2.4, dying: 3.12, burstAt: 2.28, deathBeats: [0.84, 1.74] as const, deathWave: 16 / 1.2,
   hover: [3.8, 3.3, 2.9],
   flood: { tide: [5.4, 5.0, 4.3], hold: 0.75, pulses: 3, pulseGap: 0.45, height: 7.2, inner: 4.6, outer: 21 },
   echo: 1.3,
@@ -110,6 +112,8 @@ export interface FuneralHeartView {
   readonly rage: number;
   /** Гибель 0…1 (0 — жив); burst — ядро уже лопнуло; sinceBurst — секунд после вспышки (меньше нуля — её не было). */
   readonly dying: number; readonly burst: boolean; readonly sinceBurst: number;
+  /** Сколько пластин брони ещё на ядре: по фазам 6 / 4 / 2; в гибели два последних удара сердца срывают остальные. */
+  readonly plates: number;
   readonly flood: HeartFlood | null;
   readonly drops: readonly HeartDrop[];
   readonly echoes: readonly HeartEcho[];
@@ -210,6 +214,13 @@ export class FuneralHeart implements FuneralHeartView {
 
   get view(): FuneralHeartView { return this; }
   get sinceBurst(): number { return this.burst ? this.deathT - FUNERAL_HEART.burstAt : -1; }
+  get plates(): number {
+    const n = this.phase >= 3 ? 2 : this.phase === 2 ? 4 : 6;
+    if (this.dying === 0) return n;
+    // К вспышке на ядре не остаётся брони: первый удар сердца срывает половину, второй — остальное.
+    const [a, b] = FUNERAL_HEART.deathBeats;
+    return this.deathT >= b ? 0 : this.deathT >= a ? Math.floor(n / 2) : n;
+  }
   get counters(): number { return this.metrics.counters; }
   get reflectedHits(): number { return this.metrics.reflectedHits; }
   get bodyHits(): number { return this.metrics.bodyHits; }
@@ -241,8 +252,8 @@ export class FuneralHeart implements FuneralHeartView {
     if (!this.started) return 1;
     // Гибель возвращает огонь волной от лопнувшего ядра.
     if (this.dead || this.burst) {
-      if (this.dead && this.deathT >= FUNERAL_HEART.dying + 1.5) return 1;
-      const r = Math.max(0, this.deathT - FUNERAL_HEART.burstAt) * 16;
+      if (this.dead && this.deathT >= FUNERAL_HEART.dying + 1.8) return 1;
+      const r = Math.max(0, this.deathT - FUNERAL_HEART.burstAt) * FUNERAL_HEART.deathWave;
       const d = Math.hypot(x - this.body.x, z - this.body.z);
       return Math.max(0, Math.min(1, (r - d) / 3));
     }
@@ -978,7 +989,7 @@ export class FuneralHeart implements FuneralHeartView {
     this.dying = Math.max(0.0001, Math.min(1, this.deathT / FUNERAL_HEART.dying));
     const b = this.body;
     // Ядро сжимается и дрожит, потом лопается — огонь возвращается волной.
-    b.y += ((this.burst ? 1.4 : 2.4) - b.y) * (1 - Math.exp(-dt * 3));
+    b.y += ((this.burst ? 1.4 : 2.4) - b.y) * (1 - Math.exp(-dt * 2.5));
     if (!this.burst && this.deathT >= FUNERAL_HEART.burstAt) {
       this.burst = true;
       this.w.bus.emit('heartBurst', { x: b.x, y: b.y, z: b.z });

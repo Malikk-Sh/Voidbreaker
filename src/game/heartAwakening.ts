@@ -1,5 +1,6 @@
 import type { ClipDef } from '../anim/clip';
 import { HEART_SOUL, type HeartSoul } from '../world/heartSoul';
+import { FUNERAL_HEART } from '../world/boss/funeralHeart';
 import type { CineStep, CineTrack, V3 } from './director';
 import { VICTORY_SHOT, victoryFrame } from './victoryShot';
 
@@ -218,7 +219,11 @@ export function heartIntroTrack(hero: V3, centerZ: number): CineTrack {
  * Время сцены гибели: удары затихают, ядро трескается лучами и лопается в burst; освобождённый свет
  * поднимается к своду (ascend…ascendEnd); затем поза победы героя и имя побеждённого.
  */
-export const HEART_DEATH_T = { beats: [0.7, 1.45] as const, burst: 1.9, ascend: 2.35, ascendEnd: 4.25, victory: 4.3, end: 4.3 + VICTORY_SHOT.dur };
+/**
+ * Сцена гибели (с): удары сердца, вспышка, вознесение света, кадр победы. Сама гибель на 20 % медленнее прежней
+ * (0.7 / 1.45 / 1.9 / 2.35 / 4.25 / 4.3 → ×1.2): моменту нужен вес. Кадр победы — прежней длины.
+ */
+export const HEART_DEATH_T = { beats: FUNERAL_HEART.deathBeats, burst: FUNERAL_HEART.burstAt, riser: 1.44, ascend: 2.82, ascendEnd: 5.1, victory: 5.16, end: 5.16 + VICTORY_SHOT.dur };
 
 /** Где освобождённый свет в момент t сцены гибели (над лопнувшим ядром, всё выше), или null. */
 export function releasedLight(t: number, body: V3): V3 | null {
@@ -261,7 +266,7 @@ export function heartDeathTrack(hero: V3, body: V3, centerZ: number, facing = Ma
     { t: 0, do: 'cam', path: [close0, close1], look: [core], dur: T.burst, fov: 44, ease: 'inOutSine' },
     { t: T.beats[0], do: 'sfx', id: 'heartbeat', gain: 0.85 },
     { t: T.beats[1], do: 'sfx', id: 'heartbeat', gain: 0.6 },
-    { t: 1.2, do: 'sfx', id: 'riser', gain: 0.5 },
+    { t: T.riser, do: 'sfx', id: 'riser', gain: 0.5 },
     // Вспышка: камеру отбрасывает назад.
     { t: T.burst, do: 'cam', path: [close1, pull], look: [core, [body[0], 3.2, body[2]]], dur: T.ascend - T.burst, fov: 50, ease: 'outCubic', blend: 0 },
     // Свет уходит вверх, к своду; по залу идёт золотая волна.

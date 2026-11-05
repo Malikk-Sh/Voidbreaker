@@ -35,6 +35,8 @@ export interface HeartBodyVisual {
    * вспышка была давно: обруч и броня уже рассыпались.
    */
   sinceBurst?: number;
+  /** Пластин брони на ядре (из боя); нет поля — по фазе: 6 / 4 / 2. */
+  plates?: number;
 }
 
 /** Куски Сердца после вспышки: звенья и шипы обруча, пластины брони. */
@@ -57,9 +59,10 @@ export const REMAINS_FLING = {
 
 /**
  * Вид Сердца: scale — во сколько раз оно крупнее прежнего ромба (силуэт читается как босс, а не как деталь
- * венца); tilt — наклон лежащего на полу Сердца; plateFly — полёт сорванной пластины до кромки колодца (с).
+ * венца); tilt — наклон лежащего на полу Сердца; plateFly — полёт сорванной пластины до кромки колодца (с);
+ * deathTear — полёт пластины, которую срывает удар сердца в гибели: она ложится у кромки до вспышки ядра.
  */
-export const HEART_LOOK = { scale: 1.45, tilt: 0.42, plateFly: 0.8 };
+export const HEART_LOOK = { scale: 1.45, tilt: 0.42, plateFly: 0.8, deathTear: 0.45 };
 
 /** Двойной удар «тук-тук» по фазе пульса 0…1: сильный, затем слабее. */
 export function heartbeatPulse(beat: number): number {
@@ -107,7 +110,7 @@ export class CandleSanctum {
   private openK = 0;
   private stuckK = 0;
   /** Сорванные в ярости пластины: где отделились, куда летят (координаты зала) и сколько летят. */
-  private readonly flying: ({ x: number; y: number; z: number; tx: number; tz: number; t: number; spin: number } | null)[] = [null, null, null, null, null, null];
+  private readonly flying: ({ x: number; y: number; z: number; tx: number; tz: number; t: number; dur: number; spin: number } | null)[] = [null, null, null, null, null, null];
   private lastPlates = 6;
   /** Последние живые позы обруча и брони: из них во вспышке рождаются разлетающиеся куски. */
   private readonly aliveLinks = CROWN_LINKS.map(() => new THREE.Matrix4());
@@ -237,16 +240,16 @@ export class CandleSanctum {
     this.stuckK += (lying - this.stuckK) * Math.min(1, dt * 5);
     // До боя (принятый свет) лепестки раскрываются сами по себе — ядро видно сквозь броню.
     const open = boss?.glow ? this.openK : this.wake * this.openK;
-    const plates = phase >= 3 ? 2 : phase === 2 ? 4 : 6;
+    const plates = boss?.plates ?? (phase >= 3 ? 2 : phase === 2 ? 4 : 6);
     const beatK = boss ? heartbeatPulse(boss.beat) : 0.5;
     const shake = (rage > 0 ? 0.09 : 0) + dying * 0.14 * (burst ? 0 : 1);
     const jx = Math.sin(this.time * 53) * shake, jz = Math.cos(this.time * 47) * shake;
     const tilt = this.stuckK * HEART_LOOK.tilt;
     // Сорванная пластина летит к кромке колодца и остаётся лежать: прогресс боя виден на полу.
     if (plates < this.lastPlates) for (let i = plates; i < this.lastPlates; i++) {
-      const a = i / 6 * Math.PI * 2 + 0.25;
+      const a = i / 6 * Math.PI * 2 + 0.25, dur = dying > 0 ? HEART_LOOK.deathTear : HEART_LOOK.plateFly;
       this.flying[i] = { x: bodyX + Math.sin(a) * 0.9 * S, y: bodyY, z: bodyZ + Math.cos(a) * 0.9 * S,
-        tx: Math.sin(a + 0.4) * 6.4, tz: Math.cos(a + 0.4) * 5.3 - 0.5, t: dt === 0 ? HEART_LOOK.plateFly : 0, spin: (i % 2 ? -1 : 1) * (2 + i) };
+        tx: Math.sin(a + 0.4) * 6.4, tz: Math.cos(a + 0.4) * 5.3 - 0.5, t: dt === 0 ? dur : 0, dur, spin: (i % 2 ? -1 : 1) * (2 + i) };
     }
     this.lastPlates = plates;
     // Секунд после вспышки ядра: с этого момента обруч и броня — разлетающиеся куски, а не части Сердца.
@@ -257,8 +260,8 @@ export class CandleSanctum {
       const a = i / 6 * Math.PI * 2 + 0.25 + this.time * 0.05 * (1 - this.stuckK);
       const detached = i >= plates, fly = this.flying[i];
       if (detached && fly) {
-        fly.t = Math.min(HEART_LOOK.plateFly, fly.t + dt);
-        const u = fly.t / HEART_LOOK.plateFly;
+        fly.t = Math.min(fly.dur, fly.t + dt);
+        const u = fly.t / fly.dur;
         const x = fly.x + (fly.tx - fly.x) * u, z = fly.z + (fly.tz - fly.z) * u;
         const y = fly.y + (0.15 - fly.y) * u * u + Math.sin(u * Math.PI) * 2.2;
         this.matrix.copy(mat(x, y, z, 0.9 + fly.spin * (1 - u) * u * 3, a + fly.spin * u, 1.2 * u, S * 0.8, S * 0.8, S * 0.8));

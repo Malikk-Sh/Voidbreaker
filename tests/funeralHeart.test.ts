@@ -421,6 +421,11 @@ describe('Funeral Heart: an independent, damageable encounter', () => {
     const bursts: GameEvents['heartBurst'][] = []; w.bus.on('heartBurst', e => bursts.push(e));
     firstDive(); heart.phase = 3; heart.hp = 1; faceBody(); slash();
     expect(heart.hp).toBe(0); expect(heart.pose).toBe('dying');
+    // Броня: два последних удара сердца срывают пластины — к вспышке ядро голое.
+    expect(heart.plates).toBe(2);
+    heart.sampleDeath(FUNERAL_HEART.deathBeats[0]); expect(heart.plates).toBe(1);
+    heart.sampleDeath(FUNERAL_HEART.deathBeats[1]); expect(heart.plates).toBe(0);
+    expect(FUNERAL_HEART.deathBeats[1] + 0.45).toBeLessThan(FUNERAL_HEART.burstAt);
     heart.sampleDeath(1.0); expect(heart.burst).toBe(false); expect(heart.dead).toBe(false);
     heart.sampleDeath(0.5); expect(heart.burst).toBe(false);
     heart.sampleDeath(FUNERAL_HEART.burstAt); expect(bursts).toHaveLength(1);
