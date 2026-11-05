@@ -12,7 +12,7 @@ try{for(const q of qualities){
  const page=await browser.newPage({viewport:{width,height},hasTouch:true,isMobile:true});const errors=[];
  page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
  await page.addInitScript({content:`window.__driveHeart=${driveHeart.toString()};window.requestAnimationFrame=()=>0;for(const k of ['AudioContext','webkitAudioContext','OfflineAudioContext'])Object.defineProperty(window,k,{value:undefined,configurable:true});`});
- await page.goto(`http://localhost:4191/?stage=1-4&wave=4&god&q=${q}`);await page.waitForFunction(()=>!!window.__vb?.battle?.heart);
+ await page.goto(`http://localhost:4191/?stage=1-4b&god&q=${q}`);await page.waitForFunction(()=>!!window.__vb?.battle?.heart);
  await page.evaluate(()=>{
   const b=window.__vb.battle,inp=b.ctx.input;
   const s=window.__heartRun={frames:0,mx:0,mz:-1,held:false,aim:false,ax:0,az:-1,born:new Map(),shots:new Set(),phases:new Set(),ends:0,peak:{calls:0,tris:0},hints:[],maxDark:1};
@@ -38,7 +38,9 @@ try{for(const q of qualities){
      if(!r.lit.some(Boolean)&&!r.dying&&r.visibilityAt(0,r.centerZ+12)===0)s.maxDark=Math.max(...b.flames.mesh.geometry.getAttribute('iLit').array);
      if(r.phase===1&&r.attack&&!s.shots.has('phase-1'))shot='phase-1';
      if(r.shots.some(p=>p.reflected)&&!s.shots.has('reflection'))shot='reflection';
-     if(r.metrics.counters>0&&!s.shots.has('counter'))shot='counter';
+     if(r.metrics.stones>0&&!s.shots.has('stone-break'))shot='stone-break';
+     if(r.stones.some(st=>!st.broken&&st.charge>0.6)&&!s.shots.has('volley'))shot='volley';
+     if(r.lances.length>2&&!s.shots.has('lances'))shot='lances';
      if(r.flood&&r.flood.hold&&!s.shots.has('flood'))shot='flood';
      if(r.drops.length>2&&!s.shots.has('rain'))shot='rain';
      if(r.phase===2&&!s.shots.has('phase-2'))shot='phase-2';
@@ -51,16 +53,17 @@ try{for(const q of qualities){
     if(shot){s.shots.add(shot);break;}
    }
    b.ctx.renderer.render(b.ctx.time.world);
-   return {shot,ends:s.ends,active:r.active,dead:r.dead,hp:r.hp,metrics:{...r.metrics},phases:[...s.phases],maxDark:s.maxDark,peak:s.peak,screen:window.__app.current,clear:b.ctx.save.stages['1-4']?.clears,frames:s.frames,hero:[h.x,h.z],attack:r.attack?.kind,heat:[...r.heat],hints:s.hints};
+   return {shot,ends:s.ends,active:r.active,dead:r.dead,hp:r.hp,metrics:{...r.metrics},phases:[...s.phases],maxDark:s.maxDark,peak:s.peak,screen:window.__app.current,clear:b.ctx.save.stages['1-4b']?.clears,frames:s.frames,hero:[h.x,h.z],attack:r.attack?.kind,heat:[...r.heat],hints:s.hints};
   });
   if(state.shot)await page.screenshot({path:`${out}/${q}-${state.shot}.png`,timeout:60000});
   if(state.ends)break;
  }
  const check=(ok,msg)=>{if(!ok)throw new Error(`${q}: ${msg}: ${JSON.stringify(state)}`);};
  check(state.dead&&state.hp===0&&state.ends===1&&state.screen==='results'&&state.clear===1,'настоящая победа над Сердцем и награда');
- check(state.metrics.counters>0&&state.metrics.reflectedHits>0&&state.metrics.bodyHits>0&&state.metrics.spawnedTotal>=2,'контратака, возврат снаряда, удары по телу и огненосцы');
+ check(state.metrics.counters>0&&state.metrics.reflectedHits>0&&state.metrics.bodyHits>0&&state.metrics.spawnedTotal>=2,'разбитый жернов, возврат снаряда, удары по телу и огненосцы');
  check(state.metrics.floods>=2&&state.metrics.domes>=1&&state.metrics.sheltered>=1,'прилив и укрытие под золотым куполом');
  check(state.metrics.drops>0&&state.metrics.echoes>0,'восковой дождь и эхо падений');
+ check(state.metrics.stones>=3&&state.metrics.discs>0&&state.metrics.lances>0&&state.metrics.warded>0,'жернова разбиты, диски и копья веера, щит жерновов');
  check(state.phases.length===3,'три физические фазы');
  check(state.maxDark<.001,'всё свечное пламя гаснет');
  check(state.peak.calls<=160&&state.peak.tris<=260000,'бюджет рендера');check(errors.length===0,'ошибки браузера');

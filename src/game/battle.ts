@@ -776,7 +776,7 @@ export class Battle {
     const heart = this.heart!, passage = this.heartPassage!, h = this.world.hero;
     this.runner.introTime = Infinity;
     this.heartSoul.launch(0, this.heartForeZ - 6, this.heartForeZ + HEART_HALL.gateZ, heart.centerZ - 0.5); this.heartSoul.absorb();
-    passage.release(); passage.step(2); this.heartGateView?.update(passage.gateOpen);
+    passage.release(); passage.beginAwakening(); this.heartGateView?.update(passage.gateOpen);
     heart.body.y = 0.8;
     h.spawn(0, heart.centerZ + 9.6, Math.PI);
     this.cam.snap(h.x, h.z);

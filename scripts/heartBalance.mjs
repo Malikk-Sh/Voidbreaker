@@ -28,7 +28,7 @@ try {
     const page = await browser.newPage({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true }); const errors = [];
     page.on('pageerror', (e) => errors.push(e.message)); page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     await page.addInitScript({ content: `window.__drive=${bot.toString()};window.requestAnimationFrame=()=>0;for(const k of ['AudioContext','webkitAudioContext','OfflineAudioContext'])Object.defineProperty(window,k,{value:undefined,configurable:true});` });
-    await page.goto(`http://localhost:4194/?stage=1-4&wave=4&q=${Q}`); await page.waitForFunction(() => !!window.__vb?.battle?.heart);
+    await page.goto(`http://localhost:4194/?stage=1-4b&q=${Q}`); await page.waitForFunction(() => !!window.__vb?.battle?.heart);
     await page.evaluate(() => {
       const b = window.__vb.battle, inp = b.ctx.input;
       const s = window.__run = { frames: 0, start: -1, mx: 0, mz: -1, held: false, aim: false, ax: 0, az: -1, hurt: {}, phaseAt: {} };

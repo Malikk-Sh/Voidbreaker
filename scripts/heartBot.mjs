@@ -1,8 +1,8 @@
 /**
  * Native movement/aim/attack/hold input shared by the browser encounter checks. Plays the Heart the intended way:
  * step out of the locked dive mark and the get-up ring, strike the core while it lies open, return orbs, relight a
- * heated bowl with any swing, shelter in the light during the dark wave and, in the Funeral Flood, cut down a
- * fire-bearer and stand under its golden dome.
+ * break the millstones that shield the core, step off the lanes of their rolling discs, shelter in the light during
+ * the dark wave and, in the Funeral Flood, cut down a fire-bearer and stand under its golden dome.
  */
 export function driveHeart(b,s){
  const w=b.world,h=w.hero,r=b.heart,inp=b.ctx.input;
@@ -39,6 +39,9 @@ export function driveHeart(b,s){
  for(const rw of w.ringWaves){const d=Math.hypot(h.x-rw.x,h.z-rw.z),ahead=d-rw.r;
   const a=Math.atan2(h.x-rw.x,h.z-rw.z),gap=rw.gaps.some(g=>{let x=a-g.a;x=((x+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;return Math.abs(x)<g.w/2-0.05;});
   if(!rw.hit&&!gap&&ahead>0&&ahead<rw.speed*0.16+rw.width/2){s.mx=Math.sin(a+Math.PI);s.mz=Math.cos(a+Math.PI);inp.buffer.push('dash',inp.now);return;}}
+ // Катящийся диск жернова: шаг поперёк его хода, если он идёт на героя.
+ for(const d of r.discs??[]){if(!d.alive)continue;const ox=h.x-d.x,oz=h.z-d.z,ahead=ox*d.dx+oz*d.dz,side=ox*d.dz-oz*d.dx;
+  if(ahead>-0.5&&ahead<6&&Math.abs(side)<d.r+1.1){const sgn=side>=0?1:-1;s.mx=d.dz*sgn;s.mz=-d.dx*sgn;if(ahead<2.2)inp.buffer.push('dash',inp.now);return;}}
  // Под куполом в приливе удар огненосца терпят: выйти из света хуже.
  const sheltered=!!r.flood&&r.fields.some(f=>f.kind==='wax'&&f.life>0&&Math.hypot(h.x-f.x,h.z-f.z)<f.r-0.35);
  const danger=!sheltered&&w.telegraphs.find(t=>t.alive&&t.t<t.dur&&t.dur-t.t<0.9&&inside(t));
@@ -75,9 +78,9 @@ export function driveHeart(b,s){
   const safe=[...lit.map(p=>({x:p.x*1.08,z:cz+(p.z-cz)*1.08})),...wax].sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
   if(safe){toward(safe.x,safe.z,0.6);return;}
  }
- // 5. Раскалённая чаша: любой удар клинком возвращает огонь.
- const warm=r.braziers.map((p,i)=>({...p,i})).filter(p=>!r.lit[p.i]&&r.heat[p.i]>=0.65).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
- if(warm){if(toward(warm.x,warm.z,1.6))attack();return;}
- // 6. Ждать у первой чаши: падение рядом с ней раскалит её.
- const bowl=r.braziers[0];toward(bowl.x+1.6,bowl.z+1.6,1);
+ // 5. Жернова держат щит над ядром: разбить ближний — Сердце рухнет к нему.
+ const stone=(r.stones??[]).filter(st=>!st.broken).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
+ if(stone){if(toward(stone.x,stone.z,1.5))attack();return;}
+ // 6. Все жернова разбиты — ждать на кольце у колодца.
+ toward(0,cz+9,1);
 }
