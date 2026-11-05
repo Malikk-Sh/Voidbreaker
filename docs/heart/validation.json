@@ -1,0 +1,193 @@
+{
+  "date": "2026-11-05",
+  "conditions": "Chromium / SwiftShader; touch; manual 1/60; audio and RAF disabled; actual App; accelerated final-elite kill",
+  "limits": {
+    "drawCalls": 160,
+    "triangles": 260000
+  },
+  "unitTests": {
+    "passed": 503,
+    "files": 56
+  },
+  "story": {
+    "quality": "medium",
+    "viewport": {
+      "width": 844,
+      "height": 390
+    },
+    "assertions": 118,
+    "errors": [],
+    "waitedInOldHall": {
+      "duration": 20,
+      "hero": {
+        "x": 0.5632290730072967,
+        "y": 0,
+        "z": 3.752410933760752,
+        "state": "move",
+        "locked": false
+      },
+      "soul": {
+        "phase": "hidden",
+        "visible": false,
+        "position": {
+          "x": 3.354984535512169,
+          "y": 18,
+          "z": -5.733097081603611
+        },
+        "awakened": 0
+      },
+      "heart": {
+        "active": false,
+        "hp": 720,
+        "initialHp": 720
+      }
+    },
+    "peak": {
+      "calls": 59,
+      "tris": 93799
+    },
+    "heartStarts": [
+      {
+        "frame": 2344,
+        "director": null,
+        "time": 5.616666666666652,
+        "awakened": 1
+      }
+    ],
+    "absorptions": [
+      {
+        "time": 2.3166666666666633,
+        "scene": "heartAwakening",
+        "frame": 2146
+      }
+    ],
+    "savedCurrencies": {
+      "shards": 0,
+      "ether": 0
+    },
+    "framing": {
+      "heroFeet": [
+        4.7313210466676435e-05,
+        -0.6577167677394224,
+        0.876313250117389
+      ],
+      "heroHead": [
+        5.2313840346694166e-05,
+        -0.6276852276564039,
+        0.8630054123522496
+      ],
+      "core": [
+        -4.334939896128225e-05,
+        0.5832053893852884,
+        0.8868618733330693
+      ],
+      "crown": [
+        -4.724364346431879e-05,
+        0.720207805622104,
+        0.87649838407119
+      ]
+    }
+  },
+  "combat": [
+    {
+      "q": "high",
+      "viewport": {
+        "width": 740,
+        "height": 360
+      },
+      "shot": null,
+      "ends": 1,
+      "active": false,
+      "dead": true,
+      "hp": 0,
+      "metrics": {
+        "counters": 3,
+        "reflectedHits": 2,
+        "bodyHits": 26,
+        "spawnedTotal": 6
+      },
+      "phases": [
+        1,
+        2,
+        3
+      ],
+      "maxDark": 0,
+      "peak": {
+        "calls": 75,
+        "tris": 105369
+      },
+      "screen": "results",
+      "clear": 1,
+      "frames": 1661,
+      "hero": [
+        -7.683909156248106,
+        -24.598378365310875
+      ],
+      "heat": [
+        0,
+        0,
+        0
+      ],
+      "hints": [],
+      "errors": []
+    }
+  ],
+  "route": [
+    {
+      "q": "medium",
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "shot": null,
+      "phase": "complete",
+      "stage": "1-4",
+      "wave": 3,
+      "z": -78.77126320933044,
+      "ends": 1,
+      "checkpoints": 1,
+      "saved": true,
+      "continuous": true,
+      "positionJump": 0.09143927962717413,
+      "rootError": 0,
+      "peak": {
+        "calls": 85,
+        "tris": 164151
+      },
+      "stages": [
+        "1-3",
+        "1-4"
+      ],
+      "screen": "results",
+      "clears": 1,
+      "collapse": {
+        "gap": true,
+        "safe": true,
+        "nav": true
+      },
+      "hints": [
+        "Врата впереди. Выйди на террасу",
+        "Враг оглушён — финишер или заряженный удар: РАСКОЛ",
+        "Печать разрушена. Врата поднимаются",
+        "Распинатель: стой в просвете веера. Промах Гвоздём — клинок застрял, бей",
+        "Резонанс полон — R: ЗАТМЕНИЕ"
+      ],
+      "heartDead": true,
+      "heartMetrics": {
+        "counters": 2,
+        "reflectedHits": 1,
+        "bodyHits": 35,
+        "spawnedTotal": 7
+      },
+      "bridgeStillGone": true,
+      "bridgeFlamesMax": 0,
+      "errors": []
+    }
+  ],
+  "notes": [
+    "Elite and carrier deaths are accelerated to verify state transitions, not difficulty balance.",
+    "Heart damage is generated through real movement, aim and blade input.",
+    "Software WebGL does not establish physical mobile frame time, heat or audible mix."
+  ],
+  "bundleBytes": 1883281
+}

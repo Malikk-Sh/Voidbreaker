@@ -1,4 +1,4 @@
-import { TileState } from './arena';
+import { TileState, type Tile } from './arena';
 import type { StageDef, SpawnDef, WaveDef } from '../data/stages';
 import type { Enemy } from './enemy';
 import { createEnemy } from './enemies/factory';
@@ -28,12 +28,14 @@ export class StageRunner {
   guardian: Enemy | null = null;
   boss: Enemy | null = null;
   private edgeTiles: { x: number; z: number }[] = [];
+  private readonly battleTiles: Tile[];
   /** Пропустить интро (повторная попытка босса). */
   introTime = 1.4;
   onWaveStart: ((i: number) => void) | null = null;
 
   constructor(private w: World, readonly def: StageDef) {
     const a = w.arena;
+    this.battleTiles = a.tiles.filter(tile => !a.def.encounter || inPart(a.def.encounter, tile.x, tile.z, 0.8));
     for (const tile of a.tiles) {
       if (tile.state !== TileState.Alive) continue;
       if (a.def.encounter && !inPart(a.def.encounter, tile.x, tile.z, 0.5)) continue;
@@ -117,29 +119,43 @@ export class StageRunner {
 
   /** Точка спауна: ближний бой — только в области, связной с героем (стрелкам можно и на островах). */
   pickPos(s: SpawnDef, i: number, n: number): { x: number; z: number } {
-    const p = this.pickRaw(s, i, n);
-    const def = ENEMIES[s.enemy];
-    const big = def.radius > BIG_RADIUS;
-    if (!def.ranged && !this.w.nav.reachable(p.x, p.z, big)) this.w.nav.nearestReachable(p.x, p.z, big, p);
-    return p;
+    return this.pickRaw(s, i, n);
   }
 
   private pickRaw(s: SpawnDef, i: number, n: number): { x: number; z: number } {
     const w = this.w, a = w.arena, h = w.hero, b = encounterBounds(a.def);
-    const out = { x: 0, z: 0 };
     const def = ENEMIES[s.enemy];
     const melee = !def.ranged, big = def.radius > BIG_RADIUS;
     const inBattle = (x: number, z: number) => !a.def.encounter || inPart(a.def.encounter, x, z, 0.8);
-    const ok = (x: number, z: number) => inBattle(x, z) && a.walkable(x, z) && Math.hypot(x - h.x, z - h.z) >= 3.2 && (!melee || w.nav.reachable(x, z, big));
+    const valid = (x: number, z: number) => inBattle(x, z) && a.walkable(x, z) && (!melee || w.nav.reachable(x, z, big));
+    const ok = (x: number, z: number) => valid(x, z) && Math.hypot(x - h.x, z - h.z) >= 3.2;
+    // Sampling the whole connected world can miss the current hall entirely. Cache its immutable
+    // tile membership, then check live floor and navigation state for this enemy at spawn time.
+    const available = this.battleTiles.filter(t => t.state === TileState.Alive && valid(t.x, t.z));
+    const distant = available.filter(t => Math.hypot(t.x - h.x, t.z - h.z) >= 3.2);
+    const tiles = distant.length ? distant : available;
+    const nearest = (x: number, z: number): { x: number; z: number } => {
+      let best: Tile | undefined, distance = Infinity;
+      for (const tile of tiles) {
+        const d = (tile.x - x) ** 2 + (tile.z - z) ** 2;
+        if (d < distance) { best = tile; distance = d; }
+      }
+      if (best) return { x: best.x, z: best.z };
+      // A temporarily disconnected encounter still keeps its portals inside its own floor.
+      const floor = this.battleTiles.filter(t => a.walkable(t.x, t.z));
+      for (const tile of floor) {
+        const d = (tile.x - x) ** 2 + (tile.z - z) ** 2;
+        if (d < distance) { best = tile; distance = d; }
+      }
+      return best ? { x: best.x, z: best.z } : { x: h.x, z: h.z };
+    };
     if (s.at && s.at.length) {
       const anchor = s.at[i % s.at.length];
       const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
       const ax = anchor === 'left' ? b.minX + 3.5 : anchor === 'right' ? b.maxX - 3.5 : cx;
       const az = anchor === 'top' ? b.minZ + 3.5 : anchor === 'bottom' ? b.maxZ - 3.5 : cz;
       const jx = ax + w.rng.spread(1.5) + (i >= s.at.length ? w.rng.spread(2) : 0), jz = az + w.rng.spread(1.5);
-      a.nearestWalkable(jx, jz, out);
-      if (!ok(out.x, out.z)) this.pushAway(out);
-      return out;
+      return ok(jx, jz) ? { x: jx, z: jz } : nearest(jx, jz);
     }
     const pattern = s.pattern ?? 'random';
     if (pattern === 'ring') {
@@ -156,27 +172,19 @@ export class StageRunner {
         if (Math.hypot(t.x - h.x, t.z - h.z) > 6 && ok(t.x, t.z)) return { x: t.x, z: t.z };
       }
     }
-    // far / random: лучшая из случайной выборки по удалённости
-    let best = { x: 0, z: 0 }, bd = -1;
-    const tiles = a.tiles.filter((t) => t.state === TileState.Alive);
-    for (let k = 0; k < 14; k++) {
+    // far / random: every sampled tile already belongs to the live encounter.
+    let best: { x: number; z: number } | undefined, bd = -1;
+    for (let k = 0; k < 14 && tiles.length; k++) {
       const t = w.rng.pick(tiles);
-      if (!t || !inBattle(t.x, t.z) || !a.walkable(t.x, t.z) || (melee && !w.nav.reachable(t.x, t.z, big))) continue;
       const d = Math.hypot(t.x - h.x, t.z - h.z);
       const score = pattern === 'far' ? d : d > 4 && d < 10 ? 10 - Math.abs(d - 7) : d * 0.3;
-      if (score > bd) { bd = score; best = { x: t.x + w.rng.spread(0.4), z: t.z + w.rng.spread(0.4) }; }
+      if (score > bd) {
+        bd = score;
+        const x = t.x + w.rng.spread(0.4), z = t.z + w.rng.spread(0.4);
+        best = ok(x, z) ? { x, z } : { x: t.x, z: t.z };
+      }
     }
-    if (!ok(best.x, best.z)) this.pushAway(best);
-    return best;
-  }
-
-  private pushAway(p: { x: number; z: number }): void {
-    const h = this.w.hero;
-    const dx = p.x - h.x, dz = p.z - h.z, d = Math.hypot(dx, dz) || 1;
-    if (d >= 3.2) return;
-    const o = { x: 0, z: 0 };
-    this.w.arena.nearestWalkable(h.x + (dx / d) * 4.5, h.z + (dz / d) * 4.5, o);
-    p.x = o.x; p.z = o.z;
+    return best ?? nearest((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2);
   }
 
   private checkTriggers(): void {

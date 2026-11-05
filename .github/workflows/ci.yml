@@ -12,7 +12,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,7 +43,11 @@ jobs:
         run: npm run cathedral-test
         env:
           CATHEDRAL_Q: medium
-      - name: Candle ritual (darkness, safe sectors, braziers and rewards)
+      - name: Heart story (elite, waiting soul and awakening)
+        run: npm run heart-story-test
+        env:
+          HEART_STORY_Q: medium
+      - name: Heart boss (native input, counters, returns, phases and rewards)
         run: npm run candles-test
         env:
           CANDLES_Q: medium
@@ -70,6 +74,8 @@ jobs:
             work/gate-path/*.png
             work/cathedral/report.json
             work/cathedral/*.png
+            work/heart-story/report.json
+            work/heart-story/*.png
             work/candles/report.json
             work/candles/*.png
           if-no-files-found: ignore

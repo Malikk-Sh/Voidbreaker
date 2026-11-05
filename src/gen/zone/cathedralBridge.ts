@@ -4,10 +4,11 @@ import { Arena } from '../../world/arena';
 import { CATHEDRAL } from '../../world/cathedralRoute';
 import { buildArenaView, ZONE1_LOOK, type ArenaView } from './arenaView';
 import { BridgeCollapseView } from './bridgeCollapse';
+import { addHeartHall } from './heartHall';
 
 /** Декор второго зала в тех же мировых координатах. Пол уже собран общей сеткой. */
 export function addCathedralBridge(view: ArenaView, density: number): ArenaView {
-  const hall = buildArenaView(new Arena(ARENAS.candles), 'stage:1-4', ZONE1_LOOK, density);
+  const hall = buildArenaView(new Arena(ARENAS.candles), 'stage:1-4', ZONE1_LOOK, density, false);
   const floorMaterials = new Set<THREE.Material>();
   for (const mesh of hall.floor) { mesh.removeFromParent(); mesh.dispose(); mesh.geometry.dispose(); floorMaterials.add(mesh.material as THREE.Material); }
   for (const material of floorMaterials) material.dispose();
@@ -18,6 +19,7 @@ export function addCathedralBridge(view: ArenaView, density: number): ArenaView 
   view.pools.push(...hall.pools.map(p => ({ ...p, z: p.z+CATHEDRAL.hallZ })));
   view.rays.push(...hall.rays.map(r => ({ ...r, top: r.top.clone().add(new THREE.Vector3(0,0,CATHEDRAL.hallZ)), bot: r.bot.clone().add(new THREE.Vector3(0,0,CATHEDRAL.hallZ)) })));
   view.casters.push(...hall.casters);
+  addHeartHall(view, density, CATHEDRAL.hallZ);
   const collapse = new BridgeCollapseView(view);
   view.root.userData.bridgeCollapse = collapse;
   view.root.updateMatrixWorld(true);

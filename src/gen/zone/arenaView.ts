@@ -205,7 +205,7 @@ const VEIN_LIGHT = { r: 1.4, intensity: 0.07, flicker: 0.15 };
 export const ROOT_TOP = 1.3;
 export const ROOT_SUNK = -6.8;
 
-export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, density = 1): ArenaView {
+export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, density = 1, includeSanctum = false): ArenaView {
   const def = arena.def.encounter ? { ...arena.def, parts: [arena.def.encounter], holes: arena.def.holes?.filter(h => inPart(arena.def.encounter!, h.x, h.z)) } : arena.def;
   const rng = new Rng(seed + ':decor');
   const root = new THREE.Group();
@@ -327,6 +327,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     const r = boundaryAt(def, a, def.parts[0].x, def.parts[0].z);
     const x = def.parts[0].x + Math.sin(a) * (r + 0.25), z = def.parts[0].z + Math.cos(a) * (r + 0.25);
     if (def.encounter && Math.abs(x) < 3.5 && Math.abs(z) > 8) continue;
+    if (style === 'candles' && !includeSanctum && Math.abs(x - def.parts[0].x) < 4.1 && z < def.parts[0].z) continue;
     if (wall) D.add(prism(4, 0.5, 0.42, 0.18), { matrix: mat(x, 0, z, 0, a + Math.PI / 4), color: OBS, shade: 0.15 });
     if (i % 2 === 0) {
       const len = rng.range(3, 9);
@@ -423,7 +424,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     const fw = farPart.w * 0.72;
     const count = Math.max(3, Math.round(fw / 4.4));
     const glass = style === 'candles' || style === 'boss' ? 0.9 : 0.5;
-    if (style !== 'gate') {
+    if (style !== 'gate' && (style !== 'candles' || includeSanctum)) {
       place((g) => arcade(g, count, 3.2, 4.2, rng.int(0, 1e5), glass), farPart.x, 0, farZ - 1.6);
       place((g) => {
         roseWindow(g, 2.6, 12, rng.int(0, 1e5), 1.0);
@@ -460,7 +461,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
         if (i % 3 === 0) pools.push({ x, z, r: 2.2, color: look.warm, intensity: 0.35, flicker: 1 });
       }
     }
-    if (style === 'candles') {
+    if (style === 'candles' && includeSanctum) {
       sanctum = new CandleSanctum(density);
       root.add(sanctum.root);
       root.userData.candleSanctum = sanctum;

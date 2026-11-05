@@ -1,5 +1,6 @@
 import { ARENAS, inPart, type ArenaDef } from '../data/arenas';
 import { gatePathArena } from './gatePath';
+import { heartArena } from './heartPassage';
 import { TileState, type Arena, type Tile } from './arena';
 
 export const CATHEDRAL = { hallZ: -55, bridgeStart: -24, hallThreshold: -47 } as const;
@@ -15,11 +16,11 @@ export function bridgeCollapseDelay(z: number): number {
 /** Один мир и одна сетка навигации: подход, Врата, мост и Свечной зал. */
 export function cathedralArena(): ArenaDef {
   const gate = gatePathArena(ARENAS.gate), c = ARENAS.candles;
-  return { ...gate,
+  return heartArena({ ...gate,
     parts: [...gate.parts, { kind: 'rect', x: 0, z: -34, w: 5.4, h: 25 }, ...c.parts.map(p => ({ ...p, z: p.z + CATHEDRAL.hallZ }))],
     holes: [...gate.holes ?? [], ...c.holes!.map(p => ({ ...p, z: p.z + CATHEDRAL.hallZ }))],
     cover: [...gate.cover ?? [], ...c.cover!.map(p => ({ ...p, z: p.z + CATHEDRAL.hallZ }))],
-  };
+  }, CATHEDRAL.hallZ);
 }
 
 export class CathedralRoute {

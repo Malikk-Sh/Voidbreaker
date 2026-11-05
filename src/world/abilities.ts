@@ -88,7 +88,7 @@ export class Abilities implements AbilityHost {
 
     // направление: цель → стик → мышь → взгляд
     let dx = Math.sin(h.facing), dz = Math.cos(h.facing);
-    const t = h.target;
+    const t = h.aimTarget ?? h.target;
     if (t) { dx = t.x - h.x; dz = t.z - h.z; }
     else if (len2(input.moveX, input.moveZ) > 0.2) { dx = input.moveX; dz = input.moveZ; }
     else if (input.aimActive) { dx = input.aimX; dz = input.aimZ; }

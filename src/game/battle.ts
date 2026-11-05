@@ -57,7 +57,13 @@ import { GatePathView } from '../gen/zone/gatePath';
 import { gateEntranceTrack } from './gateEntrance';
 import { CATHEDRAL, CathedralRoute, cathedralArena } from '../world/cathedralRoute';
 import { addCathedralBridge } from '../gen/zone/cathedralBridge';
-import { BRAZIERS, CandleRitual } from '../world/candleRitual';
+import { BRAZIERS } from '../world/candleRitual';
+import { FuneralHeart } from '../world/boss/funeralHeart';
+import { HEART_HALL, HeartPassage, heartArena } from '../world/heartPassage';
+import { addHeartHall } from '../gen/zone/heartHall';
+import { HeartEffects } from '../gen/zone/heartEffects';
+import { HEART_SOUL, HeartSoul } from '../world/heartSoul';
+import { heartAwakeningTrack, heartSoulEscapeTrack } from './heartAwakening';
 import type { CandleSanctum } from '../gen/zone/candleSanctum';
 import type { BridgeCollapseView } from '../gen/zone/bridgeCollapse';
 import { stageById } from '../data/stages';
@@ -155,12 +161,16 @@ export class Battle {
   /** Управляемый маршрут 1-3; пересмотры в Кинозале оставляют исходную сцену. */
   readonly gatePath: GatePath | null;
   readonly journey: CathedralRoute | null;
-  readonly ritual: CandleRitual | null;
+  readonly heart: FuneralHeart | null;
+  readonly heartPassage: HeartPassage | null;
+  readonly heartSoul = new HeartSoul();
+  private readonly heartForeZ: number;
+  private readonly heartFx: HeartEffects | null;
+  private heartGateView: { update(open: number): void } | null = null;
+  private pendingHeartSoul: { x: number; z: number } | null = null;
+  private heartSkipArmed = false;
   private sanctum: CandleSanctum | null = null;
   private bridgeCollapse: BridgeCollapseView | null = null;
-  private ritualPulse = 0;
-  private ritualWarning = false;
-  private emberTaught = false;
   private collapseOverview = 0;
   onSectionEnd: ((o: BattleOutcome) => void) | null = null;
   private readonly gatePathView: GatePathView | null;
@@ -231,10 +241,12 @@ export class Battle {
     const Q = QUALITY[r.quality];
     const path = stage.id === '1-3' && !opts.replay;
     const joined = path && !opts.singleStage;
-    this.arena = new Arena(joined ? cathedralArena() : path ? gatePathArena(ARENAS[stage.arena]) : ARENAS[stage.arena]);
+    const withHeart = joined || (stage.id === '1-4' && !opts.replay);
+    this.heartForeZ = joined ? CATHEDRAL.hallZ : 0;
+    this.arena = new Arena(joined ? cathedralArena() : path ? gatePathArena(ARENAS[stage.arena]) : withHeart ? heartArena(ARENAS.candles, 0) : ARENAS[stage.arena]);
     this.gatePath = path ? new GatePath(this.arena) : null;
     this.journey = joined ? new CathedralRoute(this.arena) : null;
-    this.ritual = joined || stage.id === '1-4' ? new CandleRitual(joined ? CATHEDRAL.hallZ : 0) : null;
+    this.heartPassage = withHeart ? new HeartPassage(this.arena, this.heartForeZ) : null;
     this.world = new World(this.arena, `stage:${stage.id}`);
     this.world.zone = stage.zone;
     // ступень сложности: 1-7…1-9 — 6…8 (здоровье +12 %, урон +8 % за ступень сверх 1-6)
@@ -247,10 +259,21 @@ export class Battle {
     this.abilities.loadout = loadout;
     this.world.abilities = this.abilities;
     this.world.hero.applyStats(stats);
+    this.heart = withHeart ? new FuneralHeart(this.world, this.heartForeZ + HEART_HALL.offsetZ) : null;
+    this.heartFx = withHeart ? new HeartEffects() : null;
+    if (this.heartFx) this.group.add(this.heartFx.group);
+    if (withHeart) ctx.music.preload(guardianSong('gateGuardian'));
+    if (this.heart) this.heart.onDefeated = () => {
+      this.heartPassage!.win(); this.journey?.win();
+      this.world.rank.endWave(); this.world.magnet = true;
+      this.world.bus.emit('stageClear', {});
+    };
 
-    this.view = buildArenaView(this.arena, `stage:${stage.id}`, ZONE1_LOOK, Q.decor);
+    this.view = buildArenaView(this.arena, `stage:${stage.id}`, ZONE1_LOOK, Q.decor, false);
     this.gatePathView = path ? new GatePathView(this.view) : null;
     if (joined) addCathedralBridge(this.view, Q.decor);
+    else if (withHeart) addHeartHall(this.view, Q.decor, 0);
+    this.heartGateView = this.view.root.userData.heartPassageView ?? null;
     this.view.root.traverse(o => { if (o.userData.candleSanctum) this.sanctum = o.userData.candleSanctum; });
     this.bridgeCollapse = this.view.root.userData.bridgeCollapse ?? null;
     this.group.add(this.view.root);
@@ -258,7 +281,7 @@ export class Battle {
     this.flames = new Flames(this.view.flames);
     this.pools = new LightPools(320);
     this.pools.setStatic(this.view.pools);
-    const candleVisibility = (x: number, z: number) => (this.ritual?.visibilityAt(x, z) ?? 1) * (this.bridgeCollapse?.visibilityAt(x, z) ?? 1);
+    const candleVisibility = (x: number, z: number) => (this.heart?.visibilityAt(x, z) ?? 1) * (this.bridgeCollapse?.visibilityAt(x, z) ?? 1);
     this.flames.setVisibility(candleVisibility); this.pools.setVisibility(candleVisibility);
     this.rune = new RuneCircle(this.view.runeRadius);
     const runeAt = ARENAS[stage.arena].rune ?? ARENAS[stage.arena].parts[0];
@@ -296,7 +319,7 @@ export class Battle {
     this.world.stepHooks.push((dt) => this.runner.step(dt));
 
     // старт: герой у ближнего края, смотрит вглубь арены
-    const b = this.arena.bounds;
+    const b = encounterBounds(this.arena.def);
     const sx = ARENAS[stage.arena].parts[0].x, sz = Math.min(b.maxZ - 3, (b.maxZ + b.minZ) / 2 + (b.maxZ - b.minZ) * 0.25);
     const o = { x: 0, z: 0 };
     if (this.gatePath) this.arena.nearestWalkable(GATE_PATH.start.x, GATE_PATH.start.z, o);
@@ -354,10 +377,10 @@ export class Battle {
     }
     else if (!stage.boss) {
       // пролёт над ареной; первая волна — когда камера опустится к Пилоту
-      const ab = this.arena.bounds;
+      const ab = encounterBounds(this.arena.def);
       const vista = this.events.vista(this.world.hero.x, this.world.hero.z);
       this.runner.introTime = vista ? STAGE_VISTA_T.end - 0.1 : 3.0;
-      this.cine.stageIntro(stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => { this.runner.skipIntro(); ctx.hud.foldTitle(); }, vista);
+      this.cine.stageIntro(stage.id === '1-4' ? { ...stage, name: 'Притвор Угасших' } : stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => { this.runner.skipIntro(); ctx.hud.foldTitle(); }, vista);
     }
     // в прологе музыка 1-1 вступает после титула; тема босса — с его именем в интро (план §8.3)
     if (stage.boss) { this.runner.introTime = 0.05; ctx.music.preload(hierophantSong()); }
@@ -384,7 +407,6 @@ export class Battle {
     });
     b.on('waveStart', (e) => {
       if (!this.stage.boss) hud.waveBanner(e.index, e.total);
-      if (this.stage.id === '1-4') this.startCandleRitual();
       if (e.index > 0) S.music.stinger('stinger');
       // порталы открылись — тайко и «бум»; последняя волна — уровень 4: +полтона, все слои, хор и удары
       if (!this.stage.boss) S.music.stinger('waveHit');
@@ -410,8 +432,11 @@ export class Battle {
       if (e.index + 1 >= e.total) { S.music.final = false; S.audio.musicTranspose = 0; }
     });
     b.on('stageClear', () => {
+      // Волны притвора заканчиваются перед настоящим боссом: награда ждёт победы над Сердцем.
+      if (this.stage.id === '1-4' && this.heartPassage?.phase !== 'complete' && this.heart) {
+        this.endT = -1; this.world.magnet = true; return;
+      }
       this.outcome = 'won';
-      if (this.stage.id === '1-4') this.ritual?.finish();
       if (this.gatePath && this.journey?.phase !== 'combat' && this.journey?.phase !== 'complete') {
         this.gatePath.win();
         S.music.stop(POST_SILENCE * 0.8);
@@ -432,9 +457,8 @@ export class Battle {
     b.on('signature', (e) => { this.sigs.push({ duck: e.impactIn - SIG.lead, hit: e.impactIn }); });
     b.on('kill', (e) => {
       const en = e.target as Enemy;
-      if (this.stage.id === '1-4' && this.ritual?.collect()) {
-        if (!this.emberTaught) { this.emberTaught = true; hud.showHint('Искра у тебя. Подойди к тёмной жаровне — верни огонь.'); }
-        S.audio.play('pickup_ether', { gain: 0.35 });
+      if (this.stage.id === '1-4' && en.elite.length > 0 && this.runner.waveIdx === this.stage.waves.length-1 && this.heartSoul.phase === 'idle') {
+        this.pendingHeartSoul = { x: en.x, z: en.z };
       }
       // последний враг волны (план §8.8): замедление 0.3 на 0.4 с и наезд 6 % — «волна закрыта»
       if (this.runner.phase === 'wave' && !this.runner.spawnsPending && !this.world.enemies.some((x) => !x.dead && x !== en) && !this.stage.boss) {
@@ -549,6 +573,7 @@ export class Battle {
       this.cine.update(realDt, this.cam);
       this.director.update(realDt, this.cam);
       this.updateGatePath(realDt);
+      this.updateHeartPassage(realDt);
     }
 
     // шлейф клинка: сэмплы рукоять/кончик
@@ -622,7 +647,7 @@ export class Battle {
 
   private step(dtW: number, dtH: number, dtR: number): void {
     // Вход Стража ведёт Director: вся симуляция стоит, невидимых атак и спаунов нет.
-    if (this.gateEntrance || (this.gatePath && this.director.active)) return;
+    if (this.gateEntrance || (this.director.active && (this.gatePath || this.isHeartScene()))) return;
     // «ДОБИТЬ»: атака по оглушённому боссу на краю смерти запускает казнь, а не удар
     const inp = this.ctx.input;
     if (this.boss?.executable && !this.director.active && inp.buffer.peek('attack', inp.now)) {
@@ -630,11 +655,12 @@ export class Battle {
       this.boss.execute?.();
     }
     const runTime = this.world.run.time;
-    const fighting = !this.gatePath || (this.journey && this.journey.phase !== 'gate' ? this.journey.phase === 'combat' && this.runner.phase !== 'intro' : this.gatePath.phase === 'combat');
+    const heartWalking = this.stage.id === '1-4' && this.runner.phase === 'clear' && !this.heart?.active;
+    const fighting = !heartWalking && (!this.gatePath || (this.journey && this.journey.phase !== 'gate' ? this.journey.phase === 'combat' && this.runner.phase !== 'intro' : this.gatePath.phase === 'combat'));
     this.world.step(dtW, dtH, this.ctx.input, dtR);
     this.journey?.advanceCollapse(dtW); this.bridgeCollapse?.step(dtW);
     this.collapseOverview = Math.max(0, this.collapseOverview-dtW);
-    this.updateCandleRitual(dtW);
+    this.heart?.step(dtW, !this.director.active && !this.cine.active && !this.world.hero.locked && !this.world.hero.dead && !this.world.shatterSeq);
     if (!fighting) this.world.run.time = runTime;
     if (!this.boss && this.runner.boss instanceof Hierophant) {
       this.boss = new HierophantController(this.bossHost(), this.runner.boss);
@@ -646,6 +672,13 @@ export class Battle {
 
   /** Отладочный переход сохраняет короткий адрес ?stage=1-3&wave=2 для дуэли со Стражем. */
   skipToWave(index: number): void {
+    if (this.stage.id === '1-4' && index >= this.stage.waves.length && this.heartPassage) {
+      this.cine.clear(this.cam); this.runner.phase = 'clear';
+      this.heartSoul.escape(0, this.heartForeZ-7); this.heartSoul.hide();
+      this.heartPassage.release(); this.heartPassage.step(2);
+      const h=this.world.hero; h.spawn(0, this.heartForeZ+HEART_HALL.enterZ+0.8, Math.PI);
+      this.cam.snap(h.x,h.z); this.ctx.hud.foldTitle(); return;
+    }
     if (this.gatePath) {
       this.gatePath.enterCombat();
       this.world.hero.spawn(0, 5, Math.PI);
@@ -666,7 +699,6 @@ export class Battle {
         this.world.magnet = false;
         this.collapseOverview = 4.2;
         this.bridgeCollapse?.start();
-        this.startCandleRitual();
         this.world.bus.emit('sfx', { id: 'shatter_stone', x: 0, z: -43, gain: 0.75 });
         this.world.bus.emit('shake', { trauma: 0.2 });
         ctx.hud.foldTitle();
@@ -723,63 +755,75 @@ export class Battle {
     this.rune.mesh.visible = false;
     ctx.music.play(stageSong('1-4'), 0.3);
     ctx.music.phase = 0; ctx.music.final = false; ctx.audio.musicTranspose = 0;
-    ctx.hud.stageTitle('СВЕЧНОЙ ЗАЛ', '1-4 · Мост паломников', 'Пройди по мосту', 2.8, 46);
-    ctx.hud.showHint('Врата пройдены. Награда сохранена. Впереди — Свечной зал', 8);
+    ctx.hud.stageTitle('ПРИТВОР УГАСШИХ', '1-4 · Чертог Последнего Огня', 'Мост паломников', 2.8, 42);
   }
 
-  private startCandleRitual(): void {
-    if (!this.ritual?.start()) return;
-    this.ctx.hud.showHint('Сердце крадёт огонь. Искры павших зажгут три жаровни.');
-    this.world.bus.emit('sfx', { id: 'boss_bell', x: 0, z: this.ritual.centerZ, gain: 0.45 });
+  private isHeartScene(): boolean {
+    return this.director.id === 'heartSoulEscape' || this.director.id === 'heartAwakening';
   }
 
-  private updateCandleRitual(dt: number): void {
-    const r = this.ritual, w = this.world, h = w.hero;
-    if (!r || this.stage.id !== '1-4') return;
-    const enabled = (this.runner.phase === 'wave' || this.runner.phase === 'breather') && !h.dead && !h.locked && !h.scripted && !this.cine.active && !this.director.active && !w.shatterSeq;
-    const lit = r.step(dt, h.x, h.z, enabled);
-    if (lit !== null) {
-      const b = BRAZIERS[lit], z = r.centerZ + b.z;
-      h.addResonance(25);
-      w.bus.emit('shockwave', { x: b.x, z, r: 7, color: 'gold', strength: 0.6 });
-      w.bus.emit('sfx', { id: 'wave_clear', x: b.x, z, gain: 0.6 });
-      // Возвращённый огонь помогает в бою: сбивает атаки и накапливает оглушение вокруг жаровни.
-      for (const e of [...w.enemies]) if (e.targetable && Math.hypot(e.x - b.x, e.z - z) < 7) {
-        const d = Math.hypot(e.x - b.x, e.z - z) || 1;
-        w.damageEnemy(e, { mult: 1.2, stun: 45, stunKind: 'other', knockback: 3, feel: 'heavy', dirX: (e.x-b.x)/d, dirZ: (e.z-z)/d, source: 'env', noResonance: true });
-      }
-      if (r.broken) {
-        w.bus.emit('shockwave', { x: 0, z: r.centerZ, r: 14, color: 'gold', strength: 0.8 });
-        this.ctx.hud.showHint('Погребальное сердце разбито. Похищенный огонь свободен.');
-      }
+  private updateHeartPassage(dt: number): void {
+    const passage=this.heartPassage, heart=this.heart, soul=this.heartSoul, h=this.world.hero;
+    if (!passage || !heart || this.stage.id !== '1-4' || h.dead) return;
+    if (this.director.id === 'heartSoulEscape') soul.sampleEscape(this.director.time);
+    else if (this.director.id === 'heartAwakening') soul.sampleArrival(this.director.time);
+    if (this.pendingHeartSoul && !this.director.active && !this.cine.active) {
+      const source=this.pendingHeartSoul; this.pendingHeartSoul=null;
+      soul.escape(source.x,source.z); this.heartSkipArmed=false;
+      this.sceneCalls.set('heartSoulHide', () => soul.hide());
+      this.ctx.input.buffer.clear();
+      this.playScene(heartSoulEscapeTrack([h.x,h.y,h.z],[source.x,0,source.z]), () => {
+        soul.hide(); passage.release(); h.resumeAfterVictory(); this.ctx.input.buffer.clear();
+      }, {hud:false});
+      return;
     }
-    if (r.warning > 0 && !this.ritualWarning) w.bus.emit('sfx', { id: 'boss_bell', x: 0, z: r.centerZ, gain: 0.4 });
-    this.ritualWarning = r.warning > 0;
-    if (r.pulseCount !== this.ritualPulse) {
-      this.ritualPulse = r.pulseCount;
-      w.bus.emit('shockwave', { x: 0, z: r.centerZ, r: 14, color: 'hunger', strength: 0.65 });
-      if (!r.isSafeAt(h.x,h.z)) h.receiveAttack(h.maxHp * 0.1, 0, 0, 'Погребальное сердце', 0);
+    if (!this.director.active && !this.cine.active) {
+      passage.step(dt); this.heartGateView?.update(passage.gateOpen);
+      if (soul.phase === 'hidden' && passage.enter(h.x,h.z)) {
+        soul.arrive(heart.centerZ); this.heartSkipArmed=false;
+        this.sceneCalls.set('heartSoulAbsorb', () => {
+          soul.absorb(); this.vfx.lights.flash(0, HEART_SOUL.coreY, heart.centerZ, C.gold, 3, 7, 0.5);
+          this.world.bus.emit('shake', {trauma:0.08});
+        });
+        this.sceneCalls.set('heartAwake', () => soul.sampleArrival(HEART_SOUL.awakeAt));
+        this.ctx.input.buffer.clear();
+        this.playScene(heartAwakeningTrack([h.x,h.y,h.z],heart.centerZ), () => {
+          soul.sampleArrival(HEART_SOUL.arrivalDur); soul.absorb();
+          passage.activate(); this.heartGateView?.update(passage.gateOpen);
+          h.resumeAfterVictory(); this.ctx.input.buffer.clear();
+          this.world.magnet=false; heart.start();
+          this.ctx.music.play(guardianSong('gateGuardian'), 0.65);
+          this.ctx.hud.foldTitle();
+        }, {hud:false});
+      }
     }
   }
 
   private updateCandleVisuals(dt: number): void {
-    const r = this.ritual;
-    if (!r) return;
-    const h = this.world.hero;
-    this.sanctum?.update(dt, { drain: r.drain, lit: r.lit, broken: r.broken, carried: r.carried, chargingIndex: r.chargingIndex, charge: r.charge, warning: r.warning, hero: { x: h.x, z: h.z-r.centerZ } });
-    if (r.started && !r.broken) this.vfx.lights.add(0, 3.5, r.centerZ-0.5, C.hunger, 1+r.warning*3, 7);
-    for (let i=0;i<BRAZIERS.length;i++) if (r.lit[i]) {
-      const b=BRAZIERS[i]; this.vfx.lights.add(b.x, 1.7, b.z+r.centerZ, C.gold, 2.2, 6);
+    const heart=this.heart;
+    if (!heart) return;
+    const h=this.world.hero;
+    const awakeningTime=this.director.id==='heartAwakening'?this.director.time:-100;
+    const awakeningBeat=Math.max(Math.exp(-(((awakeningTime-2.3)/0.14)**2)),Math.exp(-(((awakeningTime-3.15)/0.14)**2)));
+    this.sanctum?.update(dt, { drain: heart.active || heart.dead ? 1 : 0, lit: heart.lit, broken: heart.dead, carried: 0, chargingIndex: -1, charge: 0, hero: {x:h.x,z:h.z-heart.centerZ}, boss: {...heart.view, beat:Math.max(heart.beat,awakeningBeat), awakening:this.heartSoul.awakened} });
+    const p=this.heartSoul.position;
+    this.heartFx?.setSoul(p.x,p.y,p.z,this.heartSoul.visible);
+    this.heartFx?.update(dt,heart.view);
+    if (this.heartSoul.visible) this.vfx.lights.add(p.x,p.y,p.z,C.gold,3.5,6);
+    for(const f of heart.fields) if(f.life>0) this.vfx.lights.add(f.x,0.6,f.z,C.gold,0.7,Math.max(2,f.r));
+    if (heart.active && !heart.dead) this.vfx.lights.add(heart.body.x,heart.body.y,heart.body.z,C.hunger,1.5+heart.beat,8);
+    for(let i=0;i<BRAZIERS.length;i++) if(heart.lit[i]) {
+      const b=BRAZIERS[i];this.vfx.lights.add(b.x,1.7,b.z+heart.centerZ,C.gold,2.2,6);
     }
-    if (r.carried) this.vfx.lights.add(h.x, 1.7, h.z, C.gold, 0.6, 2.5);
   }
 
   private addBrazierPools(): void {
-    const r=this.ritual;
-    if (!r) return;
-    for(let i=0;i<BRAZIERS.length;i++) if(r.lit[i]) {
-      const b=BRAZIERS[i]; this.pools.addDynamic(b.x, b.z+r.centerZ, 4.5, C.gold, 0.55);
+    const heart=this.heart;
+    if(!heart)return;
+    for(let i=0;i<BRAZIERS.length;i++) if(heart.lit[i]){
+      const b=BRAZIERS[i];this.pools.addDynamic(b.x,b.z+heart.centerZ,4.5,C.gold,0.55);
     }
+    for(const f of heart.fields) if(f.life>0) this.pools.addDynamic(f.x,f.z,f.r*1.25,C.gold,0.4);
     this.pools.commit();
   }
 
@@ -1009,16 +1053,19 @@ export class Battle {
     const reveal = clamp((GATE_PATH.revealZ - h.z) / 6.5, 0, 1);
     const opening = path?.phase === 'opening';
     const showCollapse = this.collapseOverview > 0;
-    const hallFrame = !!this.ritual && this.stage.id === '1-4';
-    const heartReveal = !!this.ritual?.active && (this.ritual.drain < 1 || this.ritual.warning > 0);
-    const tilt = showCollapse ? 1.1 : heartReveal ? 0.8 : gallery ? 0.3 + 0.43 * reveal : bridging ? 0.58 : opening ? 0.62 : focusBoss ? this.camPreset.boss : this.camPreset.tilt;
-    const lookHeight = showCollapse ? 0.4 : heartReveal ? 2 : hallFrame ? 1.6 : gallery ? 1.25 * (1 - reveal) : opening ? 1.6 : bridging ? 1 : explore ? 0.8 : 0;
+    const hallFrame = !!this.heart && ['awakening','combat','complete'].includes(this.heartPassage?.phase ?? '') && this.stage.id === '1-4';
+    const tilt = showCollapse ? 1.1 : hallFrame ? 1.16 : gallery ? 0.3 + 0.43 * reveal : bridging ? 0.58 : opening ? 0.62 : focusBoss ? this.camPreset.boss : this.camPreset.tilt;
+    const lookHeight = showCollapse ? 0.4 : hallFrame ? 2.2 : gallery ? 1.25 * (1 - reveal) : opening ? 1.6 : bridging ? 1 : explore ? 0.8 : 0;
     cam.lookHeight += (lookHeight - cam.lookHeight) * (1 - Math.exp(-realDt * 3));
-    const fov = showCollapse ? 52 : heartReveal ? 48 : hallFrame ? Math.max(46, this.camPreset.fov) : gallery ? 52 - (52 - this.camPreset.fov) * reveal : opening || bridging ? 44 : this.camPreset.fov;
+    const fov = showCollapse ? 52 : hallFrame ? Math.max(56, this.camPreset.fov) : gallery ? 52 - (52 - this.camPreset.fov) * reveal : opening || bridging ? 44 : this.camPreset.fov;
     cam.fov += (fov - cam.fov) * (1 - Math.exp(-realDt * 3));
     if (explore) { tz -= gallery ? 1.4 : opening ? 3.5 : bridging ? 2.5 : 1.1; zoom = opening ? 1.15 : 1; }
     if (showCollapse) { tz = h.z + 2.5; zoom = 1.4; }
-    else if (hallFrame) { tz += clamp(this.ritual!.centerZ - h.z, -6, 6) * 0.35; tx += clamp(-h.x, -6, 6) * 0.12; zoom = Math.max(zoom, 1.1); }
+    else if (hallFrame) {
+      const body=this.heart!.body, distance=Math.hypot(body.x-h.x,body.z-h.z);
+      tz += clamp(body.z-h.z,-14,14)*0.5; tx += clamp(body.x-h.x,-12,12)*0.5;
+      zoom = Math.max(zoom,1.12+clamp((distance-4)/6.5,0,1)*0.28);
+    }
     this.feel.baseZoom = zoom;
     // со Стражем и боссом камера наклоняется ниже: в кадре горизонт и луна (план §8.5); у «Кино» — до 42°
     cam.tilt += (tilt - cam.tilt) * Math.min(1, realDt * 1.2);
@@ -1139,7 +1186,10 @@ export class Battle {
       flash: (v: number) => this.feel.whiteFlash(v),
       letterbox: (v: number) => this.feel.setLetterbox(v),
       call: (fn: string, arg?: number) => this.sceneCalls.get(fn)?.(arg),
-      holding: () => ctx.input.attackHeld,
+      holding: () => {
+        if(this.isHeartScene() && !this.heartSkipArmed){ if(!ctx.input.attackHeld)this.heartSkipArmed=true; return false; }
+        return ctx.input.attackHeld;
+      },
       // в сцене кнопки боя скрыты: действие — касание экрана где угодно, клик или атака
       tapped: () => ctx.input.consumeSceneTap(),
       autoContinue: () => ctx.settings.autoScenes || !!this.replay,
@@ -1621,6 +1671,10 @@ export class Battle {
     // ранг SS — медный акцент на каждую долю
     this.ctx.music.accent = w.rank.rankIdx >= 5;
     if (this.ctx.music.final || w.hero.eclipse) x = MUSIC_LEVEL.final;
+    if(this.heart?.active && !this.heart.dead){
+      this.ctx.music.phase=this.heart.phase-1; this.ctx.music.final=this.heart.phase===3;
+      x=this.heart.exposed>0?0.95:this.heart.phase===3?1:0.65;
+    }
     if (Math.abs(x - this.ctx.music.intensity) > 0.01) this.ctx.music.setIntensity(x);
   }
 
@@ -1629,7 +1683,7 @@ export class Battle {
     return {
       world: this.world, abilities: this.abilities, input: this.ctx.input,
       project: (x, y, z, out) => r.project(x, y, z, out),
-      wave: this.runner.phase === 'intro' || this.stage.boss || this.stage.training ? null : { index: Math.max(0, this.runner.waveIdx), total: this.runner.waveTotal },
+      wave: this.runner.phase === 'intro' || this.runner.phase === 'clear' || this.stage.boss || this.stage.training ? null : { index: Math.max(0, this.runner.waveIdx), total: this.runner.waveTotal },
       boss: this.boss?.hudBoss() ?? null, bossName: this.boss?.name ?? '', bossPhases: this.boss?.phaseMarks ?? [], bossPhase: this.boss?.phase ?? 0,
       guardian: this.runner.guardian,
       stageLabel: this.stage.boss ? 'БОСС' : this.stage.training ? 'ЗАЛ' : `${this.stage.zone + 1}-${this.stage.index + 1}`,
@@ -1640,7 +1694,7 @@ export class Battle {
       showFps: this.ctx.settings.showFps,
       debugNav: DEBUG_NAV,
       training: this.drills?.card,
-      candles: this.stage.id === '1-4' && this.ritual?.started && this.outcome === 'playing' ? this.ritual : undefined,
+      heart: this.heart?.active && !this.heart.dead ? {hp:this.heart.hp,maxHp:this.heart.maxHp,phase:this.heart.phase} : undefined,
     };
   }
 
@@ -1736,6 +1790,7 @@ export class Battle {
     this.director.clear(this.cam);
     this.feel.dispose();
     this.world.hero.avatar.dispose();
+    this.heart?.dispose(); this.heartFx?.dispose();
     this.world.bus.clear();
     this.ctx.renderer.scene.remove(this.group);
     // угол обзора меню и сцен вне боя — прежний; буфер света — только в бою

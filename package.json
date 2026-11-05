@@ -11,6 +11,7 @@
     "gate-path-test": "node scripts/gatePath.mjs",
     "cathedral-test": "node scripts/cathedral.mjs",
     "candles-test": "node scripts/candles.mjs",
+    "heart-story-test": "node scripts/heartStory.mjs",
     "finishers": "node scripts/finishers.mjs",
     "choir": "node scripts/choir.mjs",
     "build": "vite build",

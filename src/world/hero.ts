@@ -10,7 +10,7 @@ import type { Enemy } from './enemy';
 import { HeroAvatar } from './heroAvatar';
 import { RANK_S_CLIPS } from '../anim/clips/hero';
 import { baseStats, type HeroStats } from './heroStats';
-import type { World } from './world';
+import type { AimTarget, World } from './world';
 
 export type HeroState = 'move' | 'attack' | 'charge' | 'charged' | 'dash' | 'cast' | 'dead' | 'fall' | 'victory' | 'frozen';
 
@@ -100,6 +100,8 @@ export class Hero implements Actor {
   castMinT = 0;
   /** Цель автоприцела (для UI и способностей). */
   target: Enemy | null = null;
+  /** Non-Enemy encounter body selected by the same aim cone and range. */
+  aimTarget: AimTarget | null = null;
   /** Внешний запрет управления (появление босса, кат-сцены). */
   locked = false;
   trailOn = false;
@@ -135,6 +137,7 @@ export class Hero implements Actor {
     this.facing = facing; this.vx = this.vz = 0;
     this.hp = this.maxHp; this.dead = false;
     this.state = 'move'; this.stateT = 0; this.move = null; this.lastMove = null;
+    this.target = null; this.aimTarget = null;
     this.dashCharges = this.stats.dashCharges;
     this.resonance = this.stats.startResonance;
     this.secondWindUsed = false; this.eclipseUntil = 0; this.perfectBuff = false;
@@ -184,6 +187,8 @@ export class Hero implements Actor {
     const mvx = this.locked ? 0 : input.moveX, mvz = this.locked ? 0 : input.moveZ;
     const hasStick = len2(mvx, mvz) > 0.2;
     this.target = this.pickTarget(hasStick ? mvx : 0, hasStick ? mvz : 0, hasStick);
+    this.aimTarget = this.pickAimTarget(hasStick ? mvx : 0, hasStick ? mvz : 0, hasStick);
+    if (this.aimTarget) this.target = null;
 
     if (!this.locked) this.handleInput(input, mvx, mvz, hasStick);
 
@@ -197,7 +202,10 @@ export class Hero implements Actor {
         // ручное наведение: стик/мышь
         const ax = input.aimActive ? input.aimX : mvx, az = input.aimActive ? input.aimZ : mvz;
         if (len2(ax, az) > 0.2) this.facing = dampAngle(this.facing, angleOf(ax, az), 0.05, dt);
-        else if (this.target) this.facing = dampAngle(this.facing, angleOf(this.target.x - this.x, this.target.z - this.z), 0.08, dt);
+        else {
+          const target = this.aimTarget ?? this.target;
+          if (target) this.facing = dampAngle(this.facing, angleOf(target.x - this.x, target.z - this.z), 0.08, dt);
+        }
         if (!input.attackHeld) this.releaseCharge();
         break;
       }
@@ -328,26 +336,42 @@ export class Hero implements Actor {
 
   // ------------------------------------------------------------------ автоприцел (GDD §4.2)
   pickTarget(dx: number, dz: number, hasDir: boolean): Enemy | null {
-    const aim = this.stats.autoAim;
-    if (aim <= 0) return null;
-    const R = (hasDir ? AIM.radius : AIM.radiusNoStick) * (0.7 + 0.3 * aim);
-    const cosHalf = Math.cos(((AIM.cone * (0.75 + 0.25 * aim)) / 2) * (Math.PI / 180));
     let best: Enemy | null = null, bestScore = -Infinity;
-    const l = Math.hypot(dx, dz) || 1;
     for (const e of this.world.enemies) {
       if (!e.targetable) continue;
-      const ex = e.x - this.x, ez = e.z - this.z;
-      const d = Math.hypot(ex, ez) - e.radius;
-      if (d > R) continue;
-      let align = 1;
-      if (hasDir) {
-        align = (ex * dx + ez * dz) / (Math.hypot(ex, ez) * l || 1);
-        if (align < cosHalf && d > 1.2) continue;
-      }
-      const score = align * 2 - d / R - (e.hp / e.maxHp) * 0.3 + (e.elite.length || e.isBoss ? 0.4 : 0);
+      const score = this.aimScore(e, dx, dz, hasDir) - (e.hp / e.maxHp) * 0.3 + (e.elite.length || e.isBoss ? 0.4 : 0);
       if (score > bestScore) { bestScore = score; best = e; }
     }
     return best;
+  }
+
+  private pickAimTarget(dx: number, dz: number, hasDir: boolean): AimTarget | null {
+    let best: AimTarget | null = null;
+    const e = this.target;
+    let bestScore = e ? this.aimScore(e, dx, dz, hasDir) - (e.hp / e.maxHp) * 0.3 + (e.elite.length || e.isBoss ? 0.4 : 0) : -Infinity;
+    for (const target of this.world.aimTargets) {
+      if (!target.targetable) continue;
+      const score = this.aimScore(target, dx, dz, hasDir) + 0.4;
+      if (score > bestScore) { bestScore = score; best = target; }
+    }
+    return best;
+  }
+
+  private aimScore(target: { x: number; z: number; radius: number }, dx: number, dz: number, hasDir: boolean): number {
+    const aim = this.stats.autoAim;
+    if (aim <= 0) return -Infinity;
+    const R = (hasDir ? AIM.radius : AIM.radiusNoStick) * (0.7 + 0.3 * aim);
+    const cosHalf = Math.cos(((AIM.cone * (0.75 + 0.25 * aim)) / 2) * (Math.PI / 180));
+    const l = Math.hypot(dx, dz) || 1;
+    const ex = target.x - this.x, ez = target.z - this.z;
+    const d = Math.hypot(ex, ez) - target.radius;
+    if (d > R) return -Infinity;
+    let align = 1;
+    if (hasDir) {
+      align = (ex * dx + ez * dz) / (Math.hypot(ex, ez) * l || 1);
+      if (align < cosHalf && d > 1.2) return -Infinity;
+    }
+    return align * 2 - d / R;
   }
 
   // ------------------------------------------------------------------ атаки
@@ -378,7 +402,7 @@ export class Hero implements Actor {
 
     // направление: цель → стик → прицел мыши → взгляд
     let fx = Math.sin(this.facing), fz = Math.cos(this.facing);
-    const t = this.target;
+    const t = this.aimTarget ?? this.target;
     if (t) { fx = t.x - this.x; fz = t.z - this.z; }
     else if (hasStick) { fx = mvx; fz = mvz; }
     else if (input.aimActive) { fx = input.aimX; fz = input.aimZ; }
@@ -610,7 +634,8 @@ export class Hero implements Actor {
     this.chargedWide = full ? 1.5 : 1;
     // нисходящий рассекающий удар из-за головы; полный заряд — ещё и волна Пустоты на 9 м
     const m: MoveDef = { id: 'charged', clip: 'cleave', dur: 0.5, chain: [0.4, 0.62], dashCancelFrom: 0.16, hitbox: { shape: 'line', length: C.length, width: C.width }, dmg: this.chargedMul, stun: this.chargedStun, stunKind: 'charged', knockback: 3, feel: full ? 'heavy' : 'medium', lunge: 1.4, finisher: true, swing: 'heavy', wave: full ? { mult: 2.2, dist: 9, r: 1.5 } : undefined };
-    if (this.target) this.facing = angleOf(this.target.x - this.x, this.target.z - this.z);
+    const target = this.aimTarget ?? this.target;
+    if (target) this.facing = angleOf(target.x - this.x, target.z - this.z);
     this.beginMove(m, 1.6);
     this.state = 'charged';
     this.lastMove = null;
