@@ -220,16 +220,17 @@ export function heartDeathTrack(hero: V3, body: V3, centerZ: number): CineTrack 
     const ca = Math.cos(a), sa = Math.sin(a);
     return clampHall([body[0] + (ux * ca + sx * sa) * r, y, body[2] + (uz * ca + sz * sa) * r]);
   };
-  // Крупный план держит всё Сердце с венцом (радиус ~2.6 м): камера не входит в его лепестки.
-  const close0 = orbit(0.6, 8.8, 3.9), close1 = orbit(0.25, 7.4, 3.4);
-  const pull = orbit(0.15, 10.5, 5.4);
+  // Крупный план держит всё Сердце с раскрытыми лепестками (до ~4.6 м в ширину) и венцом:
+  // камера стоит выше и дальше, ядро — в середине кадра над лепестками.
+  const close0 = orbit(0.6, 11.2, 5.2), close1 = orbit(0.3, 9.8, 4.6);
+  const pull = orbit(0.15, 12.5, 6.2);
   const wide0 = clampHall([hero[0] + ux * 6.5 + sx * 2, 8.2, hero[2] + uz * 6.5 + sz * 2]);
   const wide1 = clampHall([hero[0] + ux * 7.5 + sx * 2.4, 9.4, hero[2] + uz * 7.5 + sz * 2.4]);
   const wideLook: V3 = [(hero[0] + body[0]) / 2, 0.6, (hero[2] + body[2]) / 2];
   const steps: CineStep[] = [
     { t: 0, do: 'actor', who: 'hero', lookAt: [body[0], hero[1], body[2]], turn: 0.35 },
     { t: 0, do: 'music', cue: 'silence' },
-    { t: 0, do: 'cam', path: [close0, close1], look: [core], dur: T.burst, fov: 42, ease: 'inOutSine' },
+    { t: 0, do: 'cam', path: [close0, close1], look: [core], dur: T.burst, fov: 44, ease: 'inOutSine' },
     { t: T.beats[0], do: 'sfx', id: 'heartbeat', gain: 0.85 },
     { t: T.beats[1], do: 'sfx', id: 'heartbeat', gain: 0.6 },
     // Вспышка: камеру отбрасывает назад, затем — общий план за спиной героя.
