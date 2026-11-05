@@ -12,7 +12,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,6 +34,23 @@ jobs:
         run: npm run smoke
         env:
           SMOKE_SHOT: smoke.png
+      - name: Gate path (touch, entrance, gates and exit)
+        run: npm run gate-path-test
+        env:
+          GATE_PATH_Q: medium
+          GATE_PATH_VIEWS: 844x390,740x360
+      - name: Cathedral bridge (two sections, checkpoint and final rewards)
+        run: npm run cathedral-test
+        env:
+          CATHEDRAL_Q: medium
+      - name: Heart story (elite, waiting soul and awakening)
+        run: npm run heart-story-test
+        env:
+          HEART_STORY_Q: medium
+      - name: Heart boss (native input, counters, returns, phases and rewards)
+        run: npm run candles-test
+        env:
+          CANDLES_Q: medium
       - name: Cinematic finishers
         run: npm run finishers
       - name: Choir psalm (touch, bait and return)
@@ -53,4 +70,12 @@ jobs:
             work/choir/*.png
             work/studio/report.json
             work/studio/*.png
+            work/gate-path/report.json
+            work/gate-path/*.png
+            work/cathedral/report.json
+            work/cathedral/*.png
+            work/heart-story/report.json
+            work/heart-story/*.png
+            work/candles/report.json
+            work/candles/*.png
           if-no-files-found: ignore

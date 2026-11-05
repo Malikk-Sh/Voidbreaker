@@ -38,7 +38,7 @@ export function buildWreck(seed = 81): THREE.BufferGeometry {
 }
 
 /** Ворота-гигант (40 м) на фоне 1-3: стрельчатая арка, решётка, контрфорсы. Центр основания — в нуле. */
-export function buildGiantGate(seed = 83): THREE.BufferGeometry {
+export function buildGiantGate(seed = 83, grille = true): THREE.BufferGeometry {
   const b = new GeomBuilder(); b.rng = new Rng(seed); b.color = OBS;
   const W = 14, H = 30;
   const shape = new THREE.Shape();
@@ -65,8 +65,7 @@ export function buildGiantGate(seed = 83): THREE.BufferGeometry {
   // карниз — по обе стороны от арки (проём на этой высоте шире 0.8 W)
   for (const sd of [-1, 1]) b.add(box(5.2, 0.6, 0.5), { matrix: mat(sd * (W + 1.4), H, 1.6), color: GOLD });
   // решётка: прутья и перекладины, внизу — зубья
-  for (let x = -W + 1.4; x < W; x += 2.2) b.add(box(0.35, 32, 0.35), { matrix: mat(x, 16, 0), color: OBS_DEEP });
-  for (let y = 3; y < 30; y += 3.6) b.add(box(W * 2, 0.3, 0.3), { matrix: mat(0, y, 0), color: OBS_DEEP });
+  if (grille) giantGrille(b);
   // контрфорсы и шпили
   for (const s of [-1, 1]) {
     b.add(box(4, 40, 5), { matrix: mat(s * (W + 6), 20, 0) });
@@ -74,6 +73,18 @@ export function buildGiantGate(seed = 83): THREE.BufferGeometry {
   }
   // руна-замок в навершии — тлеет багровым (это вход Стража)
   b.add(octa(1.3, 2, 0.6), { matrix: mat(0, H + 7, 1.6), emissive: -1.6, color: OBS_DEEP });
+  return b.build();
+}
+
+/** Решётка отдельно от каменного обрамления: после победы поднимается, открывая настоящий проход. */
+function giantGrille(b: GeomBuilder): void {
+  for (let x = -12.6; x < 14; x += 2.2) b.add(box(0.35, 32, 0.35), { matrix: mat(x, 16, 0), color: OBS_DEEP });
+  for (let y = 3; y < 30; y += 3.6) b.add(box(28, 0.3, 0.3), { matrix: mat(0, y, 0), color: OBS_DEEP });
+}
+
+export function buildGiantGateGrille(): THREE.BufferGeometry {
+  const b = new GeomBuilder(); b.rng = new Rng(84);
+  giantGrille(b);
   return b.build();
 }
 

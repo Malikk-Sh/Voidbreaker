@@ -13,6 +13,7 @@ import { FX } from '../render/fx';
 import { FONT_BODY, FONT_TECH } from './fonts';
 import { drawIcon, type IconId } from './icons';
 import { UI } from './theme';
+import { drawHeartBar, type HeartBarState } from './heartBar';
 
 interface DmgNum { x: number; y: number; z: number; v: number; crit: boolean; shield: boolean; t: number; dx: number; key: number; big: boolean }
 /** fold — титр этапа: уходя, сворачивается в подпись внизу слева; строка — её подстрочник. */
@@ -59,6 +60,7 @@ export interface HudFrame {
   /** Тренировочный зал: памятка приёмов слева. */
   /** Тренировочный зал: активное упражнение и шаг. */
   training?: TrainingCard;
+  heart?: HeartBarState;
 }
 
 /** Кто целится издалека — им шевроны у края экрана. */
@@ -193,6 +195,7 @@ export class Hud {
     this.drawCineOverlay();
     if (!f) return;
     const s = this.scale;
+    if (f.heart) this.hint = null;
     const L = 20 * s + this.safe.l, R = this.w - 20 * s - this.safe.r, T = 14 * s + this.safe.t, B = this.h - 16 * s - this.safe.b;
     // сцена со скрытым HUD: остаются только титры и реплики
     // подсказки ждут конца сцены — не висят поверх kill-cam
@@ -202,10 +205,11 @@ export class Hud {
     this.drawChevrons(f);
     if (f.debugNav) this.drawNav(f);
     this.drawHeroPanel(f, L, T, s);
-    if (f.boss) this.drawBossBar(s, T, f.boss, f.bossName, f.bossPhases, f.bossPhase);
+    if (f.heart) drawHeartBar(g,f.heart,this.w/2,T,s);
+    else if (f.boss) this.drawBossBar(s, T, f.boss, f.bossName, f.bossPhases, f.bossPhase);
     else if (f.guardian && !f.guardian.dead) this.drawBossBar(s, T, f.guardian, f.guardian.def.name, [], 0);
     else this.drawStageTop(f, s, T);
-    this.topEdge = T + (f.boss || (f.guardian && !f.guardian.dead) ? 92 : 52) * s;
+    this.topEdge = T + (f.heart || f.boss || (f.guardian && !f.guardian.dead) ? 92 : 52) * s;
     this.drawPause(R, T, s);
     this.drawRank(f, R, s);
     this.drawAbilities(f, R, B, s);

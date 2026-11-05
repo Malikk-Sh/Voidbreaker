@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { inPart } from '../data/arenas';
+import { encounterBounds, inPart } from '../data/arenas';
 import type { StageDef } from '../data/stages';
-import { buildChoristerParts, buildGiantBell, buildGiantGate, buildGuardianSilhouette, buildPrayingFigure, buildWreck } from '../gen/zone/setPieces';
+import { buildChoristerParts, buildGiantBell, buildGiantGate, buildGiantGateGrille, buildGuardianSilhouette, buildPrayingFigure, buildWreck } from '../gen/zone/setPieces';
 import { ASSEMBLY, Assembly } from './assembly';
 import { boundaryAt, ZONE1_LOOK, type ArenaView } from '../gen/zone/arenaView';
 import { obsidianMaterial } from '../render/materials';
@@ -34,11 +34,9 @@ const GATE_Z = (minZ: number) => minZ - 4;
  * силуэт Стража на 1-3, свечное поле 1-4, рушащийся мост 1-5, огромный колокол 1-6.
  */
 export class ArenaEvents {
-  /** 1-4: доля погашенного свечного поля 0..1 (гасят волны, зажигает зачистка). */
-  fieldOut = 0;
-  private fieldTarget = 0;
   private silhouette: THREE.Mesh | null = null;
   private haze: THREE.Mesh | null = null;
+  private gateGrille: THREE.Mesh | null = null;
   private bell: THREE.Object3D | null = null;
   private bellAmp = 0.03;
   private bellT = 0;
@@ -76,13 +74,15 @@ export class ArenaEvents {
     if (id === '1-3') {
       // ворота встают на место дальнего фасада; старая арка-калитка остаётся в их проёме
       const gateMat = obsidianMaterial({ rim: ZONE1_LOOK.rim, rimStrength: 0.3, rimPower: 2.6, emissive: ZONE1_LOOK.veins, emissive2: '#E11D2E', emissiveStrength: 1.4 });
-      add(buildGiantGate(), gateMat, cx, -2, GATE_Z(b.minZ));
+      const gz = GATE_Z(encounterBounds(w.arena.def).minZ);
+      add(buildGiantGate(83, !w.arena.def.encounter), gateMat, cx, -2, gz);
+      if (w.arena.def.encounter) this.gateGrille = add(buildGiantGateGrille(), gateMat, cx, -2, gz);
       // сбоку от арки-калитки, чтобы она его не заслоняла; в полтора роста — гигант за решёткой
-      this.silhouette = add(buildGuardianSilhouette(), enemyMat, cx + 7.5, -3, GATE_Z(b.minZ) - 7);
+      this.silhouette = add(buildGuardianSilhouette(), enemyMat, cx + 7.5, -3, gz - 7);
       this.silhouette.scale.setScalar(1.35);
       this.silhouette.rotation.y = -0.25;
       // багровое марево за Стражем: на нём читается чёрный силуэт сквозь решётку
-      this.haze = add(new THREE.PlaneGeometry(40, 36), hazeMaterial(), cx + 6, 12, GATE_Z(b.minZ) - 13);
+      this.haze = add(new THREE.PlaneGeometry(40, 36), hazeMaterial(), cx + 6, 12, gz - 13);
       this.haze.renderOrder = -1;
     }
     if (id === '1-6') {
@@ -123,9 +123,7 @@ export class ArenaEvents {
       this.bellAmp = Math.max(this.bellAmp, 0.2);
       bus.emit('sfx', { id: 'boss_bell', x: this.bell.position.x, z: this.bell.position.z, gain: 0.6 });
     });
-    bus.on('waveStart', () => { if (id === '1-4') this.fieldTarget = 0.86; });
     bus.on('waveClear', (e) => {
-      if (id === '1-4') this.fieldTarget = 0;
       if (id === '1-5' && e.index + 1 < e.total) this.collapseSpan();
     });
     if (id === '1-2') {
@@ -172,6 +170,11 @@ export class ArenaEvents {
   /** Свои геометрии и материал сборной декорации (остальной декор уходит вместе с группой арены). */
   dispose(): void { this.assembly?.dispose(); this.choir?.dispose(); }
 
+  /** Подъём без масштаба и растворения: каменная арка остаётся на месте. */
+  gateOpen(k: number): void {
+    if (this.gateGrille) this.gateGrille.position.y = -2 + 36 * (k * k * (3 - 2 * k));
+  }
+
   /**
    * Низкий план на декорацию для интро этапа (из боевой камеры сверху её не видно): из-за плеча Пилота
    * (hx, hz) — на ворота 1-3 и обломки «Инея» 1-1, снизу — на колокол 1-6. null — арена без такого плана.
@@ -194,12 +197,11 @@ export class ArenaEvents {
   }
 
   /** camY — высота камеры: колокол виден, только пока камера ниже его края (сверху он лишь заслонял бы бой). */
-  update(realDt: number, dtW: number, camY = 0): void {
+  update(_realDt: number, dtW: number, camY = 0): void {
     if (this.bell) this.bell.visible = camY < this.bell.position.y - 7.4 * BELL.scale;
     this.updateBob(dtW);
     const fade = Math.exp(-dtW / WEAR.tau);
     for (let i = 0; i < this.wear.length; i++) this.wear[i] *= fade;
-    this.fieldOut += (this.fieldTarget - this.fieldOut) * Math.min(1, realDt * (this.fieldTarget > this.fieldOut ? 0.9 : 1.6));
     this.updateBell(dtW);
     this.updateColumns(dtW);
     this.assembly?.update(dtW);

@@ -13,6 +13,16 @@ const QUAD_INDEX = [0, 1, 2, 0, 2, 3];
  * пятна LightPools смотрели вниз и отсекались как задние грани — на экране их не было вовсе.
  */
 const FLOOR_QUAD_INDEX = [0, 2, 1, 0, 3, 2];
+const TAU = Math.PI * 2;
+type VisibilityMask = (x: number, z: number) => number;
+
+/** Угловая маска свечей: полный круг гасит и источник на шве atan2. */
+export function candleVisibility(x: number, z: number, cx: number, cz: number, from: number, frac: number): number {
+  if (frac <= 0) return 1;
+  if (frac >= 1) return 0;
+  const a = (((Math.atan2(x - cx, z - cz) - from) % TAU) + TAU) % TAU / TAU;
+  return a < frac ? 0 : 1;
+}
 
 /** Пламя свечей: billboard, вытянутый шум вверх, градиент белый → оранжевый → прозрачный (Tech §6.3). */
 export class Flames {
@@ -21,6 +31,7 @@ export class Flames {
   private readonly lit: Float32Array;
   private readonly litAttr: THREE.InstancedBufferAttribute;
   private doused = false;
+  private visibility: VisibilityMask | null = null;
   /**
    * Живые свечи (план §8.5): наклон пламени к точке (элита, Страж, босс), общее гашение на тяжёлом ударе босса,
    * багровый оттенок ярости, фиолетовая вспышка — только от победы героя (Раскол босса, ульта).
@@ -82,17 +93,20 @@ export class Flames {
     this.mesh.renderOrder = 5;
   }
 
+  /** Дополнительная видимость источника: ритуал или скрытый участок маршрута. */
+  setVisibility(mask: VisibilityMask | null): void { this.visibility = mask; }
+
   /**
    * Гасить по кругу вокруг (cx, cz) от угла from: погашена доля frac. Гаснут быстро (0.1 с), загораются медленнее.
    * В out — точки, которые только что погасли (дымок).
    */
   douse(cx: number, cz: number, from: number, frac: number, dt: number, out: [number, number, number][]): void {
-    if (frac <= 0 && !this.doused) return;
+    if (frac <= 0 && !this.doused && !this.visibility) return;
     let any = false;
     for (let i = 0; i < this.points.length; i++) {
       const p = this.points[i];
-      const a = (((Math.atan2(p[0] - cx, p[2] - cz) - from) % TAU) + TAU) % TAU / TAU;
-      const target = a < frac ? 0 : 1;
+      const mask = this.visibility ? Math.max(0, Math.min(1, this.visibility(p[0], p[2]))) : 1;
+      const target = candleVisibility(p[0], p[2], cx, cz, from, frac) * mask;
       const was = this.lit[i];
       this.lit[i] = target < was ? Math.max(target, was - dt * 10) : Math.min(target, was + dt * 2.5);
       if (was > 0.5 && this.lit[i] <= 0.5) out.push(p);
@@ -121,8 +135,6 @@ export class Flames {
   dispose(): void { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); }
 }
 
-const TAU = Math.PI * 2;
-
 /**
  * Световые пятна на полу (Tech §4.2): аддитивные квады с радиальным градиентом — «свет» без источников.
  * Статические (свечи) + динамические (клинок, ядра врагов, снаряды), переписываемые каждый кадр.
@@ -139,6 +151,7 @@ export class LightPools {
   /** Исходные цвета статичных пятен (для багрового оттенка при замахе босса). */
   private orig: Float32Array | null = null;
   private tinted = false;
+  private visibility: VisibilityMask | null = null;
   constructor(readonly max = 256) {
     this.geo = new THREE.InstancedBufferGeometry();
     const [pos, uv] = QUAD();
@@ -180,6 +193,9 @@ export class LightPools {
     this.mesh.renderOrder = 2;
   }
 
+  /** Та же маска, что у Flames: погасшая свеча не оставляет пятно света. */
+  setVisibility(mask: VisibilityMask | null): void { this.visibility = mask; }
+
   setStatic(list: { x: number; z: number; r: number; color: string; intensity: number; flicker: number }[]): void {
     this.staticCount = Math.min(list.length, this.max - 64);
     for (let i = 0; i < this.staticCount; i++) this.write(i, list[i].x, list[i].z, list[i].r, list[i].color, list[i].intensity, list[i].flicker);
@@ -196,23 +212,20 @@ export class LightPools {
   tintNear(x: number, z: number, radius: number, rgb: [number, number, number], k: number): void {
     const o = this.orig;
     const dark = this.dFrac > 0 || this.qR > 0;
-    if (!o || (k <= 0.001 && !this.tinted && !dark)) return;
+    if (!o || (k <= 0.001 && !this.tinted && !dark && !this.visibility)) return;
     for (let i = 0; i < this.staticCount; i++) {
       const j = i * 4, d = Math.hypot(this.data[j] - x, this.data[j + 1] - z);
-      const w = k * Math.max(0, 1 - d / radius);
+      const w = radius > 0 ? k * Math.max(0, 1 - d / radius) : 0;
       const lum = (o[j] + o[j + 1] + o[j + 2]) / 3;
-      // свечи гаснут по кругу — их пятна света тоже (мягкий край)
-      let lit = 1;
-      if (dark) {
-        const a = (((Math.atan2(this.data[j] - this.dX, this.data[j + 1] - this.dZ) - this.dFrom) % TAU) + TAU) % TAU / TAU;
-        lit = this.dFrac > 0 ? Math.min(1, Math.max(0.12, (a - this.dFrac) / 0.05 + 0.5)) : 1;
-        if (this.qR > 0) lit = Math.min(lit, Math.max(0.12, (Math.hypot(this.data[j] - this.qX, this.data[j + 1] - this.qZ) - this.qR) / 1.5 + 0.5));
-      }
+      // Угловое гашение и ритуал убирают свет полностью; quench сохраняет прежний мягкий край.
+      let lit = candleVisibility(this.data[j], this.data[j + 1], this.dX, this.dZ, this.dFrom, this.dFrac);
+      if (this.qR > 0) lit = Math.min(lit, Math.max(0.12, (Math.hypot(this.data[j] - this.qX, this.data[j + 1] - this.qZ) - this.qR) / 1.5 + 0.5));
+      if (this.visibility) lit *= Math.max(0, Math.min(1, this.visibility(this.data[j], this.data[j + 1])));
       this.col[j] = (o[j] + (rgb[0] * lum * 1.6 - o[j]) * w) * lit;
       this.col[j + 1] = (o[j + 1] + (rgb[1] * lum * 1.6 - o[j + 1]) * w) * lit;
       this.col[j + 2] = (o[j + 2] + (rgb[2] * lum * 1.6 - o[j + 2]) * w) * lit;
     }
-    this.tinted = k > 0.001 || dark;
+    this.tinted = k > 0.001 || dark || !!this.visibility;
   }
 
   private dX = 0; private dZ = 0; private dFrom = 0; private dFrac = 0;

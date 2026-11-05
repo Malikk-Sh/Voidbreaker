@@ -43,6 +43,8 @@ try {
     await page.waitForFunction(() => !!window.__vb?.battle, null, { timeout: 30000 });
     await page.evaluate(() => {
       window.__vb.game.running = false;
+      // Проход боя; управляемую галерею, открытие и выход проверяет отдельный gate-path-test.
+      if (window.__vb.battle.gatePath) window.__vb.battle.skipToWave(0);
       const gl = window.__vb.battle.ctx.renderer.gl;
       gl.info.autoReset = false;
       window.__peak = { calls: 0, tris: 0 };

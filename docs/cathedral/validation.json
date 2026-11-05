@@ -1,0 +1,117 @@
+{
+  "date": "2026-11-04",
+  "environment": "Chromium 154, Linux, SwiftShader; suites run sequentially; audio disabled; accelerated enemies, not a difficulty or FPS measurement",
+  "unitTests": {
+    "passed": 421,
+    "files": 47
+  },
+  "typecheck": true,
+  "build": true,
+  "bundleBytes": 1838187,
+  "renderBudget": {
+    "calls": 160,
+    "triangles": 260000
+  },
+  "sampling": "All renderer passes every 120 simulation frames; sample maxima, not exhaustive frame coverage",
+  "guardianFinisher": {
+    "checksPassed": 81,
+    "viewports": [
+      "844x390",
+      "740x360",
+      "1280x720"
+    ],
+    "modes": [
+      "full",
+      "skip"
+    ]
+  },
+  "runs": [
+    {
+      "q": "medium",
+      "shot": null,
+      "phase": "complete",
+      "stage": "1-4",
+      "wave": 3,
+      "z": -59.170110777884524,
+      "ends": 1,
+      "checkpoints": 1,
+      "saved": true,
+      "continuous": true,
+      "positionJump": 0.09161913138245126,
+      "rootError": 0,
+      "peak": {
+        "calls": 67,
+        "tris": 154609
+      },
+      "stages": [
+        "1-3",
+        "1-4"
+      ],
+      "screen": "results",
+      "clears": 1,
+      "errors": [],
+      "viewport": {
+        "width": 844,
+        "height": 390
+      }
+    },
+    {
+      "q": "high",
+      "viewport": {
+        "width": 844,
+        "height": 390
+      },
+      "shot": null,
+      "phase": "complete",
+      "stage": "1-4",
+      "wave": 3,
+      "z": -53.07446663131487,
+      "ends": 1,
+      "checkpoints": 1,
+      "saved": true,
+      "continuous": true,
+      "positionJump": 0.09150120339011636,
+      "rootError": 0,
+      "peak": {
+        "calls": 77,
+        "tris": 170973
+      },
+      "stages": [
+        "1-3",
+        "1-4"
+      ],
+      "screen": "results",
+      "clears": 1,
+      "errors": []
+    },
+    {
+      "q": "medium",
+      "viewport": {
+        "width": 740,
+        "height": 360
+      },
+      "shot": null,
+      "phase": "complete",
+      "stage": "1-4",
+      "wave": 3,
+      "z": -61.58324822299731,
+      "ends": 1,
+      "checkpoints": 1,
+      "saved": true,
+      "continuous": true,
+      "positionJump": 0.09161789456699054,
+      "rootError": 0,
+      "peak": {
+        "calls": 67,
+        "tris": 154877
+      },
+      "stages": [
+        "1-3",
+        "1-4"
+      ],
+      "screen": "results",
+      "clears": 1,
+      "errors": []
+    }
+  ]
+}

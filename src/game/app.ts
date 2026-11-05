@@ -2,7 +2,6 @@ import { h, injectStyles, wipe } from '../ui/dom';
 import { Game } from './game';
 import { Showcase, type ScreenFrame, type ShowcaseView } from './showcase';
 import { stageById, ZONE1 } from '../data/stages';
-import { applyReward, computeReward, computeStats, type Reward, type StageResult } from '../meta/progression';
 import { writeSave } from '../meta/save';
 import { hubSong } from '../audio/music';
 import { titleScreen } from '../ui/screens/title';
@@ -13,19 +12,12 @@ import { pauseScreen } from '../ui/screens/pause';
 import { settingsScreen } from '../ui/screens/settings';
 import { REPLAY, type BattleOpts, type BattleOutcome, type ReplayId } from './battle';
 import { Prologue } from './prologue';
-import { LORE } from '../data/lore';
 import { replayContext } from './context';
+import { BattleRewards, type BattleRewardData } from './battleRewards';
 
 export type ScreenId = 'title' | 'hub' | 'map' | 'settings' | 'prologue';
 
-export interface ResultsData {
-  stageId: string;
-  cleared: boolean;
-  result: StageResult;
-  reward: Reward;
-  lore?: string;
-  run: BattleOutcome['world']['run'];
-  bestCombo: number;
+export interface ResultsData extends BattleRewardData {
   deathSource?: string;
 }
 
@@ -43,6 +35,7 @@ export class App {
   prologue: Prologue | null = null;
   current: ScreenId | 'battle' | 'results' = 'title';
   private pauseBtn: HTMLElement;
+  private battleRewards = new BattleRewards();
   lastDeathSource = '';
 
   constructor(root: HTMLElement) {
@@ -58,6 +51,7 @@ export class App {
     // kill-cam стражей и интро Иерофанта — в бою без волн; по концу сцены — назад в Архив
     for (const id of Object.keys(REPLAY) as ReplayId[]) this.cinemaPlayers.set(id, () => this.startStage(REPLAY[id].stage, { replay: id, prologue: id === 'prologueLanding' }));
     this.game.onBattleEnd = (o) => this.onBattleEnd(o);
+    this.game.onBattleCheckpoint = (o) => { this.battleRewards.record(this.ctx.save, o, this.ctx.settings); };
     this.game.onPauseRequest = () => { if (this.current === 'battle' && !this.overlayEl) this.showPause(); };
     this.game.ctx.input.onPause = () => { if (this.current === 'battle') this.togglePause(); };
   }
@@ -194,26 +188,13 @@ export class App {
 
   // ------------------------------------------------------------------ результаты
   private onBattleEnd(o: BattleOutcome): void {
-    const s = this.ctx.save;
-    const w = o.world;
-    const story = this.ctx.settings.story;
-    const result: StageResult = {
-      stageId: o.stage.id, cleared: o.cleared, hpFrac: w.hero.hp / w.hero.maxHp, rank: w.rank.stageRank(), rankMul: w.rank.stageRankMul(),
-      time: w.run.time, pickedShards: w.run.shards, pickedEther: w.run.ether, bestCombo: w.rank.bestHits, story,
+    const data: ResultsData = {
+      ...this.battleRewards.record(this.ctx.save, o, this.ctx.settings),
+      deathSource: this.lastDeathSource,
     };
-    const stats = computeStats(s, this.ctx.settings.autoAim);
-    const reward = o.cleared ? computeReward(s, o.stage, result, stats.shardBonus) : { stars: 0 as const, newStars: 0, shards: Math.round(w.run.shards * 0.5), ether: 0, first: false, unlocks: [], freeLevel3: false };
-    const firstClear = o.cleared && !(s.stages[o.stage.id]?.clears);
-    applyReward(s, o.stage, result, reward);
-    let lore: string | undefined;
-    if (firstClear && LORE[o.stage.id] && !s.lore.includes(o.stage.id)) { s.lore.push(o.stage.id); lore = o.stage.id; }
-    // онбординг: после этапа с обучением прокачке (1-5) — заход в Святилище с бесплатным уровнем Силы (GDD §20)
-    if (o.stage.tutorial === 'upgrade' && firstClear && !s.flags.freePower) { s.flags.freePower = true; s.stats.power++; }
-    writeSave(s, true);
     this.ctx.input.enabled = false;
     this.pauseBtn.style.display = 'none';
     this.current = 'results';
-    const data: ResultsData = { stageId: o.stage.id, cleared: o.cleared, result, reward, lore, run: w.run, bestCombo: w.rank.bestHits, deathSource: this.lastDeathSource };
     this.openOverlay(resultsScreen(this, data));
   }
 
@@ -228,12 +209,12 @@ export class App {
     const p = new URLSearchParams(location.search);
     const st = p.get('stage');
     if (st) {
-      this.game.startBattle(stageById(st)!);
+      this.game.startBattle(stageById(st)!, { singleStage: p.has('single') });
       this.current = 'battle';
       this.screenEl?.remove(); this.screenEl = null;
       if (this.showcase) { this.showcase.dispose(); this.showcase = null; }
       this.pauseBtn.style.display = 'block';
-      if (p.has('wave')) { const b = this.game.battle!; b.runner.skipTo(Number(p.get('wave'))); b.cine.clear(b.cam); }
+      if (p.has('wave')) this.game.battle!.skipToWave(Number(p.get('wave')));
       this.game.battle!.world.bus.on('playerHurt', (e) => { this.lastDeathSource = e.source; });
       if (p.has('god')) { const hh = this.game.battle!.world.hero; const orig = hh.receiveAttack.bind(hh); hh.receiveAttack = (d, x, z, s2, k) => orig(0 * d, x, z, s2, k); }
       addEventListener('pointerdown', () => this.ctx.audio.unlock(), { once: true });

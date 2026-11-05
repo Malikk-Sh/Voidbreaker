@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { buildDomeRose } from './space';
+import { CandleSanctum } from './candleSanctum';
 import { Rng } from '../../core/rng';
 import { hexToLinear } from '../../core/math';
-import { inArenaShape, inOutline, inPart, starRay, type ArenaDef, type ShapePart } from '../../data/arenas';
+import { encounterBounds, inArenaShape, inOutline, inPart, starRay, type ArenaDef, type ShapePart } from '../../data/arenas';
 import { GeomBuilder, mat, matAlong } from '../geom/build';
 import { box, prism, shard, rock, lathe, starPlate } from '../geom/prims';
 import {
@@ -204,13 +205,13 @@ const VEIN_LIGHT = { r: 1.4, intensity: 0.07, flicker: 0.15 };
 export const ROOT_TOP = 1.3;
 export const ROOT_SUNK = -6.8;
 
-export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, density = 1): ArenaView {
-  const def = arena.def;
+export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, density = 1, includeSanctum = false): ArenaView {
+  const def = arena.def.encounter ? { ...arena.def, parts: [arena.def.encounter], holes: arena.def.holes?.filter(h => inPart(arena.def.encounter!, h.x, h.z)) } : arena.def;
   const rng = new Rng(seed + ':decor');
   const root = new THREE.Group();
   const flames: [number, number, number][] = [];
   const pools: LightPoolDef[] = [];
-  const b = arena.bounds;
+  const b = encounterBounds(arena.def);
 
   // ---------- пол ----------
   const floorMat = obsidianMaterial({ rim: look.rim, rimStrength: 0.06, emissive: look.veins, emissive2: look.warm, spec: 1.0, floor: true });
@@ -311,6 +312,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     D.append(g, mat(x, y, z, 0, ry, 0, s));
   };
   const style = def.decor;
+  let sanctum: CandleSanctum | undefined;
   const wall = def.edge === 'wall';
   const nearZ = b.maxZ, farZ = b.minZ;
   const farPart = def.parts.reduce((m, p) => (p.z - p.h / 2 < m.z - m.h / 2 ? p : m), def.parts[0]);
@@ -324,6 +326,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     if (def.parts.length > 1) break;
     const r = boundaryAt(def, a, def.parts[0].x, def.parts[0].z);
     const x = def.parts[0].x + Math.sin(a) * (r + 0.25), z = def.parts[0].z + Math.cos(a) * (r + 0.25);
+    if (def.encounter && Math.abs(x) < 3.5 && Math.abs(z) > 8) continue;
+    if (style === 'candles' && !includeSanctum && Math.abs(x - def.parts[0].x) < 4.1 && z < def.parts[0].z) continue;
     if (wall) D.add(prism(4, 0.5, 0.42, 0.18), { matrix: mat(x, 0, z, 0, a + Math.PI / 4), color: OBS, shade: 0.15 });
     if (i % 2 === 0) {
       const len = rng.range(3, 9);
@@ -353,6 +357,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       const a = (i / n) * Math.PI * 2 + 0.001;
       const r = boundaryAt(def, a, p0.x, p0.z);
       const x = p0.x + Math.sin(a) * (r + 1.2), z = p0.z + Math.cos(a) * (r + 1.2);
+      if (def.encounter && Math.abs(x) < 4.2 && Math.abs(z) > 8) continue;
       const near = z > nearZ - 3.5;
       const far = z < farZ + 2.5;
       if (far && Math.abs(x - farPart.x) < farPart.w * 0.36) continue; // там стоит аркада-фасад
@@ -419,7 +424,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     const fw = farPart.w * 0.72;
     const count = Math.max(3, Math.round(fw / 4.4));
     const glass = style === 'candles' || style === 'boss' ? 0.9 : 0.5;
-    if (style !== 'gate') {
+    if (style !== 'gate' && (style !== 'candles' || includeSanctum)) {
       place((g) => arcade(g, count, 3.2, 4.2, rng.int(0, 1e5), glass), farPart.x, 0, farZ - 1.6);
       place((g) => {
         roseWindow(g, 2.6, 12, rng.int(0, 1e5), 1.0);
@@ -433,7 +438,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     }
     if (style === 'gate') {
       // Врата: огромная арка с решёткой
-      place((g) => gateArch(g), p0.x, 0, farZ - 1.0);
+      place((g) => gateArch(g, !def.encounter), p0.x, 0, farZ - 1.0);
     }
     if (style === 'belfry') {
       // колокол в проёме фасада
@@ -456,40 +461,12 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
         if (i % 3 === 0) pools.push({ x, z, r: 2.2, color: look.warm, intensity: 0.35, flicker: 1 });
       }
     }
-    if (style === 'candles') {
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 + 0.5;
-        const r = boundaryAt(def, a, p0.x, p0.z) * 0.62;
-        const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
-        if (Math.abs(z) < 2 && Math.abs(x) < 7) continue;
-        const c = candelabra(D, x, z, 0.5, rng.int(4, 6), rng.int(0, 1e5));
-        flames.push(...c.flames);
-        pools.push({ x, z, r: 3.0, color: look.warm, intensity: 0.5, flicker: 1 });
-      }
-      // свечное поле (план §8.5): тысячи свечей на трёх ярусах-ступенях вдоль стен — волны гасят их и зажигают
-      for (let tier = 0; tier < 3; tier++) {
-        const n = 150 - tier * 20, inset = 0.45 + tier * 0.55, base = 0.12 + (2 - tier) * 0.22;
-        for (let i = 0; i < n; i++) {
-          const a = (i / n) * Math.PI * 2 + rng.spread(0.01) + tier * 0.02;
-          const r = boundaryAt(def, a, p0.x, p0.z) - inset;
-          const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
-          if (z > nearZ - 1.2) continue;
-          const h = rng.range(0.08, 0.32);
-          if (i % 2 === 0) D.add(box(0.5, base, 0.5), { matrix: mat(x, base / 2 - 0.02, z, 0, a, 0), color: OBS, shade: 0.05 });
-          D.add(prism(5, 0.045, 0.04, h), { matrix: mat(x + rng.spread(0.12), base, z + rng.spread(0.12)), color: hexToLinear('#5a4a3a') });
-          flames.push([x, base + h + 0.06, z]);
-        }
-      }
-      // оплывшие свечи на полу у стен
-      for (let i = 0; i < 26; i++) {
-        const a = rng.range(0, Math.PI * 2);
-        const r = boundaryAt(def, a, p0.x, p0.z) - rng.range(0.3, 0.9);
-        const x = p0.x + Math.sin(a) * r, z = p0.z + Math.cos(a) * r;
-        if (z > nearZ - 2) continue;
-        const h = rng.range(0.15, 0.5);
-        D.add(prism(6, 0.07, 0.06, h), { matrix: mat(x, 0, z), color: hexToLinear('#5a4a3a') });
-        flames.push([x, h + 0.08, z]);
-      }
+    if (style === 'candles' && includeSanctum) {
+      sanctum = new CandleSanctum(density);
+      root.add(sanctum.root);
+      root.userData.candleSanctum = sanctum;
+      flames.push(...sanctum.flames);
+      pools.push(...sanctum.pools);
     }
   } else {
     // мост/островок: балюстрады, обломанные колонны, свисающие цепи
@@ -557,6 +534,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   const breakable = def.id === 'naves';
   const coverMeshes: THREE.Mesh[] = [];
   for (const c of arena.covers) {
+    if (def.encounter && !inPart(def.encounter, c.x, c.z)) continue;
     // низкая колонна-постамент: капитель на высоте h + 0.08 (см. column)
     const h = rng.range(2.9, 3.4);
     if (breakable) {
@@ -621,7 +599,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
       const a = rng.range(0, Math.PI * 2), r = partEdge(hole, a);
       chain(D, hole.x + Math.sin(a) * r, -0.1, hole.z + Math.cos(a) * r, hole.x + rng.spread(0.6), -7, hole.z + rng.spread(0.6), 0.3);
     }
-    pools.push({ x: hole.x, z: hole.z, r: Math.max(hole.w, hole.h) * 0.75, color: look.veins, intensity: 0.45, flicker: 0.3 });
+    if (style !== 'candles') pools.push({ x: hole.x, z: hole.z, r: Math.max(hole.w, hole.h) * 0.75, color: look.veins, intensity: 0.45, flicker: 0.3 });
     if (style === 'candles') {
       // свечи по краю колодца — двумя кольцами
       for (let i = 0; i < 64; i++) {
@@ -887,7 +865,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     coverMeshes,
     rays,
     rayColor,
-    casters: [decor],
+    casters: [decor, ...(sanctum ? [sanctum.caster] : [])],
     windowColors: style === 'candles' ? [look.warm, look.veins] : [look.veins, look.warm],
     leanSpires(k: number) { leanT = k; },
     tintGlass(k: number, pulse = 0) {
@@ -896,6 +874,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     },
     dispose() {
       root.traverse((o) => {
+        // Матрицы/цвета экземпляров хранятся отдельно от геометрии; renderer освобождает их по событию mesh.dispose.
+        if (o instanceof THREE.InstancedMesh) o.dispose();
         if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as ObsidianMaterial).dispose(); }
       });
     },
@@ -911,7 +891,7 @@ const FRESCO_MAW = new Set(['candles', 'bridge', 'belfry', 'hierophant']);
 const GLASS_VOID = new THREE.Vector3(...hexToLinear('#B794FF')).multiplyScalar(1.4);
 
 /** Врата: высокая стрельчатая арка с опущенной решёткой. */
-function gateArch(g: GeomBuilder): void {
+function gateArch(g: GeomBuilder, grille = true): void {
   g.color = OBS;
   const shape = new THREE.Shape();
   const W = 5.2, H = 9;
@@ -920,9 +900,11 @@ function gateArch(g: GeomBuilder): void {
   hole.moveTo(-3.4, 0); hole.lineTo(-3.4, 6.5); hole.quadraticCurveTo(-3.2, 10.2, 0, 11.4); hole.quadraticCurveTo(3.2, 10.2, 3.4, 6.5); hole.lineTo(3.4, 0); hole.closePath();
   shape.holes.push(hole);
   g.add(new THREE.ExtrudeGeometry(shape, { depth: 1.4, bevelEnabled: false }), { matrix: mat(0, 0, -0.7) });
-  for (let x = -3; x <= 3; x += 0.75) g.add(box(0.12, 9, 0.12), { matrix: mat(x, 4.6, 0) });
-  for (let y = 1; y <= 8; y += 1.4) g.add(box(6.8, 0.1, 0.1), { matrix: mat(0, y, 0) });
-  for (let x = -3; x <= 3; x += 0.75) g.add(prism(4, 0.12, 0, 0.4), { matrix: mat(x, -0.1, 0, Math.PI) });
+  if (grille) {
+    for (let x = -3; x <= 3; x += 0.75) g.add(box(0.12, 9, 0.12), { matrix: mat(x, 4.6, 0) });
+    for (let y = 1; y <= 8; y += 1.4) g.add(box(6.8, 0.1, 0.1), { matrix: mat(0, y, 0) });
+    for (let x = -3; x <= 3; x += 0.75) g.add(prism(4, 0.12, 0, 0.4), { matrix: mat(x, -0.1, 0, Math.PI) });
+  }
   g.add(box(0.5, 0.5, 0.2), { matrix: mat(0, 12.2, 0.65, 0, 0, Math.PI / 4), emissive: 1, color: OBS_DEEP });
 }
 

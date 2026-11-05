@@ -79,7 +79,7 @@ export const ZONE1: StageDef[] = [
     ],
   },
   {
-    id: '1-4', zone: 0, index: 3, name: 'Свечной зал', arena: 'candles', tutorial: 'ult', unlocks: ['phase'],
+    id: '1-4', zone: 0, index: 3, name: 'Чертог Последнего Огня', arena: 'candles', tutorial: 'ult', unlocks: ['phase'],
     waves: [
       // читать направление удара: Распинатель (веер, гвоздь, ряд шипов)
       { spawns: [{ enemy: 'husk', count: 6, pattern: 'ring', stagger: 0.12 }, { enemy: 'crucifier', count: 1, pattern: 'far', delay: 1.5 }] },
@@ -88,8 +88,7 @@ export const ZONE1: StageDef[] = [
       // сбросить Голема в колодец заряженным ударом
       { spawns: [{ enemy: 'golem', count: 1, at: ['center'] }, { enemy: 'reaper', count: 2, pattern: 'edges', delay: 1 }, { enemy: 'husk', count: 6, pattern: 'edges', delay: 3 }] },
       // Раскол элиты; Отдача — заканчивай серию финишером
-      { spawns: [{ enemy: 'golem', count: 1, at: ['top'], elite: ['recoil'] }],
-        triggers: [{ when: 'eliteHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.1 } }] },
+      { spawns: [{ enemy: 'golem', count: 1, at: ['top'], elite: ['recoil'] }] },
     ],
   },
   {

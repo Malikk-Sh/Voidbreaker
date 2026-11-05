@@ -84,6 +84,12 @@ export class RankTracker {
 
   endWave(): void { this.wavePeaks.push(this.peakIdx); this.peakIdx = this.rankIdx; }
 
+  /** Новый участок того же маршрута получает собственную оценку. */
+  beginStage(): void {
+    this.reset(); this.peakIdx = 0; this.bestHits = 0; this.wavePeaks = [];
+    this.lastKinds = []; this.time = 0;
+  }
+
   /** Ранг этапа: средневзвешенный пик по волнам (поздние волны весят больше). */
   stageRank(): RankId {
     const peaks = this.wavePeaks.length ? this.wavePeaks : [this.peakIdx];

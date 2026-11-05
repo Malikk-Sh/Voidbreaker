@@ -75,6 +75,12 @@ export function hitFlash(feel: FeelId, height: number): number {
 /** Итог попадания для сборки события strike. */
 export interface HitResult { crit: boolean; feel: FeelId }
 
+/** A damageable encounter can participate in auto-aim without pretending to be an Enemy. */
+export interface AimTarget {
+  readonly x: number; readonly z: number; readonly radius: number;
+  readonly targetable: boolean;
+}
+
 /** Раскол 2.0 (план §5.6): отложенный разрез. Время — реальные секунды, мир почти стоит. */
 export interface ShatterSeq {
   target: Enemy;
@@ -112,6 +118,7 @@ export class World {
   rng: Rng;
   readonly hero: Hero;
   enemies: Enemy[] = [];
+  readonly aimTargets = new Set<AimTarget>();
   projectiles: Projectile[] = [];
   telegraphs: Telegraph[] = [];
   hazards: Hazard[] = [];
@@ -818,6 +825,7 @@ export class World {
     this.tempWalls.length = 0;
     this.candlesOut = 0;
     this.shadows.length = 0;
+    this.aimTargets.clear();
     this.enemies.length = 0; this.projectiles.length = 0; this.telegraphs.length = 0; this.hazards.length = 0; this.pickups.length = 0; this.ringWaves.length = 0;
     this.stepHooks.length = 0;
   }

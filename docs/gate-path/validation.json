@@ -1,0 +1,317 @@
+{
+  "base_sha": "f92c4902fffd97d35845212e514a3508aee87956",
+  "conditions": "Chromium / SwiftShader; fixed step 1/60; procedural graphics; audio disabled",
+  "unit": {
+    "files": 44,
+    "tests": 408,
+    "command": "npm run check"
+  },
+  "matrix": [
+    {
+      "label": "low-844x390",
+      "phase": "complete",
+      "open": 1,
+      "wave": 2,
+      "outcome": "won",
+      "hero": {
+        "x": -0.02959903774783188,
+        "z": -24.03846619811524,
+        "state": "victory",
+        "locked": false
+      },
+      "ended": 1,
+      "frozen": 252,
+      "freezeBad": false,
+      "invisibleAttack": false,
+      "peak": {
+        "calls": 64,
+        "tris": 78678
+      },
+      "camera": "combat",
+      "gateWalkable": true,
+      "director": null,
+      "cine": false,
+      "shot": null
+    },
+    {
+      "label": "low-740x360",
+      "phase": "complete",
+      "open": 1,
+      "wave": 2,
+      "outcome": "won",
+      "hero": {
+        "x": -0.02959903774783188,
+        "z": -24.03846619811524,
+        "state": "victory",
+        "locked": false
+      },
+      "ended": 1,
+      "frozen": 252,
+      "freezeBad": false,
+      "invisibleAttack": false,
+      "peak": {
+        "calls": 64,
+        "tris": 78678
+      },
+      "camera": "combat",
+      "gateWalkable": true,
+      "director": null,
+      "cine": false,
+      "shot": null
+    },
+    {
+      "label": "low-1280x720",
+      "phase": "complete",
+      "open": 1,
+      "wave": 2,
+      "outcome": "won",
+      "hero": {
+        "x": -0.02959903774783188,
+        "z": -24.03846619811524,
+        "state": "victory",
+        "locked": false
+      },
+      "ended": 1,
+      "frozen": 252,
+      "freezeBad": false,
+      "invisibleAttack": false,
+      "peak": {
+        "calls": 64,
+        "tris": 78678
+      },
+      "camera": "combat",
+      "gateWalkable": true,
+      "director": null,
+      "cine": false,
+      "shot": null
+    },
+    {
+      "label": "medium-844x390",
+      "phase": "complete",
+      "open": 1,
+      "wave": 2,
+      "outcome": "won",
+      "hero": {
+        "x": -0.017711011047351025,
+        "z": -24.08790000169739,
+        "state": "victory",
+        "locked": false
+      },
+      "ended": 1,
+      "frozen": 252,
+      "freezeBad": false,
+      "invisibleAttack": false,
+      "peak": {
+        "calls": 64,
+        "tris": 83971
+      },
+      "camera": "combat",
+      "gateWalkable": true,
+      "director": null,
+      "cine": false,
+      "shot": null
+    },
+    {
+      "label": "medium-740x360",
+      "phase": "complete",
+      "open": 1,
+      "wave": 2,
+      "outcome": "won",
+      "hero": {
+        "x": -0.017711011047351025,
+        "z": -24.08790000169739,
+        "state": "victory",
+        "locked": false
+      },
+      "ended": 1,
+      "frozen": 252,
+      "freezeBad": false,
+      "invisibleAttack": false,
+      "peak": {
+        "calls": 64,
+        "tris": 83971
+      },
+      "camera": "combat",
+      "gateWalkable": true,
+      "director": null,
+      "cine": false,
+      "shot": null
+    },
+    {
+      "label": "medium-1280x720",
+      "phase": "complete",
+      "open": 1,
+      "wave": 2,
+      "outcome": "won",
+      "hero": {
+        "x": -0.017711011047351025,
+        "z": -24.08790000169739,
+        "state": "victory",
+        "locked": false
+      },
+      "ended": 1,
+      "frozen": 252,
+      "freezeBad": false,
+      "invisibleAttack": false,
+      "peak": {
+        "calls": 64,
+        "tris": 83971
+      },
+      "camera": "combat",
+      "gateWalkable": true,
+      "director": null,
+      "cine": false,
+      "shot": null
+    },
+    {
+      "label": "high-844x390",
+      "phase": "complete",
+      "open": 1,
+      "wave": 2,
+      "outcome": "won",
+      "hero": {
+        "x": 0.08341913514845414,
+        "z": -24.00908914984089,
+        "state": "victory",
+        "locked": false
+      },
+      "ended": 1,
+      "frozen": 252,
+      "freezeBad": false,
+      "invisibleAttack": false,
+      "peak": {
+        "calls": 76,
+        "tris": 98649
+      },
+      "camera": "combat",
+      "gateWalkable": true,
+      "director": null,
+      "cine": false,
+      "shot": null
+    },
+    {
+      "label": "high-740x360",
+      "phase": "complete",
+      "open": 1,
+      "wave": 2,
+      "outcome": "won",
+      "hero": {
+        "x": 0.08341913514845414,
+        "z": -24.00908914984089,
+        "state": "victory",
+        "locked": false
+      },
+      "ended": 1,
+      "frozen": 252,
+      "freezeBad": false,
+      "invisibleAttack": false,
+      "peak": {
+        "calls": 76,
+        "tris": 98649
+      },
+      "camera": "combat",
+      "gateWalkable": true,
+      "director": null,
+      "cine": false,
+      "shot": null
+    },
+    {
+      "label": "high-1280x720",
+      "phase": "complete",
+      "open": 1,
+      "wave": 2,
+      "outcome": "won",
+      "hero": {
+        "x": 0.08341913514845414,
+        "z": -24.00908914984089,
+        "state": "victory",
+        "locked": false
+      },
+      "ended": 1,
+      "frozen": 252,
+      "freezeBad": false,
+      "invisibleAttack": false,
+      "peak": {
+        "calls": 76,
+        "tris": 98649
+      },
+      "camera": "combat",
+      "gateWalkable": true,
+      "director": null,
+      "cine": false,
+      "shot": null
+    }
+  ],
+  "ci_config_run": {
+    "scenarios": [
+      {
+        "label": "medium-844x390",
+        "phase": "complete",
+        "open": 1,
+        "wave": 2,
+        "outcome": "won",
+        "hero": {
+          "x": -0.017711011047351025,
+          "z": -24.08790000169739,
+          "state": "victory",
+          "locked": false
+        },
+        "ended": 1,
+        "frozen": 252,
+        "freezeBad": false,
+        "invisibleAttack": false,
+        "peak": {
+          "calls": 64,
+          "tris": 83971
+        },
+        "camera": "combat",
+        "gateWalkable": true,
+        "director": null,
+        "cine": false,
+        "shot": null
+      },
+      {
+        "label": "medium-740x360",
+        "phase": "complete",
+        "open": 1,
+        "wave": 2,
+        "outcome": "won",
+        "hero": {
+          "x": -0.017711011047351025,
+          "z": -24.08790000169739,
+          "state": "victory",
+          "locked": false
+        },
+        "ended": 1,
+        "frozen": 252,
+        "freezeBad": false,
+        "invisibleAttack": false,
+        "peak": {
+          "calls": 64,
+          "tris": 83971
+        },
+        "camera": "combat",
+        "gateWalkable": true,
+        "director": null,
+        "cine": false,
+        "shot": null
+      }
+    ],
+    "errors": [],
+    "conditions": "Chromium / SwiftShader; fixed step 1/60; procedural graphics; audio disabled",
+    "assertions": 27
+  },
+  "bundle_bytes": 1832663,
+  "render_sampling": "All render passes, sampled every 120 simulation frames plus captured milestones; this is not a phone frame-time measurement.",
+  "guardian_finisher": {
+    "scenarios": 6,
+    "checks": 81,
+    "errors": 0,
+    "command": "FINISHERS_SCENES=killGate npm run finishers"
+  },
+  "smoke": {
+    "checks": 7,
+    "errors": 0,
+    "command": "npm run smoke"
+  }
+}
