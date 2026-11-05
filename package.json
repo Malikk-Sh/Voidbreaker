@@ -12,6 +12,7 @@
     "cathedral-test": "node scripts/cathedral.mjs",
     "candles-test": "node scripts/candles.mjs",
     "heart-story-test": "node scripts/heartStory.mjs",
+    "heart-balance": "node scripts/heartBalance.mjs",
     "finishers": "node scripts/finishers.mjs",
     "choir": "node scripts/choir.mjs",
     "build": "vite build",

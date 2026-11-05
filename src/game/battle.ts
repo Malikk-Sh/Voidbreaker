@@ -811,7 +811,12 @@ export class Battle {
     this.heartFx?.update(dt,heart.view);
     if (this.heartSoul.visible) this.vfx.lights.add(p.x,p.y,p.z,C.gold,3.5,6);
     for(const f of heart.fields) if(f.life>0) this.vfx.lights.add(f.x,0.6,f.z,C.gold,0.7,Math.max(2,f.r));
-    if (heart.active && !heart.dead) this.vfx.lights.add(heart.body.x,heart.body.y,heart.body.z,C.hunger,1.5+heart.beat,8);
+    if (heart.active && !heart.dead) {
+      // Раскрытое ядро светит золотом — это место удара; перед падением под Сердцем краснеет пол.
+      const open = heart.exposed > 0 && (heart.pose === 'stuck' || heart.pose === 'knock');
+      this.vfx.lights.add(heart.body.x,heart.body.y,heart.body.z,open?C.gold:C.hunger,open?3+heart.beat*1.5:1.5+heart.beat,open?7:8);
+      if (heart.pose === 'lock' || heart.pose === 'fall') this.vfx.lights.add(heart.target.x,0.5,heart.target.z,C.hungerHot,2.5,4);
+    }
     for(let i=0;i<BRAZIERS.length;i++) if(heart.lit[i]) {
       const b=BRAZIERS[i];this.vfx.lights.add(b.x,1.7,b.z+heart.centerZ,C.gold,2.2,6);
     }
@@ -824,6 +829,8 @@ export class Battle {
       const b=BRAZIERS[i];this.pools.addDynamic(b.x,b.z+heart.centerZ,4.5,C.gold,0.55);
     }
     for(const f of heart.fields) if(f.life>0) this.pools.addDynamic(f.x,f.z,f.r*1.25,C.gold,0.4);
+    if (heart.active && heart.exposed > 0 && heart.pose === 'stuck') this.pools.addDynamic(heart.body.x,heart.body.z,4,C.gold,0.45+heart.beat*0.2);
+    if (heart.active && (heart.pose === 'lock' || heart.pose === 'fall')) this.pools.addDynamic(heart.target.x,heart.target.z,3.2,C.hunger,0.55);
     this.pools.commit();
   }
 

@@ -122,6 +122,24 @@ export interface GameEvents {
   guardianRage: { x: number; z: number; kind: string };
   bossIntro: { name: string; title: string };
   bossDeath: { x: number; z: number };
+  /** Погребальное сердце: удар о пол (big — последнее падение серии; open — после него ядро открыто). */
+  heartSlam: { x: number; z: number; r: number; big: boolean; open: boolean };
+  /** Клинок о закрытую броню Сердца. */
+  heartClank: { x: number; y: number; z: number };
+  /** Сердце сбито на пол отбитой сферой или огнём. */
+  heartStagger: { x: number; y: number; z: number };
+  /** Ярость между фазами: броня слетает, Сердце ревёт. */
+  heartRage: { x: number; y: number; z: number; phase: number };
+  /** Тёмная волна вышла из колодца. */
+  heartPulse: { x: number; y: number; z: number };
+  /** Луч «маятника» лёг на пол (first — первый луч серии). */
+  heartBeam: { x: number; z: number; dx: number; dz: number; len: number; first: boolean };
+  /** Огонь чаши или воска возвращается в Сердце: от (x, z) к телу (tx, ty, tz). */
+  heartCounter: { x: number; z: number; tx: number; ty: number; tz: number };
+  /** Нулевые HP: ядро сжимается… */
+  heartDying: { x: number; y: number; z: number };
+  /** …и лопается, возвращая огонь залу. */
+  heartBurst: { x: number; y: number; z: number };
   resonanceFull: Record<string, never>;
   /** Способность снова готова (кольцо вокруг иконки, короткий звук). */
   abilityReady: { slot: 'q' | 'e' };

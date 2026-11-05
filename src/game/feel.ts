@@ -350,6 +350,7 @@ export class FeelSystem {
         this.time.addHitstop(0.08);
         this.hud.flashText('ЗВОН', '#B794FF', e.x, e.y + 1, e.z, true);
       }),
+      ...this.heartFeel(),
       // Страж Врат: пробежка по древку и удар в шлем
       b.on('shaftRun', (e) => {
         this.audio.play('dash', { pitch: 0.8 });
@@ -506,6 +507,122 @@ export class FeelSystem {
       b.on('resonanceFull', () => { this.audio.play('charge2', { gain: 0.6 }); this.hud.pulseUlt(); }),
       b.on('abilityReady', (e) => { this.audio.play('ability_ready', { gain: 0.35, vary: 0 }); this.hud.abilityReady(e.slot); }),
     );
+  }
+
+  /**
+   * Погребальное сердце: вес падения, звон закрытой брони, сбитое на пол ядро, ярость между фазами и гибель.
+   * Всё — реакцией мира, без текстовых подсказок: что открыто и что опасно, читается по свету, звуку и обломкам.
+   */
+  private heartFeel(): (() => void)[] {
+    const b = this.w.bus, soft = () => this.settings.photosensitive || !this.settings.flashes;
+    return [
+      b.on('heartSlam', (e) => {
+        const near = this.near(e.x, e.z, 7), q = this.vfx.quality;
+        this.time.addHitstop(e.big ? 0.07 : 0.04);
+        this.cam.addTrauma(near ? (e.big ? 0.65 : 0.45) : 0.25);
+        this.cam.zoomPunch += e.big ? 0.05 : 0.03;
+        this.vfx.debris.burst(e.x, 0.3, e.z, 0, 0, Math.round((e.big ? 16 : 9) * q), e.big ? 8 : 6, 0.3);
+        this.vfx.burst(Math.round(10 * q), { x: e.x, y: 0.2, z: e.z, life: 0.9, size: 0.5, size1: 1.4, color: C.dust, alpha: 0.45, drag: 2.5, frame: 'smoke' }, { v: 5, vy: 0.6 }, false);
+        this.vfx.rings.spawn(e.x, e.z, 0.6, e.r * 2.2, 0.55, C.hungerHot, 0.4, soft() ? 0.4 : 0.9);
+        this.vfx.lights.flash(e.x, 1, e.z, e.open ? C.gold : C.hungerHot, 4, 8, 0.4);
+        this.audio.play('bell_crack', { gain: 0.6, pitch: 0.55, pan: this.pan(e.x) });
+        this.audio.play('step_heavy', { gain: 0.9, pitch: 0.6, pan: this.pan(e.x) });
+        // Ядро раскрылось: сердце бьётся громко и часто — к нему можно подойти.
+        if (e.open) this.audio.play('heartbeat', { gain: 0.9, pitch: 1.15, delay: 0.25 });
+        this.input.vibrate(e.big ? 60 : 35);
+      }),
+      b.on('heartClank', (e) => {
+        this.time.addHitstop(0.03);
+        this.cam.addTrauma(0.08);
+        this.vfx.hitSparks(e.x, e.y, e.z, 0, 1, 0.6, false);
+        this.audio.play('hit_armor', { gain: 0.8, pitch: 0.8, pan: this.pan(e.x) });
+      }),
+      b.on('heartStagger', (e) => {
+        this.time.addHitstop(0.12);
+        this.cam.addTrauma(0.5);
+        this.cam.zoomPunch += 0.06;
+        this.vfx.lights.flash(e.x, e.y, e.z, C.gold, 6, 9, 0.45);
+        this.vfx.debris.burst(e.x, e.y, e.z, 0, 0, Math.round(8 * this.vfx.quality), 6, 0.24);
+        this.audio.play('stun_break', { gain: 0.9 });
+        this.audio.play('bell_crack', { gain: 0.7, pan: this.pan(e.x) });
+        this.input.vibrate(70);
+      }),
+      b.on('heartCounter', (e) => {
+        // Копьё огня: от чаши к телу Сердца бежит золотая дорожка.
+        const n = Math.round(16 * this.vfx.quality);
+        for (let i = 0; i < n; i++) {
+          const u = i / Math.max(1, n - 1);
+          this.vfx.add.emit({ x: e.x + (e.tx - e.x) * u, y: 1.2 + (e.ty - 1.2) * u + Math.sin(u * Math.PI) * 1.5, z: e.z + (e.tz - e.z) * u,
+            vy: 0.6, life: 0.35 + u * 0.35, size: 0.16, size1: 0.03, color: C.gold, frame: 'spark', drag: 2 });
+        }
+        this.vfx.lights.flash(e.tx, e.ty, e.tz, C.gold, 7, 10, 0.5);
+        this.audio.play('bell_crack', { gain: 0.8, pitch: 1.2, pan: this.pan(e.x) });
+        this.audio.play('boss_bell', { gain: 0.45, pitch: 1.3 });
+        this.time.addHitstop(0.1);
+        this.cam.addTrauma(0.45);
+      }),
+      b.on('heartRage', (e) => {
+        // Ярость: время на миг вязнет, броня разлетается, зал заливает багровым.
+        this.time.cinematic(0.5, 0.35);
+        this.cam.addTrauma(0.8);
+        this.cam.zoomPunch += 0.08;
+        this.chroma = Math.max(this.chroma, soft() ? 0.2 : 0.6);
+        this.vfx.debris.burst(e.x, e.y, e.z, 0, 0, Math.round(26 * this.vfx.quality), 10, 0.42);
+        this.vfx.rings.spawn(e.x, e.z, 1, 14, 1.1, C.hungerHot, 0.6, soft() ? 0.4 : 1);
+        this.vfx.rings.spawn(e.x, e.z, 0.5, 8, 0.7, C.hungerHot, 0.3, soft() ? 0.3 : 0.8);
+        this.vfx.lights.flash(e.x, e.y, e.z, C.hungerHot, 8, 18, 0.8);
+        this.audio.play('tele_roar', { gain: 1, pitch: 0.55 });
+        this.audio.play('boss_bell', { gain: 0.7, pitch: 0.7 });
+        this.audio.play('plates_scatter', { gain: 0.9, delay: 0.1 });
+        this.audio.duck(0.7, 0.6);
+        this.input.vibrate(120);
+      }),
+      b.on('heartPulse', (e) => {
+        this.audio.play('well_boom', { gain: 0.8, pitch: 0.7 });
+        this.audio.play('heartbeat', { gain: 1, pitch: 0.8 });
+        this.cam.addTrauma(0.25);
+        this.vfx.lights.flash(e.x, e.y, e.z, C.hungerHot, 5, 12, 0.5);
+      }),
+      b.on('heartBeam', (e) => {
+        if (e.first) this.audio.play('beam', { gain: 0.7 });
+        else this.audio.play('slash_enemy', { gain: 0.35, pitch: 0.7, pan: this.pan(e.x) });
+        const n = Math.round(6 * this.vfx.quality);
+        for (let i = 0; i < n; i++) {
+          const t = (i + 0.5) / n * e.len;
+          this.vfx.add.emit({ x: e.x + e.dx * t, y: 0.25, z: e.z + e.dz * t, vy: 1.6, life: 0.45, size: 0.12, size1: 0.02, color: C.hungerHot, frame: 'spark', drag: 1.5 });
+        }
+        this.cam.addTrauma(this.near(e.x + e.dx * 4, e.z + e.dz * 4, 6) ? 0.12 : 0.04);
+      }),
+      b.on('heartDying', (e) => {
+        this.time.cinematic(1.2, 0.45);
+        this.cam.addTrauma(0.5);
+        this.audio.duck(0.8, 2.2);
+        this.audio.play('heartbeat', { gain: 1.1, pitch: 0.7 });
+        this.audio.play('heartbeat', { gain: 0.9, pitch: 0.6, delay: 0.7 });
+        this.audio.play('void_moment', { gain: 0.6, delay: 0.3 });
+        this.vfx.lights.flash(e.x, e.y, e.z, C.core, 5, 9, 0.8);
+      }),
+      b.on('heartBurst', (e) => {
+        // Ядро лопается: белая вспышка, золотая волна по всему залу, огонь возвращается свечам.
+        this.whiteFlash(0.55);
+        this.time.addHitstop(0.16);
+        this.time.cinematic(1.1, 0.3);
+        this.cam.addTrauma(0.9);
+        this.cam.zoomPunch += 0.1;
+        this.chroma = Math.max(this.chroma, soft() ? 0.25 : 0.8);
+        this.vfx.shatterBurst(e.x, e.y, e.z, true);
+        this.vfx.debris.burst(e.x, e.y, e.z, 0, 0, Math.round(30 * this.vfx.quality), 12, 0.45);
+        this.vfx.rings.spawn(e.x, e.z, 1, 24, 1.6, C.gold, 0.9, soft() ? 0.5 : 1.2);
+        this.vfx.rings.spawn(e.x, e.z, 0.5, 12, 0.9, C.gold, 0.4, soft() ? 0.4 : 1);
+        this.shockwave(e.x, e.z, 1.2, 0.8, e.y);
+        this.vfx.lights.flash(e.x, e.y, e.z, C.gold, 9, 22, 1.3);
+        this.audio.play('shatter_burst', { gain: 1 });
+        this.audio.play('boss_bell', { gain: 0.8, pitch: 1.1, delay: 0.05 });
+        this.audio.play('bell_crack', { gain: 0.7, pitch: 0.8, delay: 0.12 });
+        this.music.stinger('choirHit');
+        this.input.vibrate(140);
+      }),
+    ];
   }
 
   /** Локальный контакт читается на крупном плане босса: кромка, направленный выброс и материал. */

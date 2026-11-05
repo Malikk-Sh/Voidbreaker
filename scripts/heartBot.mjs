@@ -1,14 +1,19 @@
-/** Native movement/aim/attack/hold input shared by the browser encounter checks. */
+/**
+ * Native movement/aim/attack/hold input shared by the browser encounter checks. Plays the Heart the intended way:
+ * step out of the locked dive mark and the get-up ring, strike the core while it lies open, return orbs, relight a
+ * heated bowl with any swing and shelter in the light during the dark wave.
+ */
 export function driveHeart(b,s){
  const w=b.world,h=w.hero,r=b.heart,inp=b.ctx.input;
  s.mx=s.mz=0;s.held=false;s.aim=false;
- if(!r?.active||r.dead||b.director.active||b.cine.active||h.locked)return;
+ if(!r?.active||r.dead||r.dying>0||b.director.active||b.cine.active||h.locked)return;
+ const cz=r.centerZ-0.5,dist=(x,z)=>Math.hypot(x-h.x,z-h.z);
  const aim=(x,z)=>{const d=Math.hypot(x-h.x,z-h.z)||1;s.aim=true;s.ax=(x-h.x)/d;s.az=(z-h.z)/d;};
  const toward=(x,z,stop=1.4)=>{
   aim(x,z);let dx=x-h.x,dz=z-h.z,d=Math.hypot(dx,dz);
   if(d<=stop)return true;
   // Stay on the ring when a direct path would cross the central well.
-  const cz=r.centerZ-0.5,px=h.x,pz=h.z-cz,qx=x,qz=z-cz;
+  const px=h.x,pz=h.z-cz,qx=x,qz=z-cz;
   const vx=(qx-px)/5.8,vz=(qz-pz)/4.8,ax=px/5.8,az=pz/4.8;
   const t=Math.max(0,Math.min(1,-(ax*vx+az*vz)/(vx*vx+vz*vz||1)));
   if(Math.hypot(ax+vx*t,az+vz*t)<1.08){
@@ -18,28 +23,53 @@ export function driveHeart(b,s){
   }
   s.mx=dx/d;s.mz=dz/d;return false;
  };
+ // Leave a danger circle along the ring (tangentially), never into the well.
+ const leave=(x,z)=>{
+  const a=Math.atan2(h.x,h.z-cz),rr=Math.max(8.5,Math.min(12,Math.hypot(h.x,h.z-cz))),side=Math.atan2(x,z-cz)>a?-1:1;
+  const tx=Math.sin(a+side*0.9)*rr,tz=cz+Math.cos(a+side*0.9)*rr;
+  const dx=tx-h.x,dz=tz-h.z,d=Math.hypot(dx,dz)||1;s.mx=dx/d;s.mz=dz/d;
+ };
  const attack=()=>{if(s.frames%12===0)inp.buffer.push('attack',inp.now);};
- const orb=r.shots.filter(p=>p.alive&&!p.reflected).sort((a,c)=>Math.hypot(a.x-h.x,a.z-h.z)-Math.hypot(c.x-h.x,c.z-h.z))[0];
- if(orb&&r.metrics.reflectedHits<1){
-  const d=Math.hypot(orb.x-h.x,orb.z-h.z);aim(orb.x,orb.z);
-  if(d>3.1)toward(orb.x,orb.z,3.1);else attack();
-  return;
- }
+ const inside=(t)=>{const g=t.shape;if(g.k==='circle')return Math.hypot(h.x-g.x,h.z-g.z)<g.r+0.6;
+  if(g.k==='line'){const ox=h.x-g.x,oz=h.z-g.z,tt=ox*g.dx+oz*g.dz;return tt>-0.6&&tt<g.len+0.6&&Math.abs(ox*g.dz-oz*g.dx)<g.w/2+0.6;}
+  if(g.k==='arc'){const d=Math.hypot(h.x-g.x,h.z-g.z);if(d>g.r+0.6)return false;let a=Math.atan2(h.x-g.x,h.z-g.z)-g.dir;a=((a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;return Math.abs(a)<g.half+0.2;}
+  return false;};
+ // 0. Волна близко и не в проходе — рывок сквозь неё; любая метка под ногами — шаг в сторону.
+ for(const rw of w.ringWaves){const d=Math.hypot(h.x-rw.x,h.z-rw.z),ahead=d-rw.r;
+  const a=Math.atan2(h.x-rw.x,h.z-rw.z),gap=rw.gaps.some(g=>{let x=a-g.a;x=((x+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;return Math.abs(x)<g.w/2-0.05;});
+  if(!rw.hit&&!gap&&ahead>0&&ahead<rw.speed*0.16+rw.width/2){s.mx=Math.sin(a+Math.PI);s.mz=Math.cos(a+Math.PI);inp.buffer.push('dash',inp.now);return;}}
+ const danger=w.telegraphs.find(t=>t.alive&&t.t<t.dur&&t.dur-t.t<0.9&&inside(t));
+ if(danger&&danger.shape.k!=='ring'){const g=danger.shape,cx=g.k==='line'?g.x+g.dx*Math.max(0,Math.min(g.len,(h.x-g.x)*g.dx+(h.z-g.z)*g.dz)):g.x,cz2=g.k==='line'?g.z+g.dz*Math.max(0,Math.min(g.len,(h.x-g.x)*g.dx+(h.z-g.z)*g.dz)):g.z;
+  if(danger.dur-danger.t<0.22)inp.buffer.push('dash',inp.now);leave(cx,cz2);return;}
+ // 1. Под меткой падения и под встающим Сердцем не стоять.
+ if((r.pose==='lock'||r.pose==='fall')&&dist(r.target.x,r.target.z)<3.8){leave(r.target.x,r.target.z);return;}
+ if(r.pose==='stuck'&&r.exposed<1.35&&dist(r.body.x,r.body.z)<4.2){leave(r.body.x,r.body.z);return;}
+ // 2. Летящая сфера: встретить клинком — она вернётся и собьёт Сердце.
+ const orb=r.shots.filter(p=>p.alive&&!p.reflected).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
+ if(orb&&dist(orb.x,orb.z)<6){aim(orb.x,orb.z);if(dist(orb.x,orb.z)<3.1)attack();return;}
  if(s.chargingUntil&&w.time<s.chargingUntil){s.held=true;aim(s.chargeAt.x,s.chargeAt.z);return;}
  if(s.chargingUntil){s.chargingUntil=0;aim(s.chargeAt.x,s.chargeAt.z);return;}
- if(r.metrics.reflectedHits>0&&(r.exposed>0.5||r.phase===3)){
-  if(toward(r.body.x,r.body.z,2.2))attack();return;
+ // 3. Лежит открытым — бить ядро.
+ if(r.exposed>0.4&&(r.pose==='stuck'||r.pose==='knock')){if(toward(r.body.x,r.body.z,2.2))attack();return;}
+ // Носильщик рядом — срубить: их удары копятся быстрее, чем кажется.
+ const foe=w.enemies.filter(e=>!e.dead&&e.targetable!==false).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
+ if(foe&&dist(foe.x,foe.z)<3.6&&!(r.attack&&(r.attack.kind==='pulse'||r.attack.kind==='double'))){if(toward(foe.x,foe.z,1.8))attack();return;}
+ // 4. Тёмная волна: встать в проход — у горящей чаши или в воске.
+ if(r.attack&&(r.attack.kind==='pulse'||r.attack.kind==='double')){
+  const lit=r.braziers.map((p,i)=>({...p,i})).filter(p=>r.lit[p.i]);
+  const wax=r.fields.filter(f=>f.kind==='wax'&&f.life>1.5);
+  const safe=[...lit.map(p=>({x:p.x*1.08,z:cz+(p.z-cz)*1.08})),...wax].sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
+  if(safe){toward(safe.x,safe.z,0.6);return;}
  }
- const fields=r.fields.filter(f=>f.kind==='wax'&&f.life>2).sort((a,c)=>Math.hypot(a.x-h.x,a.z-h.z)-Math.hypot(c.x-h.x,c.z-h.z));
- const warm=r.braziers.map((p,i)=>({...p,i})).filter(p=>!r.lit[p.i]&&r.heat[p.i]>=0.75).sort((a,c)=>Math.hypot(a.x-h.x,a.z-h.z)-Math.hypot(c.x-h.x,c.z-h.z));
- const target=warm[0]??fields[0];
- if(target){
-  if(toward(target.x,target.z,1.55)){
-   s.chargeAt={x:target.x,z:target.z};s.chargingUntil=w.time+1.1;s.held=true;inp.attackHeldSince=inp.now;
-  }
+ // 5. Раскалённая чаша: любой удар клинком возвращает огонь.
+ const warm=r.braziers.map((p,i)=>({...p,i})).filter(p=>!r.lit[p.i]&&r.heat[p.i]>=0.65).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
+ if(warm){if(toward(warm.x,warm.z,1.6))attack();return;}
+ // 6. Воск павшего носильщика: заряженный удар тоже отправляет огонь в Сердце.
+ const field=r.fields.filter(f=>f.kind==='wax'&&f.life>2.5).sort((a,c)=>dist(a.x,a.z)-dist(c.x,c.z))[0];
+ if(field&&dist(field.x,field.z)<6){
+  if(toward(field.x,field.z,1.55)){s.chargeAt={x:field.x,z:field.z};s.chargingUntil=w.time+1.1;s.held=true;inp.attackHeldSince=inp.now;}
   return;
  }
- // The first blast deliberately heats this shrine; wait there for a readable counter opportunity.
- const bowl=r.braziers[0];toward(bowl.x,bowl.z+1.4,1);
- if(orb){aim(orb.x,orb.z);if(Math.hypot(orb.x-h.x,orb.z-h.z)<3.3)attack();}
+ // 7. Ждать у первой чаши: падение рядом с ней раскалит её.
+ const bowl=r.braziers[0];toward(bowl.x+1.6,bowl.z+1.6,1);
 }

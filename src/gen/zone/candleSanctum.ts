@@ -21,6 +21,24 @@ export interface HeartBodyVisual {
   heat?: readonly number[];
   hitFlash?: number;
   lit?: readonly boolean[];
+  /** Поза боя (render: funeralHeart.HeartPose), раскрытие брони 0…1, ярость 0…1, гибель 0…1, ядро лопнуло. */
+  pose?: string;
+  open?: number;
+  rage?: number;
+  dying?: number;
+  burst?: boolean;
+}
+
+/**
+ * Вид Сердца: scale — во сколько раз оно крупнее прежнего ромба (силуэт читается как босс, а не как деталь
+ * венца); tilt — наклон лежащего на полу Сердца; plateFly — полёт сорванной пластины до кромки колодца (с).
+ */
+export const HEART_LOOK = { scale: 1.45, tilt: 0.42, plateFly: 0.8 };
+
+/** Двойной удар «тук-тук» по фазе пульса 0…1: сильный, затем слабее. */
+export function heartbeatPulse(beat: number): number {
+  const g = (x: number, w: number) => Math.exp(-(x * x) / (w * w));
+  return g(beat, 0.07) + g(beat - 1, 0.07) + 0.6 * g(beat - 0.24, 0.07);
 }
 
 export interface CandleSanctumState {
@@ -59,6 +77,11 @@ export class CandleSanctum {
   private time = 0;
   private fracture = 0;
   private wake = 0;
+  private openK = 0;
+  private stuckK = 0;
+  /** Сорванные в ярости пластины: где отделились, куда летят (координаты зала) и сколько летят. */
+  private readonly flying: ({ x: number; y: number; z: number; tx: number; tz: number; t: number; spin: number } | null)[] = [null, null, null, null, null, null];
+  private lastPlates = 6;
 
   constructor(density = 1) {
     this.root.name = 'Погребальное сердце';
@@ -164,21 +187,50 @@ export class CandleSanctum {
     const awakening = boss ? Math.max(boss.awakening ?? 0, boss.active || boss.dead ? 1 : 0) : 0;
     this.wake += (awakening - this.wake) * Math.min(1, dt * 3.5);
     if (dt === 0) this.wake = awakening;
-    this.fracture += ((dead ? 1 : 0) - this.fracture) * Math.min(1, dt * 2.5);
+    this.fracture += ((dead || boss?.burst ? 1 : 0) - this.fracture) * Math.min(1, dt * 2.5);
     const warning = state.warning ?? 0;
     const pulse = boss ? boss.beat : 0.5 + 0.5 * Math.sin(this.time * (warning > 0 ? 9 : 2.2));
     const phase = boss?.phase ?? 1, exposed = (boss?.exposed ?? 0) > 0;
     const bodyX = boss?.body.x ?? 0, bodyZ = boss ? boss.body.z - boss.centerZ : 0;
     const bodyY = boss?.body.y ?? 3.8;
-    const open = this.wake * (exposed ? 1 : phase === 3 ? 0.8 : phase === 2 ? 0.45 : 0.08);
+    const pose = boss?.pose ?? '', dying = boss?.dying ?? 0, rage = boss?.rage ?? 0, burst = !!boss?.burst;
+    const S = HEART_LOOK.scale, k = Math.min(1, dt * 6);
+    // Раскрытие брони приходит из боя; старые состояния без позы раскрываются по фазе, как раньше.
+    const openTarget = boss?.open !== undefined ? boss.open : (exposed ? 1 : phase === 3 ? 0.8 : phase === 2 ? 0.45 : 0.08);
+    this.openK += (openTarget - this.openK) * k; if (dt === 0) this.openK = openTarget;
+    const lying = pose === 'stuck' || pose === 'knock' ? 1 : 0;
+    this.stuckK += (lying - this.stuckK) * Math.min(1, dt * 5);
+    const open = this.wake * this.openK;
     const plates = phase >= 3 ? 2 : phase === 2 ? 4 : 6;
-    for (let i = 0; i < 6; i++) {
+    const beatK = boss ? heartbeatPulse(boss.beat) : 0.5;
+    const shake = (rage > 0 ? 0.09 : 0) + dying * 0.14 * (burst ? 0 : 1);
+    const jx = Math.sin(this.time * 53) * shake, jz = Math.cos(this.time * 47) * shake;
+    const tilt = this.stuckK * HEART_LOOK.tilt;
+    // Сорванная пластина летит к кромке колодца и остаётся лежать: прогресс боя виден на полу.
+    if (plates < this.lastPlates) for (let i = plates; i < this.lastPlates; i++) {
       const a = i / 6 * Math.PI * 2 + 0.25;
-      const detached = i >= plates;
-      const spread = detached ? 2.4 + (i % 2) * 0.7 : 0.45 + open * 0.95;
-      const r = spread + this.fracture * 2.2;
-      const y = bodyY + Math.cos(this.time * 1.1 + i) * 0.06 * this.wake - (detached ? 1.8 + (i % 2) * 0.3 : 0) - this.fracture * (2 + i * 0.3);
-      this.matrix.copy(mat(bodyX + Math.sin(a) * r, y, bodyZ + Math.cos(a) * r, (detached ? 0.7 : 0) + open * 0.12, a + this.fracture, (i % 2 ? -1 : 1) * open * 0.24, 1, 1, 1));
+      this.flying[i] = { x: bodyX + Math.sin(a) * 0.9 * S, y: bodyY, z: bodyZ + Math.cos(a) * 0.9 * S,
+        tx: Math.sin(a + 0.4) * 6.4, tz: Math.cos(a + 0.4) * 5.3 - 0.5, t: dt === 0 ? HEART_LOOK.plateFly : 0, spin: (i % 2 ? -1 : 1) * (2 + i) };
+    }
+    this.lastPlates = plates;
+    for (let i = 0; i < 6; i++) {
+      const a = i / 6 * Math.PI * 2 + 0.25 + this.time * 0.05 * (1 - this.stuckK);
+      const detached = i >= plates, fly = this.flying[i];
+      if (detached && fly) {
+        fly.t = Math.min(HEART_LOOK.plateFly, fly.t + dt);
+        const u = fly.t / HEART_LOOK.plateFly;
+        const x = fly.x + (fly.tx - fly.x) * u, z = fly.z + (fly.tz - fly.z) * u;
+        const y = fly.y + (0.15 - fly.y) * u * u + Math.sin(u * Math.PI) * 2.2 - this.fracture * 0.4;
+        this.matrix.copy(mat(x, y, z, 0.9 + fly.spin * (1 - u) * u * 3, a + fly.spin * u, 1.2 * u, S * 0.8, S * 0.8, S * 0.8));
+      } else if (detached) {
+        this.matrix.copy(mat(bodyX + Math.sin(a) * 6, 0.15, bodyZ + Math.cos(a) * 5, 0.9, a, 1.2, S * 0.8, S * 0.8, S * 0.8));
+      } else {
+        // Лепестки: сомкнуты в воздухе, раскрываются, когда Сердце лежит; в ярости дрожат.
+        const r = (0.45 + open * 1.15) * S + this.fracture * 2.2;
+        const y = bodyY + Math.cos(this.time * 1.1 + i) * 0.06 * this.wake - this.fracture * (2 + i * 0.3) + Math.sin(a) * tilt * r * 0.6;
+        const petal = open * 0.55 + rage * 0.15 * Math.sin(this.time * 30 + i);
+        this.matrix.copy(mat(bodyX + jx + Math.sin(a) * r, y, bodyZ + jz + Math.cos(a) * r, petal + tilt * Math.cos(a), a + this.fracture, (i % 2 ? -1 : 1) * open * 0.24, S, S, S));
+      }
       this.heart.setMatrixAt(i, this.matrix);
     }
     for (let i = 0; i < 3; i++) {
@@ -200,14 +252,20 @@ export class CandleSanctum {
     this.fire.instanceMatrix.needsUpdate = true;
     this.chargeRings.instanceMatrix.needsUpdate = true;
     if (this.chargeRings.instanceColor) this.chargeRings.instanceColor.needsUpdate = true;
-    const coreSize = (0.45 + this.wake * 0.55) * (1 + pulse * 0.07 + (exposed ? 0.16 : 0));
-    this.core.position.set(bodyX, bodyY, bodyZ);
-    this.core.scale.setScalar(coreSize);
-    this.core.material.color.set(dead ? '#ffd399' : exposed ? '#ffaf63' : phase === 3 ? '#ff537a' : '#f04a4d');
+    // Ядро: «тук-тук», раскрытое — золотое и крупнее, перед падением — ярко-багровое; в гибели сжимается.
+    const shrink = burst ? 0 : 1 - dying * 0.55;
+    const coreSize = (0.45 + this.wake * 0.55) * S * shrink * (1 + beatK * (exposed ? 0.16 : 0.1) + (exposed ? 0.2 : 0));
+    this.core.position.set(bodyX + jx, bodyY, bodyZ + jz);
+    this.core.scale.setScalar(Math.max(0.001, coreSize));
+    this.core.rotation.set(0, this.time * 0.4, tilt);
+    const tracking = pose === 'track' || pose === 'lock' || pose === 'fall';
+    this.core.material.color.set(dead || burst ? '#ffd399' : dying > 0 ? '#fff1d0' : exposed ? '#ffc46e' : rage > 0 ? '#ff2244' : tracking ? '#ff3a4c' : phase === 3 ? '#ff537a' : '#e0414a');
     this.core.material.color.lerp(GOLD_FIRE, Math.min(1, (boss?.hitFlash ?? 0) * 0.9));
-    this.core.material.opacity = dead ? Math.max(0, 0.6 * (1 - this.fracture)) : 0.08 + this.wake * (0.65 + pulse * 0.18);
-    this.crown.position.set(bodyX, bodyY + 0.6 + this.fracture * 0.5, bodyZ);
-    this.crown.rotation.set(0.15 + phase * 0.03, this.time * (0.015 + this.wake * 0.045), -0.12 - open * 0.2);
+    this.core.material.opacity = dead || burst ? Math.max(0, 0.6 * (1 - this.fracture)) * (burst ? 0 : 1)
+      : 0.08 + this.wake * ((exposed ? 0.82 : tracking || rage > 0 ? 0.76 : 0.66) + beatK * 0.18);
+    this.crown.position.set(bodyX + jx, bodyY + 0.6 * S + this.fracture * 0.5 - this.stuckK * 0.5, bodyZ + jz);
+    this.crown.scale.setScalar(S * (1 + rage * 0.12));
+    this.crown.rotation.set(0.15 + phase * 0.03 + tilt, this.time * (0.015 + this.wake * 0.045 + rage * 2.4), -0.12 - open * 0.2);
     const colors = this.guides.geometry.getAttribute('color') as THREE.BufferAttribute;
     for (let i = 0; i < this.guideSectors.length; i++) {
       const lit = dead || state.lit[this.guideSectors[i]];

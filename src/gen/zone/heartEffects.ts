@@ -16,7 +16,18 @@ export interface HeartEffectsView {
   fields: readonly {id:number;x:number;z:number;r:number;life:number;dur:number;kind:'wax'|'counter'}[];
   carriers: ReadonlyMap<number, {x:number;z:number;dead:boolean;state?:string;stateT?:number}>;
   attack: {kind:string;x:number;z:number;t:number;dur:number;shapes:readonly Shape[];targetIndex?:number}|null;
+  /** Поза боя, точка падения, раскрытие ядра (с) и гибель 0…1 — для тени, столба и золотых искр. */
+  pose?: string;
+  target?: {x:number;z:number};
+  exposed?: number;
+  dying?: number;
 }
+
+/**
+ * Тень падения: shadow — радиус тени под Сердцем (м, как у удара), dark — её плотность при выслеживании и на
+ * метке; motes — искр вокруг раскрытого ядра; pillar — толщина столба от Сердца к метке (м).
+ */
+export const DIVE_LOOK = { shadow: 2.6, dark: [0.32, 0.6] as const, motes: 14, pillar: 0.09 };
 
 const HOT = new THREE.Color('#ff6e2b'), REFLECT = new THREE.Color('#d7a1ff');
 const GOLD = new THREE.Color('#ffdb8a'), DANGER = new THREE.Color('#98243b');
@@ -32,6 +43,10 @@ export class HeartEffects {
   private readonly fields: THREE.InstancedMesh;
   private readonly links: THREE.InstancedMesh;
   private readonly trail: THREE.InstancedMesh;
+  private readonly shadow: THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
+  private readonly lockRing: THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
+  private readonly pillar: THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;
+  private readonly motes: THREE.InstancedMesh;
   private readonly soulHistory: THREE.Vector3[]=[];
   private readonly tempColor = new THREE.Color();
   private time=0;
@@ -57,6 +72,19 @@ export class HeartEffects {
     this.trail.name='soul-trail';
     for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links,this.trail]) {mesh.count=0;mesh.frustumCulled=false;this.group.add(mesh);}
     this.group.add(this.soul);
+    // Тень падения — тёмный диск на полу, а не ещё одно свечение: где будет Сердце, видно сразу.
+    const disk=new THREE.CircleGeometry(1,40); disk.rotateX(-Math.PI/2);
+    this.shadow=new THREE.Mesh(disk,new THREE.MeshBasicMaterial({color:'#05010a',transparent:true,opacity:0,depthWrite:false}));
+    this.shadow.name='heart-dive-shadow'; this.shadow.renderOrder=3;
+    const ring=new THREE.RingGeometry(0.9,1,48); ring.rotateX(-Math.PI/2);
+    this.lockRing=new THREE.Mesh(ring,new THREE.MeshBasicMaterial({color:HOT,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+    this.lockRing.name='heart-dive-lock';
+    this.pillar=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial({color:HOT,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+    this.pillar.name='heart-dive-pillar';
+    this.motes=new THREE.InstancedMesh(octa(0.09,0.16,0.09),bright,DIVE_LOOK.motes);
+    this.motes.name='heart-core-motes';
+    for(const mesh of [this.shadow,this.lockRing,this.pillar,this.motes]){mesh.frustumCulled=false;mesh.visible=false;this.group.add(mesh);}
+    this.motes.count=0;
   }
 
   update(dt:number,v:HeartEffectsView):void {
@@ -106,12 +134,6 @@ export class HeartEffects {
         this.links.setColorAt(links,this.tempColor);links++;
       }
     }
-    // Большой направленный импульс получает видимую нить от Сердца к уже зафиксированной цели.
-    if(visible&&v.attack?.kind==='blast'&&links<MAX_LINKS){
-      const a=v.attack,dx=a.x-v.body.x,dz=a.z-v.body.z,len=Math.hypot(dx,dz),k=Math.min(1,a.t/Math.max(.01,a.dur));
-      this.links.setMatrixAt(links,mat(v.body.x+dx/2,0.18,v.body.z+dz/2,0,Math.atan2(dx,dz),0,0.05+k*.12,0.025,len));
-      this.links.setColorAt(links,HOT);links++;
-    }
     // Новая оболочка вырастает из огня Сердца: нить и бегущая искра направлены к рождающемуся врагу.
     if(visible)for(const e of v.carriers.values()) {
       if(e.dead||e.state!=='spawn'||(e.stateT??0)>.8||links+1>=MAX_LINKS)continue;
@@ -123,8 +145,38 @@ export class HeartEffects {
       this.links.setColorAt(links,GOLD);links++;
     }
     this.links.count=links;
-    for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links]){mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;}
+    this.updateDive(v,visible);
+    for(const mesh of [this.shots,this.halos,this.carriers,this.fields,this.links,this.motes]){mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;}
     if(this.soul.visible)this.soul.scale.setScalar(1+Math.sin(this.time*5)*0.08);
+  }
+
+  /** Тень и столб над меткой падения; золотые искры над раскрытым ядром. */
+  private updateDive(v:HeartEffectsView,visible:boolean):void {
+    const pose=v.pose??'', airborne=visible&&(pose==='track'||pose==='lock'||pose==='fall');
+    const t=v.target??{x:v.body.x,z:v.body.z};
+    this.shadow.visible=airborne; this.lockRing.visible=this.pillar.visible=airborne&&pose!=='track';
+    if(airborne){
+      // Чем ниже Сердце, тем гуще и мельче тень: падение читается по полу.
+      const h=Math.max(0,Math.min(1,(v.body.y-1)/6.4)), r=DIVE_LOOK.shadow*(0.75+h*0.35);
+      this.shadow.position.set(t.x,0.06,t.z); this.shadow.scale.set(r,1,r);
+      this.shadow.material.opacity=pose==='track'?DIVE_LOOK.dark[0]:DIVE_LOOK.dark[1]*(0.85+Math.sin(this.time*18)*0.15);
+      const pulse=0.55+0.45*Math.sin(this.time*14);
+      this.lockRing.position.set(t.x,0.08,t.z); this.lockRing.scale.set(DIVE_LOOK.shadow,1,DIVE_LOOK.shadow);
+      this.lockRing.material.opacity=0.5+pulse*0.4;
+      const top=Math.max(0.5,v.body.y-0.6);
+      this.pillar.position.set(t.x,top/2,t.z); this.pillar.scale.set(DIVE_LOOK.pillar,top,DIVE_LOOK.pillar);
+      this.pillar.material.opacity=0.35+pulse*0.35;
+    }
+    const open=visible&&(v.exposed??0)>0&&(pose==='stuck'||pose==='knock');
+    const dying=visible&&(v.dying??0)>0;
+    let motes=0;
+    if(open||dying)for(let i=0;i<DIVE_LOOK.motes;i++){
+      // Искры поднимаются из раскрытого ядра: открытое место видно и издалека.
+      const u=(this.time*0.7+i/DIVE_LOOK.motes)%1, a=i*2.4+this.time*(dying?3:1.1), r=(dying?0.8:1.4)+u*(dying?0.4:1.2);
+      this.motes.setMatrixAt(motes,mat(v.body.x+Math.sin(a)*r,v.body.y+u*2.6-0.4,v.body.z+Math.cos(a)*r,0,a,0,1-u*0.6,1-u*0.6,1-u*0.6));
+      this.motes.setColorAt(motes,dying?REFLECT:GOLD);motes++;
+    }
+    this.motes.count=motes; this.motes.visible=motes>0;
   }
 
   setSoul(x:number,y:number,z:number,visible:boolean):void {

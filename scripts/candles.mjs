@@ -34,7 +34,8 @@ try{for(const q of qualities){
      s.phases.add(r.phase);
      // Accelerated carrier deaths verify their fire interaction, not the difficulty of clearing adds.
      for(const e of r.carriers.values()){if(e.dead)continue;if(!s.born.has(e))s.born.set(e,w.time);if(w.time-s.born.get(e)>4){e.hp=1;w.damageEnemy(e,{mult:1,stun:0,knockback:0,feel:'light',dirX:0,dirZ:1,source:'blade'});}}
-     if(!r.lit.some(Boolean)&&r.visibilityAt(0,r.centerZ+12)===0)s.maxDark=Math.max(...b.flames.mesh.geometry.getAttribute('iLit').array);
+     // Гибель возвращает огонь волной от ядра: гашение проверяется только в живом бою.
+     if(!r.lit.some(Boolean)&&!r.dying&&r.visibilityAt(0,r.centerZ+12)===0)s.maxDark=Math.max(...b.flames.mesh.geometry.getAttribute('iLit').array);
      if(r.phase===1&&r.attack&&!s.shots.has('phase-1'))shot='phase-1';
      if(r.shots.some(p=>p.reflected)&&!s.shots.has('reflection'))shot='reflection';
      if(r.metrics.counters>0&&!s.shots.has('counter'))shot='counter';
