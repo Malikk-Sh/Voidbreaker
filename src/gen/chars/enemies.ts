@@ -486,6 +486,8 @@ export function buildPsalmist(seed = 8): RigBuild {
 }
 
 // ------------------------------------------------------------------ Тяжёлый двуногий (Голем)
+/** Малый колокол на спине Звонаря — тёмная, почти чёрная бронза. */
+const BELL_BACK = hexToLinear('#2b2219');
 /** Подвес в короне чаши Звонаря, в локальных координатах груди до умножения на масштаб. */
 export const BELL_PIVOT: [number, number, number] = [0, 2, -0.3];
 /** Тот же участок колокола, что прежний chest-point (0, 1, -1.2), теперь относительно подвеса. */
@@ -629,7 +631,8 @@ export function buildBrute(seed = 5, s = 1, opts: { halberd?: boolean; bell?: bo
     b.matrix.multiply(mat(-BELL_PIVOT[0] * s, -BELL_PIVOT[1] * s, -BELL_PIVOT[2] * s));
     const bell = lathe([[0.05, 0], [0.9, 0.12], [0.8, 0.5], [0.55, 1.2], [0.5, 1.55], [0.25, 1.75], [0, 1.8]], 12);
     bell.scale(s, s, s);
-    b.add(bell, { matrix: mat(0, 0.3 * s, -0.9 * s, 0.35, 0, 0), color: BRONZE });
+    // чёрная треснувшая бронза: малый колокол — часть доспеха, не спорит с Великим колоколом зала
+    b.add(bell, { matrix: mat(0, 0.3 * s, -0.9 * s, 0.35, 0, 0), color: BELL_BACK });
     b.add(prism(12, 0.85 * s, 0.85 * s, 0.05 * s), { matrix: mat(0, 0.36 * s, -0.95 * s, 0.35, 0, 0), emissive: 0.8 });
     for (const y of [0.55, 1.0]) b.add(prism(12, (0.83 - y * 0.25) * s, (0.83 - y * 0.25) * s, 0.06 * s, true), { matrix: mat(0, (0.3 + y * 0.94) * s, (-0.9 - y * 0.34) * s, 0.35, 0, 0), color: OBS2 });
     b.matrix.copy(beforeBell);

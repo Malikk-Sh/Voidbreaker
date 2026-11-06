@@ -1192,7 +1192,9 @@ export class Battle {
       const d = Math.hypot(focusBoss.x - h.x, focusBoss.z - h.z);
       zoom = Math.max(1, Math.min(1.35, 0.85 + d / 22)) * (this.boss?.zoomMul ?? 1);
       // рамка босса (план §5.3, п. 4): верх модели не выше 78 % высоты экрана — иначе отъезжаем
-      _top.set(focusBoss.x, (focusBoss as { height?: number }).height ?? 4, focusBoss.z).project(this.ctx.renderer.camera);
+      // Звонарь на маковке колокола — верх модели выше на высоту колокола
+      const lift = (focusBoss as { riding?: boolean }).riding ? (focusBoss as { y?: number }).y ?? 0 : 0;
+      _top.set(focusBoss.x, lift + ((focusBoss as { height?: number }).height ?? 4), focusBoss.z).project(this.ctx.renderer.camera);
       const frac = (_top.y + 1) / 2;
       if (frac > 0.78) this.bossFrame = Math.min(0.8, this.bossFrame + realDt * 0.9);
       else if (frac < 0.7) this.bossFrame = Math.max(0, this.bossFrame - realDt * 0.4);
@@ -1694,6 +1696,8 @@ export class Battle {
     }
     // Страж проявился — добивающий удар по оглушённому: дальше kill-cam как в бою
     if (e && !R.seen && !this.director.active && e.state !== 'spawn' && !e.killcam) {
+      // Звонарь умирает только в III фазе: колокол уже лежит, язык в руках
+      if (e instanceof BellRinger) e.skipToFinale();
       e.hp = Math.min(e.hp, 5);
       (e as unknown as { cur: unknown }).cur = null;
       w.stunEnemy(e);

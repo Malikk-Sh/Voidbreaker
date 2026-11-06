@@ -210,7 +210,11 @@ export class Hud {
     this.drawHeroPanel(f, L, T, s);
     if (f.heart) drawHeartBar(g,f.heart,this.w/2,T,s);
     else if (f.boss) this.drawBossBar(s, T, f.boss, f.bossName, f.bossPhases, f.bossPhase);
-    else if (f.guardian && !f.guardian.dead) this.drawBossBar(s, T, f.guardian, f.guardian.def.name, [], 0);
+    else if (f.guardian && !f.guardian.dead) {
+      // Звонарь: ромбы на порогах HP, которые держит колокол, и фаза по целым верёвкам
+      const g = f.guardian as Enemy & { hudPhases?: readonly number[]; phase?: number };
+      this.drawBossBar(s, T, f.guardian, f.guardian.def.name, g.hudPhases ? [...g.hudPhases] : [], g.hudPhases ? g.phase ?? 0 : 0);
+    }
     else this.drawStageTop(f, s, T);
     this.topEdge = T + (f.heart || f.boss || (f.guardian && !f.guardian.dead) ? 92 : 52) * s;
     this.drawPause(R, T, s);

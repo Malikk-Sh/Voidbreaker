@@ -350,6 +350,7 @@ export class FeelSystem {
         this.time.addHitstop(0.08);
         this.hud.flashText('ЗВОН', '#B794FF', e.x, e.y + 1, e.z, true);
       }),
+      ...this.greatBellFeel(),
       ...this.heartFeel(),
       // Страж Врат: пробежка по древку и удар в шлем
       b.on('shaftRun', (e) => {
@@ -513,6 +514,87 @@ export class FeelSystem {
    * Погребальное сердце: вес падения, звон закрытой брони, сбитое на пол ядро, ярость между фазами и гибель.
    * Всё — реакцией мира, без текстовых подсказок: что открыто и что опасно, читается по свету, звуку и обломкам.
    */
+  /** Великий колокол Звонаря («Маятник»): проход, натянутая верёвка перерублена, звон тумбы, падение, язык. */
+  private greatBellFeel(): (() => void)[] {
+    const b = this.w.bus, soft = () => this.settings.photosensitive || !this.settings.flashes;
+    let mountHint = false, wardHint = false;
+    return [
+      b.on('bellPass', (e) => {
+        this.audio.play('swing_heavy', { gain: 0.9, pitch: 0.55, pan: this.pan(e.x) });
+        this.audio.play('boss_bell', { gain: 0.4, pitch: 0.7, pan: this.pan(e.x) });
+        this.cam.addTrauma(0.06);
+      }),
+      b.on('bellSpin', (e) => {
+        this.audio.play('swing_heavy', { gain: 1, pitch: 0.45, pan: this.pan(e.x) });
+        this.audio.play('boss_bell', { gain: 0.5, pitch: 0.6, pan: this.pan(e.x) });
+        this.cam.addTrauma(0.12);
+      }),
+      b.on('bellRope', (e) => {
+        // перерублена натянутая верёвка: золотые искры, щелчок, колокол отвечает гулом
+        const q = this.vfx.quality;
+        this.time.addHitstop(0.1);
+        this.cam.addTrauma(0.5);
+        this.cam.zoomPunch += 0.04;
+        this.vfx.burst(Math.round(18 * q), { x: e.x, y: 0.6, z: e.z, life: 0.6, size: 0.12, size1: 0.02, color: C.gold, gravity: -8, drag: 1.4, frame: 'spark', stretch: 1.2 }, { v: 7, vy: 5 });
+        this.vfx.rings.spawn(e.x, e.z, 0.4, 3.5, 0.45, C.gold, 0.5, soft() ? 0.5 : 1);
+        this.vfx.lights.flash(e.x, 1, e.z, C.gold, 6, 6, 0.4);
+        this.audio.play('thread_snap', { gain: 1, pitch: 0.6, pan: this.pan(e.x) });
+        this.audio.play('bell_crack', { gain: 0.55, pitch: 1.1, pan: this.pan(e.x), delay: 0.04 });
+        this.audio.play('boss_bell', { gain: 0.7, pitch: 0.8, delay: 0.1 });
+        this.hud.flashText(e.left ? `ВЕРЁВКА · ОСТАЛОСЬ ${e.left}` : 'КОЛОКОЛ ПАДАЕТ', '#FFD27A', e.x, 1.6, e.z, true);
+        this.input.vibrate(60);
+      }),
+      b.on('bellClank', (e) => {
+        // ослабленная верёвка не рубится: звон железа о тумбу
+        this.vfx.hitSparks(e.x, 0.55, e.z, 0, 1, 0.5, false);
+        this.audio.play('hit_armor', { gain: 0.5, pitch: 0.8, pan: this.pan(e.x) });
+      }),
+      b.on('bellDrop', (e) => {
+        this.audio.play('boss_bell', { gain: 1, pitch: 0.5, pan: this.pan(e.x) });
+        this.audio.play('tele_bell', { gain: 0.8, pan: this.pan(e.x) });
+        this.cam.addTrauma(0.3);
+      }),
+      b.on('bellFall', (e) => {
+        // колокол рухнул: удар по всему залу, бронзовая крошка, пыль кольцом
+        const q = this.vfx.quality;
+        this.time.addHitstop(0.14);
+        this.cam.addTrauma(0.9);
+        this.cam.zoomPunch += 0.06;
+        this.vfx.debris.burst(e.x, 0.6, e.z, 0, 0, Math.round(26 * q), 9, 0.3);
+        this.vfx.burst(Math.round(16 * q), { x: e.x, y: 0.3, z: e.z, life: 1.2, size: 0.8, size1: 2.2, color: C.dust, alpha: 0.5, drag: 2.2, frame: 'smoke' }, { v: 6, vy: 0.6 }, false);
+        this.vfx.rings.spawn(e.x, e.z, 1, 12, 0.9, C.gold, 0.55, soft() ? 0.5 : 1);
+        this.vfx.lights.flash(e.x, 1.5, e.z, C.ember, 7, 12, 0.6);
+        this.audio.play('land_impact', { gain: 1, pitch: 0.6, pan: this.pan(e.x) });
+        this.audio.play('bell_crack', { gain: 1, pitch: 0.75, pan: this.pan(e.x), delay: 0.03 });
+        this.audio.play('boss_bell', { gain: 1, pitch: 0.4, delay: 0.06 });
+        this.audio.play('shatter_stone', { gain: 0.6, pitch: 0.8, pan: this.pan(e.x), delay: 0.08 });
+        this.input.vibrate(120);
+      }),
+      b.on('bellWard', (e) => {
+        // удар ушёл в колокол: ниже порога Звонаря не опустить, пока целы верёвки
+        this.vfx.rings.spawn(e.x, e.z, 1.6, 2.8, 0.3, C.gold, 0.4, soft() ? 0.4 : 0.8);
+        this.audio.play('hit_armor', { gain: 0.35, pitch: 1.4, pan: this.pan(e.x) });
+        if (!wardHint) { wardHint = true; this.hud.showHint('Колокол держит Звонаря — сначала руби верёвки'); }
+      }),
+      b.on('bellMount', (e) => {
+        this.audio.play('bell_strike', { gain: 0.5, pitch: 0.7, pan: this.pan(e.x) });
+        if (!mountHint) { mountHint = true; this.hud.showHint('Колокол замирает на краю — руби золотую верёвку у тумбы'); }
+      }),
+      b.on('bellLeap', (e) => this.audio.play('swing_heavy', { gain: 0.5, pitch: 1.25, pan: this.pan(e.x) })),
+      b.on('bellThrown', (e) => {
+        this.audio.play('boss_roar', { gain: 0.55, pitch: 1.25, pan: this.pan(e.x) });
+        this.cam.addTrauma(0.25);
+      }),
+      b.on('bellClapper', (e) => {
+        // язык вырван из колокола: крошка бронзы, лязг цепи
+        this.vfx.debris.burst(e.fromX, 1.2, e.fromZ, 0, 0, Math.round(12 * this.vfx.quality), 6, 0.2);
+        this.vfx.lights.flash(e.fromX, 1.5, e.fromZ, C.gold, 4, 6, 0.4);
+        this.audio.play('bell_crack', { gain: 0.8, pitch: 1.2, pan: this.pan(e.x) });
+        this.audio.play('chain_drop', { gain: 0.6, pan: this.pan(e.x), delay: 0.1 });
+      }),
+    ];
+  }
+
   private heartFeel(): (() => void)[] {
     const b = this.w.bus, soft = () => this.settings.photosensitive || !this.settings.flashes;
     return [

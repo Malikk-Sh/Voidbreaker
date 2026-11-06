@@ -18,6 +18,7 @@ import { Hero } from './hero';
 import { ShadowCopy } from './shadow';
 import { RankTracker } from './rank';
 import type { AbilityHost } from './abilityHost';
+import type { GreatBell } from './boss/greatBell';
 
 export interface StrikeParams {
   mult: number;
@@ -151,6 +152,8 @@ export class World {
   /** Свечи арены гаснут по кругу, пока Звонарь заряжает сильный удар (план §7.4): доля круга 0..1 и его начало. */
   /** Колокола-спутники Иерофанта (фаза III): позиция и свечение перед звоном — для рендера. */
   bellSats: { x: number; y: number; z: number; glow: number }[] = [];
+  /** Великий колокол Колокольни (Звонарь, «Маятник»): верёвки, качание, падение — для рендера и ботов. */
+  greatBell: GreatBell | null = null;
   candlesOut = 0;
   candlesFrom = 0;
   /** Временные стены (цепи Звонаря): укрытия арены с таймером; навигация перестраивается по версии арены. */
@@ -251,10 +254,10 @@ export class World {
     const list = this.enemies;
     for (let i = 0; i < list.length; i++) {
       const a = list[i];
-      if (a.dead || a.state === 'spawn') continue;
+      if (a.dead || a.state === 'spawn' || a.aloft) continue;
       for (let j = i + 1; j < list.length; j++) {
         const b = list[j];
-        if (b.dead || b.state === 'spawn') continue;
+        if (b.dead || b.state === 'spawn' || b.aloft) continue;
         this.separate(a, b, 1);
       }
       if (heroSolid) this.separate(h, a, 1);
@@ -826,6 +829,7 @@ export class World {
     this.candlesOut = 0;
     this.shadows.length = 0;
     this.aimTargets.clear();
+    this.greatBell?.dispose(); this.greatBell = null;
     this.enemies.length = 0; this.projectiles.length = 0; this.telegraphs.length = 0; this.hazards.length = 0; this.pickups.length = 0; this.ringWaves.length = 0;
     this.stepHooks.length = 0;
   }

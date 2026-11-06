@@ -55,11 +55,16 @@ describe('паттерны Стражей и Иерофанта (Tech §17)', ()
   }
 
   it('стражи: у второй фазы есть собственные приёмы', () => {
-    for (const make of [() => new GateGuardian({ zone: 0, stage: 2 }), () => new BellRinger({ zone: 0, stage: 4 })]) {
-      const e = attach(make());
-      expect(e.patterns.some((p) => p.phases.includes(2) && !p.phases.includes(1))).toBe(true);
-      expect(e.patterns.filter((p) => p.phases.includes(1)).every((p) => p.phases.includes(2))).toBe(true);
-    }
+    const e = attach(new GateGuardian({ zone: 0, stage: 2 }));
+    expect(e.patterns.some((p) => p.phases.includes(2) && !p.phases.includes(1))).toBe(true);
+    expect(e.patterns.filter((p) => p.phases.includes(1)).every((p) => p.phases.includes(2))).toBe(true);
+  });
+
+  it('Звонарь: у каждой из трёх фаз (по целым верёвкам колокола) свои приёмы', () => {
+    const e = attach(new BellRinger({ zone: 0, stage: 4 }));
+    for (const ph of [1, 2, 3]) expect(e.patterns.filter((p) => p.phases.includes(ph)).length, `фаза ${ph}`).toBeGreaterThanOrEqual(2);
+    expect(e.patterns.some((p) => p.phases.includes(2) && p.phases.length === 1)).toBe(true);
+    expect(e.patterns.some((p) => p.phases.includes(3) && p.phases.length === 1)).toBe(true);
   });
 
   it('Иерофант: кольцевые волны всегда с разрывами', () => {

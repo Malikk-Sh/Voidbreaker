@@ -159,6 +159,30 @@ export interface GameEvents {
   heartStoneHit: { x: number; z: number; index: number; left: number; heavy: boolean };
   /** Жернов разбит: left — сколько жерновов ещё цело. */
   heartStoneBreak: { x: number; z: number; index: number; left: number };
+  /** Великий колокол (Звонарь): перерублена верёвка у тумбы; left — сколько верёвок цело. */
+  bellRope: { x: number; z: number; index: number; left: number };
+  /** Удар по ненатянутой тумбе: звон, искры, верёвка цела. */
+  bellClank: { x: number; z: number };
+  /** Колокол сорвался с паузы маятника и пошёл через зал (dirX, dirZ — куда). */
+  bellPass: { x: number; z: number; dirX: number; dirZ: number };
+  /** Звонарь раскрутил колокол по кругу. */
+  bellSpin: { x: number; z: number };
+  /** Колокол ударил героя. */
+  bellHit: { x: number; z: number };
+  /** Последняя верёвка срезана: колокол срывается в центр (dur — до удара). */
+  bellDrop: { x: number; z: number; dur: number };
+  /** Колокол рухнул на пол. */
+  bellFall: { x: number; z: number };
+  /** Удар по Звонарю ушёл в колокол: ниже порога HP не опустить, пока целы верёвки (left). */
+  bellWard: { x: number; z: number; left: number };
+  /** Звонарь вскочил на маковку колокола. */
+  bellMount: { x: number; z: number };
+  /** Звонарь прыгнул (с колокола, на колокол, в центр). */
+  bellLeap: { x: number; z: number };
+  /** Рывок срезанной верёвки сбросил Звонаря с колокола. */
+  bellThrown: { x: number; z: number };
+  /** III фаза: Звонарь вырвал язык из рухнувшего колокола (from — колокол). */
+  bellClapper: { x: number; z: number; fromX: number; fromZ: number };
   /** Сердце собрало разбитый жернов заново (новая фаза). */
   heartStoneRegrow: { x: number; z: number; index: number };
   /** Жернов бросил каменный диск по направлению (dx, dz). */

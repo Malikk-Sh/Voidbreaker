@@ -15,7 +15,7 @@ export interface SpawnDef {
 
 export interface WaveDef {
   spawns: SpawnDef[];
-  triggers?: { when: 'eliteHp<0.5' | 'guardianHp<0.5' | 'alive<3'; spawn: SpawnDef }[];
+  triggers?: { when: 'eliteHp<0.5' | 'guardianHp<0.5' | 'guardianPhase2' | 'alive<3'; spawn: SpawnDef }[];
   /** Музыка/подсказки: волна со Стражем. */
   guardian?: boolean;
 }
@@ -124,11 +124,10 @@ export const ZONE1: StageDef[] = [
       { spawns: [{ enemy: 'husk', count: 10, pattern: 'ring', stagger: 0.08 }, { enemy: 'acolyte', count: 2, at: ['left', 'right'], delay: 1.5 }] },
       // Големы (оглушение и Раскол) под огнём Ок
       { spawns: [{ enemy: 'golem', count: 2, pattern: 'far' }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 1 }, { enemy: 'husk', count: 4, pattern: 'ring', delay: 3 }] },
-      // Звонарь
+      // Звонарь («Маятник»): во II фазе шелуха лезет на колокольню — кружащий колокол сметает её
       { guardian: true, spawns: [{ enemy: 'bellRinger', count: 1, at: ['top'] }],
         triggers: [
-          { when: 'guardianHp<0.5', spawn: { enemy: 'reaper', count: 2, pattern: 'edges' } },
-          { when: 'guardianHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.12 } },
+          { when: 'guardianPhase2', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.12 } },
         ] },
     ],
   },

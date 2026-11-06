@@ -1022,7 +1022,7 @@ export class FuneralHeart implements FuneralHeartView {
   }
 }
 
-function slashShape(event: GameEvents['slash']): Shape {
+export function slashShape(event: GameEvents['slash']): Shape {
   const h = event.hit, dx = Math.sin(event.facing), dz = Math.cos(event.facing);
   switch (h.shape) {
     case 'arc': return { k: 'arc', x: event.x, z: event.z, r: h.radius * event.reach, dir: event.facing, half: h.angle * Math.PI / 360 };

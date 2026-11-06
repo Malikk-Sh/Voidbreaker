@@ -16,6 +16,8 @@ function setup(make: () => ScriptedEnemy, arena: string) {
   e.x = 0; e.z = 0;
   w.addEnemy(e);
   e.setState('idle');
+  // Звонарь умирает только в III фазе: колокол рухнул, порогов HP нет
+  if (e instanceof BellRinger) e.skipToFinale();
   const cams: unknown[] = [];
   w.bus.on('killcam', (ev) => cams.push(ev.target));
   return { w, e, cams };
