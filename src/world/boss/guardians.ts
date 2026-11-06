@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { angleOf } from '../../core/math';
-import { BipedGait, bipedJoints, setJoint, type BipedJoints } from '../../anim/locomotion';
+import { addJoint, BipedGait, bipedJoints, setJoint, type BipedJoints } from '../../anim/locomotion';
 import { layoutOf } from '../../anim/puppet';
 import { ENEMIES } from '../../data/enemies';
-import { BELL_CONTACT, bruteRig } from '../../gen/chars/enemies';
+import { BELL_CONTACT, bruteRig, ringerRig } from '../../gen/chars/enemies';
 import type { SpawnOpts } from '../enemy';
 import { resetStunHabit } from '../actor';
 import type { StunKind } from '../../data/weapons';
@@ -108,10 +108,12 @@ abstract class BruteGuardian extends ScriptedEnemy {
   private lastStep = 0;
 
   constructor(kind: 'gateGuardian' | 'bellRinger', scale: number, o: SpawnOpts) {
-    const layout = layoutOf(bruteRig(kind, scale));
+    // Звонарь — сгорбленный акробат на своём риге: шаг длиннее и легче, чем у каменного Стража
+    const ringer = kind === 'bellRinger';
+    const layout = layoutOf(ringer ? ringerRig(scale) : bruteRig(kind, scale));
     super(ENEMIES[kind], layout, o);
     this.J = bipedJoints(layout);
-    this.gait = new BipedGait(2.8 * scale / 1.65, 2.2, true);
+    this.gait = new BipedGait((ringer ? 3.2 : 2.8) * scale / 1.65, 2.2, !ringer);
     this.approach = 2.6;
   }
 
@@ -178,6 +180,11 @@ abstract class BruteGuardian extends ScriptedEnemy {
     super.think(w, dt, tick);
   }
 
+  /** Поправка позы поверх походки и ключевой позы (до расчёта скелета). */
+  protected shapePose(_out: Float32Array, _dt: number): void {}
+  /** Поправка после расчёта скелета (опора стоп). */
+  protected groundPose(_dt: number): void {}
+
   protected animate(dt: number, w: World): void {
     const s = this.puppet.skel, L = s.layout, out = s.rot;
     const sp = Math.hypot(this.vx, this.vz);
@@ -188,10 +195,12 @@ abstract class BruteGuardian extends ScriptedEnemy {
     if (st !== this.lastStep && walking && sp > 0.4) { this.lastStep = st; w.bus.emit('impact', { x: this.x, z: this.z, r: 1.6, kind: 'land' }); }
     const pose = this.blendPose(dt);
     for (const [j, e] of pose) setJoint(out, L, j, e[0], e[1], e[2]);
+    this.shapePose(out, dt);
     s.x = this.x; s.z = this.z; s.facing = this.facing;
     s.y = this.y + (this.killcam ? 0 : this.gait.bob * 1.4) - (this.state === 'stunned' || this.killcam ? 0.7 : 0);
     s.tiltX = this.puppet.springZ * 0.06; s.tiltZ = -this.puppet.springX * 0.06;
     s.update();
+    this.groundPose(dt);
     this.puppet.boost = this.coreGlow * 1.2 + (this.vulnerableT > 0 ? 0.5 : 0);
     this.coreGlow = Math.max(0, this.coreGlow - dt);
   }
@@ -636,7 +645,7 @@ export class BellRinger extends BruteGuardian implements BellOwner {
     return super.invulnerable || this.riding || id === 'clapper' || id === 'hub';
   }
 
-  /** Центр колокола на спине. */
+  /** Трещина на горбе-колоколе (точка удара добивания). */
   bellPoint(out: { x: number; y: number; z: number }): void {
     const L = this.puppet.layout, s = 1.45;
     this.puppet.skel.jointPoint(L.idx('bell'), BELL_CONTACT[0] * s, BELL_CONTACT[1] * s, BELL_CONTACT[2] * s, _p);
@@ -649,7 +658,7 @@ export class BellRinger extends BruteGuardian implements BellOwner {
     return (Math.sin(this.facing) * dx + Math.cos(this.facing) * dz) / l < Math.cos((BELL_BACK_DEG * Math.PI) / 180);
   }
 
-  /** Колокол на спине — оружие героя: полный заряженный удар сзади. */
+  /** Горб-колокол — оружие героя: полный заряженный удар сзади звонит в него. */
   override onBladeHit(w: World, p: StrikeParams, kind: StunKind): void {
     if (kind !== 'charged' || p.feel !== 'heavy' || !this.heroBehind(w)) return;
     this.bellPoint(_b);
@@ -951,7 +960,61 @@ export class BellRinger extends BruteGuardian implements BellOwner {
     this.puppet.boost += this.bellFlash * 1.4;
     this.bellFlash = Math.max(0, this.bellFlash - dt * 3);
   }
+
+  private stance = 0; private ground = 0;
+  private readonly sway = { x: 0, vx: 0, z: 0, vz: 0, px: 0, pz: 0, py: 0, ux: 0, uz: 0, uy: 0, init: false };
+
+  /**
+   * Акробат: в покое и на ходу — полуприсед (ноги, которые не задала ключевая поза); горб-колокол раскачивается на
+   * маковке, отставая от рывков тела, и вздрагивает при приземлении.
+   */
+  protected override shapePose(out: Float32Array, dt: number): void {
+    if (this.killcam || dt <= 0) return;
+    const L = this.puppet.layout, P = RINGER_POSES[this.poseId], S = RINGER_STANCE;
+    const free = !P?.hipL && this.state !== 'stunned';
+    this.stance += ((free ? 1 : 0) - this.stance) * Math.min(1, dt * 6);
+    if (this.stance > 0.01) {
+      const k = this.stance;
+      for (const side of ['L', 'R'] as const) {
+        addJoint(out, L.idx('hip' + side), S.hip * k, 0, 0);
+        addJoint(out, L.idx('knee' + side), S.knee * k, 0, 0);
+        addJoint(out, L.idx('foot' + side), S.foot * k, 0, 0);
+      }
+    }
+    // качание горба: пружина на маковке, её толкает ускорение тела в его же осях
+    const w = this.sway;
+    if (!w.init) { w.init = true; w.px = this.x; w.pz = this.z; w.py = this.y; }
+    const vx = (this.x - w.px) / dt, vz = (this.z - w.pz) / dt, vy = (this.y - w.py) / dt;
+    const ax = (vx - w.ux) / dt, az = (vz - w.uz) / dt, ay = (vy - w.uy) / dt;
+    w.px = this.x; w.pz = this.z; w.py = this.y; w.ux = vx; w.uz = vz; w.uy = vy;
+    const fx = Math.sin(this.facing), fz = Math.cos(this.facing);
+    const fwd = Math.max(-60, Math.min(60, ax * fx + az * fz)), side = Math.max(-60, Math.min(60, ax * fz - az * fx)), up = Math.max(-80, Math.min(80, ay));
+    w.vx += (-S.swayK * w.x - S.swayDamp * w.vx - fwd * S.swayPush + up * S.swayDrop) * dt;
+    w.vz += (-S.swayK * w.z - S.swayDamp * w.vz + side * S.swayPush) * dt;
+    w.x = Math.max(-S.swayMax, Math.min(S.swayMax, w.x + w.vx * dt));
+    w.z = Math.max(-S.swayMax, Math.min(S.swayMax, w.z + w.vz * dt));
+    if (!P?.bell) addJoint(out, L.idx('bell'), w.x, 0, w.z);
+  }
+
+  /** Стопы — на полу или на маковке колокола: присед и позы не оставляют Звонаря висеть в воздухе. */
+  protected override groundPose(dt: number): void {
+    const s = this.puppet.skel, L = s.layout;
+    const onBell = this.riding && !!this.bell;
+    if (this.killcam || this.state === 'stunned' || this.hop || this.move || (!onBell && this.y > 0.05)) { this.ground += (0 - this.ground) * Math.min(1, dt * 10); if (Math.abs(this.ground) > 1e-3) { s.y += this.ground; s.update(); } return; }
+    const low = Math.min(s.jointPos(L.idx('footL'), _gv).y, s.jointPos(L.idx('footR'), _gv).y);
+    const floor = onBell ? this.bell!.topY : 0;
+    const want = Math.max(-0.8, Math.min(0.8, floor - low));
+    this.ground += (want - this.ground) * Math.min(1, dt * 14);
+    s.y += this.ground; s.update();
+  }
 }
+
+/**
+ * Стойка Звонаря (рад): полуприсед, добавленный к походке, когда ключевая поза не задаёт ноги; качание горба —
+ * жёсткость и затухание пружины, сколько толкает ускорение тела (рад на м/с²) и приземление, предел наклона.
+ */
+const RINGER_STANCE = { hip: -0.42, knee: 0.85, foot: -0.4, swayK: 38, swayDamp: 5.5, swayPush: 0.0035, swayDrop: 0.0016, swayMax: 0.28 };
+const _gv = new THREE.Vector3();
 
 registerEnemy('gateGuardian', GateGuardian);
 registerEnemy('bellRinger', BellRinger);

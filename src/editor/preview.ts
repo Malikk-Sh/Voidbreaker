@@ -10,7 +10,7 @@ import { Renderer } from '../render/renderer';
 import { G } from '../render/materials';
 import { RigBatch } from '../render/rigbatch';
 import { buildHierophant } from '../gen/chars/hierophant';
-import { buildBrute } from '../gen/chars/enemies';
+import { buildBrute, buildRinger } from '../gen/chars/enemies';
 import { buildShip, buildCathedralRing } from '../gen/zone/space';
 import { PROLOGUE_T, SPACE } from '../game/prologueTracks';
 import { BASIS, BOSS_CLIPS, MASK, type SceneSpec } from './catalog';
@@ -120,7 +120,7 @@ export class StudioPreview {
     if (this.bossBatch) { this.renderer.scene.remove(this.bossBatch.mesh); this.bossBatch.dispose(); this.bossBatch = null; }
     this.bossPuppet = null;
     if (['hierophant', 'gate', 'bell'].includes(spec.model)) {
-      const b = spec.model === 'hierophant' ? buildHierophant() : buildBrute(5, spec.model === 'gate' ? 1.65 : 1.45, { halberd: spec.model === 'gate', bell: spec.model === 'bell' });
+      const b = spec.model === 'hierophant' ? buildHierophant() : spec.model === 'bell' ? buildRinger(22, 1.45) : buildBrute(5, 1.65, { halberd: true });
       this.bossPuppet = new Puppet(layoutOf(b.rig), spec.model === 'hierophant' ? BOSS_CLIPS : []);
       this.bossBatch = new RigBatch(b.geometry, this.bossPuppet.layout.n, 1, { rim: '#d59a7d', rimStrength: 0.65, emissive: '#ff534b', emissiveStrength: 1.4 });
       this.renderer.scene.add(this.bossBatch.mesh);

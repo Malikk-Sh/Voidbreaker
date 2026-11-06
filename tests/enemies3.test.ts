@@ -612,6 +612,31 @@ describe('Звонарь: уловки (план §7.4)', () => {
     expect(husk.hp).toBeLessThan(huskHp);
   });
 
+  it('модель: точка удара добивания лежит на трещине горба-колокола', async () => {
+    const { buildRinger, BELL_CONTACT, RINGER_SCALE } = await import('../src/gen/chars/ringer');
+    const { rig, geometry } = buildRinger(22, RINGER_SCALE);
+    const bell = rig.joints.findIndex((j) => j.name === 'bell');
+    const P = geometry.attributes.position.array, Jn = geometry.attributes.aJoint.array;
+    const c = BELL_CONTACT.map((v) => v * RINGER_SCALE);
+    let best = Infinity;
+    for (let i = 0; i < Jn.length; i++) if (Math.round(Jn[i]) === bell) best = Math.min(best, Math.hypot(P[i * 3] - c[0], P[i * 3 + 1] - c[1], P[i * 3 + 2] - c[2]));
+    expect(best).toBeLessThan(0.12);
+  });
+
+  it('модель: в присяде стопы на полу, на колоколе — на маковке', async () => {
+    const THREE = await import('three');
+    const { w, b } = await setup();
+    const L = b.puppet.layout, v = new THREE.Vector3();
+    const feet = () => Math.min(b.puppet.skel.jointPos(L.idx('footL'), v).y, b.puppet.skel.jointPos(L.idx('footR'), v).y);
+    b.idleT = 1e9;
+    for (let i = 0; i < 40; i++) { b.setPose('crouch', 0.02); run(w, DT); }
+    expect(Math.abs(feet())).toBeLessThan(0.06);
+    b.idleT = 0;
+    run(w, 4);
+    expect(b.riding).toBe(true);
+    expect(Math.abs(feet() - w.greatBell!.topY)).toBeLessThan(0.1);
+  });
+
   it('пересмотр добивания: skipToFinale — колокол лежит, язык в руках, Звонарь не в центре', async () => {
     const { w, b } = await setup();
     b.skipToFinale();

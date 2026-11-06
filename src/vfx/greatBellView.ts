@@ -4,6 +4,7 @@ import { GeomBuilder, mat, SURF } from '../gen/geom/build';
 import { box, lathe } from '../gen/geom/prims';
 import { obsidianMaterial } from '../render/materials';
 import { GREAT_BELL, type GreatBell } from '../world/boss/greatBell';
+import { RINGER_CLAPPER_BALL, RINGER_SCALE } from '../gen/chars/ringer';
 import type { World } from '../world/world';
 
 /**
@@ -16,11 +17,12 @@ import type { World } from '../world/world';
  * sag — провис ослабленной верёвки, glow — цвет натянутой верёвки (линейный, >1 — в свечение), slack — её цвет без
  * натяжения; glowW — толщина свечения (× rope); tail — длина обрывка под колоколом; whip — сколько секунд конец
  * оборванной верёвки взлетает к блоку; ring — непрозрачность кольца у тумбы натянутой верёвки (среднее, пульс);
- * wide — ширина видимого колокола относительно круга удара.
+ * wide — ширина видимого колокола относительно круга удара; clapper — во сколько раз гиря языка в руке Звонаря больше
+ * гири в колоколе (накрывает его собственную, сросшуюся с рукой).
  */
 export const BELL_LOOK = {
   pivot: 11, rope: 0.05, sag: 1.1, glow: [1.35, 0.9, 0.3] as const, slack: [0.11, 0.075, 0.045] as const, tail: 2.4, whip: 0.35,
-  segs: 7, ringR: [0.75, 1.1] as const, glowW: 1.5, ring: [0.32, 0.16] as const, wide: 1.12,
+  segs: 7, ringR: [0.75, 1.1] as const, glowW: 1.5, ring: [0.32, 0.16] as const, wide: 1.12, clapper: 2.0,
 };
 
 const MAX_ROPE = 4 * (BELL_LOOK.segs + 3);
@@ -90,7 +92,16 @@ export class GreatBellView {
     this.clapperIn.position.y = -0.55;
     this.clapperIn.frustumCulled = false;
     this.pivot.add(this.clapperIn);
-    this.clapperHand = new THREE.Mesh(kGeo, kMat);
+    // III фаза: вырванная гиря языка надета на сросшуюся с рукой гирю Звонаря — та становится огромной и тлеет
+    const h = new GeomBuilder();
+    h.color = IRON; h.surface = SURF.metal;
+    h.add(new THREE.SphereGeometry(0.32, 9, 7), { emissive: 0.03 });
+    h.add(new THREE.TorusGeometry(0.2, 0.05, 4, 10), { matrix: mat(0, 0.27, 0, Math.PI / 2, 0, 0), color: hexToLinear('#b8954e') });
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      h.add(new THREE.BoxGeometry(0.03, 0.34, 0.02), { matrix: mat(Math.sin(a) * 0.315, -0.02, Math.cos(a) * 0.315, 0.2 * Math.cos(a), a, 0.25), emissive: 1.4 });
+    }
+    this.clapperHand = new THREE.Mesh(h.build(), kMat);
     this.clapperHand.frustumCulled = false;
     this.clapperHand.visible = false;
 
@@ -160,13 +171,13 @@ export class GreatBellView {
     this.clapperIn.rotation.set(Math.sin(this.t * 2.1) * 0.08 - bell.vz * 0.02, 0, bell.vx * 0.02);
     this.clapperHand.visible = inHand;
     if (inHand && ringer) {
-      const L = ringer.puppet.layout, hand = L.idx('handR');
+      const L = ringer.puppet.layout, hand = L.idx('handR'), k = RINGER_SCALE;
       ringer.puppet.skel.jointPoint(hand, 0, 0, 0, _a);
-      ringer.puppet.skel.jointPoint(hand, 0, -1, 0, _b);
+      ringer.puppet.skel.jointPoint(hand, RINGER_CLAPPER_BALL[0] * k, RINGER_CLAPPER_BALL[1] * k, RINGER_CLAPPER_BALL[2] * k, _b);
+      this.clapperHand.position.copy(_b);
       _b.sub(_a).normalize().negate();
-      this.clapperHand.position.copy(_a);
       this.clapperHand.quaternion.setFromUnitVectors(_up, _b);
-      this.clapperHand.scale.setScalar(1.7);
+      this.clapperHand.scale.setScalar(BELL_LOOK.clapper);
     }
     const fx = this.bodyMat.uniforms.uFx.value as THREE.Vector4;
     fx.set(0, 0, fallen ? 0 : 0.1 + 0.25 * Math.max(0, 1 - Math.abs(Math.hypot(bell.vx, bell.vz)) / 20) * (bell.paused ? 1 : 0), fallen ? 0.55 : 0);

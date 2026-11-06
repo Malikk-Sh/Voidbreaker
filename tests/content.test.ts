@@ -9,7 +9,7 @@ import { ENEMIES } from '../src/data/enemies';
 import { ABILITIES } from '../src/data/abilities';
 import { ARENAS } from '../src/data/arenas';
 import { Arena, TileState } from '../src/world/arena';
-import { buildAcolyte, buildBrute, buildCrawler, buildEye, buildHusk, buildMantis } from '../src/gen/chars/enemies';
+import { buildAcolyte, buildBrute, buildCrawler, buildEye, buildHusk, buildMantis, buildRinger } from '../src/gen/chars/enemies';
 import { buildHierophant } from '../src/gen/chars/hierophant';
 import { buildHeroGeometry } from '../src/gen/chars/hero';
 import { Rng } from '../src/core/rng';
@@ -144,7 +144,7 @@ describe('процедурная геометрия детерминирован
     ['голем', () => buildBrute(5)],
     ['шелуха', () => buildHusk(16)],
     ['Страж Врат', () => buildBrute(21, 1.65, { halberd: true })],
-    ['Звонарь', () => buildBrute(22, 1.45, { bell: true })],
+    ['Звонарь', () => buildRinger(22, 1.45)],
     ['Иерофант', () => buildHierophant(31)],
     ['герой', () => ({ geometry: buildHeroGeometry() as never })],
   ];

@@ -1,7 +1,7 @@
 import type { CineStep, CineTrack, V3 } from '../../game/director';
 import { MASK_CONTACT, MASK_RELEASE, bladeContactRoot, bladeEdgeRoot } from '../../anim/clips/execution';
 import { RigLayout } from '../../anim/skeleton';
-import { bruteRig } from '../../gen/chars/enemies';
+import { bruteRig, ringerRig } from '../../gen/chars/enemies';
 import { guardianTargets, guardianSupport, GUARDIAN_KILL_POSES } from './guardianStaging';
 import { along, attackFraming, ballisticPoint, ballisticVelocity, bossImpactFraming, FINISHER_CUT_LEAD } from '../../game/finisherMotion';
 import { VICTORY_SHOT, victoryFrame } from '../../game/victoryShot';
@@ -16,7 +16,7 @@ function killTrack(p: KillSpots, bell: boolean): CineTrack {
   const { gx, gz, hx, hz } = p;
   const initial = Math.atan2(gx - hx, gz - hz), facing = p.facing ?? Math.atan2(hx - gx, hz - gz);
   const size = bell ? 1.45 : 1.65;
-  const layout = new RigLayout(bruteRig(who, size)), anchors = guardianTargets(layout, gx, gz, facing, size);
+  const layout = new RigLayout(bell ? ringerRig(size) : bruteRig(who, size)), anchors = guardianTargets(layout, gx, gz, facing, size);
   const support = (name: string): V3 => [0, guardianSupport(layout, name), 0];
   const target = (bell ? p.bell : p.head) ?? (bell ? anchors.bell : anchors.head);
   const attackFacing = bell ? facing : initial, fx = Math.sin(attackFacing), fz = Math.cos(attackFacing), sx = -fz, sz = fx;
