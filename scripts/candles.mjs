@@ -6,12 +6,16 @@ import {driveHeart} from './heartBot.mjs';
 const out=process.env.CANDLES_OUT??'work/candles';mkdirSync(out,{recursive:true});
 const qualities=(process.env.CANDLES_Q??'medium,high').split(',');
 const [width,height]=(process.env.CANDLES_VIEW??'844x390').split('x').map(Number);
+// Бой шагает фиксированным dt, но Math.random (таймеры врагов, огненосцы) не засеян: без зерна прогон в CI мог
+// ни разу не довести восковой дождь до капель (каждый срывало падение Сердца). Зерно делает прогон повторяемым.
+const seed=Number(process.env.CANDLES_SEED??1)>>>0;
+const seededRandom=`Math.random=(()=>{let a=${seed}||1;return()=>{a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};})();`;
 const server=await preview({preview:{port:4191,strictPort:true},logLevel:'warn'}),browser=await launchChromium();
 const report=[];let failed=false;
 try{for(const q of qualities){
  const page=await browser.newPage({viewport:{width,height},hasTouch:true,isMobile:true});const errors=[];
  page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
- await page.addInitScript({content:`window.__driveHeart=${driveHeart.toString()};window.requestAnimationFrame=()=>0;for(const k of ['AudioContext','webkitAudioContext','OfflineAudioContext'])Object.defineProperty(window,k,{value:undefined,configurable:true});`});
+ await page.addInitScript({content:`${seededRandom}window.__driveHeart=${driveHeart.toString()};window.requestAnimationFrame=()=>0;for(const k of ['AudioContext','webkitAudioContext','OfflineAudioContext'])Object.defineProperty(window,k,{value:undefined,configurable:true});`});
  await page.goto(`http://localhost:4191/?stage=1-4b&god&q=${q}`);await page.waitForFunction(()=>!!window.__vb?.battle?.heart);
  await page.evaluate(()=>{
   const b=window.__vb.battle,inp=b.ctx.input;
@@ -42,6 +46,7 @@ try{for(const q of qualities){
      if(r.stones.some(st=>!st.broken&&st.charge>0.6)&&!s.shots.has('volley'))shot='volley';
      if(r.lances.length>2&&!s.shots.has('lances'))shot='lances';
      if(r.flood&&r.flood.hold&&!s.shots.has('flood'))shot='flood';
+     s.rainPeak=Math.max(s.rainPeak??0,r.drops.length);
      if(r.drops.length>2&&!s.shots.has('rain'))shot='rain';
      if(r.phase===2&&!s.shots.has('phase-2'))shot='phase-2';
      if(r.phase===3&&!s.shots.has('phase-3'))shot='phase-3';
@@ -53,7 +58,7 @@ try{for(const q of qualities){
     if(shot){s.shots.add(shot);break;}
    }
    b.ctx.renderer.render(b.ctx.time.world);
-   return {shot,ends:s.ends,active:r.active,dead:r.dead,hp:r.hp,metrics:{...r.metrics},phases:[...s.phases],maxDark:s.maxDark,peak:s.peak,screen:window.__app.current,clear:b.ctx.save.stages['1-4b']?.clears,frames:s.frames,hero:[h.x,h.z],attack:r.attack?.kind,heat:[...r.heat],hints:s.hints};
+   return {shot,ends:s.ends,active:r.active,dead:r.dead,hp:r.hp,metrics:{...r.metrics},phases:[...s.phases],maxDark:s.maxDark,peak:s.peak,screen:window.__app.current,clear:b.ctx.save.stages['1-4b']?.clears,frames:s.frames,hero:[h.x,h.z],attack:r.attack?.kind,heat:[...r.heat],hints:s.hints,rainPeak:s.rainPeak??0};
   });
   if(state.shot)await page.screenshot({path:`${out}/${q}-${state.shot}.png`,timeout:60000});
   if(state.ends)break;
@@ -62,7 +67,9 @@ try{for(const q of qualities){
  check(state.dead&&state.hp===0&&state.ends===1&&state.screen==='results'&&state.clear===1,'настоящая победа над Сердцем и награда');
  check(state.metrics.counters>0&&state.metrics.reflectedHits>0&&state.metrics.bodyHits>0&&state.metrics.spawnedTotal>=2,'разбитый жернов, возврат снаряда, удары по телу и огненосцы');
  check(state.metrics.floods>=2&&state.metrics.domes>=1&&state.metrics.sheltered>=1,'прилив и укрытие под золотым куполом');
- check(state.metrics.drops>0&&state.metrics.echoes>0,'восковой дождь и эхо падений');
+ // Падение Сердца по замыслу гасит метки дождя вместе с каплями: в прогоне бот может сорвать каждый дождь до
+ // посадки. Посадку капель проверяет tests/funeralHeart.test.ts; здесь — что дождь в бою начинается.
+ check((state.metrics.drops>0||state.rainPeak>0)&&state.metrics.echoes>0,'восковой дождь (метки капель) и эхо падений');
  check(state.metrics.stones>=3&&state.metrics.discs>0&&state.metrics.lances>0&&state.metrics.warded>0,'жернова разбиты, диски и копья веера, щит жерновов');
  check(state.phases.length===3,'три физические фазы');
  check(state.maxDark<.001,'всё свечное пламя гаснет');
