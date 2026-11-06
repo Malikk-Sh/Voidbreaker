@@ -122,8 +122,11 @@ export class Hud {
     this.g = this.canvas.getContext('2d')!;
   }
 
+  /** Предел плотности холста (по качеству, см. QUALITY.hudDpr): HUD перерисовывается каждый кадр во весь экран. */
+  maxDpr = 2;
+
   resize(w: number, h: number): void {
-    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.dpr = Math.min(this.maxDpr, window.devicePixelRatio || 1);
     this.w = w; this.h = h;
     this.canvas.width = Math.round(w * this.dpr); this.canvas.height = Math.round(h * this.dpr);
     this.canvas.style.width = `${w}px`; this.canvas.style.height = `${h}px`;

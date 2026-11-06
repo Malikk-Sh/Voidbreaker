@@ -41,6 +41,8 @@ export class App {
   constructor(root: HTMLElement) {
     injectStyles();
     this.game = new Game(root);
+    // стенды (perf, smoke) находят приложение и в меню, где боя (__vb) ещё нет
+    (window as unknown as { __vbApp?: App }).__vbApp = this;
     this.layer = h('div', { class: 'vb-layer' });
     root.appendChild(this.layer);
     root.appendChild(h('div', { class: 'vb-rotate' }, h('div', {}, 'ПОВЕРНИТЕ УСТРОЙСТВО', h('br'), h('span', { class: 'vb-dim', style: { fontSize: '11px' } }, 'игра в ландшафтном режиме'))));
@@ -95,6 +97,7 @@ export class App {
       this.stopPrologue();
       if (id === 'prologue') { this.playPrologue(false); return; }
       this.current = id;
+      this.game.view = 'menu';
       this.ctx.input.enabled = false;
       this.ctx.time.paused = false;
       switch (id) {
@@ -140,6 +143,7 @@ export class App {
     if (this.showcase) { this.showcase.dispose(); this.showcase = null; }
     this.stopPrologue();
     this.current = 'prologue';
+    this.game.view = 'play';
     this.prologue = new Prologue(replay ? replayContext(this.ctx) : this.ctx, this.layer, () => {
       this.stopPrologue();
       if (replay) { this.go('hub', false); return; }
@@ -195,6 +199,8 @@ export class App {
     this.ctx.input.enabled = false;
     this.pauseBtn.style.display = 'none';
     this.current = 'results';
+    // итоги боя — поверх спокойного мира: темп меню
+    this.game.view = 'menu';
     this.openOverlay(resultsScreen(this, data));
   }
 

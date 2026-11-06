@@ -2,7 +2,8 @@ import { AudioEngine } from '../audio/engine';
 import { Sequencer } from '../audio/music';
 import { Time } from '../core/time';
 import { Input } from '../input/input';
-import { Renderer, type QualityLevel } from '../render/renderer';
+import { QUALITY, Renderer, type QualityLevel } from '../render/renderer';
+import { FramePacer, targetFps, type PaceView } from '../core/framePace';
 import { Hud } from '../ui/hud';
 import { loadSave, writeSave, type SaveData } from '../meta/save';
 import { computeStats } from '../meta/progression';
@@ -29,6 +30,9 @@ export class Game {
   onBattleEnd: ((o: BattleOutcome) => void) | null = null;
   onBattleCheckpoint: ((o: BattleOutcome) => void) | null = null;
   private autoQ = newAutoQ();
+  /** Что на экране — от этого темп кадров (ставит оболочка: меню и итоги боя — спокойный темп). */
+  view: PaceView = 'play';
+  private readonly pacer = new FramePacer();
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -99,7 +103,10 @@ export class Game {
   resize(): void {
     const w = innerWidth, h = innerHeight;
     this.ctx.renderer.resize(w, h);
+    this.ctx.hud.maxDpr = QUALITY[this.ctx.renderer.quality].hudDpr;
     this.ctx.hud.resize(w, h);
+    // холст после смены размера пуст: следующий кадр — сразу, даже в редком темпе паузы
+    this.pacer.kick();
     const sa = this.safeArea();
     this.ctx.hud.safe = sa;
     this.ctx.input.layoutButtons(w, h, sa.r, sa.b);
@@ -124,7 +131,12 @@ export class Game {
     if (on) this.onPauseRequest?.();
   }
 
+  /** Сколько кадров в секунду рисовать сейчас (см. FRAME_PACE): бой — до 60, меню — 30, пауза — 4. */
+  get fpsTarget(): number { return targetFps(this.view, !!this.battle && this.ctx.time.paused, this.ctx.settings.fpsCap); }
+
   private loop = (now: number): void => {
+    // лишний кадр (экран 120 Гц, меню, пауза) — ничего не считаем и не рисуем: видеочип и процессор отдыхают
+    if (this.running && !this.pacer.tick(now, this.fpsTarget)) { requestAnimationFrame(this.loop); return; }
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     if (this.running) {
@@ -157,7 +169,8 @@ export class Game {
     // в сценах не меряем и не меняем разрешение: пересоздание буферов — заметный рывок посреди кадра,
     // а загрузки под вспышками сцен не говорят о нагреве
     if (this.battle.inScene) { const a = this.autoQ; a.t = a.frames = a.slow = 0; return; }
-    const step = autoQualityStep(this.autoQ, dt);
+    // медленный кадр — относительно выбранной частоты: при 30 кадрах каждый кадр длится 33 мс, и это не перегрузка
+    const step = autoQualityStep(this.autoQ, dt, AUTO_Q.slowDt * 60 / this.fpsTarget);
     if (!step) return;
     const r = this.ctx.renderer;
     // при выбранном вручную качестве — только разрешение (защита от троттлинга при нагреве), уровень не трогаем
@@ -186,6 +199,7 @@ export class Game {
     b.onSectionEnd = (o) => this.onBattleCheckpoint?.(o);
     this.battle = b;
     this.screen = 'battle';
+    this.view = 'play';
     this.ctx.input.enabled = true;
     this.ctx.input.reset();
     (window as unknown as { __vb: unknown }).__vb = { game: this, battle: b, world: b.world };
@@ -210,13 +224,13 @@ export interface AutoQState { t: number; frames: number; slow: number; badRuns: 
 export const newAutoQ = (): AutoQState => ({ t: 0, frames: 0, slow: 0, badRuns: 0, goodRuns: 0 });
 
 /**
- * Шаг автокачества: кадры копятся в окна по AUTO_Q.window с; окно «плохое», если медленных кадров (> 21 мс)
- * больше 10 %. downAfter плохих окон подряд → 'down'; upAfter ровных (< 1 % медленных) подряд → 'up'.
+ * Шаг автокачества: кадры копятся в окна по AUTO_Q.window с; окно «плохое», если медленных кадров (> slowDt: 21 мс
+ * при 60 кадрах в секунду, 42 мс при 30) больше 10 %. downAfter плохих окон подряд → 'down'; upAfter ровных (< 1 % медленных) подряд → 'up'.
  * (Раньше окно сбрасывалось через 2 с, а снижение ждало 5 с — и никогда не срабатывало.)
  */
-export function autoQualityStep(a: AutoQState, dt: number): 'down' | 'up' | null {
+export function autoQualityStep(a: AutoQState, dt: number, slowDt = AUTO_Q.slowDt): 'down' | 'up' | null {
   a.t += dt; a.frames++;
-  if (dt > AUTO_Q.slowDt) a.slow++;
+  if (dt > slowDt) a.slow++;
   if (a.t < AUTO_Q.window) return null;
   const frac = a.slow / Math.max(1, a.frames);
   a.t = 0; a.frames = 0; a.slow = 0;
