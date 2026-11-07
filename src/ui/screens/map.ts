@@ -10,7 +10,7 @@ import { emblemSvg, litRays, starPoints } from '../emblem';
 
 /** Позиции звёзд созвездия Зоны 01 (доли «рамки» 16:9). */
 const POS: Record<string, [number, number]> = {
-  '1-1': [0.06, 0.78], '1-2': [0.15, 0.44], '1-3': [0.25, 0.72], '1-4': [0.34, 0.32], '1-5': [0.44, 0.64], '1-6': [0.53, 0.24],
+  '1-1': [0.06, 0.78], '1-2': [0.15, 0.44], '1-3': [0.25, 0.72], '1-4': [0.34, 0.32], '1-4b': [0.39, 0.5], '1-5': [0.45, 0.68], '1-6': [0.53, 0.24],
   '1-7': [0.63, 0.56], '1-8': [0.72, 0.2], '1-9': [0.81, 0.5], boss1: [0.92, 0.7],
 };
 
@@ -72,7 +72,7 @@ export function mapScreen(app: App): HTMLElement {
         const fill = !unlocked ? 'rgba(16,20,26,.8)' : ['rgba(22,32,44,.95)', '#6e5a34', '#c9ac6c', '#fff0c8'][n0];
         g.appendChild(svg('polygon', { points: starPoints(r, 0.48), fill, stroke: unlocked ? '#f0d9a0' : 'rgba(110,120,130,.5)', 'stroke-width': 1.5, filter: n0 >= 2 ? 'url(#vbGlow)' : '', 'data-stars': n0 }));
         const lbl = svg('text', { y: -32, 'text-anchor': 'middle', fill: unlocked ? '#ede6d6' : '#5b6470', 'font-size': 17, 'font-family': 'Tektur, sans-serif', 'letter-spacing': 1 });
-        lbl.textContent = d.id;
+        lbl.textContent = d.label ?? d.id;
         g.appendChild(lbl);
         const sl = svg('text', { y: 44, 'text-anchor': 'middle', 'font-size': 18, 'font-family': 'Georgia,serif', fill: '#f0d9a0' });
         const n = st?.stars ?? 0;
@@ -95,7 +95,7 @@ export function mapScreen(app: App): HTMLElement {
     const base = stageShards(globalIndex(d)) * (d.boss ? 5 : 1);
     info.replaceChildren(...([
       h('div', { class: 'vb-row', style: { justifyContent: 'space-between' } },
-        h('span', { class: 'vb-caps vb-gold' }, d.boss ? 'Чёрная звезда' : `Этап ${d.id}`),
+        h('span', { class: 'vb-caps vb-gold' }, d.boss ? 'Чёрная звезда' : `Этап ${d.label ?? d.id}`),
         st ? h('span', { class: 'vb-tech', style: { fontSize: '12px', color: '#8fd8ef' } }, `ранг ${st.bestRank} · ${fmtTime(st.bestTime)}`) : null),
       titleCanvas(d.name, d.name.length > 14 ? 20 : 24, { color: d.boss ? 'hunger' : 'gold', glow: 0.6, spacing: 0.06 }),
       h('div', { style: { fontSize: '12px', lineHeight: '1.5', color: '#d9d3c7' } }, h('span', { class: 'vb-caps', style: { fontSize: '9px', color: '#8b95a3' } }, 'Враги  '), [...kinds].map((k) => ENEMIES[k].name).join(', ')),

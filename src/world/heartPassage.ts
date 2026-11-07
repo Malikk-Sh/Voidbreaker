@@ -67,6 +67,14 @@ export class HeartPassage {
     return true;
   }
 
+  /** Отдельный этап боя: герой уже за порогом, проход открыт — сразу пробуждение. */
+  beginAwakening(): boolean {
+    if (this.phase !== 'released') return false;
+    this.gateOpen = 1; this.open();
+    this.phase = 'awakening';
+    return true;
+  }
+
   activate(): boolean {
     if (this.phase !== 'awakening') return false;
     this.phase = 'combat';

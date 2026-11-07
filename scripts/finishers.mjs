@@ -45,12 +45,12 @@ for (const viewport of sizes) for (const id of ids) for (const mode of modes) {
           const s = e.kind === 'gateGuardian' ? 1.65 : 1.45, sk = e.puppet.skel;
           if (name === 'knee') target = sk.jointPoint(e.puppet.layout.idx('kneeL'), 0, 0.25*s, 0.08*s, v.clone());
           else if (e.kind === 'gateGuardian') target = sk.jointPoint(e.puppet.layout.idx('head'), 0, 0.18*s, 0.18*s, v.clone());
-          else { target = v.clone(); e.bellPoint(target); }
+          else { target = v.clone(); e.dialPoint(target); }
         }
         const jointRotation = joint => { if(!e?.puppet.layout.has(joint)) return null; const i=e.puppet.layout.idx(joint); return Array.from(e.puppet.skel.rot.slice(i*4,i*4+4)); };
         const targetScale = target ? (() => { const lo=target.clone(), hi=target.clone(); lo.y-=0.5; hi.y+=0.5; return Math.hypot(project(hi).x-project(lo).x,project(hi).y-project(lo).y); })() : null;
         const dx = cam.position.x - h.x, dz = cam.position.z - h.z;
-        return { time: b.director.time, heroY: h.y, clip: h.avatar.puppet.anim.clip?.id, scale: b.ctx.time.worldScale, front: (dx*Math.sin(h.facing)+dz*Math.cos(h.facing))/(Math.hypot(dx,dz)||1), targetScale, error: target ? (name === 'knee' ? tip : edge).distanceTo(target) : null, target: target?.toArray(), bellRotation: jointRotation('bell'), chestRotation: jointRotation('chest'), gripError: palm.distanceTo(lowerGrip), camera: cam.position.toArray(), screenHands: hands.map(project), screenEdge: project(edge), screenHead: project(head), screenFeet: feet.map(project), screenTip: project(tip), screenHilt: project(h.avatar.sceneAnchor('hilt', v.clone())), screenTarget: target ? project(target) : null, feetY: feet.map(p => p.y) };
+        return { time: b.director.time, heroY: h.y, clip: h.avatar.puppet.anim.clip?.id, scale: b.ctx.time.worldScale, front: (dx*Math.sin(h.facing)+dz*Math.cos(h.facing))/(Math.hypot(dx,dz)||1), targetScale, error: target ? (name === 'knee' ? tip : edge).distanceTo(target) : null, target: target?.toArray(), keyRotation: jointRotation('key'), chestRotation: jointRotation('chest'), gripError: palm.distanceTo(lowerGrip), camera: cam.position.toArray(), screenHands: hands.map(project), screenEdge: project(edge), screenHead: project(head), screenFeet: feet.map(project), screenTip: project(tip), screenHilt: project(h.avatar.sceneAnchor('hilt', v.clone())), screenTarget: target ? project(target) : null, feetY: feet.map(p => p.y) };
       };
       const wrap = (name, fn) => (...args) => { diag.calls.push({ name, ...diag.capture(name) }); const value=fn(...args); if(name==='crumble') b.world.bus.emit('stageClear',{}); return value; };
       const set = b.sceneCalls.set;
@@ -144,11 +144,11 @@ for (const viewport of sizes) for (const id of ids) for (const mode of modes) {
       if(id==='killBell') {
         const contact=contacts.find(c=>c.name==='bell'), ring=f.calls.find(c=>c.name==='bellRing');
         const angle=(a,b)=>[a,b].every(q=>Array.isArray(q)&&q.length===4&&q.every(Number.isFinite))?2*Math.acos(Math.min(1,Math.abs(a.reduce((sum,v,i)=>sum+v*b[i],0)))):NaN;
-        const bellAngle=angle(contact?.bellRotation,ring?.bellRotation), bodyAngle=angle(contact?.chestRotation,ring?.chestRotation);
+        const keyAngle=angle(contact?.keyRotation,ring?.keyRotation), bodyAngle=angle(contact?.chestRotation,ring?.chestRotation);
         const validTarget=p=>Array.isArray(p)&&p.length===3&&p.every(Number.isFinite);
-        const bellTravel=validTarget(contact?.target)&&validTarget(ring?.target)?Math.hypot(...ring.target.map((v,i)=>v-contact.target[i])):null;
-        check(ring&&ring.time-contact.time>=0.08&&ring.time-contact.time<=0.11,`${stem}: звон следует за контактом с задержкой90мс`);
-        check(typeof bellTravel==='number'&&Number.isFinite(bellTravel)&&bellTravel>0.10&&bellAngle>0.08&&bellAngle>bodyAngle*2,`${stem}: колокол сначала отклоняется независимо от корпуса (${bellAngle.toFixed(2)}/${bodyAngle.toFixed(2)}рад)`);
+        const dialTravel=validTarget(contact?.target)&&validTarget(ring?.target)?Math.hypot(...ring.target.map((v,i)=>v-contact.target[i])):null;
+        check(ring&&ring.time-contact.time>=0.08&&ring.time-contact.time<=0.11,`${stem}: бой лопнувшего циферблата следует за контактом с задержкой 90 мс`);
+        check(typeof dialTravel==='number'&&Number.isFinite(dialTravel)&&dialTravel>0.05&&bodyAngle>0.08&&keyAngle>0.3,`${stem}: клинок в циферблат отбрасывает корпус, заводной ключ дёргается (${bodyAngle.toFixed(2)}/${keyAngle.toFixed(2)} рад)`);
       }
       const knee=result.shots.find(s=>s.name==='knee');
       if(knee)check(Math.abs(knee.heroY)<0.02&&Math.min(...knee.feetY)>-0.02&&Math.min(...knee.feetY)<0.12,`${stem}: стопа остаётся на полу при подсечке`);

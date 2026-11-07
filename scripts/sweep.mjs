@@ -64,6 +64,8 @@ try {
           for (const e of w.enemies) {
             if (e.dead) continue;
             if (!born.has(e)) born.set(e, w.time);
+            // Звонарь умирает только в III фазе (колокол рухнул): стенд пропускает верёвки
+            if (w.time - born.get(e) > HOLD && e.skipToFinale && e.phase !== 3) e.skipToFinale();
             if (w.time - born.get(e) > HOLD) { e.hp = Math.min(e.hp, 1); w.damageEnemy(e, { mult: 1, stun: 1e6, knockback: 0, feel: 'light', dirX: 0, dirZ: 1, source: 'blade' }); }
           }
           // Иерофант в фазе III умирает только от казни: оглушён — «ДОБИТЬ»

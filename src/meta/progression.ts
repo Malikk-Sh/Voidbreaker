@@ -220,9 +220,13 @@ export function zoneStars(s: SaveData): number {
 }
 
 export function stageUnlocked(s: SaveData, def: StageDef): boolean {
-  if (def.index === 0) return true;
-  const prev = ZONE1[def.index - 1];
+  // Порядок карты, а не ступень сложности: бой с Сердцем делит ступень с 1-4.
+  const order = ZONE1.findIndex((d) => d.id === def.id);
+  if (order <= 0) return true;
+  const prev = ZONE1[order - 1];
   const prevDone = !!prev && (s.stages[prev.id]?.clears ?? 0) > 0;
+  // Пройденное до разделения 1-4 не закрывается: этап, который уже проходили, остаётся открытым.
+  if (!def.boss && (s.stages[def.id]?.clears ?? 0) > 0) return true;
   // босс: пройден последний этап и звёзд на врата; кто уже побеждал Иерофанта — врата открыты и после новых этапов
   if (def.boss) return (s.stages[def.id]?.clears ?? 0) > 0 || (prevDone && zoneStars(s) >= ZONE1_INFO.bossGate) || !!s.flags.cheatGate;
   return prevDone;

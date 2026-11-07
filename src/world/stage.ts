@@ -196,6 +196,8 @@ export class StageRunner {
       let fire = false;
       if (tr.when === 'alive<3') fire = this.w.enemies.filter((e) => !e.dead).length < 3 && this.pending.length === 0;
       if (tr.when === 'guardianHp<0.5') fire = !!this.guardian && !this.guardian.dead && this.guardian.hp < this.guardian.maxHp / 2;
+      // II фаза Стража (Звонарь: колокол на двух верёвках крутится по кругу и сметает подкрепление)
+      if (tr.when === 'guardianPhase2') fire = !!this.guardian && !this.guardian.dead && ((this.guardian as { phase?: number }).phase ?? 1) >= 2;
       if (fire) { this.firedTriggers.add(key); this.queue(tr.spawn, 0.3); }
     });
   }

@@ -108,7 +108,9 @@ export class Sky {
           }
 
           // чёрная луна с золотой короной (затмение)
-          float md = acos(clamp(dot(dir, uMoonDir), -1.0, 1.0));
+          // угловое расстояние до луны — длиной хорды: у луны и короны то же самое (< 1 % на 20°), а дальше
+          // корона уже погасла; acos на каждый пиксель неба не нужен
+          float md = length(dir - uMoonDir);
           float rr = md / uMoonSize;
           vec3 side = normalize(cross(uMoonDir, vec3(0.0, 1.0, 0.0)));
           vec3 up = cross(side, uMoonDir);
@@ -127,7 +129,7 @@ export class Sky {
           col += corC * exp(-max(rr - 1.0, 0.0) * 0.6) * (0.12 + ek * 0.25) * pulse;
           // солнце заходит за луну: яркий диск съезжает за чёрный круг, пока затмение не полное
           vec3 sunDir = normalize(uMoonDir + side * (1.0 - ek) * uMoonSize * 2.2);
-          float sd = acos(clamp(dot(dir, sunDir), -1.0, 1.0)) / uMoonSize;
+          float sd = length(dir - sunDir) / uMoonSize;
           float sunVis = (1.0 - smoothstep(0.92, 1.0, sd)) * step(0.001, ek) * step(ek, 0.999);
           col += vec3(1.6, 1.45, 1.9) * sunVis * step(1.0, rr);
           col = mix(col, uMoonCore + corC * 0.03 * (1.0 - rr), smoothstep(1.0, 0.97, rr));

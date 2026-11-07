@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Clip } from '../../anim/clip';
 import { Skeleton, type RigLayout, type V3 } from '../../anim/skeleton';
 import type { PoseLib } from './scripted';
-import { BELL_CONTACT } from '../../gen/chars/enemies';
+import { RINGER_CONTACT, RINGER_CONTACT_JOINT } from '../../gen/chars/enemies';
 
 export const GUARDIAN_KILL_POSES: PoseLib = {
   killcamStagger: { chest: [0.22, 0, 0], spine: [0.08, 0, 0], shL: [-0.35, 0, 0.6], shR: [-0.4, 0, -0.5], elbL: [-0.5, 0, 0], elbR: [-0.5, 0, 0], hipL: [-0.18, 0, 0.08], kneeL: [0.35, 0, 0], hipR: [0.1, 0, -0.08], kneeR: [0.3, 0, 0] },
@@ -20,6 +20,20 @@ Object.assign(GUARDIAN_KILL_POSES, {
   bellRebound: { ...kneel, chest: [0.88, 0.12, 0.13], spine: [0.17, 0, 0], head: [0.05, 0.05, 0], bell: [0.15, 0, -0.04] },
   bellSettle: { ...kneel, chest: [0.86, 0.08, 0.13], spine: [0.17, 0, 0], head: [0.05, 0.05, 0], bell: [-0.065, 0, 0.02] },
 } satisfies PoseLib);
+/**
+ * Жакемар (Звонарь) на коленях держит корпус прямо, чуть откинув: циферблат на груди смотрит на героя. Клинок в
+ * циферблат отбрасывает корпус назад, руки разлетаются, ключ дёргается; потом фигура оседает вперёд — кончился завод.
+ */
+const ringerKneel: PoseLib[string] = { chest: [-0.16, 0, 0], spine: [-0.08, 0, 0], head: [0.32, 0, 0.06], shL: [0.12, 0, 0.32], shR: [0.12, 0, -0.32], elbL: [-0.25, 0, 0], elbR: [-0.25, 0, 0], hipL: [-1.15, 0, 0.15], kneeL: [1.55, 0, 0], hipR: [0.1, 0, -0.15], kneeR: [1.3, 0, 0] };
+Object.assign(GUARDIAN_KILL_POSES, {
+  ringerKneel,
+  ringerHit: { ...ringerKneel, chest: [-0.3, 0, 0], head: [0.1, 0, 0] },
+  ringerImpulse: { ...ringerKneel, chest: [-0.2, 0, 0], spine: [-0.1, 0, 0], key: [0, 0, -0.3] },
+  ringerRecoil: { ...ringerKneel, chest: [-0.44, 0.06, 0.04], spine: [-0.16, 0, 0], head: [-0.35, 0.1, 0], shL: [-0.7, 0, 1.0], shR: [-0.7, 0, -1.0], elbL: [-0.4, 0, 0], elbR: [-0.4, 0, 0], key: [0, 0, -1.2], pend: [0, 0, 0.6] },
+  ringerBody: { ...ringerKneel, chest: [-0.3, 0.12, 0.06], spine: [-0.12, 0.05, 0], head: [-0.15, 0.15, 0], shL: [-0.3, 0, 0.8], shR: [-0.25, 0, -0.75], key: [0, 0, -1.6], pend: [0, 0, -0.4] },
+  ringerRebound: { ...ringerKneel, chest: [0.2, 0.06, 0.04], spine: [0.08, 0, 0], head: [0.45, 0.05, 0.1], shL: [0.3, 0, 0.5], shR: [0.35, 0, -0.45], key: [0, 0, -1.75], pend: [0, 0, 0.25] },
+  ringerSettle: { ...ringerKneel, chest: [0.42, 0.04, 0.08], spine: [0.14, 0, 0], head: [0.6, 0.08, 0.18], shL: [0.45, 0, 0.35], shR: [0.5, 0, -0.3], elbL: [-0.15, 0, 0], elbR: [-0.15, 0, 0], key: [0, 0, -1.8], pend: [0, 0, 0] },
+} satisfies PoseLib);
 // Середина того же slerp: дополнительная опора не даёт дуге сгибания утопить стопу между ключами.
 const stagger = GUARDIAN_KILL_POSES.killcamStagger, middle: PoseLib[string] = {};
 for (const name of new Set([...Object.keys(stagger), ...Object.keys(kneel)])) {
@@ -29,7 +43,7 @@ for (const name of new Set([...Object.keys(stagger), ...Object.keys(kneel)])) {
   middle[name] = [e.x, e.y, e.z];
 }
 GUARDIAN_KILL_POSES.gateKneeling = middle;
-for (const [id, pose] of Object.entries(GUARDIAN_KILL_POSES)) GUARDIAN_KILL_POSES[id] = { root: [0, 0, 0], pelvis: [0, 0, 0], head: [0, 0, 0], footL: [0, 0, 0], footR: [0, 0, 0], bell: [0, 0, 0], ...pose };
+for (const [id, pose] of Object.entries(GUARDIAN_KILL_POSES)) GUARDIAN_KILL_POSES[id] = { root: [0, 0, 0], pelvis: [0, 0, 0], head: [0, 0, 0], footL: [0, 0, 0], footR: [0, 0, 0], key: [0, 0, 0], pend: [0, 0, 0], hourH: [0, 0, 0], minH: [0, 0, 0], ...pose };
 
 /** Опорная нога остаётся на полу: прежние −0.7 м топили стоящего Стража до голени. */
 export function guardianSupport(layout: RigLayout, poseName: string): number {
@@ -46,10 +60,14 @@ export function guardianPoseTargets(layout: RigLayout, x: number, z: number, fac
   const pose = (name: string) => { new Clip({ id: name, dur: 1, keys: [{ t: 0, pose: GUARDIAN_KILL_POSES[name] }] }, layout).sample(0, skel.rot, root); skel.update(); };
   const point = (joint: string, p: V3): V3 => skel.jointPoint(layout.idx(joint), ...p, new THREE.Vector3()).toArray() as V3;
   pose(poseName);
-  return { knee: point('kneeL', [0, 0.25 * scale, 0.08 * scale]), head: point('head', [0, 0.18 * scale, 0.18 * scale]), bell: layout.has('bell') ? point('bell', BELL_CONTACT.map(v => v * scale) as V3) : point('chest', [0, scale, -1.2 * scale]) };
+  // bell — цель добивания Звонаря: центр циферблата на груди жакемара
+  return { knee: point('kneeL', [0, 0.25 * scale, 0.08 * scale]), head: point('head', [0, 0.18 * scale, 0.18 * scale]), bell: point(RINGER_CONTACT_JOINT, RINGER_CONTACT.map(v => v * scale) as V3) };
 }
+
+/** Поза на коленях для добивания: жакемар (Звонарь) стоит прямо, тяжёлый Страж — склонившись. */
+export function kneelPoseOf(layout: RigLayout): string { return layout.def.id === 'bellRinger' ? 'ringerKneel' : 'killcamKneel'; }
 
 export function guardianTargets(layout: RigLayout, x: number, z: number, facing: number, scale: number) {
   const stagger = guardianPoseTargets(layout, x, z, facing, scale, 'killcamStagger');
-  return { ...guardianPoseTargets(layout, x, z, facing, scale, 'killcamKneel'), knee: stagger.knee };
+  return { ...guardianPoseTargets(layout, x, z, facing, scale, kneelPoseOf(layout)), knee: stagger.knee };
 }

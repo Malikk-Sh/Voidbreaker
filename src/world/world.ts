@@ -18,6 +18,8 @@ import { Hero } from './hero';
 import { ShadowCopy } from './shadow';
 import { RankTracker } from './rank';
 import type { AbilityHost } from './abilityHost';
+import type { GreatBell } from './boss/greatBell';
+import { HERO_PACE } from '../data/pace';
 
 export interface StrikeParams {
   mult: number;
@@ -47,6 +49,8 @@ export interface StrikeParams {
   sweep?: number;
   /** Детонатор меток Пустоты: +доля урона за стопку, стопки снимаются (Серп, Колодец 0.2; линия Раскола 0.1). */
   detonate?: number;
+  /** Вес удара клинка (HERO_PACE.weight): Резонанс и очки ранга за попадание — во столько раз больше. */
+  weight?: number;
 }
 
 const FEEL_ORDER: Record<FeelId, number> = { light: 0, medium: 1, heavy: 2, break: 3 };
@@ -151,6 +155,8 @@ export class World {
   /** Свечи арены гаснут по кругу, пока Звонарь заряжает сильный удар (план §7.4): доля круга 0..1 и его начало. */
   /** Колокола-спутники Иерофанта (фаза III): позиция и свечение перед звоном — для рендера. */
   bellSats: { x: number; y: number; z: number; glow: number }[] = [];
+  /** Великий колокол Колокольни (Звонарь, «Маятник»): верёвки, качание, падение — для рендера и ботов. */
+  greatBell: GreatBell | null = null;
   candlesOut = 0;
   candlesFrom = 0;
   /** Временные стены (цепи Звонаря): укрытия арены с таймером; навигация перестраивается по версии арены. */
@@ -251,10 +257,10 @@ export class World {
     const list = this.enemies;
     for (let i = 0; i < list.length; i++) {
       const a = list[i];
-      if (a.dead || a.state === 'spawn') continue;
+      if (a.dead || a.state === 'spawn' || a.aloft) continue;
       for (let j = i + 1; j < list.length; j++) {
         const b = list[j];
-        if (b.dead || b.state === 'spawn') continue;
+        if (b.dead || b.state === 'spawn' || b.aloft) continue;
         this.separate(a, b, 1);
       }
       if (heroSolid) this.separate(h, a, 1);
@@ -374,7 +380,9 @@ export class World {
       else if (!p.noStagger) {
         // тяжёлый удар сбивает рядового с ног: две маленькие звезды на 0.6 с — тот же язык, что у оглушения
         const knock = p.feel === 'heavy' && !e.stun;
-        e.interrupt(knock ? 0.6 : p.feel === 'light' ? 0.22 : 0.35, p.feel === 'heavy');
+        // хитстан от клинка — с поправкой на темп Пилота: серия держит рядового до конца
+        const hold = p.source === 'blade' ? HERO_PACE.stagger : 1;
+        e.interrupt((knock ? 0.6 : p.feel === 'light' ? 0.22 : 0.35) * hold, p.feel === 'heavy');
         if (knock && e.state === 'stagger' && e.dazeT <= 0) { e.dazeT = 0.6; this.bus.emit('daze', { target: e, x: e.x, z: e.z }); }
       }
     }
@@ -382,14 +390,14 @@ export class World {
     e.react(this, p.feel === 'heavy' || feel === 'break', FEEL[feel].spring, p.dirX, p.dirZ, p.sweep ?? 0);
     if (p.source === 'blade' && !e.dead) e.onBladeHit(this, p, kind);
     if (!shatter) e.recoilHit(this, !!p.finisher);
-    if (!p.noResonance) h.addResonance(RESONANCE.perHit + (p.finisher ? RESONANCE.perFinisher - RESONANCE.perHit : 0));
-    this.rank.hit(!!p.finisher);
+    if (!p.noResonance) h.addResonance((RESONANCE.perHit + (p.finisher ? RESONANCE.perFinisher - RESONANCE.perHit : 0)) * (p.weight ?? 1));
+    this.rank.hit(!!p.finisher, p.weight ?? 1);
     if (p.abilityId) this.rank.used(p.abilityId);
     else this.rank.used('blade');
     const crit = res.crit || perfect;
     this.bus.emit('hit', { target: e, dmg: res.dmg, crit, feel, dirX: p.dirX, dirZ: p.dirZ, x: e.x, y: e.height * 0.55, z: e.z, source: p.source, shielded: e.shieldMul < 1, weak: weak || e.inWindow });
     // жертва висит в кадре удара чуть дольше героя (стопкадр + дрожь)
-    e.freeze = Math.max(e.freeze, (FEEL[feel].hitstop + 0.04) * (e.isBoss || e.isGuardian ? 0.5 : 1));
+    e.freeze = Math.max(e.freeze, (FEEL[feel].hitstop * (p.source === 'blade' ? HERO_PACE.hitstop : 1) + 0.04) * (e.isBoss || e.isGuardian ? 0.5 : 1));
     const b = this.batch;
     if (b) {
       b.n++; b.crit ||= crit; b.sx += e.x; b.sz += e.z; b.boss ||= e.isBoss || e.isGuardian;
@@ -521,7 +529,7 @@ export class World {
 
   // ------------------------------------------------------------------ атаки врагов
   /** Удар врага по герою: учитывает неуязвимость рывка и идеальное уклонение. */
-  enemyStrike(src: { x: number; z: number; id: number; kind: string; dead?: boolean; elite?: string[] }, shape: Shape, dmg: number, kb = 3): 'miss' | 'hit' | 'perfect' | 'dodge' | 'immune' {
+  enemyStrike(src: { x: number; z: number; id: number; kind: string; dead?: boolean; elite?: string[]; noStun?: boolean }, shape: Shape, dmg: number, kb = 3): 'miss' | 'hit' | 'perfect' | 'dodge' | 'immune' {
     const h = this.hero;
     // идеальное уклонение — и рывком из зоны удара (этап 4.5, C1): Пилот стоял под ударом в начале рывка, удар
     // пришёлся в окно — засчитано, удар раскалывает силуэт на старом месте. Раньше рывок вбок за 60 мс до
@@ -540,7 +548,8 @@ export class World {
     if (res === 'perfect' && src.kind === 'recoil') { h.addResonance(RECOIL.dodgeResonance); this.bus.emit('recoilDodge', { x: h.x, z: h.z }); }
     if (res === 'perfect' && atk) {
       if (!atk.isGuardian && !atk.isBoss) atk.lagT = 0.2;
-      else { this.lastBossPerfect = this.time; this.addStunTo(atk, STUN_PERFECT_DODGE); }
+      // удар окружения от имени босса (колокол Звонаря) не копит ему оглушение
+      else if (!src.noStun) { this.lastBossPerfect = this.time; this.addStunTo(atk, STUN_PERFECT_DODGE); }
     }
     if (res === 'hit') {
       this.run.hitsTaken++;
@@ -826,6 +835,7 @@ export class World {
     this.candlesOut = 0;
     this.shadows.length = 0;
     this.aimTargets.clear();
+    this.greatBell?.dispose(); this.greatBell = null;
     this.enemies.length = 0; this.projectiles.length = 0; this.telegraphs.length = 0; this.hazards.length = 0; this.pickups.length = 0; this.ringWaves.length = 0;
     this.stepHooks.length = 0;
   }

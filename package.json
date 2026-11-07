@@ -12,6 +12,7 @@
     "cathedral-test": "node scripts/cathedral.mjs",
     "candles-test": "node scripts/candles.mjs",
     "heart-story-test": "node scripts/heartStory.mjs",
+    "heart-balance": "node scripts/heartBalance.mjs",
     "finishers": "node scripts/finishers.mjs",
     "choir": "node scripts/choir.mjs",
     "build": "vite build",
@@ -22,7 +23,8 @@
     "smoke": "node scripts/smoke.mjs",
     "sweep": "node scripts/sweep.mjs",
     "spectacle": "node scripts/spectacle.mjs",
-    "beauty": "node scripts/beauty.mjs"
+    "beauty": "node scripts/beauty.mjs",
+    "perf": "node scripts/perfPace.mjs && node scripts/perfPasses.mjs heart hub"
   },
   "dependencies": {
     "@fontsource/cormorant-sc": "^5.3.0",

@@ -9,6 +9,8 @@ import { BattleVfx } from '../vfx/battleVfx';
 import { ContactShadows } from '../render/contactShadows';
 import { segmentBlocked, XRAY } from '../world/occlusion';
 import { BOSS_SCAR_LIFE, FloorScars, SCAR_LIFE } from '../vfx/scars';
+import { FX } from '../render/fx';
+import type { GameEvents } from '../world/events';
 import { ArenaEvents } from './arenaEvents';
 import { Abilities, type Loadout } from '../world/abilities';
 import { Arena } from '../world/arena';
@@ -63,10 +65,10 @@ import { HEART_HALL, HeartPassage, heartArena } from '../world/heartPassage';
 import { addHeartHall } from '../gen/zone/heartHall';
 import { HeartEffects } from '../gen/zone/heartEffects';
 import { HEART_SOUL, HeartSoul } from '../world/heartSoul';
-import { heartAwakeningTrack, heartSoulEscapeTrack } from './heartAwakening';
-import type { CandleSanctum } from '../gen/zone/candleSanctum';
+import { HEART_DEATH_T, HEART_INTRO_T, heartDeathTrack, heartIntroTrack, heartSoulFlightTrack, releasedLight } from './heartAwakening';
+import { heartbeatPulse, type CandleSanctum } from '../gen/zone/candleSanctum';
 import type { BridgeCollapseView } from '../gen/zone/bridgeCollapse';
-import { stageById } from '../data/stages';
+import { HEART_STAGE, stageById } from '../data/stages';
 
 
 const _top = new THREE.Vector3();
@@ -133,6 +135,15 @@ export const MUSIC_LEVEL = { explore: 0.1, fight: 0.3, final: 1 };
 export const FINAL_TRANSPOSE = 100;
 /** Тишина перед фирменной атакой: за сколько до удара (с) и до какой громкости (−18 дБ). */
 export const SIG = { lead: 0.5, level: 0.126 };
+/**
+ * Разломы от клинка Пилота: ширина (м), жар 0…1, скорость, с которой разлом бежит от точки удара (м/с), крошка
+ * обсидиана; у Звездопада ещё кратер (радиус, м). Полный заряд бежит со скоростью волны клинка (20 м/с).
+ */
+export const HERO_CRACK = {
+  cleave: { width: 1.5, heat: 1, speed: 20, chips: 10, crater: 0 },
+  rift: { width: 1.8, heat: 1, speed: 26, chips: 12, crater: 0 },
+  skyfall: { width: 1.3, heat: 0.8, speed: 16, chips: 16, crater: 2.4 },
+} as const;
 
 export class Battle {
   readonly world: World;
@@ -167,7 +178,19 @@ export class Battle {
   private readonly heartForeZ: number;
   private readonly heartFx: HeartEffects | null;
   private heartGateView: { update(open: number): void } | null = null;
-  private pendingHeartSoul: { x: number; z: number } | null = null;
+  /** Свет вырывается из элиты не сразу: сначала она рассыпается, затем — полсекунды тишины. */
+  private pendingHeartSoul: { x: number; z: number; delay: number } | null = null;
+  /** Сердце погибло: сцена гибели ждёт своего кадра; победа — после неё. */
+  private pendingHeartDeath = false;
+  private heartWon = false;
+  /** 1-4: свет элиты вошёл в Сердце — этап закончен. */
+  private heartLightDone = false;
+  /** Отдельный этап боя с Сердцем: вступление ждёт первого кадра; жернова собираются в нём. */
+  private readonly heartStage: boolean;
+  private pendingHeartIntro = false;
+  private heartStonesShown = false;
+  /** Сколько пластин брони было на ядре в прошлом кадре: в гибели удар сердца срывает их со звоном. */
+  private heartPlatesSeen = 6;
   private heartSkipArmed = false;
   private sanctum: CandleSanctum | null = null;
   private bridgeCollapse: BridgeCollapseView | null = null;
@@ -241,7 +264,8 @@ export class Battle {
     const Q = QUALITY[r.quality];
     const path = stage.id === '1-3' && !opts.replay;
     const joined = path && !opts.singleStage;
-    const withHeart = joined || (stage.id === '1-4' && !opts.replay);
+    this.heartStage = stage.id === HEART_STAGE;
+    const withHeart = joined || this.heartStage || (stage.id === '1-4' && !opts.replay);
     this.heartForeZ = joined ? CATHEDRAL.hallZ : 0;
     this.arena = new Arena(joined ? cathedralArena() : path ? gatePathArena(ARENAS[stage.arena]) : withHeart ? heartArena(ARENAS.candles, 0) : ARENAS[stage.arena]);
     this.gatePath = path ? new GatePath(this.arena) : null;
@@ -263,10 +287,10 @@ export class Battle {
     this.heartFx = withHeart ? new HeartEffects() : null;
     if (this.heartFx) this.group.add(this.heartFx.group);
     if (withHeart) ctx.music.preload(guardianSong('gateGuardian'));
+    // Победа объявляется после сцены гибели: награда не перебивает вспышку ядра и волну огня.
     if (this.heart) this.heart.onDefeated = () => {
-      this.heartPassage!.win(); this.journey?.win();
-      this.world.rank.endWave(); this.world.magnet = true;
-      this.world.bus.emit('stageClear', {});
+      if (this.director.id === 'heartDeath') { this.heartWon = true; return; }
+      this.heartVictory();
     };
 
     this.view = buildArenaView(this.arena, `stage:${stage.id}`, ZONE1_LOOK, Q.decor, false);
@@ -375,6 +399,7 @@ export class Battle {
       ctx.hud.stageTitle('ПУТЬ К ВРАТАМ', '1-3 · Собор Падших Звёзд', 'Пройди через галерею', 2.8, 52);
       ctx.hud.showHint('Пройди через галерею к Вратам', 8);
     }
+    else if (this.heartStage) this.prepareHeartStage();
     else if (!stage.boss) {
       // пролёт над ареной; первая волна — когда камера опустится к Пилоту
       const ab = encounterBounds(this.arena.def);
@@ -384,7 +409,7 @@ export class Battle {
     }
     // в прологе музыка 1-1 вступает после титула; тема босса — с его именем в интро (план §8.3)
     if (stage.boss) { this.runner.introTime = 0.05; ctx.music.preload(hierophantSong()); }
-    else if (!opts.prologue && !this.replay) ctx.music.play(stageSong(stage.id), 0.3);
+    else if (!opts.prologue && !this.replay && !this.heartStage) ctx.music.play(stageSong(stage.id), 0.3);
     // тема Стража запекается заранее — переключение на его появлении без паузы
     const guardianWave = stage.waves.find((wv) => wv.guardian);
     if (guardianWave) ctx.music.preload(guardianSong(guardianWave.spawns[0].enemy));
@@ -431,9 +456,10 @@ export class Battle {
       if (e.index + 1 < e.total && !this.stage.boss) S.audio.play('riser', { delay: Math.max(0, BREATHER - RISER_LEN), gain: 0.7, vary: 0 });
       if (e.index + 1 >= e.total) { S.music.final = false; S.audio.musicTranspose = 0; }
     });
+    b.on('heartDying', () => { if (this.heart && this.heartStage) this.pendingHeartDeath = true; });
     b.on('stageClear', () => {
-      // Волны притвора заканчиваются перед настоящим боссом: награда ждёт победы над Сердцем.
-      if (this.stage.id === '1-4' && this.heartPassage?.phase !== 'complete' && this.heart) {
+      // 1-4 заканчивается не последней волной, а светом элиты, вошедшим в Сердце.
+      if (this.stage.id === '1-4' && this.heart && !this.heartLightDone) {
         this.endT = -1; this.world.magnet = true; return;
       }
       this.outcome = 'won';
@@ -458,7 +484,7 @@ export class Battle {
     b.on('kill', (e) => {
       const en = e.target as Enemy;
       if (this.stage.id === '1-4' && en.elite.length > 0 && this.runner.waveIdx === this.stage.waves.length-1 && this.heartSoul.phase === 'idle') {
-        this.pendingHeartSoul = { x: en.x, z: en.z };
+        this.pendingHeartSoul = { x: en.x, z: en.z, delay: 0.55 };
       }
       // последний враг волны (план §8.8): замедление 0.3 на 0.4 с и наезд 6 % — «волна закрыта»
       if (this.runner.phase === 'wave' && !this.runner.spawnsPending && !this.world.enemies.some((x) => !x.dead && x !== en) && !this.stage.boss) {
@@ -522,11 +548,15 @@ export class Battle {
     // следы боя: тяжёлые удары оставляют трещины и сколы (к концу боя арена выглядит иначе)
     // арена помнит бой (план §8.5): где Пилот много бил, ответный удар раскалывает пол сильнее
     b.on('impact', (e) => {
+      // удар клинка Пилота в пол раскалывает его своим разломом (heroCrack)
+      if (FX.cracks && e.hero) return;
       if (e.r < 2 || (e.kind !== 'slam' && e.r < 3)) return;
       const wear = this.events.wearAt(e.x, e.z);
       this.scar(e.x, e.z, Math.min(4, e.r * 0.75 * (1 + 0.6 * wear)), 0.9 + 0.3 * wear);
     });
     b.on('strike', (e) => { if (e.source === 'blade' && (e.feel === 'heavy' || e.feel === 'break')) this.scar(e.x, e.z, e.feel === 'break' ? 1.8 : 1.2, 0.7); });
+    // Тяжёлый удар Пилота раскалывает пол: раскалённый разлом бежит от точки удара, у Звездопада — ещё кратер.
+    b.on('heroCrack', (e) => { if (FX.cracks) this.heroCrack(e); });
     b.on('stun', () => {
       if (!S.flag('tut_shatter')) { S.setFlag('tut_shatter'); hud.showHint('Враг оглушён — финишер или заряженный удар: РАСКОЛ'); }
     });
@@ -672,13 +702,6 @@ export class Battle {
 
   /** Отладочный переход сохраняет короткий адрес ?stage=1-3&wave=2 для дуэли со Стражем. */
   skipToWave(index: number): void {
-    if (this.stage.id === '1-4' && index >= this.stage.waves.length && this.heartPassage) {
-      this.cine.clear(this.cam); this.runner.phase = 'clear';
-      this.heartSoul.escape(0, this.heartForeZ-7); this.heartSoul.hide();
-      this.heartPassage.release(); this.heartPassage.step(2);
-      const h=this.world.hero; h.spawn(0, this.heartForeZ+HEART_HALL.enterZ+0.8, Math.PI);
-      this.cam.snap(h.x,h.z); this.ctx.hud.foldTitle(); return;
-    }
     if (this.gatePath) {
       this.gatePath.enterCombat();
       this.world.hero.spawn(0, 5, Math.PI);
@@ -759,59 +782,186 @@ export class Battle {
   }
 
   private isHeartScene(): boolean {
-    return this.director.id === 'heartSoulEscape' || this.director.id === 'heartAwakening';
+    return this.director.id === 'heartSoulFlight' || this.director.id === 'heartIntro' || this.director.id === 'heartDeath';
+  }
+
+  /**
+   * Этап боя с Сердцем: Сердце уже приняло свет и тлеет, ворота за спиной открыты; герой стоит за порогом Чертога.
+   * Вступление начнётся в первом кадре боя.
+   */
+  private prepareHeartStage(): void {
+    const heart = this.heart!, passage = this.heartPassage!, h = this.world.hero;
+    this.runner.introTime = Infinity;
+    this.heartSoul.launch(0, this.heartForeZ - 6, this.heartForeZ + HEART_HALL.gateZ, heart.centerZ - 0.5); this.heartSoul.absorb();
+    passage.release(); passage.beginAwakening(); this.heartGateView?.update(passage.gateOpen);
+    heart.body.y = 0.8;
+    h.spawn(0, heart.centerZ + 9.6, Math.PI);
+    this.cam.snap(h.x, h.z);
+    this.pendingHeartIntro = true;
+  }
+
+  private heartVictory(): void {
+    // Победа уже показана сценой гибели: награда сразу после неё, без второго облёта.
+    if (this.heartStage) this.finisherVictory = true;
+    this.heartPassage!.win(); this.journey?.win();
+    this.world.rank.endWave(); this.world.magnet = true;
+    this.world.bus.emit('stageClear', {});
   }
 
   private updateHeartPassage(dt: number): void {
     const passage=this.heartPassage, heart=this.heart, soul=this.heartSoul, h=this.world.hero;
-    if (!passage || !heart || this.stage.id !== '1-4' || h.dead) return;
-    if (this.director.id === 'heartSoulEscape') soul.sampleEscape(this.director.time);
-    else if (this.director.id === 'heartAwakening') soul.sampleArrival(this.director.time);
-    if (this.pendingHeartSoul && !this.director.active && !this.cine.active) {
-      const source=this.pendingHeartSoul; this.pendingHeartSoul=null;
-      soul.escape(source.x,source.z); this.heartSkipArmed=false;
-      this.sceneCalls.set('heartSoulHide', () => soul.hide());
-      this.ctx.input.buffer.clear();
-      this.playScene(heartSoulEscapeTrack([h.x,h.y,h.z],[source.x,0,source.z]), () => {
-        soul.hide(); passage.release(); h.resumeAfterVictory(); this.ctx.input.buffer.clear();
+    if (!passage || !heart || !(this.stage.id === '1-4' || this.heartStage) || h.dead) return;
+    // Гибель Сердца — отдельная сцена: мир стоит, ядро лопается по времени Director.
+    if (this.director.id === 'heartDeath') heart.sampleDeath(this.director.time);
+    if (this.pendingHeartDeath && !this.director.active && !this.cine.active) {
+      this.pendingHeartDeath = false;
+      const b = heart.body;
+      this.ctx.input.buffer.clear(); this.heartSkipArmed = false;
+      let shown = false;
+      this.sceneCalls.set('heartVictory', () => {
+        if (shown) return;
+        shown = true; h.victory();
+        this.world.bus.emit('bossVictory', { x: h.x, y: h.y, z: h.z, facing: h.facing, tone: 'gold' });
+        this.ctx.hud.bigBanner('СЕРДЦЕ УГАСЛО', 'Огонь вернулся в Чертог', 'gold', 2.2, 50);
+      });
+      this.playScene(heartDeathTrack([h.x,h.y,h.z],[b.x,b.y,b.z],heart.centerZ,h.facing), () => {
+        heart.sampleDeath(HEART_DEATH_T.end + 0.5);
+        this.ctx.input.buffer.clear();
+        if (this.heartWon) { this.heartWon = false; this.heartVictory(); }
       }, {hud:false});
       return;
     }
-    if (!this.director.active && !this.cine.active) {
-      passage.step(dt); this.heartGateView?.update(passage.gateOpen);
-      if (soul.phase === 'hidden' && passage.enter(h.x,h.z)) {
-        soul.arrive(heart.centerZ); this.heartSkipArmed=false;
-        this.sceneCalls.set('heartSoulAbsorb', () => {
-          soul.absorb(); this.vfx.lights.flash(0, HEART_SOUL.coreY, heart.centerZ, C.gold, 3, 7, 0.5);
-          this.world.bus.emit('shake', {trauma:0.08});
-        });
-        this.sceneCalls.set('heartAwake', () => soul.sampleArrival(HEART_SOUL.awakeAt));
-        this.ctx.input.buffer.clear();
-        this.playScene(heartAwakeningTrack([h.x,h.y,h.z],heart.centerZ), () => {
-          soul.sampleArrival(HEART_SOUL.arrivalDur); soul.absorb();
-          passage.activate(); this.heartGateView?.update(passage.gateOpen);
-          h.resumeAfterVictory(); this.ctx.input.buffer.clear();
-          this.world.magnet=false; heart.start();
-          this.ctx.music.play(guardianSong('gateGuardian'), 0.65);
-          this.ctx.hud.foldTitle();
-        }, {hud:false});
-      }
+    if (this.director.id === 'heartSoulFlight') soul.sampleFlight(this.director.time);
+    else if (this.director.id === 'heartIntro') this.stepHeartIntro(dt);
+    // Ворота поднимаются и во время сцены: свет летит сквозь уже открывающийся проход.
+    passage.step(dt); this.heartGateView?.update(passage.gateOpen);
+    if (this.pendingHeartSoul && this.pendingHeartSoul.delay > 0) this.pendingHeartSoul.delay -= dt;
+    if (this.pendingHeartSoul && this.pendingHeartSoul.delay <= 0 && !this.director.active && !this.cine.active) {
+      const source=this.pendingHeartSoul; this.pendingHeartSoul=null;
+      const gateZ=this.heartForeZ+HEART_HALL.gateZ, coreZ=heart.centerZ-0.5;
+      const avoid=(this.arena.def.cover ?? []).map(c => ({ x: c.x, z: c.z, r: c.r }));
+      soul.launch(source.x,source.z,gateZ,coreZ,avoid); this.heartSkipArmed=false;
+      this.sceneCalls.set('heartGateOpen', () => {
+        passage.release();
+        this.world.bus.emit('shake', {trauma:0.12});
+        this.vfx.debris.burst(0, 6.8, gateZ, 0, 0, Math.round(10*this.vfx.quality), 3, 0.2);
+      });
+      this.sceneCalls.set('heartSoulAbsorb', () => {
+        soul.absorb(this.director.time);
+        this.vfx.lights.flash(0, HEART_SOUL.coreY, coreZ, C.gold, 4, 9, 0.6);
+        this.vfx.rings.spawn(0, coreZ, 0.6, 5, 0.6, C.gold, 0.5, 0.8);
+        this.world.bus.emit('shake', {trauma:0.1});
+      });
+      this.ctx.input.buffer.clear();
+      // Полёт света — финал Чертога: Сердце приняло свет, этап пройден.
+      this.playScene(heartSoulFlightTrack([h.x,h.y,h.z],soul,gateZ,{z:this.heartForeZ,rx:13.5,rz:10.5}), () => {
+        soul.absorb(); passage.release(); h.resumeAfterVictory(); this.ctx.input.buffer.clear();
+        this.heartLightDone = true;
+        this.world.bus.emit('stageClear', {});
+      }, {hud:false});
+      return;
     }
+    if (this.pendingHeartIntro && !this.director.active && !this.cine.active) {
+      this.pendingHeartIntro = false;
+      soul.beginAwakening(); this.heartSkipArmed=false;
+      const coreZ=heart.centerZ-0.5;
+      this.sceneCalls.set('heartRise', () => { this.world.bus.emit('shake', {trauma:0.2}); });
+      this.sceneCalls.set('heartAwake', () => {
+        soul.sampleAwakening(HEART_SOUL.awakeAt);
+        this.world.bus.emit('heartRoar', { x: 0, y: HEART_SOUL.coreY, z: coreZ, flood: false });
+        this.ctx.music.play(guardianSong('gateGuardian'), 0.65);
+      });
+      this.sceneCalls.set('heartStones', () => {
+        this.heartStonesShown = true;
+        for (const st of heart.stones) { st.grow = 0; this.world.bus.emit('heartStoneRegrow', { x: st.x, z: st.z, index: heart.stones.indexOf(st) }); }
+      });
+      this.ctx.input.buffer.clear();
+      this.playScene(heartIntroTrack([h.x,h.y,h.z],heart.centerZ), () => {
+        soul.awake(); this.heartStonesShown = true;
+        for (const st of heart.stones) st.grow = 1;
+        heart.body.y = Math.max(heart.body.y, HEART_SOUL.coreY);
+        passage.activate(); this.heartGateView?.update(passage.gateOpen);
+        h.resumeAfterVictory(); this.ctx.input.buffer.clear();
+        this.world.magnet=false; heart.start();
+        this.ctx.hud.foldTitle();
+      }, {hud:false});
+    }
+  }
+
+  /** Вступление: Сердце поднимается из колодца, жернова собираются над чашами. */
+  private stepHeartIntro(dt: number): void {
+    const heart = this.heart!, t = this.director.time;
+    this.heartSoul.sampleAwakening(t);
+    const k = Math.max(0, Math.min(1, (t - HEART_INTRO_T.rise) / 1.3)), e = k * k * (3 - 2 * k);
+    heart.body.y = 0.8 + (HEART_SOUL.coreY - 0.8) * e;
+    for (const st of heart.stones) st.grow = Math.min(1, st.grow + dt / 0.9);
+  }
+
+  /**
+   * Сердце до боя: фаза удара (0 — удар, 0.6 — покой) и раскрытие брони. Приняв свет, оно тлеет и бьётся
+   * раз в 2.4 с; при пробуждении — два удара, на рёве броня распахивается и к началу боя смыкается.
+   */
+  private heartPrelude(): { beat: number; open: number; light: number; glow: number } {
+    const soul=this.heartSoul, H=HEART_SOUL;
+    const since=(t:number,beats:readonly number[])=>{let last=-1;for(const b of beats)if(t>=b)last=b;return last<0?0.6:Math.min(0.6,t-last);};
+    if (this.director.id==='heartIntro') {
+      // Принятый свет горит золотом; на рёве броня распахивается, ядро наливается багровым, к бою броня смыкается.
+      const t=this.director.time, g=(x:number)=>Math.exp(-((x/0.25)**2));
+      const open=t<H.awakeAt?0.55+0.15*g(t-H.beats[0])+0.25*g(t-H.beats[1])
+        :t<H.awakeAt+1.3?Math.min(1,0.55+(t-H.awakeAt)/0.3*0.45):Math.max(0,1-(t-H.awakeAt-1.3)/1.1);
+      const glow=t<H.awakeAt?1:Math.max(0,1-(t-H.awakeAt)/0.6);
+      return { beat: since(t,[H.beats[0],H.beats[1],H.awakeAt]), open, light: 1, glow };
+    }
+    if (this.director.id==='heartSoulFlight'&&soul.timing) {
+      const t=this.director.time, a=soul.timing.absorbAt;
+      if (t<a) return { beat: 0.6, open: 0, light: 0, glow: 0 };
+      const k=Math.min(1,(t-a)/0.8);
+      return { beat: since(t,[a,a+0.55]), open: 0.55*k, light: k, glow: 1 };
+    }
+    if (soul.phase==='absorbed') return { beat: Math.min(0.6,this.ctx.time.world%2.4), open: 0.55, light: 1, glow: 1 };
+    return { beat: 0.6, open: 0, light: 0, glow: 0 };
   }
 
   private updateCandleVisuals(dt: number): void {
     const heart=this.heart;
     if (!heart) return;
     const h=this.world.hero;
-    const awakeningTime=this.director.id==='heartAwakening'?this.director.time:-100;
-    const awakeningBeat=Math.max(Math.exp(-(((awakeningTime-2.3)/0.14)**2)),Math.exp(-(((awakeningTime-3.15)/0.14)**2)));
-    this.sanctum?.update(dt, { drain: heart.active || heart.dead ? 1 : 0, lit: heart.lit, broken: heart.dead, carried: 0, chargingIndex: -1, charge: 0, hero: {x:h.x,z:h.z-heart.centerZ}, boss: {...heart.view, beat:Math.max(heart.beat,awakeningBeat), awakening:this.heartSoul.awakened} });
+    const prelude=heart.active||heart.dead?null:this.heartPrelude();
+    this.sanctum?.update(dt, { drain: heart.active || heart.dead ? 1 : 0, lit: heart.lit, broken: heart.dead, carried: 0, chargingIndex: -1, charge: 0, hero: {x:h.x,z:h.z-heart.centerZ},
+      boss: {...heart.view, beat:prelude?prelude.beat:heart.beat, awakening:this.heartSoul.awakened, sinceBurst:heart.sinceBurst, plates:heart.plates, ...(prelude?{open:prelude.open,glow:prelude.glow}:{})} });
+    // Принявшее свет Сердце светится сквозь сомкнутую броню: его видно и из притвора.
+    const prePulse=prelude?heartbeatPulse(prelude.beat):0;
+    if (prelude && prelude.light>0) this.vfx.lights.add(0,HEART_SOUL.coreY,heart.centerZ-0.5,C.gold,(1.6+prePulse*1.8)*prelude.light,8);
+    // В гибели каждый удар сердца срывает пластину брони: крошка обсидиана и тяжёлый звон.
+    if (heart.dying > 0 && !heart.burst && heart.plates < this.heartPlatesSeen && dt > 0) {
+      this.vfx.debris.burst(heart.body.x, heart.body.y, heart.body.z, 0, 0, Math.round(10 * this.vfx.quality), 6, 0.3);
+      this.ctx.audio.play('hit_armor', { gain: 0.7, pitch: 0.6 });
+      this.ctx.audio.play('shatter_stone', { gain: 0.4, pitch: 0.8, delay: 0.05 });
+    }
+    this.heartPlatesSeen = heart.plates;
+    // Обруч и броня рассыпаются после вспышки: золотые искры и тёмный пепел поднимаются от каждого куска.
+    if (this.sanctum && heart.burst && dt > 0) for (const c of this.sanctum.crumbling) {
+      const z=c.z+heart.centerZ;
+      if (fxRng.next() < 0.7) this.vfx.add.emit({ x: c.x+fxRng.spread(0.25), y: c.y+0.1, z: z+fxRng.spread(0.25), vx: fxRng.spread(0.5), vy: fxRng.range(1.2, 2.8), vz: fxRng.spread(0.5), life: fxRng.range(0.5, 0.9), size: 0.14, size1: 0.02, color: C.gold, drag: 0.8, frame: 'dot' });
+      if (fxRng.next() < 0.35) this.vfx.norm.emit({ x: c.x, y: c.y+0.15, z, vx: fxRng.spread(0.3), vy: fxRng.range(0.6, 1.2), vz: fxRng.spread(0.3), life: 1.2, size: 0.3, size1: 0.8, color: [0.07, 0.06, 0.07], alpha: 0.45, drag: 1, frame: 'smoke' });
+    }
+    this.heartFx?.setPrelude(heart.body.x,heart.body.y,heart.body.z,prelude?prelude.glow*prelude.light:0,prePulse);
     const p=this.heartSoul.position;
-    this.heartFx?.setSoul(p.x,p.y,p.z,this.heartSoul.visible);
-    this.heartFx?.update(dt,heart.view);
-    if (this.heartSoul.visible) this.vfx.lights.add(p.x,p.y,p.z,C.gold,3.5,6);
-    for(const f of heart.fields) if(f.life>0) this.vfx.lights.add(f.x,0.6,f.z,C.gold,0.7,Math.max(2,f.r));
-    if (heart.active && !heart.dead) this.vfx.lights.add(heart.body.x,heart.body.y,heart.body.z,C.hunger,1.5+heart.beat,8);
+    // В сцене гибели из лопнувшего ядра поднимается освобождённый свет — тот же огненный дух.
+    const freed=this.director.id==='heartDeath'?releasedLight(this.director.time,[heart.body.x,heart.body.y,heart.body.z]):null;
+    if (freed) { this.heartFx?.setSoul(freed[0],freed[1],freed[2],true); this.vfx.lights.add(freed[0],freed[1],freed[2],C.gold,5,9); }
+    else this.heartFx?.setSoul(p.x,p.y,p.z,this.heartSoul.visible);
+    this.heartFx?.update(dt,heart.view,this.heartStonesShown);
+    if (this.heartSoul.visible) this.vfx.lights.add(p.x,p.y,p.z,C.gold,4,7);
+    // Огненосцы — живые огни в тёмном зале; купола светят сильнее в приливе: укрытие видно издалека.
+    for(const e of heart.carriers.values()) if(!e.dead) this.vfx.lights.add(e.x,2.1,e.z,C.gold,1.8,4.5);
+    for(const f of heart.fields) if(f.life>0) this.vfx.lights.add(f.x,f.kind==='wax'?1:0.6,f.z,C.gold,f.kind==='wax'?(heart.flood?2.4:1.3):0.7,f.kind==='wax'?f.r+1.5:Math.max(2,f.r));
+    if (heart.active && !heart.dead) {
+      // Раскрытое ядро светит золотом — это место удара; перед падением под Сердцем краснеет пол.
+      const open = heart.exposed > 0 && (heart.pose === 'stuck' || heart.pose === 'knock');
+      this.vfx.lights.add(heart.body.x,heart.body.y,heart.body.z,open?C.gold:C.hunger,open?3+heart.beat*1.5:1.5+heart.beat,open?7:8);
+      if (heart.pose === 'lock' || heart.pose === 'fall') this.vfx.lights.add(heart.target.x,0.5,heart.target.z,C.hungerHot,2.5,4);
+    }
     for(let i=0;i<BRAZIERS.length;i++) if(heart.lit[i]) {
       const b=BRAZIERS[i];this.vfx.lights.add(b.x,1.7,b.z+heart.centerZ,C.gold,2.2,6);
     }
@@ -824,6 +974,8 @@ export class Battle {
       const b=BRAZIERS[i];this.pools.addDynamic(b.x,b.z+heart.centerZ,4.5,C.gold,0.55);
     }
     for(const f of heart.fields) if(f.life>0) this.pools.addDynamic(f.x,f.z,f.r*1.25,C.gold,0.4);
+    if (heart.active && heart.exposed > 0 && heart.pose === 'stuck') this.pools.addDynamic(heart.body.x,heart.body.z,4,C.gold,0.45+heart.beat*0.2);
+    if (heart.active && (heart.pose === 'lock' || heart.pose === 'fall')) this.pools.addDynamic(heart.target.x,heart.target.z,3.2,C.hunger,0.55);
     this.pools.commit();
   }
 
@@ -907,6 +1059,22 @@ export class Battle {
         for (let i = 0; i < 46; i++) this.vfx.norm.emit({ x: x + fxRng.spread(9), y: fxRng.range(7, 11), z: z + fxRng.spread(8), vy: -fxRng.range(0.5, 1.5), gravity: -1.5, life: 2.6, size: fxRng.range(0.15, 0.35), size1: 0.6, color: C.dust, alpha: 0.4, drag: 0.6, frame: 'smoke' });
       },
     };
+  }
+
+  /**
+   * Разлом от клинка Пилота: идёт по целому полу от точки удара (над провалом обрывается), раскалён и бежит
+   * вместе с волной; от точки удара летит обсидиановая крошка. Звездопад вдобавок выбивает кратер.
+   */
+  private heroCrack(e: GameEvents['heroCrack']): void {
+    if (!this.arena.walkable(e.x, e.z)) return;
+    const T = HERO_CRACK[e.kind];
+    let len = 0;
+    while (len < e.len && this.arena.walkable(e.x + e.dx * (len + 0.5), e.z + e.dz * (len + 0.5))) len += 0.5;
+    if (len >= 1) this.scars.addFissure(e.x, e.z, e.dx, e.dz, len, T.width, 1, { heat: T.heat, speed: T.speed });
+    if (e.kind === 'skyfall') this.scars.add(e.x, e.z, T.crater, 1, { heat: T.heat });
+    const q = this.vfx.quality;
+    this.vfx.debris.burst(e.x, 0.15, e.z, e.dx, e.dz, Math.round(T.chips * q), 5, 0.16);
+    this.vfx.burst(Math.round(10 * q), { x: e.x, y: 0.2, z: e.z, life: 1.4, size: 0.5, size1: 1.6, color: C.dust, alpha: 0.4, drag: 2.4, frame: 'smoke' }, { v: 4, vy: 0.5 }, false);
   }
 
   /** След боя, если пол под ним цел; рядом с недавним — не дублировать. */
@@ -1024,7 +1192,9 @@ export class Battle {
       const d = Math.hypot(focusBoss.x - h.x, focusBoss.z - h.z);
       zoom = Math.max(1, Math.min(1.35, 0.85 + d / 22)) * (this.boss?.zoomMul ?? 1);
       // рамка босса (план §5.3, п. 4): верх модели не выше 78 % высоты экрана — иначе отъезжаем
-      _top.set(focusBoss.x, (focusBoss as { height?: number }).height ?? 4, focusBoss.z).project(this.ctx.renderer.camera);
+      // Звонарь на маковке колокола — верх модели выше на высоту колокола
+      const lift = (focusBoss as { riding?: boolean }).riding ? (focusBoss as { y?: number }).y ?? 0 : 0;
+      _top.set(focusBoss.x, lift + ((focusBoss as { height?: number }).height ?? 4), focusBoss.z).project(this.ctx.renderer.camera);
       const frac = (_top.y + 1) / 2;
       if (frac > 0.78) this.bossFrame = Math.min(0.8, this.bossFrame + realDt * 0.9);
       else if (frac < 0.7) this.bossFrame = Math.max(0, this.bossFrame - realDt * 0.4);
@@ -1053,7 +1223,7 @@ export class Battle {
     const reveal = clamp((GATE_PATH.revealZ - h.z) / 6.5, 0, 1);
     const opening = path?.phase === 'opening';
     const showCollapse = this.collapseOverview > 0;
-    const hallFrame = !!this.heart && ['awakening','combat','complete'].includes(this.heartPassage?.phase ?? '') && this.stage.id === '1-4';
+    const hallFrame = !!this.heart && ['awakening','combat','complete'].includes(this.heartPassage?.phase ?? '') && this.heartStage;
     const tilt = showCollapse ? 1.1 : hallFrame ? 1.16 : gallery ? 0.3 + 0.43 * reveal : bridging ? 0.58 : opening ? 0.62 : focusBoss ? this.camPreset.boss : this.camPreset.tilt;
     const lookHeight = showCollapse ? 0.4 : hallFrame ? 2.2 : gallery ? 1.25 * (1 - reveal) : opening ? 1.6 : bridging ? 1 : explore ? 0.8 : 0;
     cam.lookHeight += (lookHeight - cam.lookHeight) * (1 - Math.exp(-realDt * 3));
@@ -1062,9 +1232,11 @@ export class Battle {
     if (explore) { tz -= gallery ? 1.4 : opening ? 3.5 : bridging ? 2.5 : 1.1; zoom = opening ? 1.15 : 1; }
     if (showCollapse) { tz = h.z + 2.5; zoom = 1.4; }
     else if (hallFrame) {
-      const body=this.heart!.body, distance=Math.hypot(body.x-h.x,body.z-h.z);
+      const body=this.heart!.body, distance=Math.hypot(body.x-h.x,body.z-h.z), flood=this.heart!.flood;
       tz += clamp(body.z-h.z,-14,14)*0.5; tx += clamp(body.x-h.x,-12,12)*0.5;
       zoom = Math.max(zoom,1.12+clamp((distance-4)/6.5,0,1)*0.28);
+      // Прилив: камера отступает, чтобы были видны тьма, огненосцы и купола вокруг героя.
+      if (flood) zoom = Math.max(zoom, 1.3 + 0.25*flood.level);
     }
     this.feel.baseZoom = zoom;
     // со Стражем и боссом камера наклоняется ниже: в кадре горизонт и луна (план §8.5); у «Кино» — до 42°
@@ -1208,8 +1380,10 @@ export class Battle {
     const w = this.world, h = w.hero, ctx = this.ctx;
     this.finisherVictory = true;
     for (const tele of w.telegraphs) tele.alive = false;
+    // жакемар встаёт на колени лицом к герою: удар — спереди, в циферблат
+    if (e.kind === 'bellRinger') e.facing = Math.atan2(h.x - e.x, h.z - e.z);
     const anchors = guardianTargets(e.puppet.layout, e.x, e.z, e.facing, e.kind === 'gateGuardian' ? 1.65 : 1.45);
-    const angle = e.kind === 'bellRinger' ? e.facing : Math.atan2(e.x - h.x, e.z - h.z), fx = Math.sin(angle), fz = Math.cos(angle);
+    const angle = Math.atan2(e.x - h.x, e.z - h.z), fx = Math.sin(angle), fz = Math.cos(angle);
     const safe = { x: 0, z: 0 }; this.arena.nearestWalkable(e.x - fx * 3.8 - fz * 1.5, e.z - fz * 3.8 + fx * 1.5, safe);
     const spots = { gx: e.x, gz: e.z, hx: h.x, hz: h.z, facing: e.facing, ...anchors, landing: [safe.x, 0, safe.z] as V3 };
     const dl = Math.hypot(e.x - h.x, e.z - h.z) || 1, dirX = (e.x - h.x) / dl, dirZ = (e.z - h.z) / dl;
@@ -1262,9 +1436,12 @@ export class Battle {
       });
       this.sceneCalls.set('bellRing', () => {
         const at = new THREE.Vector3(...anchors.bell);
-        if (e instanceof BellRinger) e.bellPoint(at);
+        if (e instanceof BellRinger) e.dialPoint(at);
+        // циферблат лопается: последний надтреснутый бой часов, из груди сыплются шестерни и пружины
         w.bus.emit('sfx', { id: 'boss_bell', x: at.x, z: at.z });
-        // Резонанс приходит после отклонения подвешенного колокола, из его текущего положения.
+        w.bus.emit('sfx', { id: 'bell_crack', x: at.x, z: at.z });
+        this.vfx.debris.burst(at.x, at.y, at.z, -fx, -fz, Math.round(14 * this.vfx.quality), 5, 0.12);
+        this.vfx.burst(Math.round(16 * this.vfx.quality), { x: at.x, y: at.y, z: at.z, life: 0.7, size: 0.1, size1: 0.02, color: C.gold, gravity: -9, drag: 1.2, frame: 'spark', stretch: 1 }, { v: 6, vy: 3 });
         w.bus.emit('shockwave', { x: at.x, z: at.z, y: at.y, r: 7, color: 'void', strength: 0.65 });
       });
       this.playScene(killBellTrack(spots), finish, { letterbox: false, hud: false });
@@ -1524,6 +1701,8 @@ export class Battle {
     }
     // Страж проявился — добивающий удар по оглушённому: дальше kill-cam как в бою
     if (e && !R.seen && !this.director.active && e.state !== 'spawn' && !e.killcam) {
+      // Звонарь умирает только в III фазе: колокол уже лежит, язык в руках
+      if (e instanceof BellRinger) e.skipToFinale();
       e.hp = Math.min(e.hp, 5);
       (e as unknown as { cur: unknown }).cur = null;
       w.stunEnemy(e);

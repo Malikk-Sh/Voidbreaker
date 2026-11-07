@@ -54,22 +54,24 @@ describe('этап 4.5 B2: идеальное уклонение → Контр�
     w.step(DT, DT, idle());
     // приход: тело смотрит по ходу проскока (±50°), а не уже на цель
     expect(Math.abs(angleDiff(yaw(w), travel))).toBeLessThan(0.9);
-    let turned = 0, prev = yaw(w), bladeAtHit = NaN, holdYaw = NaN, holdY = NaN;
+    let turned = 0, prev = yaw(w), bladeAtHit = NaN, bladeBefore = NaN, holdYaw = NaN, holdY = NaN;
     const base = new THREE.Vector3(), tip = new THREE.Vector3();
     for (let i = 0; i < 20; i++) {
       w.step(DT, DT, idle());
       turned += angleDiff(prev, yaw(w)); prev = yaw(w);
-      if (h.hitActive && Number.isNaN(bladeAtHit)) {
-        w.hero.avatar.bladePoints(base, tip);
-        bladeAtHit = Math.atan2(tip.x - base.x, tip.z - base.z);
-      }
+      w.hero.avatar.bladePoints(base, tip);
+      const blade = Math.atan2(tip.x - base.x, tip.z - base.z);
+      if (h.hitActive && Number.isNaN(bladeAtHit)) bladeAtHit = blade;
+      else if (!h.hitActive && Number.isNaN(bladeAtHit)) bladeBefore = blade;
       // удержание выхода: 0.14–0.27 с клипа
       if (i === 11) { holdYaw = yaw(w); holdY = w.hero.avatar.puppet.anim.root.y; }
     }
     // разворот слева направо больше пол-оборота (клинок идёт поперёк цели, а не крутится на месте)
     expect(turned).toBeLessThan(-Math.PI);
-    // в первом кадре открытого хитбокса клинок смотрит на цель (±35°)
-    expect(Math.abs(angleDiff(bladeAtHit, toTarget))).toBeLessThan(0.6);
+    // клинок проходит цель в кадре контакта: между последним кадром до хитбокса и первым кадром с ним направление
+    // на цель пересечено, и в кадре контакта клинок ещё рядом с ним (±46°) — при любом темпе клипа (HERO_PACE)
+    expect(Math.sign(angleDiff(bladeBefore, toTarget))).not.toBe(Math.sign(angleDiff(bladeAtHit, toTarget)));
+    expect(Math.abs(angleDiff(bladeAtHit, toTarget))).toBeLessThan(0.8);
     // силуэт на выходе: тело к цели (±60°), Пилот в низкой стойке
     expect(Math.abs(angleDiff(holdYaw, toTarget))).toBeLessThan(1.05);
     expect(holdY).toBeLessThan(-0.15);

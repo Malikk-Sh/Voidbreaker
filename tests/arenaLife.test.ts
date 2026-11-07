@@ -13,6 +13,26 @@ describe('живые арены (план §8.5)', () => {
     expect(s.spots[0].alive).toBe(false);
     s.dispose();
   });
+
+  it('разлом ложится от точки удара вдоль удара; рельеф и жар — два слоя одного буфера', () => {
+    const s = new FloorScars();
+    s.addFissure(1, 2, 0, -1, 8, 1.5, 1, { heat: 1, speed: 20 });
+    s.add(-3, 0, 2.4, 1, { heat: 0.5 });
+    const names = s.mesh.children.map((c) => c.name);
+    expect(names).toEqual(['floor-scars', 'floor-scars-heat']);
+    const geo = (s.mesh.children[0] as THREE.Mesh).geometry as THREE.InstancedBufferGeometry;
+    expect(geo).toBe((s.mesh.children[1] as THREE.Mesh).geometry);
+    expect(geo.instanceCount).toBe(2);
+    const A = geo.getAttribute('iA').array, B = geo.getAttribute('iB').array, C = geo.getAttribute('iC').array;
+    // квад разлома: центр сдвинут вдоль удара, заходит за точку удара на запас под кратер
+    const back = 1.5 * 0.6;
+    expect(A[0]).toBeCloseTo(1); expect(A[1]).toBeCloseTo(2 - (8 - back) / 2);
+    expect(A[2]).toBeCloseTo((8 + back) / 2);
+    expect(B[3]).toBe(1); expect(C[0]).toBeCloseTo(0.75); expect(C[1]).toBe(1); expect(C[2]).toBe(20); expect(C[3]).toBeCloseTo(back);
+    // кратер: вид 0, жар как задан
+    expect(B[7]).toBe(0); expect(C[5]).toBeCloseTo(0.5); expect(s.spots[0].z).toBeCloseTo(A[1]);
+    s.dispose();
+  });
 });
 
 import * as THREE from 'three';

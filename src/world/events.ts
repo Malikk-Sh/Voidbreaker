@@ -54,7 +54,12 @@ export interface GameEvents {
   /** Рывок пошёл скольжением по трещине. */
   slide: { x: number; z: number; dirX: number; dirZ: number };
   chargeReady: { level: number };
-  impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell' };
+  impact: { x: number; z: number; r: number; kind: 'rift' | 'slam' | 'land' | 'shatter' | 'bell'; hero?: boolean };
+  /**
+   * Клинок Пилота раскалывает пол: cleave — полный заряд (разлом бежит вместе с волной клинка), rift — Нисходящий
+   * разлом, skyfall — Звездопад. x, z — точка удара, dx, dz — направление, len — длина разлома (м).
+   */
+  heroCrack: { x: number; z: number; dx: number; dz: number; len: number; kind: 'cleave' | 'rift' | 'skyfall' };
   /** Фирменная (неостановимая) атака Стража/босса началась: удар через impactIn с мирового времени (план §8.7, п. 5). */
   signature: { x: number; z: number; impactIn: number };
   /** Раскол: финишер или полный заряд по оглушённому врагу — взрыв трещин, оглушение кончается. */
@@ -80,10 +85,8 @@ export interface GameEvents {
    * snap — нить лопнула (tx, tz — второй конец).
    */
   psalm: { kind: 'link' | 'off' | 'snap'; x: number; z: number; tx?: number; tz?: number };
-  /** Звонарь (план §7.4): удар колокола виден — пульсация колокола (big — полный удар). */
+  /** Звонарь: удар колокола виден — вспышка механизма Звонаря (big — полный удар). */
   bellPulse: { x: number; y: number; z: number; big: boolean };
-  /** Полный заряженный удар по колоколу сзади: фиолетовое кольцо героя. */
-  bellStrike: { x: number; y: number; z: number; r: number };
   /** Страж Врат: герой побежал по древку застрявшей алебарды; удар в шлем. */
   shaftRun: { x: number; z: number };
   helmetHit: { x: number; y: number; z: number };
@@ -122,6 +125,75 @@ export interface GameEvents {
   guardianRage: { x: number; z: number; kind: string };
   bossIntro: { name: string; title: string };
   bossDeath: { x: number; z: number };
+  /** Погребальное сердце: удар о пол (big — последнее падение серии; open — после него ядро открыто). */
+  heartSlam: { x: number; z: number; r: number; big: boolean; open: boolean };
+  /** Клинок о закрытую броню Сердца. */
+  heartClank: { x: number; y: number; z: number };
+  /** Сердце сбито на пол отбитой сферой или огнём. */
+  heartStagger: { x: number; y: number; z: number };
+  /** Ярость между фазами: броня слетает, Сердце ревёт. */
+  heartRage: { x: number; y: number; z: number; phase: number };
+  /** Тёмная волна вышла из колодца. */
+  heartPulse: { x: number; y: number; z: number };
+  /** Луч «маятника» лёг на пол (first — первый луч серии). */
+  heartBeam: { x: number; z: number; dx: number; dz: number; len: number; first: boolean };
+  /** Огонь чаши или воска возвращается в Сердце: от (x, z) к телу (tx, ty, tz). */
+  heartCounter: { x: number; z: number; tx: number; ty: number; tz: number };
+  /** Нулевые HP: ядро сжимается… */
+  heartDying: { x: number; y: number; z: number };
+  /** …и лопается, возвращая огонь залу. */
+  heartBurst: { x: number; y: number; z: number };
+  /** Рёв Сердца: пробуждение или начало прилива (flood). */
+  heartRoar: { x: number; y: number; z: number; flood: boolean };
+  /** Удар Погребального прилива: pulse — номер удара, safe — герой под золотым куполом. */
+  heartFlood: { x: number; z: number; pulse: number; safe: boolean };
+  /** Капля воска ударила в пол. */
+  heartDrop: { x: number; z: number; r: number };
+  /** Павший огненосец оставил золотой купол. */
+  heartDome: { x: number; z: number; r: number };
+  /** Сердце выпустило огненосцев. */
+  heartSummon: { x: number; z: number; n: number };
+  /** Клинок по жернову: left — сколько осталось 0…1. */
+  heartStoneHit: { x: number; z: number; index: number; left: number; heavy: boolean };
+  /** Жернов разбит: left — сколько жерновов ещё цело. */
+  heartStoneBreak: { x: number; z: number; index: number; left: number };
+  /** Великий колокол (Звонарь): перерублена верёвка у тумбы; left — сколько верёвок цело. */
+  bellRope: { x: number; z: number; index: number; left: number };
+  /** Удар по ненатянутой тумбе: звон, искры, верёвка цела. */
+  bellClank: { x: number; z: number };
+  /** Порвана прядь натянутой верёвки (left — сколько прядей осталось). */
+  bellFray: { x: number; z: number; index: number; left: number };
+  /** Колокол отозвался на порванную прядь: волна звона. */
+  bellToll: { x: number; z: number };
+  /** Звонарь пнул колокол обратно той же линией. */
+  bellKick: { x: number; z: number };
+  /** Колокол сорвался с паузы маятника и пошёл через зал (dirX, dirZ — куда). */
+  bellPass: { x: number; z: number; dirX: number; dirZ: number };
+  /** Звонарь раскрутил колокол по кругу. */
+  bellSpin: { x: number; z: number };
+  /** Колокол ударил героя. */
+  bellHit: { x: number; z: number };
+  /** Последняя верёвка срезана: колокол срывается в центр (dur — до удара). */
+  bellDrop: { x: number; z: number; dur: number };
+  /** Колокол рухнул на пол. */
+  bellFall: { x: number; z: number };
+  /** Удар по Звонарю ушёл в колокол: ниже порога HP не опустить, пока целы верёвки (left). */
+  bellWard: { x: number; z: number; left: number };
+  /** Звонарь вскочил на маковку колокола. */
+  bellMount: { x: number; z: number };
+  /** Звонарь прыгнул (с колокола, на колокол, в центр). */
+  bellLeap: { x: number; z: number };
+  /** Рывок срезанной верёвки сбросил Звонаря с колокола. */
+  bellThrown: { x: number; z: number };
+  /** III фаза: Звонарь вырвал язык из рухнувшего колокола (from — колокол). */
+  bellClapper: { x: number; z: number; fromX: number; fromZ: number };
+  /** Сердце собрало разбитый жернов заново (новая фаза). */
+  heartStoneRegrow: { x: number; z: number; index: number };
+  /** Жернов бросил каменный диск по направлению (dx, dz). */
+  heartDisc: { x: number; z: number; dx: number; dz: number };
+  heartDiscEnd: { x: number; z: number };
+  /** Удар по раскрытому ядру ушёл в щит жерновов: intact — сколько их цело. */
+  heartWard: { x: number; y: number; z: number; intact: number };
   resonanceFull: Record<string, never>;
   /** Способность снова готова (кольцо вокруг иконки, короткий звук). */
   abilityReady: { slot: 'q' | 'e' };

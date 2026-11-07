@@ -372,93 +372,431 @@ describe('Псаломщик Голода (план §7.3)', () => {
   });
 });
 
-describe('Звонарь: уловки (план §7.4)', () => {
+describe('Звонарь: «Маятник» (план §7.4)', () => {
   const idle = (): Input => ({ moveX: 0, moveZ: 0, aimActive: false, aimX: 0, aimZ: 0, attackHeld: false, attackHeldSince: 0, now: 0, buffer: new InputBuffer() }) as unknown as Input;
   const run = (w: World, sec: number, each?: () => void): void => { const inp = idle(); for (let t = 0; t < sec; t += DT) { w.step(DT, DT, inp, DT); each?.(); } };
   async function setup(arenaName = 'belfry') {
     const G = await import('../src/world/boss/guardians');
+    const B = await import('../src/world/boss/greatBell');
     const w = arena(arenaName);
-    w.hero.x = 0; w.hero.z = 4;
+    // дальше 5 м от тумб: Звонарь не прыгает защищать верёвку
+    w.hero.x = 0; w.hero.z = 8;
     const b = put(w, new G.BellRinger({ zone: 0, stage: 5 }), 0, 0);
     b.idleT = 99;
-    return { w, b, G };
+    return { w, b, G, B };
   }
-  const charged = (w: World, e: Enemy): void => {
-    w.damageEnemy(e, { mult: 1, stun: 0, stunKind: 'charged', knockback: 1, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade' });
-  };
 
-  it('колокол на спине: полный заряд сзади — фиолетовое кольцо, урон Звонарю и врагам, +30 оглушения; спереди — нет', async () => {
-    const { Husk } = await import('../src/world/enemies/husk');
+  // колокол на четырёх верёвках, фазы по целым верёвкам; в верёвке четыре пряди
+  const slashAt = (w: World, x: number, z: number, move = 'slash1'): void => {
+    w.bus.emit('swing', { kind: 'light' });
+    w.bus.emit('slash', { move, hit: { shape: 'circle', radius: 1.2 }, second: false, x, y: 1, z, facing: 0, reach: 1, active: 0.1 });
+  };
+  /** Перерубить натянутую верёвку i: лёгкие удары по тумбе, пока не кончатся пряди. */
+  const cutAt = (w: World, i: number): void => {
+    const bell = w.greatBell!, r = bell.ropes[i];
+    for (let k = 0; k < 8 && !r.cut; k++) slashAt(w, r.cleat.x, r.cleat.z);
+  };
+  /** Ждать, пока колокол встанет на краю качания и какая-то верёвка будет натянута. */
+  const untilTaut = (w: World, sec = 12): number => {
+    const bell = w.greatBell!;
+    for (let t = 0; t < sec; t += DT) {
+      run(w, DT);
+      const i = bell.ropes.findIndex((r) => bell.cuttable(r));
+      if (i >= 0 && (bell.mode !== 'swing' || bell.paused)) return i;
+    }
+    return -1;
+  };
+  /** Звонарь на колоколе и едет, пока тест сам не решит иначе. */
+  async function mounted() {
+    const s = await setup();
+    s.b.idleT = 0;
+    for (let t = 0; t < 4 && !s.b.riding; t += DT) run(s.w, DT);
+    (s.b as unknown as { rideFor: number }).rideFor = 99;
+    run(s.w, 0.5);
+    return s;
+  }
+
+  it('тумбы верёвок — на полу у кромки провалов, блоки — над провалами; в каждой верёвке четыре пряди', async () => {
+    const { w, B } = await setup();
+    const bell = w.greatBell!;
+    expect(bell.ropes.length).toBe(4);
+    for (const r of bell.ropes) {
+      expect(w.arena.walkable(r.cleat.x, r.cleat.z)).toBe(true);
+      expect(w.arena.walkable(r.pulley.x, r.pulley.z)).toBe(false);
+      expect(Math.hypot(r.cleat.x - r.pulley.x, r.cleat.z - r.pulley.z)).toBeLessThan(3.6);
+      expect(r.strands).toBe(B.GREAT_BELL.strands);
+    }
+  });
+
+  it('Звонарь вскакивает на колокол и едет недосягаемым; на паузе натянуты верёвки дальней стороны', async () => {
+    const { w, b } = await mounted();
+    const bell = w.greatBell!;
+    expect(b.riding).toBe(true);
+    expect(b.targetable).toBe(false);
+    expect(bell.mode).toBe('swing');
+    const i = untilTaut(w);
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(Math.hypot(b.x - bell.x, b.z - bell.z)).toBeLessThan(0.01);
+    expect(b.y).toBeGreaterThan(3);
+    // натянуты только верёвки с другой стороны зала от колокола
+    for (const r of bell.ropes) if (bell.cuttable(r)) expect(Math.sign(r.pulley.x - bell.cx)).toBe(-Math.sign(bell.x - bell.cx));
+  });
+
+  it('лёгкий удар по натянутой тумбе рвёт одну прядь, и колокол звонит волной; по ослабленной — звон железа', async () => {
+    const { w, B } = await mounted();
+    const bell = w.greatBell!;
+    const i = untilTaut(w);
+    const slack = bell.ropes.findIndex((r) => !bell.cuttable(r));
+    let clanks = 0, frays = 0;
+    w.bus.on('bellClank', () => clanks++);
+    w.bus.on('bellFray', () => frays++);
+    slashAt(w, bell.ropes[slack].cleat.x, bell.ropes[slack].cleat.z);
+    expect(bell.ropes[slack].strands).toBe(B.GREAT_BELL.strands);
+    expect(clanks).toBe(1);
+    const waves = w.ringWaves.length;
+    slashAt(w, bell.ropes[i].cleat.x, bell.ropes[i].cleat.z);
+    expect(frays).toBe(1);
+    expect(bell.ropes[i].strands).toBe(B.GREAT_BELL.strands - 1);
+    expect(bell.ropes[i].cut).toBe(false);
+    // волна звона — от колокола, её хозяин не Звонарь: уход от неё не копит ему оглушение
+    expect(w.ringWaves.length).toBe(waves + 1);
+    const wave = w.ringWaves.at(-1)!;
+    expect(Math.hypot(wave.x - bell.x, wave.z - bell.z)).toBeLessThan(0.01);
+    expect(wave.owner).toBe(B.TOLL_OWNER);
+    // вторая прядь сразу за первой — без второй волны (не чаще toll.cd)
+    slashAt(w, bell.ropes[i].cleat.x, bell.ropes[i].cleat.z);
+    expect(bell.ropes[i].strands).toBe(B.GREAT_BELL.strands - 2);
+    expect(w.ringWaves.length).toBe(waves + 1);
+  });
+
+  it('тяжёлый приём (Разлом) рвёт сразу две пряди', async () => {
+    const { w, B } = await mounted();
+    const bell = w.greatBell!;
+    const i = untilTaut(w);
+    slashAt(w, bell.ropes[i].cleat.x, bell.ropes[i].cleat.z, 'rift');
+    expect(bell.ropes[i].strands).toBe(B.GREAT_BELL.strands - 2);
+    slashAt(w, bell.ropes[i].cleat.x, bell.ropes[i].cleat.z, 'charged');
+    expect(bell.ropes[i].cut).toBe(true);
+  });
+
+  it('перерубленная верёвка: Звонарь теряет 10 %, но остаётся на колоколе и не оглушён; колокол идёт к тумбе по белой метке', async () => {
+    const { w, b, G } = await mounted();
+    const bell = w.greatBell!;
+    const i = untilTaut(w);
+    const hp0 = b.hp;
+    cutAt(w, i);
+    expect(bell.ropes[i].cut).toBe(true);
+    expect(hp0 - b.hp).toBeCloseTo(b.maxHp * G.RINGER.cut, 0);
+    expect(b.riding).toBe(true);
+    // рывок верёвки: следующий проход — к её тумбе, метка белая и короткая
+    const c = bell.ropes[i].cleat, cl = Math.hypot(c.x - bell.cx, c.z - bell.cz);
+    const n = bell.swing.next, nl = Math.hypot(n.x, n.z);
+    expect((n.x * (c.x - bell.cx) + n.z * (c.z - bell.cz)) / (nl * cl)).toBeGreaterThan(0.99);
+    expect(bell.swing.kick).toBe(true);
+    expect(w.telegraphs.some((t) => t.alive && t.white && t.shape.k === 'line')).toBe(true);
+    run(w, 1.5);
+    expect(b.stunned).toBe(false);
+  });
+
+  it('после рывка срезанной верёвки остальные провисают на GREAT_BELL.settle секунд', async () => {
+    const { w, B } = await mounted();
+    const bell = w.greatBell!;
+    const i = untilTaut(w);
+    cutAt(w, i);
+    let cuttableAt = -1;
+    for (let t = 0; t < B.GREAT_BELL.settle + 8 && cuttableAt < 0; t += DT) { run(w, DT); if (bell.ropes.some((r) => bell.cuttable(r))) cuttableAt = t; }
+    expect(cuttableAt).toBeGreaterThanOrEqual(B.GREAT_BELL.settle - 0.05);
+  });
+
+  it('после первых проходов линия качания поворачивается: колокол не ходит по одной полосе', async () => {
+    const { w, b, B } = await mounted();
+    const bell = w.greatBell!;
+    (b as unknown as { rideFor: number }).rideFor = 99;
+    const kick = B.GREAT_BELL.swing.kick.chance;
+    (B.GREAT_BELL.swing.kick as { chance: readonly number[] }).chance = [0, 0];
+    try {
+      const turns: number[] = [];
+      let passes = bell.metrics.passes;
+      run(w, 14, () => {
+        if (bell.metrics.passes === passes) return;
+        passes = bell.metrics.passes;
+        const a = bell.swing.at, n = bell.swing.next;
+        turns.push(Math.abs(Math.PI - Math.abs(Math.atan2(a.x * n.z - a.z * n.x, a.x * n.x + a.z * n.z))));
+      });
+      expect(turns.length).toBeGreaterThanOrEqual(5);
+      // первые calm проходов — через центр, дальше — на угол turn
+      expect(turns[0]).toBeLessThan(0.01);
+      for (const t of turns.slice(B.GREAT_BELL.swing.calm)) {
+        expect(t).toBeGreaterThan(B.GREAT_BELL.swing.turn[0] - 0.01);
+        expect(t).toBeLessThan(B.GREAT_BELL.swing.turn[1] + 0.01);
+      }
+    } finally { (B.GREAT_BELL.swing.kick as { chance: readonly number[] }).chance = kick; }
+  });
+
+  it('Звонарь на маковке пинает колокол обратно той же линией — пауза короче, метка белая', async () => {
+    const { w, b, B } = await mounted();
+    const bell = w.greatBell!;
+    (b as unknown as { rideFor: number }).rideFor = 99;
+    const kick = B.GREAT_BELL.swing.kick.chance;
+    (B.GREAT_BELL.swing.kick as { chance: readonly number[] }).chance = [1, 1];
+    try {
+      let seen = false;
+      for (let t = 0; t < 12 && !seen; t += DT) {
+        const from = { ...bell.swing.at };
+        run(w, DT);
+        if (bell.swing.kick && bell.paused && bell.swing.t < 0.05) {
+          seen = true;
+          expect(Math.hypot(bell.swing.next.x - from.x, bell.swing.next.z - from.z)).toBeLessThan(0.01);
+          expect(bell.pauseLeft).toBeLessThanOrEqual(B.GREAT_BELL.swing.kick.warn + 0.01);
+          expect(w.telegraphs.some((tt) => tt.alive && tt.white && tt.shape.k === 'line')).toBe(true);
+        }
+      }
+      expect(seen).toBe(true);
+      expect(b.metrics.kicks).toBeGreaterThanOrEqual(1);
+    } finally { (B.GREAT_BELL.swing.kick as { chance: readonly number[] }).chance = kick; }
+  });
+
+  it('верёвку срезали, пока Звонарь прыгал на колокол, — он спрыгивает на пол без оглушения, а не едет во II фазе', async () => {
+    const { w, b } = await setup();
+    const bell = w.greatBell!;
+    run(w, 2);
+    b.idleT = 0;
+    for (let t = 0; t < 4 && b.hop?.to !== 'bell'; t += DT) run(w, DT);
+    expect(b.hop?.to).toBe('bell');
+    bell.cut(0); bell.cut(1);
+    expect(b.phase).toBe(2);
+    run(w, 1.5);
+    expect(b.riding).toBe(false);
+    expect(b.y).toBe(0);
+    expect(b.stunned).toBe(false);
+  });
+
+  it('герой у тумбы натянутой верёвки — Звонарь прыгает на него с колокола', async () => {
+    const { w, b, G } = await mounted();
+    const bell = w.greatBell!;
+    const chance = G.RINGER.guard.chance;
+    G.RINGER.guard.chance = 1;
+    try {
+      const i = untilTaut(w);
+      w.hero.x = bell.ropes[i].cleat.x + 0.8; w.hero.z = bell.ropes[i].cleat.z;
+      run(w, 0.1);
+      expect(b.cur?.id).toBe('drop');
+      run(w, 1.2);
+      expect(b.riding).toBe(false);
+      expect(b.metrics.drops).toBe(1);
+      expect(b.y).toBe(0);
+    } finally { G.RINGER.guard.chance = chance; }
+  });
+
+  it('уход от колокола не копит Звонарю оглушение; от его собственного удара — копит', async () => {
+    const { w, b } = await setup();
+    const h = w.hero;
+    const dodge = (noStun: boolean): string => {
+      (h as unknown as { perfectReadyAt: number }).perfectReadyAt = 0;
+      (h as unknown as { startDash(dx: number, dz: number): void }).startDash(1, 0);
+      return w.enemyStrike({ x: h.x, z: h.z + 2, id: b.id, kind: b.kind, noStun }, { k: 'circle', x: h.x, z: h.z, r: 2 }, 10, 3);
+    };
+    b.lastTeleDur = 1;
+    const st0 = b.stun!.value;
+    expect(dodge(true)).toBe('perfect');
+    expect(b.stun!.value).toBe(st0);
+    run(w, 0.6);
+    expect(dodge(false)).toBe('perfect');
+    expect(b.stun!.value).toBeGreaterThan(st0);
+  });
+
+  it('пока целы верёвки, клинок не опустит Звонаря ниже порогов 60 % и 30 %', async () => {
     const { w, b, G } = await setup();
-    const husk = put(w, new Husk({ zone: 0, stage: 0, hpMul: 50 }), 4, 0);
-    let strikes = 0;
-    w.bus.on('bellStrike', () => strikes++);
-    // лицом к герою — удар спереди
-    b.facing = 0;
-    charged(w, b);
-    expect(strikes).toBe(0);
-    // спиной к герою
-    b.facing = Math.PI;
-    const stun0 = b.stun!.value, hp0 = b.hp, huskHp = husk.hp;
-    charged(w, b);
-    expect(strikes).toBe(1);
-    expect(b.stun!.value - stun0).toBeCloseTo(G.BELL_STUN, 0);
+    const bell = w.greatBell!;
+    const hit = () => w.damageEnemy(b, { mult: 40, stun: 0, knockback: 0, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade' });
+    for (let k = 0; k < 6; k++) hit();
+    expect(b.hp / b.maxHp).toBeCloseTo(G.RINGER.floors[0], 3);
+    bell.ropes[0].cut = bell.ropes[1].cut = true;
+    for (let k = 0; k < 6; k++) hit();
+    expect(b.hp / b.maxHp).toBeCloseTo(G.RINGER.floors[1], 3);
+    bell.ropes[2].cut = true;
+    for (let k = 0; k < 6; k++) hit();
+    expect(b.hp / b.maxHp).toBeCloseTo(G.RINGER.floors[1], 3);
+    expect(b.dead).toBe(false);
+  });
+
+  it('Круг: две верёвки — Звонарь прыгает с маковки в центр и крутит колокол; кольцо по очереди дальнее и ближнее, направление меняется; на каждой остановке одна целая верёвка натянута', async () => {
+    const { w, b, B } = await mounted();
+    const bell = w.greatBell!;
+    for (let k = 0; k < 2; k++) { const i = untilTaut(w); cutAt(w, i); run(w, 0.3); }
+    expect(b.phase).toBe(2);
+    expect(b.stunned).toBe(false);
+    expect(bell.mode).toBe('orbit');
+    run(w, 7);
+    expect(Math.hypot(b.x - bell.cx, b.z - bell.cz)).toBeLessThan(0.8);
+    // герой внутри дальнего кольца: хлёста нет, атаки не начинаются, пока колокол раскручивается
+    w.hero.x = bell.cx; w.hero.z = bell.cz + 2.2;
+    let attacksInSpin = 0, holds = 0, tautAtHold = 0, wasHold = false, wasSpin = false;
+    const radii = new Set<number>(), dirs = new Set<number>();
+    run(w, 16, () => {
+      w.hero.x = bell.cx; w.hero.z = bell.cz + 2.2;
+      if (b.cur && !['awaken', 'hub'].includes(b.cur.id) && b.ct < 0.02 && bell.orbit.stage === 'spin') attacksInSpin++;
+      const spin = bell.orbit.stage === 'spin';
+      if (spin && !wasSpin) { radii.add(bell.orbit.rT); dirs.add(bell.orbit.dir); }
+      wasSpin = spin;
+      const hold = bell.orbit.stage === 'hold';
+      if (hold && !wasHold) { holds++; run(w, 0.2); if (bell.ropes.some((r) => bell.cuttable(r))) tautAtHold++; }
+      wasHold = hold;
+    });
+    expect(attacksInSpin).toBe(0);
+    expect(holds).toBeGreaterThanOrEqual(2);
+    expect(tautAtHold).toBe(holds);
+    expect([...radii].sort()).toEqual([...B.GREAT_BELL.orbit.r].sort());
+    expect(dirs.size).toBe(2);
+  });
+
+  it('Круг: пока колокол кружит, Звонарь хлещет верёвкой героя за кольцом', async () => {
+    const { w, b } = await mounted();
+    const bell = w.greatBell!;
+    for (let k = 0; k < 2; k++) { const i = untilTaut(w); cutAt(w, i); run(w, 0.3); }
+    run(w, 4);
+    let lashed = 0;
+    run(w, 14, () => {
+      // герой далеко за кольцом
+      w.hero.x = bell.cx; w.hero.z = bell.cz - 9.6;
+      if (b.cur?.id === 'ropeLash' && b.ct < 0.02 && bell.orbit.stage === 'spin') lashed++;
+    });
+    expect(lashed).toBeGreaterThanOrEqual(1);
+    expect(b.metrics.lashes).toBeGreaterThanOrEqual(1);
+  });
+
+  it('III фаза: последняя верёвка — колокол рушится в центр, Звонарь отскакивает без оглушения и вырывает язык; колокол — укрытие', async () => {
+    const { w, b } = await mounted();
+    const bell = w.greatBell!;
+    for (let k = 0; k < 4; k++) {
+      const i = untilTaut(w, 20);
+      expect(i).toBeGreaterThanOrEqual(0);
+      cutAt(w, i);
+      run(w, 0.3);
+    }
+    expect(b.phase).toBe(3);
+    expect(bell.mode).toBe('fall');
+    const covers0 = w.arena.covers.length;
+    run(w, 1.2);
+    expect(bell.mode).toBe('fallen');
+    expect(w.arena.covers.length).toBe(covers0 + 1);
+    expect(b.stunned).toBe(false);
+    expect(Math.hypot(b.x - bell.cx, b.z - bell.cz)).toBeGreaterThan(4);
+    for (let t = 0; t < 8 && !b.clapper; t += DT) run(w, DT);
+    expect(b.clapper).toBe(true);
+    for (let t = 0; t < 3 && b.cur?.id === 'clapper'; t += DT) run(w, DT);
+    // клинок теперь может убить: порогов нет
+    w.damageEnemy(b, { mult: 1e4, stun: 0, knockback: 0, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade' });
+    expect(b.hp).toBeLessThanOrEqual(0);
+  });
+
+  it('III фаза: бросок языка — гиря улетает на верёвке и возвращается; кистень — кольцо вокруг Звонаря, у ног безопасно', async () => {
+    const { w, b } = await setup();
+    b.skipToFinale();
+    w.hero.x = b.x; w.hero.z = b.z + 6;
+    b.idleT = 99;
+    b.startPattern(b.patterns.find((p) => p.id === 'clapperThrow')!);
+    let maxReach = 0;
+    run(w, 1.3, () => { maxReach = Math.max(maxReach, b.reach); });
+    expect(maxReach).toBeGreaterThan(0.9);
+    run(w, 0.9);
+    expect(b.reach).toBeLessThan(0.05);
+    const flail = b.patterns.find((p) => p.id === 'clapperFlail')!;
+    const ring = flail.steps.find((s) => s.do === 'hitbox');
+    expect(ring && ring.do === 'hitbox' && 'ring' in ring.shape ? ring.shape.ring[0] : 0).toBeGreaterThan(b.radius + 0.6);
+  });
+
+  it('Колокол бьёт героя на проходе по метке и разбрасывает шелуху; на паузе не бьёт', async () => {
+    const { Husk } = await import('../src/world/enemies/husk');
+    const { w, b } = await mounted();
+    const bell = w.greatBell!;
+    // Звонарь остаётся на колоколе: проверяем только удар колокола
+    (b as unknown as { rideFor: number }).rideFor = 99;
+    w.hero.invulnUntil = 0;
+    let hits = 0;
+    w.bus.on('bellHit', () => hits++);
+    const pauseStart = () => { for (let t = 0; t < 8 && !(bell.paused && bell.swing.t < 0.1); t += DT) run(w, DT); };
+    const pass = () => { for (let t = 0; t < 4 && bell.paused; t += DT) run(w, DT); run(w, 1.1); };
+    // встать в центр зала на пути колокола в начале паузы (первые проходы идут через центр)
+    pauseStart();
+    w.hero.x = bell.cx; w.hero.z = bell.cz - 0.6; w.hero.hp = w.hero.maxHp;
+    expect(w.telegraphs.find((t) => t.alive && t.shape.k === 'line')).toBeDefined();
     run(w, 0.5);
-    expect(b.hp).toBeLessThan(hp0);
+    expect(hits).toBe(0);
+    pass();
+    expect(hits).toBe(1);
+    // шелуха на пути колокола
+    w.hero.x = bell.cx; w.hero.z = bell.cz + 6; w.hero.invulnUntil = 1e9;
+    pauseStart();
+    for (let t = 0; t < 4 && bell.paused; t += DT) run(w, DT);
+    // середина текущей полосы прохода (после первых проходов линия уже не через центр)
+    const mid = { x: bell.cx + (bell.swing.at.x + bell.swing.next.x) / 2, z: bell.cz + (bell.swing.at.z + bell.swing.next.z) / 2 };
+    const husk = put(w, new Husk({ zone: 0, stage: 0, hpMul: 50 }), mid.x, mid.z);
+    const huskHp = husk.hp;
+    run(w, 1);
+    expect(bell.metrics.enemyHits).toBeGreaterThanOrEqual(1);
     expect(husk.hp).toBeLessThan(huskHp);
   });
 
-  it('Колокольный плен: цепи кольцом вокруг героя с разрывами, на 4 с — стены и препятствия навигации', async () => {
-    const { w, b, G } = await setup();
-    const p = b.patterns.find((x) => x.id === 'captivity')!;
-    b.startPattern(p);
-    const n0 = w.arena.covers.length;
-    run(w, 0.75);
-    expect(w.arena.covers.length).toBe(n0);
-    run(w, 0.1);
-    const chains = w.arena.covers.length - n0;
-    expect(chains).toBeGreaterThanOrEqual(5);
-    expect(chains).toBeLessThanOrEqual(7);
-    for (const c of b.chainPts) expect(Math.hypot(c.x - 0, c.z - 4)).toBeCloseTo(G.CHAIN_R, 1);
-    // навигация видит стену: клетка цепи непроходима
-    w.nav.update(DT, w.hero.x, w.hero.z, true);
-    const c0 = b.chainPts[0];
-    expect(w.nav.blocked[w.nav.idx(c0.x, c0.z)]).toBe(1);
-    run(w, G.CHAIN_DUR);
-    expect(w.arena.covers.length).toBe(n0);
-    w.nav.update(DT, w.hero.x, w.hero.z, true);
-    expect(w.nav.blocked[w.nav.idx(c0.x, c0.z)]).toBe(0);
+  it('модель-жакемар: колокола на спине нет — заводной ключ, маятник и стрелки на своих суставах; точка добивания на циферблате', async () => {
+    const { buildRinger, RINGER_CONTACT, RINGER_CONTACT_JOINT, RINGER_SCALE } = await import('../src/gen/chars/ringer');
+    const { rig, geometry } = buildRinger(22, RINGER_SCALE);
+    const names = rig.joints.map((j) => j.name);
+    expect(names).not.toContain('bell');
+    for (const n of ['key', 'pend', 'hourH', 'minH']) expect(names).toContain(n);
+    const P = geometry.attributes.position.array, Jn = geometry.attributes.aJoint.array;
+    const count = (j: string) => { const k = names.indexOf(j); let n = 0; for (let i = 0; i < Jn.length; i++) if (Math.round(Jn[i]) === k) n++; return n; };
+    for (const n of ['key', 'pend', 'hourH', 'minH']) expect(count(n), n).toBeGreaterThan(0);
+    const chest = names.indexOf(RINGER_CONTACT_JOINT), c = RINGER_CONTACT.map((v) => v * RINGER_SCALE);
+    let best = Infinity;
+    for (let i = 0; i < Jn.length; i++) if (Math.round(Jn[i]) === chest) best = Math.min(best, Math.hypot(P[i * 3] - c[0], P[i * 3 + 1] - c[1], P[i * 3 + 2] - c[2]));
+    expect(best).toBeLessThan(0.12);
   });
 
-  it('Похоронный такт: три удара с неравными интервалами, в ярости ритм другой; каждый звук — пульсация колокола', async () => {
-    const { w, b, G } = await setup();
-    const beats = (ph: 1 | 2) => G.FUNERAL_BEATS[ph];
-    const gaps = (ph: 1 | 2) => [beats(ph)[1] - beats(ph)[0], beats(ph)[2] - beats(ph)[1]];
-    for (const ph of [1, 2] as const) expect(Math.abs(gaps(ph)[0] - gaps(ph)[1])).toBeGreaterThan(0.2);
-    expect(gaps(1)[0]).not.toBeCloseTo(gaps(2)[0], 1);
-    const bells: number[] = [], pulses: number[] = [];
-    w.bus.on('sfx', (e) => { if (e.id === 'boss_bell') bells.push(w.time); });
-    w.bus.on('bellPulse', (e) => { if (e.big) pulses.push(w.time); });
-    b.startPattern(b.patterns.find((x) => x.id === 'funeral')!);
-    run(w, 2.6);
-    expect(bells.length).toBe(3);
-    expect(pulses).toEqual(bells);
-    expect(bells[1] - bells[0]).toBeCloseTo(gaps(1)[0], 1);
-    expect(bells[2] - bells[1]).toBeCloseTo(gaps(1)[1], 1);
+  it('модель-жакемар: ключ крутится и раскручивается перед прыжком с колокола, в оглушении замирает', async () => {
+    const THREE = await import('three');
+    const { w, b } = await mounted();
+    const L = b.puppet.layout, q = new THREE.Quaternion();
+    const key = () => new THREE.Euler().setFromQuaternion(q.fromArray(b.puppet.skel.rot, L.idx('key') * 4)).z;
+    const speed = (sec: number): number => { let last = key(), sum = 0; run(w, sec, () => { const k = key(); let d = k - last; d = Math.atan2(Math.sin(d), Math.cos(d)); sum += Math.abs(d); last = k; }); return sum / sec; };
+    // прыжок на маковку уже закончился: едет
+    for (let t = 0; t < 3 && b.cur; t += DT) run(w, DT);
+    run(w, 0.8);
+    const ride = speed(0.6);
+    expect(ride).toBeGreaterThan(1.5);
+    b.startPattern((b as unknown as { dropPattern(): import('../src/world/boss/timeline').Pattern }).dropPattern());
+    const leap = speed(0.5);
+    expect(leap).toBeGreaterThan(ride * 1.8);
+    run(w, 1.5);
+    w.stunEnemy(b);
+    expect(b.stunned).toBe(true);
+    run(w, 0.8);
+    expect(speed(0.4)).toBeLessThan(0.3);
   });
 
-  it('гаснущие свечи: во время зарядки Резонанса свечи гаснут по кругу, после удара загораются', async () => {
+  it('модель: в присяде стопы на полу, на колоколе — на маковке', async () => {
+    const THREE = await import('three');
     const { w, b } = await setup();
-    b.startPattern(b.patterns.find((x) => x.id === 'resonance')!);
-    let atStrike = 0;
-    w.bus.on('sfx', (e) => { if (e.id === 'boss_bell' && !atStrike) atStrike = w.candlesOut; });
-    run(w, 0.5);
-    expect(w.candlesOut).toBeGreaterThan(0.35);
-    expect(w.candlesOut).toBeLessThan(0.7);
-    run(w, 0.6);
-    expect(atStrike).toBeGreaterThan(0.95);
-    run(w, 2.6);
-    expect(w.candlesOut).toBe(0);
+    const L = b.puppet.layout, v = new THREE.Vector3();
+    const feet = () => Math.min(b.puppet.skel.jointPos(L.idx('footL'), v).y, b.puppet.skel.jointPos(L.idx('footR'), v).y);
+    b.idleT = 1e9;
+    for (let i = 0; i < 40; i++) { b.setPose('crouch', 0.02); run(w, DT); }
+    expect(Math.abs(feet())).toBeLessThan(0.06);
+    b.idleT = 0;
+    run(w, 4);
+    expect(b.riding).toBe(true);
+    expect(Math.abs(feet() - w.greatBell!.topY)).toBeLessThan(0.1);
+  });
+
+  it('пересмотр добивания: skipToFinale — колокол лежит, язык в руках, Звонарь не в центре', async () => {
+    const { w, b } = await setup();
+    b.skipToFinale();
+    const bell = w.greatBell!;
+    expect(bell.mode).toBe('fallen');
+    expect(bell.intact).toBe(0);
+    expect(b.phase).toBe(3);
+    expect(b.clapper).toBe(true);
+    expect(Math.hypot(b.x - bell.cx, b.z - bell.cz)).toBeGreaterThan(4);
   });
 });
 

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CandleSanctum } from '../src/gen/zone/candleSanctum';
+import { inHeartWell, makePiece, piecePose, REMAINS } from '../src/gen/zone/heartRemains';
 import { inArenaShape } from '../src/data/arenas';
 import { buildArenaView, ZONE1_LOOK } from '../src/gen/zone/arenaView';
 import { Arena } from '../src/world/arena';
@@ -63,5 +64,66 @@ describe('Погребальное сердце: видимое состояни
     for (const floor of view.floor) expect(instances.has(floor)).toBe(true);
     view.dispose();
     expect(disposed).toEqual(instances);
+  });
+});
+
+describe('Погребальное сердце: после вспышки от Сердца ничего не остаётся', () => {
+  const bossAt = (extra: Record<string, unknown> = {}) => ({ centerZ: 0, body: { x: 0, y: 2.4, z: 0 }, phase: 3, hp: 30, maxHp: 2400, exposed: 0, beat: 0.5,
+    active: true, dead: false, awakening: 1, open: 1, ...extra });
+  const state = (boss: ReturnType<typeof bossAt>) => ({ drain: 1, lit: [true, true, true], broken: false, carried: 0, chargingIndex: -1, charge: 0, boss });
+  const parts = (s: CandleSanctum) => ['heart-crown', 'heart-crown-spikes', 'heart-armour'].map(n => s.root.getObjectByName(n) as THREE.InstancedMesh);
+  const centreOf = (mesh: THREE.InstancedMesh, i: number) => { const m = new THREE.Matrix4(); mesh.getMatrixAt(i, m); return new THREE.Vector3().setFromMatrixPosition(m); };
+
+  it('обруч рвётся на звенья, броня срывается, всё рассыпается к кадру победы', () => {
+    const s = make(), [links, spikes, plates] = parts(s);
+    for (let i = 0; i < 30; i++) s.update(1 / 60, state(bossAt()));
+    expect(links.count).toBe(15); expect(spikes.count).toBe(3);
+    const before = Array.from({ length: links.count }, (_, i) => Math.hypot(centreOf(links, i).x, centreOf(links, i).z));
+    s.update(1 / 60, state(bossAt({ dying: 0.8, burst: true, sinceBurst: 0.4 })));
+    // Звенья летят прочь от ядра и ещё целы.
+    for (let i = 0; i < links.count; i++) { expect(Math.hypot(centreOf(links, i).x, centreOf(links, i).z)).toBeGreaterThan(before[i] + 1); expect(scaleAt(links, i)).toBeGreaterThan(0); }
+    s.update(1 / 60, state(bossAt({ dying: 1, burst: true, dead: true, active: false, sinceBurst: 1.3 })));
+    expect(s.crumbling.length).toBeGreaterThan(0);
+    s.update(1 / 60, state(bossAt({ dying: 1, burst: true, dead: true, active: false, sinceBurst: REMAINS.done })));
+    for (const mesh of [links, spikes, plates]) for (let i = 0; i < mesh.count; i++) expect(scaleAt(mesh, i)).toBe(0);
+    expect(s.crumbling).toEqual([]);
+    s.root.traverse(o => { if (o instanceof THREE.InstancedMesh) expect(Array.from(o.instanceMatrix.array).every(Number.isFinite)).toBe(true); });
+  });
+
+  it('удары сердца в гибели срывают последние пластины: к вспышке они лежат у кромки колодца', () => {
+    const s = make(), plates = parts(s)[2];
+    for (let i = 0; i < 30; i++) s.update(1 / 60, state(bossAt({ plates: 2 })));
+    const near = (i: number) => Math.hypot(centreOf(plates, i).x, centreOf(plates, i).z);
+    expect(near(0)).toBeLessThan(3.5); expect(near(1)).toBeLessThan(3.5);
+    s.update(1 / 60, state(bossAt({ dying: 0.3, plates: 1 })));
+    for (let i = 0; i < 30; i++) s.update(1 / 60, state(bossAt({ dying: 0.5, plates: 0 })));
+    // полёт сорванной в гибели пластины короче обычного: обе уже лежат у кромки
+    for (let i = 0; i < 6; i++) { expect(near(i)).toBeGreaterThan(4); expect(centreOf(plates, i).y).toBeLessThan(0.5); }
+  });
+
+  it('пропущенная сцена и мёртвое Сердце без времени вспышки сразу дают пустой колодец', () => {
+    for (const extra of [{ sinceBurst: 6 }, {}]) {
+      const s = make();
+      s.update(1 / 60, state(bossAt()));
+      s.update(1 / 60, state(bossAt({ dying: 1, burst: true, dead: true, active: false, ...extra })));
+      for (const mesh of parts(s)) for (let i = 0; i < mesh.count; i++) expect(scaleAt(mesh, i)).toBe(0);
+    }
+  });
+
+  it('куски летят одинаково по сиду: ложатся на пол или падают в колодец', () => {
+    const start = new THREE.Matrix4().makeTranslation(2.6, 2.2, 0);
+    const a = makePiece(start, 'seed', { out: 5.5, up: 3.6, spin: 9 }, 1.1), b = makePiece(start, 'seed', { out: 5.5, up: 3.6, spin: 9 }, 1.1);
+    const ma = new THREE.Matrix4(), mb = new THREE.Matrix4();
+    piecePose(a, 0.7, ma); piecePose(b, 0.7, mb);
+    expect(ma.elements).toEqual(mb.elements);
+    expect(Number.isFinite(a.landAt)).toBe(true);
+    piecePose(a, a.landAt * REMAINS.slow + 0.05, ma);
+    expect(new THREE.Vector3().setFromMatrixPosition(ma).y).toBeLessThanOrEqual(REMAINS.floorY);
+    // Брошенный внутрь колодца кусок не ложится на воздух над ямой.
+    const pit = makePiece(new THREE.Matrix4().makeTranslation(0.4, 2.2, 0), 'pit', { out: 0.3, up: 1, spin: 4 }, 1.1);
+    expect(inHeartWell(0.4, 0)).toBe(true);
+    expect(pit.landAt).toBe(Infinity);
+    piecePose(pit, 1.0, ma);
+    expect(new THREE.Vector3().setFromMatrixPosition(ma).y).toBeLessThan(0);
   });
 });

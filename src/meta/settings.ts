@@ -38,12 +38,14 @@ export interface Settings {
   shortExec: boolean;
   /** Сцены без нажатий: необязательные действия в сценах (поднять клинок) продолжаются сами (ТЗ §14). */
   autoScenes: boolean;
+  /** Частота кадров боя (ревью: «телефон нагревается»): 60 или 30 — вдвое меньше работы и нагрева. */
+  fpsCap: 60 | 30;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   shake: 1, flashes: true, photosensitive: false, aberration: true, distortion: true, autoAim: 2, vibration: true,
   volMaster: 0.9, volMusic: 0.6, volSfx: 0.9, volVoice: 0.8, quality: 'auto', story: false, showFps: false,
-  hatch: 0.35, subtitleSize: 1, buttonScale: 1, buttonOffsetX: 0, buttonOffsetY: 0, camDist: 1, camMode: 'cinema', light: 'auto', fullscreen: false, shortExec: false, autoScenes: false,
+  hatch: 0.35, subtitleSize: 1, buttonScale: 1, buttonOffsetX: 0, buttonOffsetY: 0, camDist: 1, camMode: 'cinema', light: 'auto', fullscreen: false, shortExec: false, autoScenes: false, fpsCap: 60,
 };
 
 export function effectiveFlashes(s: Settings): boolean { return s.flashes && !s.photosensitive; }
