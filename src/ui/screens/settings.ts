@@ -57,6 +57,8 @@ export function settingsScreen(app: App, back: () => void): HTMLElement {
     toggle('Искажения волн', 'distortion', [[true, 'Вкл'], [false, 'Выкл']]),
     slider('Штриховка телеграфов (дальтонизм)', 'hatch'),
     toggle('Счётчик FPS', 'showFps', [[false, 'Выкл'], [true, 'Вкл']]),
+    toggle('Частота кадров', 'fpsCap', [[60, '60'], [30, '30 — меньше нагрев']]),
+    h('div', { class: 'vb-dim', style: { fontSize: '11px' } }, 'Если телефон греется или быстро садится, поставьте 30: работы видеочипу и процессору вдвое меньше. Меню и пауза и так рисуются реже.'),
     section('Управление'),
     toggle('Автоприцел', 'autoAim', [[0, 'Выкл'], [1, 'Слабый'], [2, 'Стандарт'], [3, 'Сильный']]),
     toggle('Вибрация', 'vibration', [[true, 'Вкл'], [false, 'Выкл']]),

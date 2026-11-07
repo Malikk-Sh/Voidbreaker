@@ -61,7 +61,7 @@ const CSS = /* css */ `
 .vb-btn::after { content:''; position:absolute; top:0; bottom:0; width:40%; left:-60%; background: linear-gradient(100deg, transparent, rgba(255,245,220,.22), transparent); transform: skewX(-20deg); pointer-events:none; }
 .vb-btn:hover { filter: brightness(1.18); }
 .vb-btn:hover::after { animation: vbShine .7s ease-out; }
-@keyframes vbShine { to { left: 130%; } }
+@keyframes vbShine { from { transform: translateX(0) skewX(-20deg); } to { transform: translateX(475%) skewX(-20deg); } }
 .vb-btn:active { transform: scale(.97); }
 .vb-btn.primary { background: linear-gradient(180deg, #fff1c9 0%, #e9c983 16%, #c9a253 52%, #8e6a2c 100%); color:#1b1408; text-shadow: 0 1px 0 rgba(255,240,200,.45);
   box-shadow: 0 0 28px rgba(240,190,90,.35); }

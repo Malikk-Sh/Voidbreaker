@@ -51,7 +51,7 @@ const append = (title: string, model: SceneSpec['model'], actors: SceneSpec['act
   const track = cine.describe(); if (!track) return;
   SCENES.push({ id: track.id, title, group: 'Игровые вставки', note: 'Камера и дополнительные движения персонажей', model, actors, track });
 };
-for (const stage of ZONE1.filter((s) => !s.boss)) {
+for (const stage of ZONE1.filter((s) => !s.boss && !s.encounter)) {
   cine.stageIntro(stage, { x: 0, z: 0 }, 18);
   append(`${stage.id} · Пролёт арены`, 'landing', { hero });
 }

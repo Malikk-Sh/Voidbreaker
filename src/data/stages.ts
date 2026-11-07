@@ -15,7 +15,7 @@ export interface SpawnDef {
 
 export interface WaveDef {
   spawns: SpawnDef[];
-  triggers?: { when: 'eliteHp<0.5' | 'guardianHp<0.5' | 'alive<3'; spawn: SpawnDef }[];
+  triggers?: { when: 'eliteHp<0.5' | 'guardianHp<0.5' | 'guardianPhase2' | 'alive<3'; spawn: SpawnDef }[];
   /** Музыка/подсказки: волна со Стражем. */
   guardian?: boolean;
 }
@@ -34,7 +34,17 @@ export interface StageDef {
   tutorial?: 'basics' | 'charged' | 'shatter' | 'upgrade' | 'ult';
   /** Тренировочный зал: манекены вместо волн, без наград и прогресса. */
   training?: boolean;
+  /** Номер на карте и в наградах, если он отличается от id. */
+  label?: string;
+  /** Этап без волн — отдельный бой: heart — Погребальное сердце в Чертоге Последнего Огня. */
+  encounter?: 'heart';
 }
+
+/**
+ * Бой с Погребальным сердцем — отдельный этап сразу после Чертога: Чертог заканчивается тем, что свет элиты входит
+ * в Сердце, а этот этап начинается с пробуждения босса. Ступень сложности и награды — как у 1-4 (index 3).
+ */
+export const HEART_STAGE = '1-4b';
 
 /** Награда за этап (GDD §8.5): осколки_первое = 120 × (1 + 0.35 × g). */
 export function stageShards(globalIndex: number): number { return Math.round(120 * (1 + 0.35 * globalIndex)); }
@@ -91,6 +101,8 @@ export const ZONE1: StageDef[] = [
       { spawns: [{ enemy: 'golem', count: 1, at: ['top'], elite: ['recoil'] }] },
     ],
   },
+  // Погребальное сердце: бой без волн, начинается со сцены пробуждения
+  { id: HEART_STAGE, label: '1-4 II', zone: 0, index: 3, name: 'Погребальное сердце', arena: 'candles', encounter: 'heart', waves: [] },
   {
     id: '1-5', zone: 0, index: 4, name: 'Мост над бездной', arena: 'bridge', tutorial: 'upgrade',
     waves: [
@@ -112,11 +124,10 @@ export const ZONE1: StageDef[] = [
       { spawns: [{ enemy: 'husk', count: 10, pattern: 'ring', stagger: 0.08 }, { enemy: 'acolyte', count: 2, at: ['left', 'right'], delay: 1.5 }] },
       // Големы (оглушение и Раскол) под огнём Ок
       { spawns: [{ enemy: 'golem', count: 2, pattern: 'far' }, { enemy: 'eye', count: 2, at: ['left', 'right'], delay: 1 }, { enemy: 'husk', count: 4, pattern: 'ring', delay: 3 }] },
-      // Звонарь
+      // Звонарь («Маятник»): во II фазе шелуха лезет на колокольню — кружащий колокол сметает её
       { guardian: true, spawns: [{ enemy: 'bellRinger', count: 1, at: ['top'] }],
         triggers: [
-          { when: 'guardianHp<0.5', spawn: { enemy: 'reaper', count: 2, pattern: 'edges' } },
-          { when: 'guardianHp<0.5', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.12 } },
+          { when: 'guardianPhase2', spawn: { enemy: 'husk', count: 8, pattern: 'ring', stagger: 0.12 } },
         ] },
     ],
   },
@@ -175,8 +186,8 @@ export const ZONE1_INFO = {
   name: 'Обсидиановый Собор',
   subtitle: 'Первый контакт',
   intro: 'Чёрный обсидиан помнит молитвы. Где-то под сводами звонит колокол — по спасению, которого не будет.',
-  /** Звёзд на врата босса: 18 из 27 (было 12 из 18 — та же доля, ⅔, после трёх новых этапов). */
-  bossGate: 18,
+  /** Звёзд на врата босса: 20 из 30 — та же доля, ⅔, после трёх новых этапов и боя с Сердцем. */
+  bossGate: 20,
 };
 
 /**

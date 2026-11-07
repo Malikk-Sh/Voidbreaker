@@ -3,6 +3,7 @@ import { angleOf, clamp, dampAngle, len2 } from '../core/math';
 import { Ease } from '../core/ease';
 import { PLAYER_BASE, RESONANCE } from '../data/player';
 import { AIM, LINE_BACK, VOID_BLADE, type MoveDef, type WeaponDef } from '../data/weapons';
+import { HERO_PACE } from '../data/pace';
 import type { Input } from '../input/input';
 import type { Actor } from './actor';
 import type { Shape } from './combat';
@@ -149,7 +150,7 @@ export class Hero implements Actor {
   }
 
   get invulnerable(): boolean { return this.clock < this.invulnUntil || this.state === 'dead'; }
-  get dashIframes(): boolean { return this.state === 'dash' && this.clock - this.dashStart <= PLAYER_BASE.dashIframes; }
+  get dashIframes(): boolean { return this.state === 'dash' && this.clock - this.dashStart <= HERO_PACE.dashIframes; }
   get eclipse(): boolean { return this.clock < this.eclipseUntil; }
   /** Идёт заряженный удар с полным зарядом (волна Пустоты). */
   get chargedFull(): boolean { return this.state === 'charged' && this.chargedWide > 1; }
@@ -247,7 +248,7 @@ export class Hero implements Actor {
   private animate(dt: number, dist: number, speed: number, accel = 0): void {
     const a = this.avatar;
     a.ghostsOn = this.sceneGhosts || this.state === 'dash' || (this.state === 'charged' && this.stateT < 0.12) || (this.move?.id === 'lunge' && this.stateT < 0.12);
-    a.stretch = this.state === 'dash' ? 1 + 0.35 * Math.sin(Math.min(1, this.stateT / PLAYER_BASE.dashTime) * Math.PI) : 1;
+    a.stretch = this.state === 'dash' ? 1 + 0.35 * Math.sin(Math.min(1, this.stateT / HERO_PACE.dashTime) * Math.PI) : 1;
     a.bladeScale += ((this.eclipse ? 2 : this.bladeTarget) - a.bladeScale) * Math.min(1, dt * 12);
     a.glow = this.resonance / 100 * 1.2 + (this.eclipse ? 1.5 : 0) + (this.chargeLevel ? 0.6 * this.chargeLevel : 0) + this.glowBoost;
     a.lift = this.y;
@@ -296,7 +297,7 @@ export class Hero implements Actor {
       if (st === 'move') { buf.consume('attack', now); this.startAttack(input, mvx, mvz, hasStick); return; }
       // способность отпущена — каст отменяется в удар, клип плавно переходит в меч
       if (st === 'cast' && this.castReleased) { buf.consume('attack', now); this.startAttack(input, mvx, mvz, hasStick, 0.06); return; }
-      if (st === 'attack' && this.move && this.stateT >= this.move.chain[0] / this.atkSpeed && !this.move.noChain) {
+      if (st === 'attack' && this.move && this.stateT >= this.chainFrom(this.move) && !this.move.noChain) {
         buf.consume('attack', now); this.startAttack(input, mvx, mvz, hasStick); return;
       }
     }
@@ -309,18 +310,24 @@ export class Hero implements Actor {
     buf.consume('attackRelease', now);
   }
 
-  private get atkSpeed(): number { return this.stats.atkSpeed * (this.eclipse ? 1.15 : 1); }
+  private get atkSpeed(): number { return this.stats.atkSpeed * HERO_PACE.attack * (this.eclipse ? 1.15 : 1); }
+
+  /**
+   * С какого момента удара можно начать следующий (с): не раньше chain[0] приёма и доли HERO_PACE.chainFrom его
+   * длительности — проводка удара видна, а нажатие, сделанное раньше, ждёт в буфере ввода.
+   */
+  private chainFrom(m: MoveDef): number { return Math.max(m.chain[0], m.dur * HERO_PACE.chainFrom) / this.atkSpeed; }
 
   // ------------------------------------------------------------------ движение
   private updateMove(dt: number, mvx: number, mvz: number, speed: number, keepFacing = false): void {
     const S = this.stats;
-    const sp = speed * (this.eclipse ? 1.3 : 1);
+    const sp = speed * HERO_PACE.run * (this.eclipse ? 1.3 : 1);
     const tx = mvx * sp, tz = mvz * sp;
     const moving = len2(mvx, mvz) > 0.05;
-    const tau = moving ? PLAYER_BASE.accelTime : PLAYER_BASE.stopTime;
+    const tau = moving ? HERO_PACE.accel : HERO_PACE.stop;
     const k = 1 - Math.exp(-dt / (tau * 0.45));
     this.vx += (tx - this.vx) * k; this.vz += (tz - this.vz) * k;
-    if (moving && !keepFacing) this.facing = dampAngle(this.facing, angleOf(mvx, mvz), PLAYER_BASE.turnTime * 0.5, dt);
+    if (moving && !keepFacing) this.facing = dampAngle(this.facing, angleOf(mvx, mvz), HERO_PACE.turn * 0.5, dt);
     const o = { x: this.x, z: this.z };
     this.world.arena.move(this.x, this.z, this.vx * dt, this.vz * dt, this.radius, o);
     this.x = o.x; this.z = o.z;
@@ -388,7 +395,7 @@ export class Hero implements Actor {
     //  пауза после 2-го удара → Шквал → Крест; атака сразу после идеального уклонения → Контрудар
     if (this.clock < this.counterUntil && (this.state === 'move' || this.state === 'dash')) { next = W.counter; this.counterUntil = 0; }
     else if (this.clock - this.lastDashEnd <= 0.2 && this.state === 'move') next = W.lunge;
-    else if (prev === W.combo[1] && since >= 0.4 && since <= 0.7 && this.state === 'move') next = W.flurry;
+    else if (prev === W.combo[1] && since >= 0.4 / this.atkSpeed && since <= 0.7 / this.atkSpeed && this.state === 'move') next = W.flurry;
     else if (prev && since <= prev.chain[1] / this.atkSpeed && !prev.noChain) {
       if (prev === W.flurry) next = W.cross;
       else if (prev === W.lunge) next = W.rising;
@@ -519,11 +526,14 @@ export class Hero implements Actor {
         if (m?.wave) this.world.abilities.bladeWave(this.x, this.z, this.facing, m.wave.mult, m.wave.dist, m.wave.r);
         const r = m?.hitbox.shape === 'circle' ? m.hitbox.radius : 3;
         const off = 0.7;
-        this.world.bus.emit('impact', { x: this.x + Math.sin(this.facing) * off, z: this.z + Math.cos(this.facing) * off, r, kind: 'rift' });
+        this.world.bus.emit('impact', { x: this.x + Math.sin(this.facing) * off, z: this.z + Math.cos(this.facing) * off, r, kind: 'rift', hero: true });
         // трещина на полу: Нисходящий разлом, Звездопад, полный заряд (план §6.2)
         if (m && (m.id === 'rift' || m.id === 'skyfall' || (this.state === 'charged' && m.wave))) {
           const len = m.hitbox.shape === 'line' ? m.hitbox.length : m.hitbox.shape === 'circle' ? m.hitbox.radius * 2 : 4.5;
           this.world.abilities.addFloorRift(this.x, this.z, this.facing, len);
+          const dx = Math.sin(this.facing), dz = Math.cos(this.facing), kind = m.id === 'rift' ? 'rift' : m.id === 'skyfall' ? 'skyfall' : 'cleave';
+          // Разлом полного заряда бежит вместе с волной клинка — на всю её дальность.
+          this.world.bus.emit('heroCrack', { x: this.x + dx * off, z: this.z + dz * off, dx, dz, len: kind === 'cleave' && m.wave ? Math.max(len, m.wave.dist * 0.85) : len, kind });
           if (this.stats.tripleRift) for (const s of [-0.45, 0.45]) this.world.abilities.addFloorRift(this.x, this.z, this.facing + s, len * 0.8);
         }
         break;
@@ -587,13 +597,15 @@ export class Hero implements Actor {
     if (!m) return;
     const shape = this.moveShape(m);
     const charged = this.state === 'charged';
-    const mult = charged ? this.chargedMul : m.dmg;
-    const stun = charged ? this.chargedStun : m.stun;
+    // вес удара (HERO_PACE.weight): серия медленнее — каждый удар тяжелее, урон в секунду прежний
+    const weight = charged ? 1 : HERO_PACE.weight;
+    const mult = charged ? this.chargedMul : m.dmg * weight;
+    const stun = charged ? this.chargedStun : m.stun * weight;
     const feel = charged ? (this.chargeLevel >= 2 ? 'heavy' : 'medium') : m.feel;
     const n = this.world.heroStrike(shape, this.hitList, {
       mult, stun, stunKind: charged ? 'charged' : m.stunKind, knockback: m.knockback * (charged ? 2 : 1), feel, finisher: !!m.finisher || charged,
       dirX: Math.sin(this.facing), dirZ: Math.cos(this.facing), pierce: true, source: 'blade', launch: m.launch,
-      moveId: charged ? 'charged' : m.id, sweep: charged ? undefined : m.sweep,
+      moveId: charged ? 'charged' : m.id, sweep: charged ? undefined : m.sweep, weight,
     });
     if (n > 0) this.moveLanded = true;
     if (n > 0 && this.eclipse && !this.hitWaveDone) {
@@ -669,7 +681,7 @@ export class Hero implements Actor {
   }
 
   private updateDash(_dt: number): void {
-    const T = PLAYER_BASE.dashTime;
+    const T = HERO_PACE.dashTime;
     const u = Math.min(1, this.stateT / T);
     const e = Ease.outQuad(u);
     const step = (e - this.dashPrevE) * PLAYER_BASE.dashDist * (this.eclipse ? 1.15 : 1) * (this.sliding ? 1.5 : 1);
@@ -895,8 +907,8 @@ export class Hero implements Actor {
     this.hitActive = false; this.move = null; this.chargeLevel = 0;
     this.castRelease = onRelease;
     this.castReleased = false;
-    this.castMinT = minCancel;
-    this.avatar.puppet.play(clip, 1, 0.04);
+    this.castMinT = minCancel / HERO_PACE.cast;
+    this.avatar.puppet.play(clip, HERO_PACE.cast, 0.04);
     this.world.bus.emit('castStart', { x: this.x, z: this.z });
   }
 
@@ -915,7 +927,7 @@ export class Hero implements Actor {
     if (t?.airborne && this.lastMove === W.rising && since <= W.rising.chain[1] / this.atkSpeed) return 'Небесный разрез';
     if (t?.airborne && this.lastMove === W.skycut && since <= W.skycut.chain[1] / this.atkSpeed) return 'Звездопад';
     if (st === 'move' && c - this.lastDashEnd <= 0.2) return 'Рассечение';
-    if (st === 'move' && this.lastMove === W.combo[1] && since >= 0.3 && since <= 0.7) return 'Шквал';
+    if (st === 'move' && this.lastMove === W.combo[1] && since >= 0.3 / this.atkSpeed && since <= 0.7 / this.atkSpeed) return 'Шквал';
     if (heavy) return 'Рывок → Вознесение';
     return null;
   }

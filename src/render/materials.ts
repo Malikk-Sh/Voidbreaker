@@ -215,9 +215,12 @@ void main() {
   vec3 vn = normalize(mat3(viewMatrix) * n);
   vec3 viewDir = normalize(-vVP);
 
-  // растворение по шуму с яркой кромкой
-  float nz = texture2D(uNoise, vLocal.xz * 0.9 + vLocal.y * 0.45 + vSeed).r;
-  if (dissolve > 0.001 && nz < dissolve) discard;
+  // растворение по шуму с яркой кромкой; выборка шума — только у растворяющихся (пол и декор её не платят)
+  float nz = 1.0;
+  if (dissolve > 0.001) {
+    nz = texture2D(uNoise, vLocal.xz * 0.9 + vLocal.y * 0.45 + vSeed).r;
+    if (nz < dissolve) discard;
+  }
 
   vec3 albedo = vColor;
   // matcap — отражение глянцевого чёрного стекла
@@ -255,7 +258,9 @@ void main() {
     if (att <= 0.0) continue;
     L /= d;
     float diff = max(dot(n, L), 0.0);
-    float spec = pow(max(dot(reflect(-L, n), vdw), 0.0), 14.0);
+    // блик x^14 умножениями: pow — это exp2/log2 на каждый свет каждого пикселя пола
+    float sp = max(dot(reflect(-L, n), vdw), 0.0), sp2 = sp * sp, sp4 = sp2 * sp2;
+    float spec = sp4 * sp4 * sp4 * sp2;
     col += uPLCol[i].rgb * att * (diff * (albedo * 3.0 + 0.03) + spec * (0.35 + sMetal * 0.9) * (1.0 - sCloth));
   }
   if (uLightK > 0.0) {

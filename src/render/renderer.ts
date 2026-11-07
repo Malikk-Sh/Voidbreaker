@@ -7,13 +7,18 @@ import type { WorldLight } from './worldLight';
 export type QualityLevel = 'low' | 'medium' | 'high';
 
 /** Уровни качества (Tech §25.1). */
+/**
+ * Уровни качества (Tech §25.1). hudDpr — плотность холста HUD: он поверх всего экрана и перерисовывается каждый
+ * кадр, поэтому при DPR 2 на телефоне он в 2.8 раза больше 3D-кадра среднего качества. 1.5 на 6–7" экране — та же
+ * чёткость текста на глаз, а пикселей почти вдвое меньше (ревью: «телефон нагревается»).
+ */
 export const QUALITY: Record<QualityLevel, {
-  scale: number; maxDpr: number; bloomLevels: number; msaa: number; particles: number; decor: number; verlet: number; farLayers: number;
+  scale: number; maxDpr: number; bloomLevels: number; msaa: number; particles: number; decor: number; verlet: number; farLayers: number; hudDpr: number;
 }> = {
-  low: { scale: 0.6, maxDpr: 1.0, bloomLevels: 0, msaa: 0, particles: 1500, decor: 0.4, verlet: 2, farLayers: 1 },
-  medium: { scale: 0.8, maxDpr: 1.5, bloomLevels: 3, msaa: 0, particles: 2500, decor: 0.7, verlet: 3, farLayers: 2 },
+  low: { scale: 0.6, maxDpr: 1.0, bloomLevels: 0, msaa: 0, particles: 1500, decor: 0.4, verlet: 2, farLayers: 1, hudDpr: 1.25 },
+  medium: { scale: 0.8, maxDpr: 1.5, bloomLevels: 3, msaa: 0, particles: 2500, decor: 0.7, verlet: 3, farLayers: 2, hudDpr: 1.5 },
   // высокое: DPR 1.75 и MSAA 2× — на 6–7" экране разница с 2.0/4× почти не видна, а пикселей и сэмплов на ~40 % меньше
-  high: { scale: 1.0, maxDpr: 1.75, bloomLevels: 4, msaa: 2, particles: 4000, decor: 1.0, verlet: 4, farLayers: 3 },
+  high: { scale: 1.0, maxDpr: 1.75, bloomLevels: 4, msaa: 2, particles: 4000, decor: 1.0, verlet: 4, farLayers: 3, hudDpr: 2 },
 };
 
 /** Игровой угол обзора камеры (вертикальный, °). */

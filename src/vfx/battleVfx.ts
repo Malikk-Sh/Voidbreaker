@@ -25,6 +25,7 @@ import { FloorRiftsView } from './floorRifts';
 import { FloorSpikes } from './floorSpikes';
 import { ChainsView } from './chains';
 import { BellSatsView } from './bellSats';
+import { GreatBellView } from './greatBellView';
 import { SlashFx } from './slashFx';
 
 const lin = (h: string, k = 1): [number, number, number] => { const c = hexToLinear(h); return [c[0] * k, c[1] * k, c[2] * k]; };
@@ -98,6 +99,8 @@ export class BattleVfx {
   /** Цепи Звонаря — временные стены (план §7.4). */
   readonly chains = new ChainsView();
   readonly bellSats = new BellSatsView();
+  /** Великий колокол Звонаря: тело, верёвки, тумбы (ревью: «Маятник»). */
+  readonly greatBell = new GreatBellView();
   /** Рясы Псаломщиков — ткань Верле, по сетке на каждого (план §7.3). */
   private robes = new Map<Psalmist, ClothMesh>();
   /** Ступень ранга (план §6.6): 0 — ниже A, 1 — A, 2 — S, 3 — SS. Только визуал, без бонуса к урону. */
@@ -125,7 +128,7 @@ export class BattleVfx {
     this.add = new Particles(maxParticles, true);
     this.norm = new Particles(Math.round(maxParticles * 0.35), false);
     this.pools = pools;
-    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh, this.chains.mesh, this.bellSats.mesh, this.slashes.group);
+    this.group.add(this.add.mesh, this.norm.mesh, this.trail.mesh, this.trail.smearMesh, this.rings.group, this.tele.group, this.sprites.mesh, this.stars.mesh, this.rifts.group, this.spikes.mesh, this.chains.mesh, this.bellSats.mesh, this.greatBell.group, this.slashes.group);
     for (const m of this.debris.meshes) this.group.add(m);
     // серпы: выдавленный полумесяц с эмиссивной кромкой
     const b = new GeomBuilder();
@@ -705,17 +708,21 @@ export class BattleVfx {
 
     // способности: серпы, колодцы, волны, фазовый разрез, трещины на полу
     const ab = w.abilities as Abilities;
-    this.rifts.sync(ab.floorRifts);
+    // рельефные трещины несут свой жар — неоновый разлом остаётся только при ?fx=cracks
+    this.rifts.sync(FX.cracks ? [] : ab.floorRifts);
     this.spikes.update(dtW);
     this.chains.sync(w);
     this.bellSats.sync(w);
+    this.greatBell.sync(w, dtReal);
+    if (w.greatBell) this.greatBell.lightsOf(w.greatBell, (x, y, z, k) => this.lights.add(x, y, z, C.gold, 2.2 * k, 3.5));
     for (const b of w.bellSats) {
       if (b.glow <= 0) continue;
       this.sprites.add(b.x, b.y - 0.5, b.z, 0.7 + b.glow * 0.9, C.hungerHot[0], C.hungerHot[1], C.hungerHot[2], 0.35 + b.glow * 0.5, 'dot');
       this.lights.add(b.x, b.y, b.z, C.hunger, 1 + b.glow * 2, 5);
     }
     for (const r of ab.floorRifts) {
-      if (!fxRng.chance(0.5 * this.quality)) continue;
+      // у рельефных трещин искр меньше: они тлеют, а не горят
+      if (!fxRng.chance((FX.cracks ? 0.2 : 0.5) * this.quality)) continue;
       const d = fxRng.next() * r.len;
       this.add.emit({ x: r.x + r.dx * d, y: 0.1, z: r.z + r.dz * d, vy: 1.2, life: 0.4, size: 0.08, size1: 0.01, color: C.voidHot, frame: 'spark', stretch: 0.6 });
     }
@@ -836,7 +843,7 @@ export class BattleVfx {
   clear(): void {
     for (const m of this.robes.values()) { this.group.remove(m.mesh); m.dispose(); }
     this.robes.clear();
-    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear(); this.chains.clear(); this.bellSats.clear(); this.slashes.clear();
+    this.add.clear(); this.norm.clear(); this.trail.clear(); for (const t of this.sickleTrails) t.clear(); this.rings.clear(); this.debris.clear(); this.lights.clear(); this.stars.clear(); this.spikes.clear(); this.chains.clear(); this.bellSats.clear(); this.greatBell.clear(); this.slashes.clear();
   }
 }
 

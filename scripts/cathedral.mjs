@@ -56,25 +56,24 @@ try{for(const q of qualities){
     if(b.journey.collapseTime>1.1&&b.journey.collapseTime<2.5&&!s.shots.has('collapse'))shot='collapse';
     if(b.journey.collapseTime>=2.5){s.collapseSample={gap:!b.arena.walkable(0,-36),safe:b.arena.walkable(0,-47),nav:!w.nav.reachable(0,-36,false)};}
     if(b.stage.id==='1-4'&&b.runner.waveIdx>=1&&!s.shots.has('hall'))shot='hall';
-    if(b.director.id==='heartAwakening'&&b.director.time>2&&!s.shots.has('awakening'))shot='awakening';
-    if(b.heart?.phase===3&&!s.shots.has('heart-phase-3'))shot='heart-phase-3';
+    if(b.director.id==='heartSoulFlight'&&b.director.time>1.2&&!s.shots.has('light-flight'))shot='light-flight';
     if(shot){s.shots.add(shot);break;}
    }
    b.ctx.renderer.render(b.ctx.time.world);
-   return {shot,phase:b.journey.phase,stage:b.stage.id,wave:b.runner.waveIdx,z:h.z,ends:s.ends,checkpoints:s.checkpoints,saved:s.saved,continuous:s.continuous,positionJump:s.positionJump,rootError:s.rootError,peak:s.peak,stages:[...s.stages],screen:window.__app.current,clears:b.ctx.save.stages['1-4']?.clears,collapse:s.collapseSample,hints:s.hints,heartDead:b.heart?.dead,heartMetrics:{...b.heart?.metrics},bridgeStillGone:!b.arena.walkable(0,-36),bridgeFlamesMax:Math.max(0,...b.flames.points.map((p,i)=>Math.abs(p[0])<=3.4&&p[2]>=-43.5&&p[2]<-28.5?b.flames.mesh.geometry.getAttribute('iLit').getX(i):0))};
+   return {shot,phase:b.journey.phase,stage:b.stage.id,wave:b.runner.waveIdx,z:h.z,ends:s.ends,checkpoints:s.checkpoints,saved:s.saved,continuous:s.continuous,positionJump:s.positionJump,rootError:s.rootError,peak:s.peak,stages:[...s.stages],screen:window.__app.current,clears:b.ctx.save.stages['1-4']?.clears,collapse:s.collapseSample,hints:s.hints,heartDead:b.heart?.dead,heartActive:b.heart?.active,soul:b.heartSoul?.phase,bridgeStillGone:!b.arena.walkable(0,-36),bridgeFlamesMax:Math.max(0,...b.flames.points.map((p,i)=>Math.abs(p[0])<=3.4&&p[2]>=-43.5&&p[2]<-28.5?b.flames.mesh.geometry.getAttribute('iLit').getX(i):0))};
   });
   if(state.shot)await page.screenshot({path:`${out}/${q}-${state.shot}.png`,timeout:60000});
   if(state.ends)break;
  }
  const check=(ok,msg)=>{if(!ok)throw new Error(`${q}: ${msg}: ${JSON.stringify(state)}`);};
- check(state.ends===1&&state.heartDead&&state.stage==='1-4'&&state.screen==='results'&&state.clears===1,'полный проход и результат второго этапа');
+ check(state.ends===1&&state.soul==='absorbed'&&!state.heartActive&&!state.heartDead&&state.stage==='1-4'&&state.screen==='results'&&state.clears===1,'полный проход: свет элиты вошёл в Сердце, результат второго этапа');
  check(state.checkpoints===1&&state.saved&&state.continuous&&state.positionJump<0.3,'промежуточная награда и переход без замены мира/героя/камеры');
  check(state.collapse?.gap&&state.collapse?.safe&&state.collapse?.nav&&state.bridgeStillGone&&state.bridgeFlamesMax<0.001,'мост обрушился навсегда, навигация учитывает разрыв, герой на безопасном полу');
  check(!state.hints.some(h=>h.includes('Врата открыты. Пройди')),'удалённая подсказка не появляется');
  check(state.rootError<1e-5,'видимый скелет следует корню Стража');
  check(state.peak.calls<=160&&state.peak.tris<=260000,'мобильный бюджет');
  check(errors.length===0,'ошибки браузера');
- report.push({q,viewport:{width,height},...state,errors});console.log(`✓ ${q}: 1-3 → мост → 1-4; награды сохранены; ${state.peak.calls} calls / ${state.peak.tris} tris`);
+ report.push({q,viewport:{width,height},...state,errors});console.log(`✓ ${q}: 1-3 → мост → 1-4 → свет в Сердце; награды сохранены; ${state.peak.calls} calls / ${state.peak.tris} tris`);
  await page.close();
 }}catch(e){failed=true;report.push({error:String(e)});console.error(e);}finally{writeFileSync(`${out}/report.json`,JSON.stringify(report,null,2));await browser.close();await server.close();}
 if(failed)process.exitCode=1;
