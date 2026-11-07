@@ -1380,8 +1380,10 @@ export class Battle {
     const w = this.world, h = w.hero, ctx = this.ctx;
     this.finisherVictory = true;
     for (const tele of w.telegraphs) tele.alive = false;
+    // жакемар встаёт на колени лицом к герою: удар — спереди, в циферблат
+    if (e.kind === 'bellRinger') e.facing = Math.atan2(h.x - e.x, h.z - e.z);
     const anchors = guardianTargets(e.puppet.layout, e.x, e.z, e.facing, e.kind === 'gateGuardian' ? 1.65 : 1.45);
-    const angle = e.kind === 'bellRinger' ? e.facing : Math.atan2(e.x - h.x, e.z - h.z), fx = Math.sin(angle), fz = Math.cos(angle);
+    const angle = Math.atan2(e.x - h.x, e.z - h.z), fx = Math.sin(angle), fz = Math.cos(angle);
     const safe = { x: 0, z: 0 }; this.arena.nearestWalkable(e.x - fx * 3.8 - fz * 1.5, e.z - fz * 3.8 + fx * 1.5, safe);
     const spots = { gx: e.x, gz: e.z, hx: h.x, hz: h.z, facing: e.facing, ...anchors, landing: [safe.x, 0, safe.z] as V3 };
     const dl = Math.hypot(e.x - h.x, e.z - h.z) || 1, dirX = (e.x - h.x) / dl, dirZ = (e.z - h.z) / dl;
@@ -1434,9 +1436,12 @@ export class Battle {
       });
       this.sceneCalls.set('bellRing', () => {
         const at = new THREE.Vector3(...anchors.bell);
-        if (e instanceof BellRinger) e.bellPoint(at);
+        if (e instanceof BellRinger) e.dialPoint(at);
+        // циферблат лопается: последний надтреснутый бой часов, из груди сыплются шестерни и пружины
         w.bus.emit('sfx', { id: 'boss_bell', x: at.x, z: at.z });
-        // Резонанс приходит после отклонения подвешенного колокола, из его текущего положения.
+        w.bus.emit('sfx', { id: 'bell_crack', x: at.x, z: at.z });
+        this.vfx.debris.burst(at.x, at.y, at.z, -fx, -fz, Math.round(14 * this.vfx.quality), 5, 0.12);
+        this.vfx.burst(Math.round(16 * this.vfx.quality), { x: at.x, y: at.y, z: at.z, life: 0.7, size: 0.1, size1: 0.02, color: C.gold, gravity: -9, drag: 1.2, frame: 'spark', stretch: 1 }, { v: 6, vy: 3 });
         w.bus.emit('shockwave', { x: at.x, z: at.z, y: at.y, r: 7, color: 'void', strength: 0.65 });
       });
       this.playScene(killBellTrack(spots), finish, { letterbox: false, hud: false });

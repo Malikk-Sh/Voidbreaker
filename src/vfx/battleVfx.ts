@@ -363,15 +363,6 @@ export class BattleVfx {
     this.lights.flash(x, y, z, C.hunger, big ? 4 : 2.5, 6, 0.25);
   }
 
-  /** Колокол Звонаря ударен героем: фиолетовое кольцо силы. */
-  bellStrike(x: number, y: number, z: number, r: number): void {
-    this.rings.spawn(x, z, 0.5, r, 0.45, C.voidHot, 0.35, 1.5);
-    this.rings.spawn(x, z, 0.3, r * 0.7, 0.35, C.core, 0.15, 1);
-    this.burst(26, { x, y, z, life: 0.5, size: 0.12, size1: 0.02, color: C.voidHot, drag: 2.5, frame: 'spark', stretch: 1.6 }, { v: 12, vy: 2 });
-    this.add.emit({ x, y, z, life: 0.25, size: 1.5, size1: 4, color: C.voidHot, alpha: 0.7, frame: 'ring' });
-    this.lights.flash(x, y, z, C.void, 6, r * 1.5, 0.4);
-  }
-
   /** «Тень» проявилась или рассеялась: багровый дым на её месте. */
   shadowPuff(x: number, z: number, big: boolean): void {
     this.burst(big ? 14 : 8, { x, y: 1.0, z, life: 0.8, size: 0.5, size1: 1.4, color: C.dark, alpha: 0.6, drag: 2.5, frame: 'smoke' }, { v: 2, vy: 1 }, false);

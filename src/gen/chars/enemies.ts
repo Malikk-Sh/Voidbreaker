@@ -487,7 +487,7 @@ export function buildPsalmist(seed = 8): RigBuild {
 
 // ------------------------------------------------------------------ Тяжёлый двуногий (Голем)
 // Звонарь — свой риг и своя модель (сгорбленный акробат с горбом-колоколом): gen/chars/ringer.ts
-export { BELL_CONTACT, BELL_PIVOT, buildRinger, ringerRig } from './ringer';
+export { RINGER_CONTACT, RINGER_CONTACT_JOINT, buildRinger, ringerRig } from './ringer';
 
 export function bruteRig(id = 'brute', scale = 1): RigDef {
   const s = scale;

@@ -529,7 +529,7 @@ export class World {
 
   // ------------------------------------------------------------------ атаки врагов
   /** Удар врага по герою: учитывает неуязвимость рывка и идеальное уклонение. */
-  enemyStrike(src: { x: number; z: number; id: number; kind: string; dead?: boolean; elite?: string[] }, shape: Shape, dmg: number, kb = 3): 'miss' | 'hit' | 'perfect' | 'dodge' | 'immune' {
+  enemyStrike(src: { x: number; z: number; id: number; kind: string; dead?: boolean; elite?: string[]; noStun?: boolean }, shape: Shape, dmg: number, kb = 3): 'miss' | 'hit' | 'perfect' | 'dodge' | 'immune' {
     const h = this.hero;
     // идеальное уклонение — и рывком из зоны удара (этап 4.5, C1): Пилот стоял под ударом в начале рывка, удар
     // пришёлся в окно — засчитано, удар раскалывает силуэт на старом месте. Раньше рывок вбок за 60 мс до
@@ -548,7 +548,8 @@ export class World {
     if (res === 'perfect' && src.kind === 'recoil') { h.addResonance(RECOIL.dodgeResonance); this.bus.emit('recoilDodge', { x: h.x, z: h.z }); }
     if (res === 'perfect' && atk) {
       if (!atk.isGuardian && !atk.isBoss) atk.lagT = 0.2;
-      else { this.lastBossPerfect = this.time; this.addStunTo(atk, STUN_PERFECT_DODGE); }
+      // удар окружения от имени босса (колокол Звонаря) не копит ему оглушение
+      else if (!src.noStun) { this.lastBossPerfect = this.time; this.addStunTo(atk, STUN_PERFECT_DODGE); }
     }
     if (res === 'hit') {
       this.run.hitsTaken++;

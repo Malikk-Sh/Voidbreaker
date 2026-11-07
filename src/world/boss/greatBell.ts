@@ -7,34 +7,47 @@ import { slashShape } from './funeralHeart';
 
 /**
  * Великий колокол Колокольни (Звонарь, «Маятник: срежь опоры»). Колокол висит на четырёх верёвках над провалами:
- * каждая верёвка идёт от колокола к блоку над провалом и вниз — к железной тумбе у кромки. Правило боя одно:
- * натянутая верёвка светится золотом, и один удар по её тумбе перерубает её. Верёвка натягивается, когда колокол
- * дальше всего от её блока: на краю качания и на противоположной стороне круга.
+ * каждая верёвка идёт от колокола к блоку над провалом и вниз — к железной тумбе у кромки. Натянутая верёвка
+ * светится золотом, и только её можно рубить у тумбы. В верёвке четыре пряди: лёгкий удар рвёт одну, тяжёлый (Разлом,
+ * Звездопад, Крест, Контрудар, заряд) — две. Каждая порванная прядь отдаётся в колокол: он звонит, и от него по залу
+ * идёт волна звона, её проходят рывком. Верёвка натягивается, когда колокол дальше всего от её блока: на краю
+ * качания и на противоположной стороне круга.
  *
  * r — радиус колокола (м); height — от кромки до маковки; lipRest — высота кромки в нижней точке; rise — насколько
  * кромка поднимается на краю качания (там колокол над головой и не бьёт); pulleyY — высота блоков (выше камеры: в кадре верёвки уходят вверх).
  * swing — маятник I фазы: размах до и после первой срезанной верёвки (м), пауза на краю (метка прохода видна всю
- * паузу), время прохода, разгон с центра в первый край, сколько пауза ждёт после рывка срезанной верёвки.
- * orbit — круг II фазы: радиус, время раскрутки (1–2 оборота: колокол встаёт напротив целой верёвки), остановка,
- * метка кольца. taut — расстояние колокол — блок (м), с которого верёвка натянута полностью (за 1.5 м до него — 0);
- * tautMin — с какой натянутости её можно перерубить. dmg — доля HP героя за удар колоколом, kb — отброс, again —
- * через сколько секунд колокол на круге может ударить снова; enemyMult — удар колоколом по врагам (множитель
- * клинка). fall — падение в III фазе: время, радиус удара, урон, радиус обломка-укрытия. descend/startY —
- * колокол опускается из темноты, когда появляется Звонарь. cleatR — радиус тумбы для удара клинком. settle — сколько
- * секунд после перерубленной верёвки остальные провисают (колокол дёрнулся): следующую не срубить сразу, время
- * бить Звонаря.
+ * паузу), время прохода, разгон с центра в первый край; turn — после calm проходов каждая новая линия качания
+ * поворачивается на столько радиан (от и до, в случайную сторону): безопасного места «сбоку» нет; kick — Звонарь
+ * на маковке пинает колокол обратно той же линией: шанс до и после первой срезанной верёвки и короткая белая метка;
+ * snap — срезанная верёвка дёргает колокол: через столько секунд он идёт через зал к её тумбе (белая метка).
+ * orbit — круг II фазы: радиус кольца (по очереди ближнее и дальнее), время раскрутки (1–2 оборота: колокол встаёт
+ * напротив целой верёвки, направление меняется каждый раз), остановка, метка кольца; again — с этим шансом колокол
+ * без остановки идёт на второй круг после короткой метки. taut — расстояние колокол — блок (м), с которого верёвка
+ * натянута полностью (за 1.5 м до него — 0); tautMin — с какой натянутости её можно рубить. strands — пряди в верёвке.
+ * toll — волна звона от порванной пряди: не чаще cd, скорость, ширина, предел (м), урон (доля). dmg — доля HP героя
+ * за удар колоколом, kb — отброс, again — через сколько секунд колокол на круге может ударить снова; enemyMult —
+ * удар колоколом по врагам (множитель клинка). fall — падение в III фазе: время, радиус удара, урон, радиус
+ * обломка-укрытия. descend/startY — колокол опускается из темноты, когда появляется Звонарь. cleatR — радиус тумбы
+ * для удара клинком. settle — сколько секунд после перерубленной верёвки остальные провисают.
  */
 export const GREAT_BELL = {
   r: 1.7, height: 2.6, lipRest: 0.9, rise: 1.9, pulleyY: 22,
-  swing: { amp: [7.4, 6.4] as const, pause: 1.25, travel: 1.0, wind: 1.3, lurch: 0.55 },
-  orbit: { r: 5.2, spin: 2.6, hold: 2.3, warn: 1.25 },
+  swing: { amp: [7.4, 6.4] as const, pause: 0.9, travel: 0.85, wind: 1.1, turn: [0.3, 0.75] as const, calm: 2, kick: { chance: [0.3, 0.5] as const, warn: 0.5 }, snap: 0.6 },
+  orbit: { r: [6.4, 4.2] as const, spin: 2.1, hold: 1.7, warn: 0.95, again: { chance: 0.35, warn: 0.65 } },
   taut: 12, tautMin: 0.6,
+  strands: 4,
+  toll: { cd: 0.55, speed: 10, width: 1.2, maxR: 17, dmg: 0.1 },
   dmg: 0.2, kb: 11, again: 0.9, enemyMult: 6,
   fall: { dur: 1.25, r: 3.0, dmg: 0.26, obstacle: 2.2 },
   descend: 1.6, startY: 9,
   cleatR: 0.9,
-  settle: 5.5,
+  settle: 4.5,
 };
+
+/** Приёмы, которые рвут сразу две пряди верёвки. */
+export const HEAVY_CUTS: ReadonlySet<string> = new Set(['rift', 'skyfall', 'cross', 'counter', 'charged']);
+/** Хозяин волны звона: не Звонарь — уход от неё не копит ему оглушение. */
+export const TOLL_OWNER = -942;
 
 export type GreatBellMode = 'descend' | 'idle' | 'swing' | 'orbit' | 'fall' | 'fallen';
 
@@ -48,15 +61,23 @@ export interface BellRope {
   cutT: number;
   /** Удар по ненатянутой тумбе: искры и звон (вспышка 1 → 0). */
   clank: number;
+  /** Сколько прядей осталось (0 — перерублена). */
+  strands: number;
+  /** Порвана прядь: вспышка верёвки 1 → 0. */
+  fray: number;
 }
 
 /** Что нужно колоколу от Звонаря: он — источник удара, и колокол сообщает ему о срезанной верёвке. */
 export interface BellOwner {
   readonly id: number;
   readonly kind: string;
+  /** Звонарь едет на маковке: только тогда колокол пинают обратно. */
+  readonly riding: boolean;
   lastTeleDur: number;
   dmgUnit: number;
   onRopeCut(w: World, index: number, left: number): void;
+  /** Звонарь пнул колокол обратно той же линией (поза, звук). */
+  onBellKick?(w: World): void;
 }
 
 type V2 = { x: number; z: number };
@@ -96,11 +117,16 @@ export class GreatBell {
   readonly ropes: BellRope[];
   readonly cx: number; readonly cz: number;
   /**
-   * Маятник: колокол стоит в крае at (смещение от центра), потом идёт в край next. После первой срезанной верёвки
-   * качание поворачивает поперёк — next ведёт в край новой оси (pending, если верёвку срезали в пути).
+   * Маятник: колокол стоит в крае at (смещение от центра), потом идёт в край next. Каждая новая линия поворачивается
+   * (после первых calm проходов); kick — пауза короткая, колокол пнули обратно той же линией (белая метка);
+   * pending — куда колокол пойдёт после текущего прохода (верёвку срезали в пути).
    */
-  readonly swing = { at: { x: 0, z: 0 } as V2, next: { x: 0, z: 0 } as V2, stage: 'wind' as 'wind' | 'pause' | 'travel', t: 0, hold: 0, amp: GREAT_BELL.swing.amp[0] as number, turned: false, pending: null as V2 | null };
-  readonly orbit = { a: 0, a0: 0, a1: 0, r: GREAT_BELL.orbit.r, r0: GREAT_BELL.orbit.r, stage: 'warn' as 'warn' | 'spin' | 'hold', t: 0, n: 0 };
+  readonly swing = { at: { x: 0, z: 0 } as V2, next: { x: 0, z: 0 } as V2, stage: 'wind' as 'wind' | 'pause' | 'travel', t: 0, hold: 0, amp: GREAT_BELL.swing.amp[0] as number, kick: false, pending: null as V2 | null };
+  /**
+   * Круг: угол и радиус колокола, раскрутка от a0 к a1; rT — радиус кольца этой раскрутки (ближнее и дальнее по
+   * очереди), dir — направление (меняется каждый раз), warnDur — длина текущей метки, again — идёт второй круг подряд.
+   */
+  readonly orbit = { a: 0, a0: 0, a1: 0, r: GREAT_BELL.orbit.r[0] as number, r0: GREAT_BELL.orbit.r[0] as number, rT: GREAT_BELL.orbit.r[0] as number, stage: 'warn' as 'warn' | 'spin' | 'hold', t: 0, n: 0, k: 0, dir: 1, warnDur: GREAT_BELL.orbit.warn as number, again: false };
   readonly fall = { t: 0, fx: 0, fz: 0, fy: 0 };
   /** Кого колокол уже ударил (герой — id −1) и когда. */
   private readonly struck = new Map<number, number>();
@@ -112,11 +138,12 @@ export class GreatBell {
   private readonly aims: AimTarget[] = [];
   private readonly offs: (() => void)[] = [];
   private swingId = 0; private lastSwing = -1;
-  readonly metrics = { passes: 0, spins: 0, heroHits: 0, enemyHits: 0, cuts: 0, clanks: 0 };
+  private lastToll = -99;
+  readonly metrics = { passes: 0, spins: 0, heroHits: 0, enemyHits: 0, cuts: 0, clanks: 0, frays: 0, tolls: 0, kicks: 0, snaps: 0, doubles: 0 };
 
   constructor(private readonly w: World, private readonly owner: BellOwner, cx: number, cz: number) {
     this.cx = cx; this.cz = cz; this.x = cx; this.z = cz;
-    this.ropes = bellRig(w, cx, cz).map(r => ({ ...r, cut: false, taut: 0, cutT: 0, clank: 0 }));
+    this.ropes = bellRig(w, cx, cz).map(r => ({ ...r, cut: false, taut: 0, cutT: 0, clank: 0, strands: GREAT_BELL.strands, fray: 0 }));
     const bell = this;
     for (const rope of this.ropes) {
       const aim: AimTarget = {
@@ -172,7 +199,8 @@ export class GreatBell {
     const O = this.orbit;
     O.a0 = O.a = Math.atan2(this.x - this.cx, this.z - this.cz);
     O.r0 = O.r = Math.hypot(this.x - this.cx, this.z - this.cz);
-    O.stage = 'warn'; O.t = 0;
+    O.stage = 'warn'; O.t = 0; O.k = 0; O.dir = 1; O.again = false;
+    O.rT = GREAT_BELL.orbit.r[0]; O.warnDur = GREAT_BELL.orbit.warn;
     this.announceSpin();
   }
 
@@ -187,7 +215,7 @@ export class GreatBell {
 
   step(dt: number): void {
     this.t += dt;
-    for (const r of this.ropes) { if (r.cut) r.cutT += dt; r.clank = Math.max(0, r.clank - dt * 3); }
+    for (const r of this.ropes) { if (r.cut) r.cutT += dt; r.clank = Math.max(0, r.clank - dt * 3); r.fray = Math.max(0, r.fray - dt * 3.5); }
     this.lurch *= Math.exp(-dt * 2.2);
     const px = this.x, pz = this.z;
     switch (this.mode) {
@@ -228,23 +256,47 @@ export class GreatBell {
     } else {
       const u = Math.min(1, S.t / C.travel), k = (1 - Math.cos(Math.PI * u)) / 2;
       ox = S.at.x + (S.next.x - S.at.x) * k; oz = S.at.z + (S.next.z - S.at.z) * k;
-      if (u >= 1) {
-        S.at = S.next;
-        S.next = S.pending ?? { x: -S.at.x, z: -S.at.z };
-        S.pending = null;
-        S.stage = 'pause'; S.t = 0; this.metrics.passes++;
-        this.announcePass();
-      }
+      if (u >= 1) this.arrive();
     }
     this.x = this.cx + ox; this.z = this.cz + oz;
     const k = Math.min(1, Math.hypot(ox, oz) / S.amp);
     this.y = GREAT_BELL.lipRest + GREAT_BELL.rise * k * k;
   }
 
-  /** Метка следующего прохода: полоса от края до края на всю оставшуюся паузу. */
+  /**
+   * Колокол дошёл до края: следующая линия — срезанная верёвка (pending), пинок Звонаря обратно той же линией или
+   * новая линия, повёрнутая на случайный угол (первые calm проходов — прямо через центр).
+   */
+  private arrive(): void {
+    const S = this.swing, C = GREAT_BELL.swing, from = S.at;
+    S.at = S.next;
+    this.metrics.passes++;
+    S.kick = false; S.hold = 0;
+    const kick = C.kick.chance[this.metrics.cuts > 0 ? 1 : 0];
+    if (S.pending) { S.next = S.pending; S.pending = null; }
+    else if (this.owner.riding && this.metrics.passes >= C.calm && this.w.rng.next() < kick) {
+      // Звонарь пинает колокол обратно: пауза короче, метка белая
+      S.next = from; S.kick = true; S.hold = C.kick.warn - C.pause;
+      this.metrics.kicks++;
+      this.owner.onBellKick?.(this.w);
+      this.w.bus.emit('bellKick', { x: this.x, z: this.z });
+    } else S.next = this.nextEdge(S.at);
+    S.stage = 'pause'; S.t = 0;
+    this.announcePass();
+  }
+
+  /** Противоположный край, повёрнутый на случайный угол turn (после первых calm проходов). */
+  private nextEdge(at: V2): V2 {
+    const S = this.swing, C = GREAT_BELL.swing, a0 = Math.atan2(-at.x, -at.z);
+    const turn = this.metrics.passes < C.calm ? 0 : (C.turn[0] + (C.turn[1] - C.turn[0]) * this.w.rng.next()) * (this.w.rng.next() < 0.5 ? -1 : 1);
+    return { x: Math.sin(a0 + turn) * S.amp, z: Math.cos(a0 + turn) * S.amp };
+  }
+
+  /** Метка следующего прохода: полоса от края до края на всю оставшуюся паузу (пинок — белая и короткая). */
   private announcePass(): void {
     this.killTele();
-    const dur = Math.max(0.8, GREAT_BELL.swing.pause + this.swing.hold - this.swing.t);
+    const S = this.swing;
+    const dur = Math.max(S.kick ? 0.4 : 0.8, GREAT_BELL.swing.pause + S.hold - S.t);
     this.tele = this.markPath(dur);
     this.owner.lastTeleDur = dur;
   }
@@ -253,7 +305,7 @@ export class GreatBell {
     const S = this.swing, ax = this.cx + S.at.x, az = this.cz + S.at.z;
     const dx = S.next.x - S.at.x, dz = S.next.z - S.at.z, len = Math.hypot(dx, dz) || 1;
     const pad = GREAT_BELL.r + 0.35;
-    return this.w.addTelegraph({ k: 'line', x: ax - dx / len * pad, z: az - dz / len * pad, dx: dx / len, dz: dz / len, len: len + pad * 2, w: pad * 2 }, dur, false);
+    return this.w.addTelegraph({ k: 'line', x: ax - dx / len * pad, z: az - dz / len * pad, dx: dx / len, dz: dz / len, len: len + pad * 2, w: pad * 2 }, dur, S.kick);
   }
 
   private killTele(): void { if (this.tele) { this.tele.alive = false; this.tele = null; } }
@@ -262,13 +314,13 @@ export class GreatBell {
     const O = this.orbit, C = GREAT_BELL.orbit;
     O.t += dt;
     if (O.stage === 'warn') {
-      const u = Math.min(1, O.t / C.warn);
-      O.r = O.r0 + (C.r - O.r0) * smooth(u);
-      // замах: колокол оттягивается назад перед раскруткой
-      O.a = O.a0 - Math.sin(u * Math.PI) * 0.22;
+      const u = Math.min(1, O.t / O.warnDur);
+      O.r = O.r0 + (O.rT - O.r0) * smooth(u);
+      // замах: колокол оттягивается против будущей раскрутки
+      O.a = O.a0 - O.dir * Math.sin(u * Math.PI) * 0.22;
       if (u >= 1) {
         O.stage = 'spin'; O.t = 0; O.a0 = O.a; this.struck.clear(); this.tele = null;
-        O.a1 = this.spinTarget(O.a0);
+        O.a1 = this.spinTarget(O.a0, O.dir);
         // кольцо горит всю раскрутку: колокол идёт по нему
         this.markRing(C.spin);
         this.w.bus.emit('bellSpin', { x: this.cx, z: this.cz });
@@ -276,38 +328,55 @@ export class GreatBell {
     } else if (O.stage === 'spin') {
       const u = Math.min(1, O.t / C.spin);
       O.a = O.a0 + (O.a1 - O.a0) * smooth(u);
-      if (u >= 1) { O.stage = 'hold'; O.t = 0; O.a0 = O.a; this.metrics.spins++; }
+      if (u >= 1) {
+        this.metrics.spins++;
+        O.t = 0; O.a0 = O.a; O.r0 = O.r;
+        // иногда — второй круг подряд: короткая метка, без остановки (по одному разу)
+        if (!O.again && this.ropes.some(r => !r.cut) && this.w.rng.next() < C.again.chance) {
+          O.again = true; this.metrics.doubles++;
+          this.nextSpin(C.again.warn);
+        } else { O.again = false; O.stage = 'hold'; }
+      }
     } else {
       O.a = O.a0 + Math.sin(O.t * 2.4) * 0.04;
-      if (O.t >= C.hold) { O.stage = 'warn'; O.t = 0; O.a0 = O.a; O.r0 = O.r; this.announceSpin(); }
+      if (O.t >= C.hold) { O.t = 0; O.a0 = O.a; O.r0 = O.r; this.nextSpin(C.warn); }
     }
     this.x = this.cx + Math.sin(O.a) * O.r; this.z = this.cz + Math.cos(O.a) * O.r;
     const spinning = O.stage === 'spin' ? Math.sin(Math.min(1, O.t / C.spin) * Math.PI) : 0;
     this.y = GREAT_BELL.lipRest + 0.35 * spinning;
   }
 
+  /** Следующая раскрутка: другое кольцо (ближнее ↔ дальнее) и другое направление; метка warn секунд. */
+  private nextSpin(warn: number): void {
+    const O = this.orbit, R = GREAT_BELL.orbit.r;
+    O.k++; O.dir = -O.dir;
+    O.rT = R[O.k % R.length];
+    O.stage = 'warn'; O.t = 0; O.warnDur = warn;
+    this.announceSpin();
+  }
+
   /**
    * Куда встанет колокол после раскрутки: напротив одной из целых верёвок (по очереди), чтобы на каждой остановке
-   * одна верёвка была натянута. Раскрутка — от одного до двух оборотов.
+   * одна верёвка была натянута. Раскрутка — от одного до двух оборотов в сторону dir.
    */
-  private spinTarget(a0: number): number {
+  private spinTarget(a0: number, dir: number): number {
     const live = this.ropes.filter(r => !r.cut);
-    if (!live.length) return a0 + TAU;
+    if (!live.length) return a0 + dir * TAU;
     const r = live[this.orbit.n++ % live.length];
     const target = Math.atan2(this.cx - r.pulley.x, this.cz - r.pulley.z);
-    return a0 + TAU + wrap(target - a0);
+    return a0 + dir * (TAU + wrap(dir * (target - a0)));
   }
 
   /** Метка раскрутки: кольцо, по которому пройдёт колокол. */
   private announceSpin(): void {
     this.killTele();
-    this.tele = this.markRing(GREAT_BELL.orbit.warn);
-    this.owner.lastTeleDur = GREAT_BELL.orbit.warn;
+    this.tele = this.markRing(this.orbit.warnDur);
+    this.owner.lastTeleDur = this.orbit.warnDur;
   }
 
   private markRing(dur: number): Telegraph {
-    const C = GREAT_BELL.orbit, pad = GREAT_BELL.r + 0.35;
-    return this.w.addTelegraph({ k: 'ring', x: this.cx, z: this.cz, r0: Math.max(0, C.r - pad), r1: C.r + pad }, dur, false);
+    const pad = GREAT_BELL.r + 0.35, r = this.orbit.rT;
+    return this.w.addTelegraph({ k: 'ring', x: this.cx, z: this.cz, r0: Math.max(0, r - pad), r1: r + pad }, dur, false);
   }
 
   /** Все верёвки срезаны: колокол срывается и падает в центр зала. */
@@ -330,7 +399,7 @@ export class GreatBell {
     if (u < 1) return;
     this.mode = 'fallen'; this.y = 0; this.x = this.cx; this.z = this.cz; this.tele = null;
     this.owner.lastTeleDur = C.dur;
-    this.w.enemyStrike({ x: this.cx, z: this.cz, id: this.owner.id, kind: this.owner.kind }, { k: 'circle', x: this.cx, z: this.cz, r: C.r }, C.dmg * this.owner.dmgUnit, 12);
+    this.w.enemyStrike({ x: this.cx, z: this.cz, id: this.owner.id, kind: this.owner.kind, noStun: true }, { k: 'circle', x: this.cx, z: this.cz, r: C.r }, C.dmg * this.owner.dmgUnit, 12);
     for (const e of this.w.enemies) {
       if (e.dead || e.id === this.owner.id || !e.targetable || Math.hypot(e.x - this.cx, e.z - this.cz) > C.r + e.radius) continue;
       this.w.damageEnemy(e, { mult: GREAT_BELL.enemyMult * 2, stun: 30, stunKind: 'other', knockback: 12, feel: 'heavy', dirX: 0, dirZ: 0, source: 'env', noResonance: true });
@@ -359,7 +428,8 @@ export class GreatBell {
       this.struck.set(-1, this.t);
       this.owner.lastTeleDur = Math.max(this.owner.lastTeleDur, 1);
       // источник удара — позади колокола по ходу: отброс по направлению качания
-      const src = { x: this.x - this.vx / speed * 3, z: this.z - this.vz / speed * 3, id: this.owner.id, kind: this.owner.kind };
+      // уход от колокола не копит Звонарю оглушение: колокол — не его удар
+      const src = { x: this.x - this.vx / speed * 3, z: this.z - this.vz / speed * 3, id: this.owner.id, kind: this.owner.kind, noStun: true };
       if (this.w.enemyStrike(src, shape, GREAT_BELL.dmg * this.owner.dmgUnit, GREAT_BELL.kb) === 'hit') {
         this.metrics.heroHits++;
         this.w.bus.emit('bellHit', { x: h.x, z: h.z });
@@ -387,12 +457,12 @@ export class GreatBell {
     }
   }
 
-  /** Удар клинка: натянутую верёвку — перерубить у тумбы, ненатянутую — звон и искры. */
+  /** Удар клинка: у натянутой верёвки рвётся прядь (тяжёлый приём — две), у ненатянутой — звон и искры. */
   private slash(event: GameEvents['slash']): void {
     if (!this.hanging || this.w.hero.dead) return;
     const key = this.swingId * 2 + (event.second ? 1 : 0);
     if (key === this.lastSwing) return;
-    if (this.hitCleats(slashShape(event))) this.lastSwing = key;
+    if (this.hitCleats(slashShape(event), HEAVY_CUTS.has(event.move) ? 2 : 1)) this.lastSwing = key;
   }
 
   private ability(event: GameEvents['ability']): void {
@@ -401,15 +471,15 @@ export class GreatBell {
     const shape: Shape = event.id === 'crescent'
       ? { k: 'line', x: event.x, z: event.z, dx: Math.sin(h.facing), dz: Math.cos(h.facing), len: 8, w: 2.5 }
       : { k: 'circle', x: event.x, z: event.z, r: event.id === 'well' ? 4.5 : 3.5 };
-    this.hitCleats(shape);
+    this.hitCleats(shape, 1);
   }
 
-  private hitCleats(shape: Shape): boolean {
+  private hitCleats(shape: Shape, strands: number): boolean {
     let any = false;
     this.ropes.forEach((r, i) => {
       if (r.cut || !overlaps(shape, r.cleat.x, r.cleat.z, GREAT_BELL.cleatR)) return;
       any = true;
-      if (this.cuttable(r)) this.cut(i);
+      if (this.cuttable(r)) this.fray(i, strands);
       else if (this.hanging) {
         r.clank = 1; this.metrics.clanks++;
         this.w.bus.emit('bellClank', { x: r.cleat.x, z: r.cleat.z });
@@ -418,30 +488,56 @@ export class GreatBell {
     return any;
   }
 
-  /** Перерубить верёвку i: рывок колокола, урон Звонарю, смена качания; после последней колокол падает. */
+  /** Порвать n прядей верёвки i: последняя — верёвка перерублена, иначе колокол звонит волной. */
+  fray(i: number, n = 1): void {
+    const r = this.ropes[i];
+    if (r.cut) return;
+    r.strands = Math.max(0, r.strands - n); r.fray = 1;
+    this.metrics.frays++;
+    this.w.bus.emit('bellFray', { x: r.cleat.x, z: r.cleat.z, index: i, left: r.strands });
+    if (r.strands <= 0) this.cut(i);
+    else this.toll();
+  }
+
+  /** Колокол отзывается на порванную прядь: волна звона от колокола по всему залу (не чаще toll.cd). */
+  private toll(): void {
+    const T = GREAT_BELL.toll;
+    if (this.t - this.lastToll < T.cd) return;
+    this.lastToll = this.t;
+    this.metrics.tolls++;
+    this.w.addRingWave(this.x, this.z, T.speed, T.width, T.maxR, [], T.dmg * this.owner.dmgUnit, TOLL_OWNER);
+    this.w.bus.emit('bellToll', { x: this.x, z: this.z });
+  }
+
+  /** Перерубить верёвку i: рывок колокола, урон Звонарю, колокол идёт к её тумбе; после последней колокол падает. */
   cut(i: number): void {
     const r = this.ropes[i];
     if (r.cut) return;
-    r.cut = true; r.taut = 0; r.cutT = 0;
+    r.cut = true; r.taut = 0; r.cutT = 0; r.strands = 0;
     this.metrics.cuts++;
     this.slackUntil = this.t + GREAT_BELL.settle;
     for (const o of this.ropes) o.taut = Math.min(o.taut, GREAT_BELL.tautMin - 0.01);
     this.lurch = 0.35 * (r.pulley.x < this.cx ? 1 : -1);
     const left = this.intact;
     this.w.bus.emit('bellRope', { x: r.cleat.x, z: r.cleat.z, index: i, left });
-    if (this.mode === 'swing' && !this.swing.turned && left >= 3) this.turnSwing(r);
+    if (this.mode === 'swing' && left >= 3) this.snapToward(r);
     this.owner.onRopeCut(this.w, i, left);
     if (left === 0 && this.hanging) this.startFall();
   }
 
-  /** Первая срезанная верёвка: качание поворачивает поперёк, прочь от её блока. */
-  private turnSwing(r: BellRope): void {
-    const S = this.swing;
-    S.turned = true; S.amp = GREAT_BELL.swing.amp[1];
-    const side = r.pulley.z < this.cz ? 1 : -1;
-    const next = { x: 0, z: side * S.amp };
+  /**
+   * Рывок срезанной верёвки: колокол идёт через зал к её тумбе — туда, где стоит рубивший. На паузе — через snap
+   * секунд по белой метке, в пути — следующим проходом.
+   */
+  private snapToward(r: BellRope): void {
+    const S = this.swing, C = GREAT_BELL.swing;
+    S.amp = C.amp[1];
+    let dx = r.cleat.x - this.cx, dz = r.cleat.z - this.cz;
+    const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+    const next = { x: dx * S.amp, z: dz * S.amp };
+    this.metrics.snaps++;
     if (S.stage === 'pause') {
-      S.next = next; S.hold += GREAT_BELL.swing.lurch;
+      S.next = next; S.kick = true; S.hold = Math.min(S.hold, S.t + C.snap - C.pause);
       this.announcePass();
     } else S.pending = next;
   }

@@ -4,28 +4,31 @@ import { GeomBuilder, mat, SURF } from '../gen/geom/build';
 import { box, lathe } from '../gen/geom/prims';
 import { obsidianMaterial } from '../render/materials';
 import { GREAT_BELL, type GreatBell } from '../world/boss/greatBell';
+import { CLAPPER_REACH } from '../world/boss/guardians';
 import { RINGER_CLAPPER_BALL, RINGER_SCALE } from '../gen/chars/ringer';
 import type { World } from '../world/world';
 
 /**
  * Вид Великого колокола (Звонарь, «Маятник»): бронзовое тело с золотым поясом надписи, ярмо на маковке, язык внутри,
- * четыре верёвки через блоки над провалами к железным тумбам. Натянутая верёвка и кольцо у её тумбы горят золотом —
- * это и есть подсказка «руби здесь». Колокол висит на маковке и наклоняется к точке подвеса над центром зала, как
+ * четыре верёвки через блоки над провалами к железным тумбам. Натянутая верёвка и огни у её тумбы горят золотом —
+ * это и есть подсказка «руби здесь»; огней у тумбы столько, сколько прядей осталось (тусклые, пока верёвка
+ * провисла). Порванная прядь вспыхивает на верёвке. Колокол висит на маковке и наклоняется к точке подвеса над центром зала, как
  * маятник; упавший стоит на полу с трещиной. В III фазе язык — в правой руке Звонаря.
  *
  * look: pivot — высота воображаемой точки подвеса над маковкой (м, наклон маятника); rope — толщина верёвки,
  * sag — провис ослабленной верёвки, glow — цвет натянутой верёвки (линейный, >1 — в свечение), slack — её цвет без
  * натяжения; glowW — толщина свечения (× rope); tail — длина обрывка под колоколом; whip — сколько секунд конец
- * оборванной верёвки взлетает к блоку; ring — непрозрачность кольца у тумбы натянутой верёвки (среднее, пульс);
+ * оборванной верёвки взлетает к блоку; ring — непрозрачность огней прядей у тумбы натянутой верёвки (среднее, пульс),
+ * dim — огни прядей провисшей верёвки; gap — зазор между огнями (рад);
  * wide — ширина видимого колокола относительно круга удара; clapper — во сколько раз гиря языка в руке Звонаря больше
  * гири в колоколе (накрывает его собственную, сросшуюся с рукой).
  */
 export const BELL_LOOK = {
   pivot: 11, rope: 0.05, sag: 1.1, glow: [1.35, 0.9, 0.3] as const, slack: [0.11, 0.075, 0.045] as const, tail: 2.4, whip: 0.35,
-  segs: 7, ringR: [0.75, 1.1] as const, glowW: 1.5, ring: [0.32, 0.16] as const, wide: 1.12, clapper: 2.0,
+  segs: 7, ringR: [0.75, 1.1] as const, glowW: 1.5, ring: [0.32, 0.16] as const, dim: 0.12, gap: 0.32, wide: 1.12, clapper: 2.0,
 };
 
-const MAX_ROPE = 4 * (BELL_LOOK.segs + 3);
+const MAX_ROPE = 4 * (BELL_LOOK.segs + 3) + 2;
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0), _axis = new THREE.Vector3(), _c = new THREE.Color();
 const BRONZE = hexToLinear('#5c4626'), BRONZE_DEEP = hexToLinear('#2e2214'), IRON = hexToLinear('#24222a');
@@ -47,7 +50,11 @@ export class GreatBellView {
   private readonly glow: THREE.InstancedMesh;
   private readonly cleats: THREE.Mesh;
   private readonly pulleys: THREE.Mesh;
+  /** Огни прядей у тумб: по GREAT_BELL.strands дуг на верёвку. */
   private readonly rings: THREE.Mesh[] = [];
+  /** Верёвка языка в III фазе (бросок, кистень): от кисти до гири. */
+  private clapRope = false;
+  private readonly clapA = new THREE.Vector3(); private readonly clapB = new THREE.Vector3();
   private readonly shadow: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   private built: GreatBell | null = null;
   private t = 0;
@@ -115,10 +122,14 @@ export class GreatBellView {
     this.cleats = new THREE.Mesh(new THREE.BufferGeometry(), obsidianMaterial({ rim: '#c79a52', rimStrength: 0.5, emissive: '#FFB866', emissiveStrength: 1.2 }));
     this.pulleys = new THREE.Mesh(new THREE.BufferGeometry(), this.cleats.material);
     for (const m of [this.cleats, this.pulleys]) m.frustumCulled = false;
-    const ringGeo = new THREE.RingGeometry(BELL_LOOK.ringR[0], BELL_LOOK.ringR[1], 28);
-    ringGeo.rotateX(-Math.PI / 2);
-    for (let i = 0; i < 4; i++) {
-      const r = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.6, 0.5), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const n = GREAT_BELL.strands, arc = (Math.PI * 2) / n;
+    const arcGeo = Array.from({ length: n }, (_, k) => {
+      const g = new THREE.RingGeometry(BELL_LOOK.ringR[0], BELL_LOOK.ringR[1], 8, 1, k * arc + BELL_LOOK.gap / 2, arc - BELL_LOOK.gap);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    });
+    for (let i = 0; i < 4 * n; i++) {
+      const r = new THREE.Mesh(arcGeo[i % n], new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.6, 0.5), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
       r.renderOrder = 2; r.frustumCulled = false;
       this.rings.push(r);
     }
@@ -145,7 +156,8 @@ export class GreatBellView {
     }
     this.cleats.geometry.dispose(); this.cleats.geometry = c.build();
     this.pulleys.geometry.dispose(); this.pulleys.geometry = p.build();
-    bell.ropes.forEach((r, i) => this.rings[i].position.set(r.cleat.x, 0.04, r.cleat.z));
+    const n = GREAT_BELL.strands;
+    bell.ropes.forEach((r, i) => { for (let k = 0; k < n; k++) this.rings[i * n + k].position.set(r.cleat.x, 0.04, r.cleat.z); });
   }
 
   sync(w: World, dt: number): void {
@@ -170,13 +182,25 @@ export class GreatBellView {
     this.clapperIn.visible = !inHand;
     this.clapperIn.rotation.set(Math.sin(this.t * 2.1) * 0.08 - bell.vz * 0.02, 0, bell.vx * 0.02);
     this.clapperHand.visible = inHand;
+    this.clapRope = false;
     if (inHand && ringer) {
       const L = ringer.puppet.layout, hand = L.idx('handR'), k = RINGER_SCALE;
+      const reach = (ringer as { reach?: number }).reach ?? 0, flail = (ringer as { flail?: number }).flail ?? 0;
       ringer.puppet.skel.jointPoint(hand, 0, 0, 0, _a);
       ringer.puppet.skel.jointPoint(hand, RINGER_CLAPPER_BALL[0] * k, RINGER_CLAPPER_BALL[1] * k, RINGER_CLAPPER_BALL[2] * k, _b);
-      this.clapperHand.position.copy(_b);
-      _b.sub(_a).normalize().negate();
-      this.clapperHand.quaternion.setFromUnitVectors(_up, _b);
+      if (reach > 0.02 || flail > 0) {
+        // язык на верёвке: бросок по взгляду Звонаря или круг кистеня вокруг него
+        const a = flail > 0 ? this.t * 8 : ringer.facing, d = flail > 0 ? 4.3 : reach * CLAPPER_REACH;
+        const at = _p.set(ringer.x + Math.sin(a) * d, 1.0, ringer.z + Math.cos(a) * d);
+        _b.lerp(at, flail > 0 ? 1 : Math.min(1, reach * 1.4));
+        this.clapRope = true; this.clapA.copy(_a); this.clapB.copy(_b);
+        this.clapperHand.position.copy(_b);
+        this.clapperHand.quaternion.setFromUnitVectors(_up, _s.subVectors(_a, _b).normalize());
+      } else {
+        this.clapperHand.position.copy(_b);
+        _b.sub(_a).normalize().negate();
+        this.clapperHand.quaternion.setFromUnitVectors(_up, _b);
+      }
       this.clapperHand.scale.setScalar(BELL_LOOK.clapper);
     }
     const fx = this.bodyMat.uniforms.uFx.value as THREE.Vector4;
@@ -205,17 +229,21 @@ export class GreatBellView {
     const pts: THREE.Vector3[] = [];
     let pi = 0;
     const v = () => this.pool[pi++];
+    const S = GREAT_BELL.strands;
     bell.ropes.forEach((r, i) => {
-      const ring = this.rings[i], mat = ring.material as THREE.MeshBasicMaterial;
       const live = bell.cuttable(r);
-      mat.opacity = live ? L.ring[0] + L.ring[1] * Math.sin(this.t * 9 + i) : r.cut ? 0 : 0.1 * r.taut;
-      mat.opacity += r.clank * 0.6;
+      // огни прядей: горят оставшиеся; у натянутой — ярко и с пульсом, у провисшей — тускло
+      for (let k = 0; k < S; k++) {
+        const mat = this.rings[i * S + k].material as THREE.MeshBasicMaterial;
+        const lit = !r.cut && k < r.strands;
+        mat.opacity = !lit ? (k === r.strands && !r.cut ? r.fray * 0.9 : 0) : (live ? L.ring[0] + L.ring[1] * Math.sin(this.t * 9 + i) : L.dim + 0.1 * r.taut) + r.clank * 0.6 + r.fray * 0.5;
+      }
       if (bell.mode === 'fallen' && r.cutT > 3) return;
       const dx = r.pulley.x - top.x, dz = r.pulley.z - top.z, dl = Math.hypot(dx, dz) || 1;
       const attach = this.attach.set(top.x + dx / dl * 0.42, top.y + 0.15, top.z + dz / dl * 0.42);
       const pulley = this.pul.set(r.pulley.x, GREAT_BELL.pulleyY - 0.35, r.pulley.z);
       const cleat = this.clt.set(r.cleat.x, 0.55, r.cleat.z);
-      const colour = live ? 1 : r.taut * 0.35;
+      const colour = (live ? 0.55 + 0.45 * r.strands / S : r.taut * 0.35) + r.fray * 1.2;
       pts.length = 0; pi = 0;
       if (!r.cut) {
         const sag = (1 - r.taut) * L.sag + 0.04;
@@ -242,6 +270,8 @@ export class GreatBellView {
       // обрывок на тумбе
       if (r.cut) n = this.seg(this.ropes, n, cleat, _b.set(cleat.x + dx / dl * 0.5, 0.08, cleat.z + dz / dl * 0.5), L.rope);
     });
+    // III фаза: верёвка от кисти Звонаря к брошенному языку
+    if (this.clapRope) n = this.seg(this.ropes, n, this.clapA, this.clapB, L.rope * 1.3);
     for (let k = 0; k < n; k++) this.ropes.setColorAt(k, _c.setRGB(L.slack[0], L.slack[1], L.slack[2]));
     this.ropes.count = n; this.glow.count = g;
     this.ropes.instanceMatrix.needsUpdate = true; this.glow.instanceMatrix.needsUpdate = true;

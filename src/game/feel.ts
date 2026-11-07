@@ -343,16 +343,8 @@ export class FeelSystem {
           this.vfx.threadSnap(e.x, e.z, e.tx ?? e.x, e.tz ?? e.z);
         }
       }),
-      // Звонарь: каждый удар колокола виден; кольцо героя из колокола; цепи с потолка
+      // Звонарь: каждый удар колокола виден
       b.on('bellPulse', (e) => this.vfx.bellPulse(e.x, e.y, e.z, e.big)),
-      b.on('bellStrike', (e) => {
-        this.audio.play('bell_strike', { pan: this.pan(e.x) });
-        this.vfx.bellStrike(e.x, e.y, e.z, e.r);
-        this.shockwave(e.x, e.z, 0.9, 0.5);
-        this.cam.addTrauma(0.4);
-        this.time.addHitstop(0.08);
-        this.hud.flashText('ЗВОН', '#B794FF', e.x, e.y + 1, e.z, true);
-      }),
       ...this.greatBellFeel(),
       ...this.heartFeel(),
       // Страж Врат: пробежка по древку и удар в шлем
@@ -520,7 +512,7 @@ export class FeelSystem {
   /** Великий колокол Звонаря («Маятник»): проход, натянутая верёвка перерублена, звон тумбы, падение, язык. */
   private greatBellFeel(): (() => void)[] {
     const b = this.w.bus, soft = () => this.settings.photosensitive || !this.settings.flashes;
-    let mountHint = false, wardHint = false;
+    let mountHint = false, wardHint = false, frayHint = false;
     return [
       b.on('bellPass', (e) => {
         this.audio.play('swing_heavy', { gain: 0.9, pitch: 0.55, pan: this.pan(e.x) });
@@ -546,6 +538,29 @@ export class FeelSystem {
         this.audio.play('boss_bell', { gain: 0.7, pitch: 0.8, delay: 0.1 });
         this.hud.flashText(e.left ? `ВЕРЁВКА · ОСТАЛОСЬ ${e.left}` : 'КОЛОКОЛ ПАДАЕТ', '#FFD27A', e.x, 1.6, e.z, true);
         this.input.vibrate(60);
+      }),
+      b.on('bellFray', (e) => {
+        // порвана прядь: искры волокон, щелчок выше с каждой прядью; сколько осталось — огни у тумбы
+        const q = this.vfx.quality;
+        this.time.addHitstop(0.04);
+        this.cam.addTrauma(0.12);
+        this.vfx.burst(Math.round(8 * q), { x: e.x, y: 0.6, z: e.z, life: 0.45, size: 0.1, size1: 0.02, color: C.gold, gravity: -8, drag: 1.6, frame: 'spark', stretch: 1 }, { v: 5, vy: 4 });
+        this.audio.play('thread_snap', { gain: 0.6, pitch: 1.0 + (4 - e.left) * 0.1, pan: this.pan(e.x) });
+        this.input.vibrate(25);
+        if (!frayHint) { frayHint = true; this.hud.showHint('Каждая прядь будит колокол: волну звона проходи рывком'); }
+      }),
+      b.on('bellToll', (e) => {
+        // колокол отозвался на прядь: гул и золотая вспышка — от него идёт волна звона
+        this.audio.play('boss_bell', { gain: 0.8, pitch: 0.9, pan: this.pan(e.x) });
+        this.audio.play('bell_strike', { gain: 0.45, pitch: 0.8, pan: this.pan(e.x), delay: 0.02 });
+        this.cam.addTrauma(0.15);
+        this.vfx.lights.flash(e.x, 2, e.z, C.gold, 3, 8, 0.3);
+      }),
+      b.on('bellKick', (e) => {
+        // Звонарь пнул колокол обратно: звон маковки и свист — метка прохода белая и короткая
+        this.audio.play('bell_strike', { gain: 0.8, pitch: 1.2, pan: this.pan(e.x) });
+        this.audio.play('swing_heavy', { gain: 0.6, pitch: 0.7, pan: this.pan(e.x), delay: 0.05 });
+        this.cam.addTrauma(0.1);
       }),
       b.on('bellClank', (e) => {
         // ослабленная верёвка не рубится: звон железа о тумбу
@@ -581,7 +596,7 @@ export class FeelSystem {
       }),
       b.on('bellMount', (e) => {
         this.audio.play('bell_strike', { gain: 0.5, pitch: 0.7, pan: this.pan(e.x) });
-        if (!mountHint) { mountHint = true; this.hud.showHint('Колокол замирает на краю — руби золотую верёвку у тумбы'); }
+        if (!mountHint) { mountHint = true; this.hud.showHint('Колокол замирает на краю — руби золотую верёвку у тумбы: в ней четыре пряди'); }
       }),
       b.on('bellLeap', (e) => this.audio.play('swing_heavy', { gain: 0.5, pitch: 1.25, pan: this.pan(e.x) })),
       b.on('bellThrown', (e) => {

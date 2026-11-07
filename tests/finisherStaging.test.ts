@@ -14,7 +14,7 @@ import { CameraRig } from '../src/world/camera';
 import { emptyProject, resolveScene } from '../src/game/sceneEdits';
 import { executionTrack } from '../src/world/boss/hierophantScenes';
 import { Cinematics } from '../src/game/cinematics';
-import { BELL_CONTACT } from '../src/gen/chars/enemies';
+import { RINGER_CONTACT, RINGER_CONTACT_JOINT } from '../src/gen/chars/enemies';
 import { Skeleton } from '../src/anim/skeleton';
 import { FINISHER_CUT_LEAD } from '../src/game/finisherMotion';
 
@@ -49,6 +49,8 @@ describe('читаемая постановка добиваний', () => {
     expect(resolveScene(track, p, 'full')).toEqual(track);
   });
 
+  /** Центр циферблата жакемара — цель добивания Звонаря. */
+  const dial = (skel: Skeleton, size: number): THREE.Vector3 => skel.jointPoint(skel.layout.idx(RINGER_CONTACT_JOINT), RINGER_CONTACT[0] * size, RINGER_CONTACT[1] * size, RINGER_CONTACT[2] * size, new THREE.Vector3());
   for (const bell of [false, true]) it(`${bell ? 'Звонарь' : 'Страж Врат'}: клинок касается настоящих якорей, результат остаётся до распада`, () => {
     const w = new World(new Arena(ARENAS[bell ? 'belfry' : 'gate']), 'staging'); w.abilities = new Abilities(w);
     w.hero.spawn(0, 5, Math.PI);
@@ -64,7 +66,7 @@ describe('читаемая постановка добиваний', () => {
     const framedSamples = { jump: 0, windup: 0, impact: 0 };
     let jumpScale = 0, impactScale = Infinity;
     let chestAtContact: THREE.Quaternion | undefined;
-    const bellResponse: { t: number; angle: number; chest: number }[] = [];
+    const bellResponse: { t: number; pitch: number; key: number }[] = [];
     const camera = new THREE.PerspectiveCamera(44, 640 / 360, 0.05, 200);
     const T = bell ? BELL_KILL_T : GATE_KILL_T;
     const cam = new CameraRig(), d = new Director({
@@ -80,11 +82,11 @@ describe('читаемая постановка добиваний', () => {
           e.killcamDone = true; e.killcam = false; w.killEnemy(e, 0, -1, 4.5);
           crumbleWorld = Float32Array.from(e.puppet.skel.world); return;
         }
-        if (name === 'bellRing') { rings.push(d.time); ringAnchor = e.puppet.skel.jointPoint(e.puppet.layout.idx('bell'), BELL_CONTACT[0] * size, BELL_CONTACT[1] * size, BELL_CONTACT[2] * size, new THREE.Vector3()); return; }
+        if (name === 'bellRing') { rings.push(d.time); ringAnchor = dial(e.puppet.skel, size); return; }
         if (!['knee', 'helmet', 'bell'].includes(name)) return;
         const pos = name === 'knee' ? e.puppet.skel.jointPoint(e.puppet.layout.idx('kneeL'), 0, 0.25 * size, 0.08 * size, new THREE.Vector3())
           : name === 'helmet' ? e.puppet.skel.jointPoint(e.puppet.layout.idx('head'), 0, 0.18 * size, 0.18 * size, new THREE.Vector3())
-          : e.puppet.skel.jointPoint(e.puppet.layout.idx('bell'), BELL_CONTACT[0] * size, BELL_CONTACT[1] * size, BELL_CONTACT[2] * size, new THREE.Vector3());
+          : dial(e.puppet.skel, size);
         const blade = w.hero.avatar.sceneAnchor(name === 'knee' ? 'bladeTip' : 'edgeContact', new THREE.Vector3());
         contacts.push({ name, error: pos.distanceTo(blade), at: d.time });
         if (name === 'bell') chestAtContact = new THREE.Quaternion().fromArray(e.puppet.skel.rot, e.puppet.layout.idx('chest') * 4);
@@ -102,10 +104,10 @@ describe('читаемая постановка добиваний', () => {
         const y = Math.min(...(['footL', 'footR'] as const).map(name => w.hero.avatar.sceneAnchor(name, new THREE.Vector3()).y));
         lowestHeroFoot = Math.min(lowestHeroFoot, y);
       }
-      if (bell && chestAtContact && d.time <= T.contact + 0.3) {
-        const q = new THREE.Quaternion().fromArray(e.puppet.skel.rot, e.puppet.layout.idx('bell') * 4);
-        const chest = new THREE.Quaternion().fromArray(e.puppet.skel.rot, e.puppet.layout.idx('chest') * 4).angleTo(chestAtContact);
-        bellResponse.push({ t: d.time - T.contact, angle: new THREE.Euler().setFromQuaternion(q).x, chest });
+      if (bell && chestAtContact && d.time <= T.contact + 1.2) {
+        const chest = new THREE.Quaternion().fromArray(e.puppet.skel.rot, e.puppet.layout.idx('chest') * 4);
+        const key = new THREE.Quaternion().fromArray(e.puppet.skel.rot, e.puppet.layout.idx('key') * 4);
+        bellResponse.push({ t: d.time - T.contact, pitch: new THREE.Euler().setFromQuaternion(chest).x - new THREE.Euler().setFromQuaternion(chestAtContact).x, key: new THREE.Euler().setFromQuaternion(key).z });
       }
       const phase = d.time >= T.jump + 0.04 && d.time <= Math.min(T.strike - 0.02, T.jump + 0.32) ? 'jump'
         : d.time >= T.strike + 0.1 && d.time <= T.contact - FINISHER_CUT_LEAD - 0.01 ? 'windup'
@@ -114,7 +116,7 @@ describe('читаемая постановка добиваний', () => {
         const c = d.cameraSample!;
         camera.fov = c.fov ?? 44; camera.updateProjectionMatrix(); camera.position.copy(c.pos); camera.lookAt(c.look); camera.updateMatrixWorld();
         const bossTarget = bell
-          ? e.puppet.skel.jointPoint(e.puppet.layout.idx('bell'), BELL_CONTACT[0] * size, BELL_CONTACT[1] * size, BELL_CONTACT[2] * size, new THREE.Vector3())
+          ? dial(e.puppet.skel, size)
           : e.puppet.skel.jointPoint(e.puppet.layout.idx('head'), 0, 0.18 * size, 0.18 * size, new THREE.Vector3());
         // Крупный план принимает кромку сверху в конце разгона; поднятый меч показан целиком предыдущим планом.
         const anchors = phase === 'jump' ? ['head', 'footL', 'footR'] as const
@@ -150,7 +152,7 @@ describe('читаемая постановка добиваний', () => {
     const expected = new Skeleton(e.puppet.layout), root = { x: 0, y: 0, z: 0, stretch: 1, spin: 0 }, clip = new Clip(reaction.definition, e.puppet.layout);
     clip.sample(T.crumble, expected.rot, root); expected.y = -0.7; expected.off[expected.layout.idx('root') * 3 + 1] = root.y; expected.update();
     expect(crumblePose).toBeDefined();
-    for (const joint of ['chest', 'head', 'pelvis', ...(bell ? ['bell'] : [])]) {
+    for (const joint of ['chest', 'head', 'pelvis', ...(bell ? ['key'] : [])]) {
       const offset = e.puppet.layout.idx(joint) * 4;
       expect(new THREE.Quaternion().fromArray(crumblePose!, offset).angleTo(new THREE.Quaternion().fromArray(expected.rot, offset)), `${joint}: осколки наследуют согнутый корпус`).toBeLessThan(0.001);
       const actual = new THREE.Matrix4().fromArray(crumbleWorld!, offset * 4), goal = new THREE.Matrix4().fromArray(expected.world, offset * 4);
@@ -161,12 +163,11 @@ describe('читаемая постановка добиваний', () => {
     }
     if (bell) {
       clip.sample(T.contact + 0.09, expected.rot, root); expected.y = -0.7; expected.off[expected.layout.idx('root') * 3 + 1] = root.y; expected.update();
-      expect(ringAnchor!.distanceTo(expected.jointPoint(expected.layout.idx('bell'), BELL_CONTACT[0] * size, BELL_CONTACT[1] * size, BELL_CONTACT[2] * size, new THREE.Vector3())), 'звон исходит от уже отклонившейся чашки').toBeLessThan(0.001);
-      const early = bellResponse.find(r => r.t >= 0.05)!, cup = bellResponse.find(r => r.t >= 0.12)!, body = bellResponse.find(r => r.t >= 0.24)!;
-      expect(early.angle).toBeLessThan(-0.02); expect(early.angle).toBeGreaterThan(-0.08);
-      expect(early.chest, 'подвесная чашка получает импульс раньше тяжёлого корпуса').toBeLessThan(0.01);
-      expect(cup.angle, 'колокол действительно отклоняется на подвесе').toBeLessThan(-0.3);
-      expect(cup.chest).toBeLessThan(0.08); expect(body.chest).toBeGreaterThan(0.1);
+      expect(ringAnchor!.distanceTo(dial(expected, size)), 'бой лопнувшего циферблата — из его нынешнего положения').toBeLessThan(0.001);
+      const recoil = bellResponse.find(r => r.t >= 0.12)!, settle = bellResponse.find(r => r.t >= 0.9)!;
+      expect(recoil.pitch, 'клинок в циферблат отбрасывает корпус назад').toBeLessThan(-0.2);
+      expect(Math.abs(recoil.key), 'ключ дёргается от удара').toBeGreaterThan(0.5);
+      expect(settle.pitch, 'кончился завод: фигура оседает вперёд').toBeGreaterThan(0.4);
     }
     for (const phase of ['jump', 'windup', 'impact'] as const) expect(framedSamples[phase], `${phase}: достаточно кадров`).toBeGreaterThan(20);
     expect(impactScale / jumpScale, 'на контакте цель крупнее, чем в общем плане прыжка').toBeGreaterThanOrEqual(1.25);

@@ -85,10 +85,8 @@ export interface GameEvents {
    * snap — нить лопнула (tx, tz — второй конец).
    */
   psalm: { kind: 'link' | 'off' | 'snap'; x: number; z: number; tx?: number; tz?: number };
-  /** Звонарь (план §7.4): удар колокола виден — пульсация колокола (big — полный удар). */
+  /** Звонарь: удар колокола виден — вспышка механизма Звонаря (big — полный удар). */
   bellPulse: { x: number; y: number; z: number; big: boolean };
-  /** Полный заряженный удар по колоколу сзади: фиолетовое кольцо героя. */
-  bellStrike: { x: number; y: number; z: number; r: number };
   /** Страж Врат: герой побежал по древку застрявшей алебарды; удар в шлем. */
   shaftRun: { x: number; z: number };
   helmetHit: { x: number; y: number; z: number };
@@ -163,6 +161,12 @@ export interface GameEvents {
   bellRope: { x: number; z: number; index: number; left: number };
   /** Удар по ненатянутой тумбе: звон, искры, верёвка цела. */
   bellClank: { x: number; z: number };
+  /** Порвана прядь натянутой верёвки (left — сколько прядей осталось). */
+  bellFray: { x: number; z: number; index: number; left: number };
+  /** Колокол отозвался на порванную прядь: волна звона. */
+  bellToll: { x: number; z: number };
+  /** Звонарь пнул колокол обратно той же линией. */
+  bellKick: { x: number; z: number };
   /** Колокол сорвался с паузы маятника и пошёл через зал (dirX, dirZ — куда). */
   bellPass: { x: number; z: number; dirX: number; dirZ: number };
   /** Звонарь раскрутил колокол по кругу. */

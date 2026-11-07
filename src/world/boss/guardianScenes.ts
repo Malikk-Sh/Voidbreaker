@@ -2,7 +2,7 @@ import type { CineStep, CineTrack, V3 } from '../../game/director';
 import { MASK_CONTACT, MASK_RELEASE, bladeContactRoot, bladeEdgeRoot } from '../../anim/clips/execution';
 import { RigLayout } from '../../anim/skeleton';
 import { bruteRig, ringerRig } from '../../gen/chars/enemies';
-import { guardianTargets, guardianSupport, GUARDIAN_KILL_POSES } from './guardianStaging';
+import { guardianTargets, guardianSupport, kneelPoseOf, GUARDIAN_KILL_POSES } from './guardianStaging';
 import { along, attackFraming, ballisticPoint, ballisticVelocity, bossImpactFraming, FINISHER_CUT_LEAD } from '../../game/finisherMotion';
 import { VICTORY_SHOT, victoryFrame } from '../../game/victoryShot';
 
@@ -16,10 +16,11 @@ function killTrack(p: KillSpots, bell: boolean): CineTrack {
   const { gx, gz, hx, hz } = p;
   const initial = Math.atan2(gx - hx, gz - hz), facing = p.facing ?? Math.atan2(hx - gx, hz - gz);
   const size = bell ? 1.45 : 1.65;
-  const layout = new RigLayout(bell ? ringerRig(size) : bruteRig(who, size)), anchors = guardianTargets(layout, gx, gz, facing, size);
+  const layout = new RigLayout(bell ? ringerRig(size) : bruteRig(who, size)), anchors = guardianTargets(layout, gx, gz, facing, size), kneel = kneelPoseOf(layout);
   const support = (name: string): V3 => [0, guardianSupport(layout, name), 0];
   const target = (bell ? p.bell : p.head) ?? (bell ? anchors.bell : anchors.head);
-  const attackFacing = bell ? facing : initial, fx = Math.sin(attackFacing), fz = Math.cos(attackFacing), sx = -fz, sz = fx;
+  // оба добивания — спереди: Звонарь-жакемар стоит на коленях лицом к герою, клинок идёт в циферблат на груди
+  const attackFacing = initial, fx = Math.sin(attackFacing), fz = Math.cos(attackFacing), sx = -fz, sz = fx;
   const attack = bell ? 'bellBreak' : 'gateCrush', contact = bladeEdgeRoot(attack, MASK_CONTACT, target, attackFacing);
   const knee = p.knee ?? anchors.knee, sweep = bladeContactRoot('guardianSweep', T.knee, knee, initial);
   const approach: V3 = bell ? [contact[0] - fx * 0.8, 0, contact[2] - fz * 0.8] : sweep;
@@ -48,22 +49,22 @@ function killTrack(p: KillSpots, bell: boolean): CineTrack {
     { t: 0, do: 'clip', who: 'hero', clip: bell ? 'guardianApproach' : 'guardianSweep', blend: 0.18 },
     // Реакция врага тоже идёт по времени сцены: замедление мира не уводит шлем от маркера клинка.
     { t: 0, do: 'clip', who, clip: `${who}Reaction`, blend: 0.2, markers: { crumble: 'crumble', ...(bell ? { ring: 'bellRing' } : {}) }, definition: { id: `${who}Reaction`, dur: T.end, mask: 'full', events: [{ t: T.crumble, name: 'crumble' }, ...(bell ? [{ t: T.contact + 0.09, name: 'ring' }] : [])], keys: [
-      { t: 0, pose: GUARDIAN_KILL_POSES[bell ? 'killcamKneel' : 'killcamStagger'], rootOffset: support(bell ? 'killcamKneel' : 'killcamStagger') },
-      { t: T.knee, pose: GUARDIAN_KILL_POSES[bell ? 'killcamKneel' : 'killcamStagger'], rootOffset: support(bell ? 'killcamKneel' : 'killcamStagger') },
+      { t: 0, pose: GUARDIAN_KILL_POSES[bell ? 'ringerKneel' : 'killcamStagger'], rootOffset: support(bell ? 'ringerKneel' : 'killcamStagger') },
+      { t: T.knee, pose: GUARDIAN_KILL_POSES[bell ? 'ringerKneel' : 'killcamStagger'], rootOffset: support(bell ? 'ringerKneel' : 'killcamStagger') },
       ...(!bell ? [{ t: (T.knee + T.leap) / 2, ease: 'inSine' as const, pose: GUARDIAN_KILL_POSES.gateKneeling, rootOffset: support('gateKneeling') }] : []),
-      { t: T.leap, ease: bell ? 'inOutSine' : 'outSine', pose: GUARDIAN_KILL_POSES.killcamKneel, rootOffset: support('killcamKneel') },
-      { t: T.contact, pose: GUARDIAN_KILL_POSES.killcamKneel },
-      { t: T.contact + 0.05, ease: 'outQuad', pose: GUARDIAN_KILL_POSES[bell ? 'bellImpulse' : 'gateImpulse'], rootOffset: support(bell ? 'bellImpulse' : 'gateImpulse') },
-      { t: T.contact + (bell ? 0.12 : 0.18), ease: 'inOutSine', pose: GUARDIAN_KILL_POSES[bell ? 'bellCompression' : 'gateCompression'], rootOffset: support(bell ? 'bellCompression' : 'gateCompression') },
-      { t: T.contact + (bell ? 0.24 : 0.3), ease: 'outCubic', pose: GUARDIAN_KILL_POSES[bell ? 'bellBody' : 'gateCollapse'], rootOffset: support(bell ? 'bellBody' : 'gateCollapse') },
-      { t: T.contact + 0.48, ease: 'inOutSine', pose: GUARDIAN_KILL_POSES[bell ? 'bellRebound' : 'gateCompression'], rootOffset: support(bell ? 'bellRebound' : 'gateCompression') },
+      { t: T.leap, ease: bell ? 'inOutSine' : 'outSine', pose: GUARDIAN_KILL_POSES[kneel], rootOffset: support(kneel) },
+      { t: T.contact, pose: GUARDIAN_KILL_POSES[kneel] },
+      { t: T.contact + 0.05, ease: 'outQuad', pose: GUARDIAN_KILL_POSES[bell ? 'ringerImpulse' : 'gateImpulse'], rootOffset: support(bell ? 'ringerImpulse' : 'gateImpulse') },
+      { t: T.contact + (bell ? 0.12 : 0.18), ease: 'inOutSine', pose: GUARDIAN_KILL_POSES[bell ? 'ringerRecoil' : 'gateCompression'], rootOffset: support(bell ? 'ringerRecoil' : 'gateCompression') },
+      { t: T.contact + (bell ? 0.24 : 0.3), ease: 'outCubic', pose: GUARDIAN_KILL_POSES[bell ? 'ringerBody' : 'gateCollapse'], rootOffset: support(bell ? 'ringerBody' : 'gateCollapse') },
+      { t: T.contact + 0.48, ease: 'inOutSine', pose: GUARDIAN_KILL_POSES[bell ? 'ringerRebound' : 'gateCompression'], rootOffset: support(bell ? 'ringerRebound' : 'gateCompression') },
       ...(bell ? [
-        { t: T.contact + 0.74, ease: 'inOutSine' as const, pose: GUARDIAN_KILL_POSES.bellSettle, rootOffset: support('bellSettle') },
-        { t: T.contact + 1.04, ease: 'inOutSine' as const, pose: { ...GUARDIAN_KILL_POSES.bellSettle, bell: [0.035, 0, -0.01] as V3 }, rootOffset: support('bellSettle') },
+        { t: T.contact + 0.74, ease: 'inOutSine' as const, pose: GUARDIAN_KILL_POSES.ringerSettle, rootOffset: support('ringerSettle') },
+        { t: T.contact + 1.04, ease: 'inOutSine' as const, pose: { ...GUARDIAN_KILL_POSES.ringerSettle, head: [0.64, 0.1, 0.2] as V3 }, rootOffset: support('ringerSettle') },
       ] : []),
-      { t: T.end, pose: GUARDIAN_KILL_POSES[bell ? 'bellSettle' : 'gateCompression'], rootOffset: support(bell ? 'bellSettle' : 'gateCompression') },
+      { t: T.end, pose: GUARDIAN_KILL_POSES[bell ? 'ringerSettle' : 'gateCompression'], rootOffset: support(bell ? 'ringerSettle' : 'gateCompression') },
     ] } },
-    { t: 0, do: 'actor', who: 'hero', moveTo: approach, dur: bell ? T.leap : T.knee, ease: 'inOutSine', ...(bell ? { bends: [[sx * 3.3, 0, sz * 3.3] as V3] } : {}), lookAt: forward(approach), turn: 0.35 },
+    { t: 0, do: 'actor', who: 'hero', moveTo: approach, dur: bell ? T.leap : T.knee, ease: 'inOutSine', lookAt: forward(approach), turn: 0.35 },
     { t: 0, do: 'cam', path: [wide, [wide[0] - sx * 0.3, wide[1], wide[2] - sz * 0.3]], look: [lowLook], dur: T.leap, ease: 'inOutSine', fov: KILL_FOV },
     ...(!bell ? [
       // Контакт подсечки — маркер клипа; падение Стража начинается только после него.
@@ -103,7 +104,7 @@ function killTrack(p: KillSpots, bell: boolean): CineTrack {
     const clip = steps[0]; if (clip.do === 'clip') clip.markers = { contact: 'knee' };
     const i = steps.findIndex((s) => s.do === 'call' && s.fn === 'knee'); steps.splice(i, 1);
   }
-  return { id: bell ? 'killBell' : 'killGate', revision: 5, cameraBlend: 0.25, origin: [gx, 0, gz], heading: attackFacing, steps, dur: T.end, blendOut: 0.65 };
+  return { id: bell ? 'killBell' : 'killGate', revision: bell ? 6 : 5, cameraBlend: 0.25, origin: [gx, 0, gz], heading: attackFacing, steps, dur: T.end, blendOut: 0.65 };
 }
 export function killGateTrack(p: KillSpots): CineTrack { return killTrack(p, false); }
 export function killBellTrack(p: KillSpots): CineTrack { return killTrack(p, true); }
