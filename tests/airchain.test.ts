@@ -9,6 +9,7 @@ import { Husk } from '../src/world/enemies/husk';
 import type { Enemy } from '../src/world/enemy';
 import type { GameEvents } from '../src/world/events';
 import { InputBuffer, type Input } from '../src/input/input';
+import { HERO_PACE } from '../src/data/pace';
 
 /** Этап 4.5, B3: Восходящий месяц → Небесный разрез → Звездопад — одна вертикальная траектория. */
 const DT = 1 / 60;
@@ -105,7 +106,8 @@ describe('этап 4.5 B3: воздушная связка', () => {
   });
 
   it('поздний Звездопад у самого пола — с приседа, как раньше', () => {
-    const { frames } = chain(0.44);
+    // «поздно» — 0.44 с времени клипа Небесного разреза: клипы идут в темпе Пилота
+    const { frames } = chain(0.44 / HERO_PACE.attack);
     const sf = frames.findIndex((f) => f.move === 'skyfall');
     expect(frames[sf].clip).toBe('skyfall');
   });

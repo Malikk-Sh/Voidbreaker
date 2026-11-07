@@ -34,6 +34,7 @@ import type { Enemy } from '../world/enemy';
 import type { Hud } from '../ui/hud';
 import type { Settings } from '../meta/settings';
 import type { GameEvents } from '../world/events';
+import { HERO_PACE } from '../data/pace';
 
 /** Кольцо ударной волны на полу: доля силы волны (было 1). */
 export const SHOCK_RING = 0.5;
@@ -87,7 +88,9 @@ export class FeelSystem {
         const crowd = 1 + 0.25 * Math.log2(e.n);
         let hs = (f.hitstop + (e.crit ? CRIT_HITSTOP : 0)) * crowd;
         if (e.source === 'ability' && e.feel === 'light') hs *= 0.5;
-        const held = this.time.addHitstop(Math.min(0.14, hs));
+        // клинок: стоп-кадр длиннее (темп Пилота) — попадание успевает прочитаться
+        if (e.source === 'blade') hs *= HERO_PACE.hitstop;
+        const held = this.time.addHitstop(Math.min(e.source === 'blade' ? HERO_PACE.hitstopMax : 0.14, hs));
         // поза героя застывает в кадре удара вместе с растяжением
         if (e.source === 'blade' && held > 0) this.w.hero.avatar.holdPose(held);
         if (e.feel !== 'light') this.cam.addTrauma(f.trauma * Math.min(1.5, crowd) * (e.source === 'ability' ? 0.6 : 1));

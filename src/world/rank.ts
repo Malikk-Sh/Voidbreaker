@@ -54,10 +54,11 @@ export class RankTracker {
     }
   }
 
-  hit(finisher: boolean): void {
+  /** weight — вес удара клинка (HERO_PACE.weight): медленная серия набирает ранг так же быстро. */
+  hit(finisher: boolean, weight = 1): void {
     this.hits++;
     this.bestHits = Math.max(this.bestHits, this.hits);
-    this.add(RANK_POINTS.hit + (finisher ? RANK_POINTS.finisher : 0));
+    this.add((RANK_POINTS.hit + (finisher ? RANK_POINTS.finisher : 0)) * weight);
   }
   perfectDodge(): void { this.add(RANK_POINTS.perfectDodge); }
   /** Особый момент (уклонение от босса и сразу оглушение): обычно — следующая ступень. */

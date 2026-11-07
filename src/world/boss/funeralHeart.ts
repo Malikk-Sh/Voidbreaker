@@ -1,4 +1,5 @@
 import { LINE_BACK, VOID_BLADE } from '../../data/weapons';
+import { HERO_PACE } from '../../data/pace';
 import { RESONANCE } from '../../data/player';
 import { BRAZIERS, sectorAt } from '../candleRitual';
 import { computeDamage, overlaps, type Shape } from '../combat';
@@ -660,7 +661,9 @@ export class FuneralHeart implements FuneralHeartView {
     const shape = slashShape(event), charged = event.move === 'charged' || this.w.hero.state === 'charged';
     for (const shot of this.shots) if (overlaps(shape, shot.x, shot.z, shot.r + 0.25)) this.reflect(shot);
     const move = [...VOID_BLADE.combo, VOID_BLADE.flurry, VOID_BLADE.lunge, VOID_BLADE.rising, VOID_BLADE.skycut, VOID_BLADE.skyfall, VOID_BLADE.cross, VOID_BLADE.counter].find(m => m.id === event.move);
-    const mult = charged ? (this.w.hero.chargeLevel >= 2 ? 4.5 : 3) : (move?.dmg ?? 1);
+    // вес удара клинка (темп Пилота): медленная серия — тяжелее каждый удар
+    const weight = charged ? 1 : HERO_PACE.weight;
+    const mult = charged ? (this.w.hero.chargeLevel >= 2 ? 4.5 : 3) : (move?.dmg ?? 1) * weight;
     // Жернова принимают клинок: трещины, искры, и в конце — разбитый камень.
     for (let i = 0; i < 3; i++) if (!this.stones[i].broken && overlaps(shape, this.stones[i].x, this.stones[i].z, FUNERAL_HEART.stone.r)) {
       const hit = computeDamage({ ...this.w.hero.stats }, mult, 0, false, () => this.w.rng.next(), 1);
@@ -673,8 +676,8 @@ export class FuneralHeart implements FuneralHeartView {
     this.metrics.bodyHits++;
     const open = this.exposed > 0;
     this.damage(result.dmg, 'body');
-    h.addResonance(open ? (charged || move?.finisher ? RESONANCE.perFinisher : RESONANCE.perHit) : 0);
-    this.w.rank.hit(charged || !!move?.finisher); this.w.rank.used('blade');
+    h.addResonance(open ? (charged || move?.finisher ? RESONANCE.perFinisher : RESONANCE.perHit) * weight : 0);
+    this.w.rank.hit(charged || !!move?.finisher, weight); this.w.rank.used('blade');
     if (open) this.w.bus.emit('strike', { n: 1, crit: result.crit, feel: charged ? 'heavy' : (move?.feel ?? 'light'), x: this.body.x, z: this.body.z,
       dirX: Math.sin(event.facing), dirZ: Math.cos(event.facing), source: 'blade', moveId: event.move, boss: true });
   }
