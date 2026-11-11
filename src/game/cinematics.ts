@@ -56,17 +56,17 @@ interface Shot {
   onEnd?: () => void;
 }
 
-const STAGE_INTRO: Record<string, { sub: string; line: string }> = {
-  '1-1': { sub: 'Собор встречает незваных', line: 'Пилот, мы внутри. Держись света — и бей первым.' },
-  '1-2': { sub: 'Хоры поют о тех, кто не вернулся', line: 'Неф широкий. Не дай им зайти со спины — колонны твои союзники.' },
-  '1-3': { sub: 'Порог стережёт тот, кто не спит', line: 'За вратами — Страж. И ямы в полу: сбрасывай туда всё, что шевелится.' },
-  '1-4': { sub: 'Здесь берегут последнее тепло', line: '' },
-  '1-4b': { sub: 'Сердце, которое помнит огонь', line: '' },
-  '1-5': { sub: 'Под ногами — только звёзды', line: 'Мосты узкие. Один удар — и враг летит в бездну. Ты — тоже.' },
-  '1-6': { sub: 'Колокол звонит по спасению', line: 'Слышишь звон? Звонарь знает, что мы идём.' },
-  '1-7': { sub: 'Сад, где больше ничего не растёт', line: 'Клуатр. На месте сада — провал: сбрасывай их туда.' },
-  '1-8': { sub: 'Здесь спят те, кто молился первым', line: 'Крипта. Коридоры узкие — не дай зажать себя с двух сторон.' },
-  '1-9': { sub: 'Хор запоминает твои шаги', line: 'Уведи метки Хора во врагов. Рывок в такт вернёт псалом певцу.' },
+const STAGE_INTRO: Record<string, { line: string }> = {
+  '1-1': { line: 'Пилот, мы внутри. Держись света — и бей первым.' },
+  '1-2': { line: 'Неф широкий. Не дай им зайти со спины — колонны твои союзники.' },
+  '1-3': { line: 'За вратами — Страж. И ямы в полу: сбрасывай туда всё, что шевелится.' },
+  '1-4': { line: '' },
+  '1-4b': { line: '' },
+  '1-5': { line: 'Мосты узкие. Один удар — и враг летит в бездну. Ты — тоже.' },
+  '1-6': { line: 'Слышишь звон? Звонарь знает, что мы идём.' },
+  '1-7': { line: 'Клуатр. На месте сада — провал: сбрасывай их туда.' },
+  '1-8': { line: 'Крипта. Коридоры узкие — не дай зажать себя с двух сторон.' },
+  '1-9': { line: 'Уведи метки Хора во врагов. Рывок в такт вернёт псалом певцу.' },
 };
 
 /**
@@ -123,7 +123,7 @@ export class Cinematics {
   stageIntro(stage: StageDef, arenaCenter: { x: number; z: number }, extent: number, onEnd?: () => void, vista?: StageVista | null): void {
     const info = STAGE_INTRO[stage.id];
     const h = this.host.world.hero;
-    const label = `${stage.zone + 1}-${stage.index + 1}`;
+    const label = stage.label ?? `${stage.zone + 1}-${stage.index + 1}`;
     // пролёт: с высоты над ареной (e = 0) к Пилоту (e = 1)
     const sweep = (e: number, pos: THREE.Vector3, look: THREE.Vector3) => {
       const cx = arenaCenter.x + (h.x - arenaCenter.x) * e, cz = arenaCenter.z + (h.z - arenaCenter.z) * e;
@@ -164,10 +164,9 @@ export class Cinematics {
       },
       cues: [
         { at: V ? 0.5 : 0.35, fn: () => {
-          const sub = info ? `${label} · ${info.sub}` : label;
           // план ×100 (H): титр на «вдохе» — к первой волне он уже свёрнут в подпись внизу слева
-          if (this.host.title) this.host.title(stage.name.toUpperCase(), sub, info?.sub ?? '', FX.title ? Math.min(2.6, dur - (V ? 0.5 : 0.35) - 0.25) : 2.6, 58);
-          else this.host.banner(stage.name.toUpperCase(), sub, 'gold', 2.6, 58);
+          if (this.host.title) this.host.title(stage.name.toUpperCase(), label, '', FX.title ? Math.min(2.6, dur - (V ? 0.5 : 0.35) - 0.25) : 2.6, 58);
+          else this.host.banner(stage.name.toUpperCase(), label, 'gold', 2.6, 58);
         } },
         { at: V ? 1.1 : 1.4, fn: () => { if (info && this.host.once(`cine_intro_${stage.id}`)) this.host.say(info.line, 'kaelis'); } },
       ],

@@ -29,7 +29,6 @@ export function titleScreen(app: App): HTMLElement {
     h('div', { class: 'vb-row', style: { position: 'absolute', top: 'max(12px, env(safe-area-inset-top))', right: 'max(16px, env(safe-area-inset-right))', gap: '14px' } },
       fullscreenSupported() ? corner('fullscreen', 'Полный экран', () => { void (isFullscreen() ? exitFullscreen() : enterFullscreen()); app.ctx.settings.fullscreen = !isFullscreen(); app.save(); }) : null,
       corner('gear', 'Настройки', () => app.openSettings('title'))),
-    h('div', { class: 'vb-dim vb-tech', style: { position: 'absolute', bottom: 'max(12px, env(safe-area-inset-bottom))', right: '20px', fontSize: '10px', letterSpacing: '.18em' } }, 'v0.2 · вся графика и звук созданы кодом'),
   );
   // анимация: разрез раскрывается, по металлу бежит блик
   const t0 = performance.now();

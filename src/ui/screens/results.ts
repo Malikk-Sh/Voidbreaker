@@ -22,10 +22,40 @@ function tip(src: string | undefined, stageId: string): string {
   return 'Ранг комбо растёт, пока тебя не задели. Используй рывок: первые 0.14 с ты неуязвим.';
 }
 
+/** Поражение: итог попытки, сохранённая награда и действия в одной адаптивной панели. */
+function defeatScreen(app: App, d: ResultsData): HTMLElement {
+  const def = stageById(d.stageId)!;
+  const stat = (label: string, value: string) => h('div', { class: 'vb-defeat-stat' },
+    h('dt', {}, label), h('dd', { class: 'vb-tech' }, value));
+  app.ctx.audio.play('defeat', { gain: 0.6 });
+
+  return h('div', { class: 'vb-screen vb-fade vb-defeat', 'aria-labelledby': 'vb-defeat-title' },
+    h('section', { class: 'vb-defeat-panel vb-scroll' },
+      h('header', { class: 'vb-defeat-header' },
+        h('div', { class: 'vb-defeat-mark', 'aria-hidden': 'true' }, iconCanvas('shatter', 32, UI.redHi, UI.none)),
+        h('h1', { id: 'vb-defeat-title', class: 'vb-defeat-title' }, 'Поражение'),
+        h('div', { class: 'vb-caps vb-defeat-stage' }, `${def.boss ? 'Босс' : `Этап ${def.label ?? def.id}`} · ${def.name}`)),
+      h('dl', { class: 'vb-defeat-stats' },
+        stat('Время', fmtTime(d.result.time)),
+        stat('Повержено', fmtNum(d.run.kills)),
+        stat('Лучшее комбо', `×${d.bestCombo}`)),
+      h('div', { class: 'vb-defeat-reward' },
+        h('div', { class: 'vb-col', style: { gap: '4px' } },
+          h('span', { class: 'vb-caps' }, 'Сохранено осколков'),
+          h('span', { class: 'vb-dim', style: { fontSize: '12px' } }, '50 % собранного за попытку')),
+        h('span', { class: 'vb-cur vb-defeat-shards' }, iconCanvas('shard', 28, UI.star, UI.glowStar), fmtNum(d.reward.shards))),
+      h('aside', { class: 'vb-defeat-tip' },
+        h('div', { class: 'vb-caps vb-gold' }, 'Подсказка'),
+        h('p', {}, tip(d.deathSource, d.stageId))),
+      h('div', { class: 'vb-defeat-actions' },
+        h('button', { class: 'vb-btn primary', onClick: () => { app.sfx('ui_confirm'); app.startStage(d.stageId); } }, 'Повторить'),
+        h('button', { class: 'vb-btn', onClick: () => { app.sfx('ui_back'); app.go('hub'); } }, 'Улучшиться'))));
+}
+
 /** Экран результатов (GDD §15.9, §19.2): ранг-штамп, звёзды загораются по очереди, Осколки «высыпаются» в счётчик. */
 export function resultsScreen(app: App, d: ResultsData): HTMLElement {
+  if (!d.cleared) return defeatScreen(app, d);
   const def = stageById(d.stageId)!;
-  const won = d.cleared;
   const short = innerHeight < 520;
   const rankEl = h('div', { class: 'vb-stamp', style: { animationDelay: '.5s' } }, titleCanvas(d.result.rank, short ? 56 : 84, { color: d.result.rank.startsWith('S') ? (d.result.rank === 'SS' ? 'void' : 'ether') : 'gold', glow: 1.2, spacing: 0.02 }));
   const stars = [1, 2, 3].map(() => h('span', { class: 'vb-star' }, '★'));
@@ -35,8 +65,8 @@ export function resultsScreen(app: App, d: ResultsData): HTMLElement {
 
   const buttons = h('div', { class: 'vb-row', style: { gap: '14px', flexWrap: 'wrap', justifyContent: 'center', position: 'absolute', left: '0', right: '0', bottom: 'max(12px, env(safe-area-inset-bottom))' } },
     h('button', { class: 'vb-btn', onClick: () => { app.sfx('ui_confirm'); app.startStage(d.stageId); } }, 'Повторить'),
-    h('button', { class: 'vb-btn', onClick: () => { app.sfx('ui_back'); app.go('hub'); } }, won ? 'Святилище' : 'Улучшиться'),
-    won && next ? h('button', { class: 'vb-btn primary', onClick: () => { app.sfx('ui_confirm'); app.go('map'); } }, 'Дальше') : null,
+    h('button', { class: 'vb-btn', onClick: () => { app.sfx('ui_back'); app.go('hub'); } }, 'Святилище'),
+    next ? h('button', { class: 'vb-btn primary', onClick: () => { app.sfx('ui_confirm'); app.go('map'); } }, 'Дальше') : null,
   );
 
   const extras: HTMLElement[] = [];
@@ -69,11 +99,10 @@ export function resultsScreen(app: App, d: ResultsData): HTMLElement {
     if (ids.length) extras.push(card);
   }
   if (d.lore) extras.push(h('div', { class: 'vb-card' }, h('span', { class: 'vb-caps vb-gold' }, 'Запись найдена: '), h('span', { class: 'vb-name', style: { fontSize: '13px' } }, LORE[d.lore].title)));
-  if (def.tutorial === 'upgrade' && won && app.ctx.flag('freePower')) extras.push(h('div', { class: 'vb-card' }, h('span', { class: 'vb-caps vb-void' }, 'Каэлис: '), h('span', {}, '«Загляни в Святилище — я влила в Созвездие немного силы. Бесплатно. На этот раз».')));
+  if (def.tutorial === 'upgrade' && app.ctx.flag('freePower')) extras.push(h('div', { class: 'vb-card' }, h('span', { class: 'vb-caps vb-void' }, 'Каэлис: '), h('span', {}, '«Загляни в Святилище — я влила в Созвездие немного силы. Бесплатно. На этот раз».')));
 
   const kv = (k: string, v: string) => [h('span', {}, k), h('span', {}, v)];
-  const body = won
-    ? h('div', { class: 'vb-row', style: { gap: '30px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' } },
+  const body = h('div', { class: 'vb-row', style: { gap: '30px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' } },
       h('div', { class: 'vb-col', style: { alignItems: 'center', gap: '0' } }, h('span', { class: 'vb-caps', style: { color: UI.dim } }, 'Ранг этапа'), rankEl),
       h('div', { class: 'vb-panel vb-col', style: { gap: '6px', minWidth: '300px' } },
         h('div', { class: 'vb-row', style: { gap: '10px' } }, ...stars),
@@ -85,15 +114,11 @@ export function resultsScreen(app: App, d: ResultsData): HTMLElement {
         h('div', { class: 'vb-kv', style: { marginTop: '4px' } },
           ...kv('Время', fmtTime(d.result.time)), ...kv('Лучшее комбо', `×${d.bestCombo}`), ...kv('Повержено', String(d.run.kills)),
           ...kv('Уклонений', String(d.run.perfectDodges)), ...kv('Расколов', String(d.run.shatters))),
-        d.result.story ? h('div', { class: 'vb-dim', style: { fontSize: '11px' } }, 'Режим «История»: ★★★ недоступна') : null))
-    : h('div', { class: 'vb-panel vb-col', style: { alignItems: 'center', gap: '10px', maxWidth: '540px', textAlign: 'center' } },
-      h('div', { class: 'vb-caps', style: { color: UI.goldHi } }, 'Совет Каэлис'),
-      h('div', { style: { fontSize: '15px', lineHeight: '1.6', color: UI.ivory } }, tip(d.deathSource, d.stageId)),
-      h('div', { class: 'vb-row', style: { fontSize: '14px' } }, 'Собрано:', h('span', { class: 'vb-cur', style: { color: UI.star } }, iconCanvas('shard', 18, UI.star, UI.none), fmtNum(d.reward.shards)), h('span', { class: 'vb-dim', style: { fontSize: '11px' } }, '(половина подобранного)')));
+        d.result.story ? h('div', { class: 'vb-dim', style: { fontSize: '11px' } }, 'Режим «История»: ★★★ недоступна') : null));
 
-  const el = h('div', { class: 'vb-screen vb-fade', style: { display: 'grid', placeItems: 'center', background: won ? 'radial-gradient(ellipse at center, rgba(10,16,24,.55), rgba(5,7,10,.92))' : 'radial-gradient(ellipse at center, rgba(40,6,12,.55), rgba(5,7,10,.94))' } },
+  const el = h('div', { class: 'vb-screen vb-fade', style: { display: 'grid', placeItems: 'center', background: 'radial-gradient(ellipse at center, rgba(10,16,24,.55), rgba(5,7,10,.92))' } },
     h('div', { class: 'vb-col vb-scroll', style: { alignItems: 'center', gap: short ? '4px' : '10px', maxWidth: '92vw', maxHeight: 'calc(100% - 74px)', marginBottom: '60px' } },
-      titleCanvas(won ? (def.boss ? 'Звезда вспыхнула' : 'Этап пройден') : 'Пустота отступает…', short ? 26 : 36, { color: won ? 'gold' : 'hunger', glow: 1, spacing: 0.08 }),
+      titleCanvas(def.boss ? 'Звезда вспыхнула' : 'Этап пройден', short ? 26 : 36, { color: 'gold', glow: 1, spacing: 0.08 }),
       h('div', { class: 'vb-caps', style: { color: UI.dim, marginTop: '-10px' } }, `${def.boss ? 'Босс' : `Этап ${def.label ?? def.id}`} · ${def.name}`),
       body,
       extras.length ? h('div', { class: 'vb-col', style: { width: 'min(560px, 90vw)' } }, ...extras) : null,
@@ -102,18 +127,16 @@ export function resultsScreen(app: App, d: ResultsData): HTMLElement {
   );
 
   // звёзды загораются последовательно (0.25 с каждая), Осколки «высыпаются» в счётчик
-  if (won) {
-    app.ctx.audio.play('victory', { gain: 0.6 });
-    for (let i = 0; i < d.reward.stars; i++) setTimeout(() => { stars[i].classList.add('lit'); app.sfx('ui_confirm', 0.5 + i * 0.15); }, 900 + i * 250);
-    const total = d.reward.shards;
-    const t0 = performance.now() + 1700;
-    const tick = () => {
-      const k = Math.min(1, Math.max(0, (performance.now() - t0) / 900));
-      shardsEl.textContent = fmtNum(total * (1 - Math.pow(1 - k, 3)));
-      if (k < 1 && el.isConnected) requestAnimationFrame(tick);
-      if (k > 0 && k < 1 && Math.random() < 0.3) app.ctx.audio.play('pickup', { gain: 0.2 });
-    };
-    requestAnimationFrame(tick);
-  } else app.ctx.audio.play('defeat', { gain: 0.6 });
+  app.ctx.audio.play('victory', { gain: 0.6 });
+  for (let i = 0; i < d.reward.stars; i++) setTimeout(() => { stars[i].classList.add('lit'); app.sfx('ui_confirm', 0.5 + i * 0.15); }, 900 + i * 250);
+  const total = d.reward.shards;
+  const t0 = performance.now() + 1700;
+  const tick = () => {
+    const k = Math.min(1, Math.max(0, (performance.now() - t0) / 900));
+    shardsEl.textContent = fmtNum(total * (1 - Math.pow(1 - k, 3)));
+    if (k < 1 && el.isConnected) requestAnimationFrame(tick);
+    if (k > 0 && k < 1 && Math.random() < 0.3) app.ctx.audio.play('pickup', { gain: 0.2 });
+  };
+  requestAnimationFrame(tick);
   return el;
 }

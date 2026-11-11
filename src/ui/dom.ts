@@ -128,6 +128,40 @@ const CSS = /* css */ `
 .vb-kv > span:nth-child(odd) { color: var(--vb-dim); text-transform: uppercase; letter-spacing: .14em; font-size: 10px; font-weight:700; align-self:center; }
 .vb-kv > span:nth-child(even) { font: 600 13px var(--vb-tech); color: var(--vb-ivory); }
 .vb-kv.text > span:nth-child(even) { font: 400 12px var(--vb-body); color: var(--vb-text); }
+.vb-defeat { display:grid; place-items:center; background: radial-gradient(ellipse at 50% 38%, rgba(36,12,20,.82), rgba(5,7,10,.97) 78%); }
+.vb-defeat-panel { width:min(600px, 100%); max-height:100%; box-sizing:border-box; padding:28px 34px; border:1px solid rgba(201,162,83,.3); border-top-color:rgba(255,107,117,.55);
+  background: linear-gradient(165deg, rgba(28,22,31,.98), rgba(9,14,22,.98) 65%); box-shadow:0 24px 90px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,107,117,.08); }
+.vb-defeat-header { display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; }
+.vb-defeat-mark { display:grid; place-items:center; width:42px; height:42px; border:1px solid rgba(255,107,117,.3); transform:rotate(45deg); margin:6px 0 10px; background:rgba(225,29,46,.06); }
+.vb-defeat-mark > canvas { transform:rotate(-45deg); }
+.vb-defeat-title { margin:0; font:700 clamp(32px, 5vw, 48px)/1 var(--vb-display); text-transform:uppercase; letter-spacing:.12em; color:#f3d5cf; text-shadow:0 2px 0 #5e0a12, 0 0 32px rgba(225,29,46,.2); }
+.vb-defeat-stage { color:var(--vb-dim); line-height:1.5; overflow-wrap:anywhere; }
+.vb-defeat-stats { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); margin:22px 0 0; padding:16px 0; border-top:1px solid rgba(201,162,83,.18); border-bottom:1px solid rgba(201,162,83,.18); }
+.vb-defeat-stat { text-align:center; padding:0 6px; }
+.vb-defeat-stat + .vb-defeat-stat { border-left:1px solid rgba(201,162,83,.18); }
+.vb-defeat-stat dt { font-size:10px; color:var(--vb-dim); text-transform:uppercase; letter-spacing:.12em; }
+.vb-defeat-stat dd { margin:6px 0 0; font-size:20px; color:var(--vb-ivory); }
+.vb-defeat-reward { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px 0; }
+.vb-defeat-shards { color:var(--vb-star); font-size:28px; flex-shrink:0; }
+.vb-defeat-tip { border-left:2px solid rgba(201,162,83,.5); padding:10px 14px; background:rgba(201,162,83,.045); }
+.vb-defeat-tip p { margin:6px 0 0; font-size:14px; line-height:1.5; }
+.vb-defeat-actions { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:24px; }
+.vb-defeat-actions .vb-btn { min-width:0; padding:0 16px; }
+.vb-defeat-actions .vb-btn:focus-visible { outline:0; filter:brightness(1.25); text-decoration:underline; text-underline-offset:4px; }
+@media (max-height: 520px) {
+  .vb-defeat-panel { width:min(620px, 100%); padding:14px 24px; }
+  .vb-defeat-header { gap:5px; }
+  .vb-defeat-mark { display:none; }
+  .vb-defeat-title { font-size:32px; }
+  .vb-defeat-stats { margin-top:12px; padding:10px 0; }
+  .vb-defeat-stat dd { margin-top:3px; font-size:17px; }
+  .vb-defeat-reward { padding:12px 0; }
+  .vb-defeat-shards { font-size:24px; }
+  .vb-defeat-tip { padding:8px 12px; }
+  .vb-defeat-tip p { font-size:13px; margin-top:4px; }
+  .vb-defeat-actions { margin-top:14px; }
+  .vb-defeat-actions .vb-btn { min-height:44px; }
+}
 @media (orientation: portrait) and (max-width: 900px) { .vb-rotate { display:grid; } }
 @media (max-width: 980px) { .vb-tab:not(.on) span:not(.dot) { display:none; } .vb-tab { padding: 8px 10px; letter-spacing:.12em; } }
 @media (max-height: 480px) { .vb-panel { padding: 10px 12px; } .vb-card { padding: 8px 10px; } .vb-btn { min-height:42px; } .vb-btn.big { min-height:50px; } }
