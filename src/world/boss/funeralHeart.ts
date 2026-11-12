@@ -10,7 +10,7 @@ import type { GameEvents } from '../events';
 import type { AimTarget, World } from '../world';
 
 /**
- * Погребальное сердце. Один язык на весь бой: ядро открыто, только когда Сердце лежит на полу. Туда его отправляют
+ * Неугасимое сердце. Один язык на весь бой: ядро открыто, только когда Сердце лежит на полу. Туда его отправляют
  * собственное падение мимо героя, отбитая сфера и огонь, возвращённый в чашу. В воздухе броня гасит клинок.
  * Второй язык — свет против тьмы: всё тёмное бьёт, всё золотое укрывает. Огненосец несёт пламя над головой;
  * павший, он оставляет золотой купол, и только купола спасают от Погребального прилива, который затапливает зал.
@@ -419,7 +419,7 @@ export class FuneralHeart implements FuneralHeartView {
     this.getUp = null; this.exposed = 0;
     if (up?.armed && this.canAct) {
       // Жадность наказывается: встающее Сердце отбрасывает тех, кто остался под ним.
-      this.w.enemyStrike({ x: this.body.x, z: this.body.z, id: -941, kind: 'Погребальное Сердце' }, { k: 'circle', x: this.body.x, z: this.body.z, r: 3.4 },
+      this.w.enemyStrike({ x: this.body.x, z: this.body.z, id: -941, kind: 'Неугасимое сердце' }, { k: 'circle', x: this.body.x, z: this.body.z, r: 3.4 },
         this.w.hero.maxHp * FUNERAL_HEART.dmg.getUp, 5);
       this.w.bus.emit('shockwave', { x: this.body.x, z: this.body.z, r: 4, color: 'hunger', strength: 0.6 });
     }
@@ -550,7 +550,7 @@ export class FuneralHeart implements FuneralHeartView {
   /** Удар по герою (и по носильщикам — Сердце не щадит своих). */
   private strike(shape: Shape, frac: number, kb: number): void {
     if (!this.canAct) return;
-    this.w.enemyStrike({ x: this.body.x, z: this.body.z, id: -941, kind: 'Погребальное Сердце' }, shape, this.w.hero.maxHp * frac, kb);
+    this.w.enemyStrike({ x: this.body.x, z: this.body.z, id: -941, kind: 'Неугасимое сердце' }, shape, this.w.hero.maxHp * frac, kb);
   }
 
   private diveImpact(last: boolean): void {
@@ -558,7 +558,7 @@ export class FuneralHeart implements FuneralHeartView {
     const x = this.target.x, z = this.target.z, h = this.w.hero;
     this.body.x = x; this.body.z = z; this.body.y = 1.05; this.fall = null;
     this.metrics.dives++;
-    this.w.enemyStrike({ x, z, id: -941, kind: 'Погребальное Сердце' }, { k: 'circle', x, z, r: 2.6 }, h.maxHp * FUNERAL_HEART.dmg.dive, 4);
+    this.w.enemyStrike({ x, z, id: -941, kind: 'Неугасимое сердце' }, { k: 'circle', x, z, r: 2.6 }, h.maxHp * FUNERAL_HEART.dmg.dive, 4);
     this.w.heroStrike({ k: 'circle', x, z, r: 2.6 }, new Set(), {
       mult: 2.5, stun: 12, knockback: 2, feel: 'heavy', dirX: 0, dirZ: 1, source: 'env', noResonance: true,
     });
@@ -617,7 +617,7 @@ export class FuneralHeart implements FuneralHeartView {
       if (!s.reflected && h.inPerfectWindow && (Math.hypot(s.x - h.x, s.z - h.z) <= s.r + 1.6 ||
         segmentDistance(s.x, s.z, h.dashFromX, h.dashFromZ, h.x, h.z) <= s.r + 0.8)) {
         this.reflect(s);
-        this.w.enemyStrike({ x: s.x, z: s.z, id: -941, kind: 'Погребальное Сердце' }, { k: 'circle', x: s.x, z: s.z, r: s.r + 1.2 }, 0, 0);
+        this.w.enemyStrike({ x: s.x, z: s.z, id: -941, kind: 'Неугасимое сердце' }, { k: 'circle', x: s.x, z: s.z, r: s.r + 1.2 }, 0, 0);
       }
       const oldX = s.x, oldZ = s.z;
       if (s.reflected) {
@@ -633,7 +633,7 @@ export class FuneralHeart implements FuneralHeartView {
           if (this.active && this.dying === 0) this.knockDown(Math.atan2(h.x, h.z - this.centerZ + 0.5), FUNERAL_HEART.knockdown[this.phase - 1]);
         }
       } else if (segmentDistance(h.x, h.z, oldX, oldZ, s.x, s.z) <= h.radius + s.r) {
-        const result = this.w.enemyStrike({ x: oldX - s.vx, z: oldZ - s.vz, id: -941, kind: 'Погребальное Сердце' }, { k: 'circle', x: s.x, z: s.z, r: s.r + 0.1 }, h.maxHp * FUNERAL_HEART.dmg.orb, 2);
+        const result = this.w.enemyStrike({ x: oldX - s.vx, z: oldZ - s.vz, id: -941, kind: 'Неугасимое сердце' }, { k: 'circle', x: s.x, z: s.z, r: s.r + 0.1 }, h.maxHp * FUNERAL_HEART.dmg.orb, 2);
         if (result === 'perfect') this.reflect(s);
         else if (result !== 'miss' && result !== 'immune') s.alive = false;
       }
@@ -767,7 +767,7 @@ export class FuneralHeart implements FuneralHeartView {
       const step = S.discSpeed * dt, ox = d.x, oz = d.z;
       d.x += d.dx * step; d.z += d.dz * step; d.travelled += step;
       if (!d.hit && segmentDistance(h.x, h.z, ox, oz, d.x, d.z) <= h.radius + d.r) {
-        const res = this.w.enemyStrike({ x: ox - d.dx, z: oz - d.dz, id: -941, kind: 'Погребальное Сердце' }, { k: 'circle', x: d.x, z: d.z, r: d.r + 0.1 }, h.maxHp * FUNERAL_HEART.dmg.disc, 3.5);
+        const res = this.w.enemyStrike({ x: ox - d.dx, z: oz - d.dz, id: -941, kind: 'Неугасимое сердце' }, { k: 'circle', x: d.x, z: d.z, r: d.r + 0.1 }, h.maxHp * FUNERAL_HEART.dmg.disc, 3.5);
         if (res !== 'miss') d.hit = true;
       }
       if (d.travelled >= d.len || !this.w.arena.walkable(d.x, d.z)) { d.alive = false; this.w.bus.emit('heartDiscEnd', { x: d.x, z: d.z }); }
@@ -906,7 +906,7 @@ export class FuneralHeart implements FuneralHeartView {
     if (k === 0) for (const [id, e] of [...this.carriers]) { this.carriers.delete(id); if (!e.dead) this.w.killEnemy(e, 0, 0, 0); }
     const safe = this.inDome(h.x, h.z);
     if (safe) this.metrics.sheltered++;
-    else this.w.enemyStrike({ x: this.body.x, z: this.body.z, id: -941, kind: 'Погребальное Сердце' }, { k: 'circle', x: h.x, z: h.z, r: h.radius + 0.2 },
+    else this.w.enemyStrike({ x: this.body.x, z: this.body.z, id: -941, kind: 'Неугасимое сердце' }, { k: 'circle', x: h.x, z: h.z, r: h.radius + 0.2 },
       h.maxHp * FUNERAL_HEART.dmg.flood, 2);
     this.w.bus.emit('heartFlood', { x: this.origin.x, z: this.origin.z, pulse: k, safe });
   }

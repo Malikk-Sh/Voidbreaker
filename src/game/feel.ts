@@ -343,7 +343,7 @@ export class FeelSystem {
           this.vfx.threadSnap(e.x, e.z, e.tx ?? e.x, e.tz ?? e.z);
         }
       }),
-      // Звонарь: каждый удар колокола виден
+      // Жакемар: каждый удар колокола виден
       b.on('bellPulse', (e) => this.vfx.bellPulse(e.x, e.y, e.z, e.big)),
       ...this.greatBellFeel(),
       ...this.heartFeel(),
@@ -506,10 +506,10 @@ export class FeelSystem {
   }
 
   /**
-   * Погребальное сердце: вес падения, звон закрытой брони, сбитое на пол ядро, ярость между фазами и гибель.
+   * Неугасимое сердце: вес падения, звон закрытой брони, сбитое на пол ядро, ярость между фазами и гибель.
    * Всё — реакцией мира, без текстовых подсказок: что открыто и что опасно, читается по свету, звуку и обломкам.
    */
-  /** Великий колокол Звонаря («Маятник»): проход, натянутая верёвка перерублена, звон тумбы, падение, язык. */
+  /** Великий колокол Жакемара («Маятник»): проход, натянутая верёвка перерублена, звон тумбы, падение, язык. */
   private greatBellFeel(): (() => void)[] {
     const b = this.w.bus, soft = () => this.settings.photosensitive || !this.settings.flashes;
     let mountHint = false, wardHint = false, frayHint = false;
@@ -557,7 +557,7 @@ export class FeelSystem {
         this.vfx.lights.flash(e.x, 2, e.z, C.gold, 3, 8, 0.3);
       }),
       b.on('bellKick', (e) => {
-        // Звонарь пнул колокол обратно: звон маковки и свист — метка прохода белая и короткая
+        // Жакемар пнул колокол обратно: звон маковки и свист — метка прохода белая и короткая
         this.audio.play('bell_strike', { gain: 0.8, pitch: 1.2, pan: this.pan(e.x) });
         this.audio.play('swing_heavy', { gain: 0.6, pitch: 0.7, pan: this.pan(e.x), delay: 0.05 });
         this.cam.addTrauma(0.1);
@@ -589,10 +589,10 @@ export class FeelSystem {
         this.input.vibrate(120);
       }),
       b.on('bellWard', (e) => {
-        // удар ушёл в колокол: ниже порога Звонаря не опустить, пока целы верёвки
+        // удар ушёл в колокол: ниже порога Жакемара не опустить, пока целы верёвки
         this.vfx.rings.spawn(e.x, e.z, 1.6, 2.8, 0.3, C.gold, 0.4, soft() ? 0.4 : 0.8);
         this.audio.play('hit_armor', { gain: 0.35, pitch: 1.4, pan: this.pan(e.x) });
-        if (!wardHint) { wardHint = true; this.hud.showHint('Колокол держит Звонаря — сначала руби верёвки'); }
+        if (!wardHint) { wardHint = true; this.hud.showHint('Колокол держит Жакемара — сначала руби верёвки'); }
       }),
       b.on('bellMount', (e) => {
         this.audio.play('bell_strike', { gain: 0.5, pitch: 0.7, pan: this.pan(e.x) });

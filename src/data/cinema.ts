@@ -9,5 +9,5 @@ export const CINEMA: CineScene[] = [
   { id: 'hierophantCrack', title: 'Трещина в небе', sub: 'Переход в третью фазу' },
   { id: 'hierophantEnd', title: 'Последний звон', sub: 'Погасшая звезда загорается' },
   { id: 'killGate', title: 'Страж Врат', sub: 'Удар в шлем' },
-  { id: 'killBell', title: 'Звонарь', sub: 'Трещина в горбе-колоколе' },
+  { id: 'killBell', title: 'Жакемар', sub: 'Трещина в горбе-колоколе' },
 ];

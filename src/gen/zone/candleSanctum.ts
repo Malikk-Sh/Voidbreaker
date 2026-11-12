@@ -87,7 +87,7 @@ const GOLD_FIRE = new THREE.Color('#ffc879');
 const COLD = new THREE.Color('#244454');
 const DANGER = new THREE.Color('#b32936');
 
-/** Погребальное сердце и три жаровни. Обычные фитили входят в общий, полностью гасимый батч Flames. */
+/** Неугасимое сердце и три жаровни. Обычные фитили входят в общий, полностью гасимый батч Flames. */
 export class CandleSanctum {
   readonly root = new THREE.Group();
   readonly flames: [number, number, number][] = [];
@@ -122,7 +122,7 @@ export class CandleSanctum {
   private readonly _crown = new THREE.Matrix4();
 
   constructor(density = 1) {
-    this.root.name = 'Погребальное сердце';
+    this.root.name = 'Неугасимое сердце';
     const stone = new GeomBuilder(); stone.rng = new Rng('candle:sanctum'); stone.color = OBS;
     const rng = new Rng('candle:votives');
     // Разломанный венец лежит вокруг колодца; зубья направлены внутрь, за границей игрового пола.

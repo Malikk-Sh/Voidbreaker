@@ -67,7 +67,7 @@ export function hierophantIntroTrack(p: HierophantSpots): CineTrack {
     // один тяжёлый удар: имя — с первым ударом музыки
     { t: T.slam, do: 'call', fn: 'slam' },
     { t: T.slam, do: 'call', fn: 'music' },
-    { t: T.slam, do: 'banner', text: 'ИЕРОФАНТ СКОРБИ', sub: 'Слепой понтифик', color: 'hunger', dur: 3.2, size: 50 },
+    { t: T.slam, do: 'banner', text: 'ИЕРОФАНТ СКОРБИ', color: 'hunger', dur: 3.2, size: 50 },
     { t: T.slam, do: 'cam', path: [[bx - fx * 7 + sx * 2, 1.4, bz - fz * 7 + sz * 2], [walk[0] - fx * 11 + sx * 2, 9, walk[2] - fz * 11 + sz * 2]], look: [[bx, 4.2, bz], [mx, 1.2, mz]], dur: T.begin - T.slam, ease: 'inOutSine' },
     { t: T.begin, do: 'call', fn: 'begin' },
   ];
@@ -80,7 +80,7 @@ export function hierophantIntroTrack(p: HierophantSpots): CineTrack {
     { t: 0.5, do: 'call', fn: 'ignite' },
     { t: 1.3, do: 'call', fn: 'slam' },
     { t: 1.3, do: 'call', fn: 'music' },
-    { t: 1.3, do: 'banner', text: 'ИЕРОФАНТ СКОРБИ', sub: 'Слепой понтифик', color: 'hunger', dur: 2.6, size: 50 },
+    { t: 1.3, do: 'banner', text: 'ИЕРОФАНТ СКОРБИ', color: 'hunger', dur: 2.6, size: 50 },
     { t: 2.6, do: 'call', fn: 'begin' },
   ];
   return { id: 'hierophantIntro', revision: 2, cameraBlend: 0.4, origin: [p.bx, 0, p.bz], heading: Math.atan2(p.bx - p.hx, p.bz - p.hz), steps, short, dur: T.begin + 0.2, blendOut: 0.8 };
@@ -119,7 +119,7 @@ export function collapseTrack(p: HierophantSpots): CineTrack {
     // назад к мосту: набат
     { t: T.tocsin, do: 'cam', path: [[6, 30, 34], [hx * 0.6 + 4, 11, hz * 0.6 + 15]], look: [[0, -26, -4], [0, 1.5, 0]], dur: T.phase - T.tocsin, ease: 'inOutCubic' },
     { t: T.tocsin, do: 'call', fn: 'tocsin' },
-    { t: T.banner, do: 'banner', text: 'НАБАТ', sub: 'Вторая фаза', color: 'hunger', dur: 2.2, size: 52 },
+    { t: T.banner, do: 'banner', text: 'ИССТУПЛЕНИЕ', sub: 'Вторая фаза', color: 'hunger', dur: 2.2, size: 52 },
     { t: T.phase, do: 'call', fn: 'phase' },
   ];
   const short: CineStep[] = [
@@ -129,7 +129,7 @@ export function collapseTrack(p: HierophantSpots): CineTrack {
     { t: 0.4, do: 'call', fn: 'land' },
     { t: 0.6, do: 'call', fn: 'braam' },
     { t: 1.4, do: 'call', fn: 'tocsin' },
-    { t: 1.4, do: 'banner', text: 'НАБАТ', sub: 'Вторая фаза', color: 'hunger', dur: 1.8, size: 52 },
+    { t: 1.4, do: 'banner', text: 'ИССТУПЛЕНИЕ', sub: 'Вторая фаза', color: 'hunger', dur: 1.8, size: 52 },
     { t: 2.0, do: 'call', fn: 'phase' },
   ];
   return { id: 'hierophantCollapse', revision: 2, cameraBlend: 0.4, origin: [p.bx, 0, p.bz], heading: Math.atan2(p.bx - p.hx, p.bz - p.hz), steps, short, dur: T.phase + 0.2, blendOut: COLLAPSE_BLEND };

@@ -1,5 +1,5 @@
 /**
- * Баланс боя с Погребальным сердцем, без бессмертия: наивный игрок (идёт к ближайшей цели и жмёт атаку, меток не
+ * Баланс боя с Неугасимым сердцем, без бессмертия: наивный игрок (идёт к ближайшей цели и жмёт атаку, меток не
  * видит) должен проиграть; игрок, который уходит из-под падения и пользуется механиками (heartBot), — победить.
  * Печатает длительность боя, HP героя и сердца, падения, сбивания и контратаки. Нужен `npm run build`.
  */
@@ -33,7 +33,7 @@ try {
       const b = window.__vb.battle, inp = b.ctx.input;
       const s = window.__run = { frames: 0, start: -1, mx: 0, mz: -1, held: false, aim: false, ax: 0, az: -1, hurt: {}, phaseAt: {} };
       // Откуда урон: сердце (по позе в момент удара), носильщики, волны.
-      b.world.bus.on('playerHurt', (e) => { const r = b.heart, k = e.source === 'Погребальное Сердце' ? `сердце:${r.attack?.kind ?? r.pose}` : e.source; s.hurt[k] = (s.hurt[k] ?? 0) + e.dmg; });
+      b.world.bus.on('playerHurt', (e) => { const r = b.heart, k = e.source === 'Неугасимое сердце' ? `сердце:${r.attack?.kind ?? r.pose}` : e.source; s.hurt[k] = (s.hurt[k] ?? 0) + e.dmg; });
       const update = inp.update.bind(inp); inp.update = (now) => { update(now); inp.moveX = s.mx; inp.moveZ = s.mz; inp.attackHeld = s.held; inp.aimActive = s.aim; inp.aimX = s.ax; inp.aimZ = s.az; };
     });
     let st;

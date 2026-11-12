@@ -19,7 +19,7 @@ import type { CineTrack, MusicCue, V3 } from '../../game/director';
 import { COLLAPSE_BLEND, COLLAPSE_T, collapseTrack, crackTrack, DESCEND_FROM, EXEC_FLASH, executionTrack, hierophantIntroTrack } from './hierophantScenes';
 import type { StrikeParams } from '../world';
 
-/** Фазы (план §8.3): I «Литургия» 100–60 %, II «Набат» 60–25 %, III «Последний звон» 25–0 %. */
+/** Фазы (план §8.3): I «Литургия» 100–60 %, II «Исступление» 60–25 %, III «Последний звон» 25–0 %. */
 export const PHASE2_AT = 0.6;
 export const PHASE3_AT = 0.25;
 /** Окно перехвата фазы (с, план §8.3.1): ядро светится бело-фиолетово. */
@@ -760,7 +760,7 @@ export class HierophantController implements BossController {
     w.bus.emit('bossIntercept', { x: b.x, z: b.z });
     if (to === 2) { this.collapse(true); this.toBridge(); this.host.musicPhase(1); }
     else { this.crack(); this.host.sky('crack', 1); }
-    this.host.banner(to === 2 ? 'НАБАТ' : 'ПОСЛЕДНИЙ ЗВОН', to === 2 ? 'Вторая фаза' : 'Третья фаза');
+    this.host.banner(to === 2 ? 'ИССТУПЛЕНИЕ' : 'ПОСЛЕДНИЙ ЗВОН', to === 2 ? 'Вторая фаза' : 'Третья фаза');
     this.enterPhase(to);
     w.stunEnemy(b);
     return true;

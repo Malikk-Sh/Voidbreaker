@@ -37,7 +37,7 @@ export const SCENES: SceneSpec[] = [
   { id: 'hierophantCollapse', title: 'Иерофант · Обрушение', group: 'Иерофант', model: 'hierophant', note: 'Переход во вторую фазу', actors: { hero, boss }, track: collapseTrack(spots) },
   { id: 'hierophantCrack', title: 'Иерофант · Последний звон', group: 'Иерофант', model: 'hierophant', note: 'Переход в третью фазу', actors: { hero, boss }, track: crackTrack(spots, star) },
   { id: 'killGate', title: 'Страж Врат · Добивание', group: 'Стражи', model: 'gate', note: 'Подсечка, бег по древку и удар в шлем', actors: { hero, gateGuardian: boss }, track: killGateTrack({ gx: 0, gz: 0, hx: 0, hz: 6 }) },
-  { id: 'killBell', title: 'Звонарь · Добивание', group: 'Стражи', model: 'bell', note: 'Обход за спину и удар в колокол', actors: { hero, bellRinger: boss }, track: killBellTrack({ gx: 0, gz: 0, hx: 0, hz: 6 }) },
+  { id: 'killBell', title: 'Жакемар · Добивание', group: 'Стражи', model: 'bell', note: 'Обход за спину и удар в колокол', actors: { hero, bellRinger: boss }, track: killBellTrack({ gx: 0, gz: 0, hx: 0, hz: 6 }) },
 ];
 
 // Короткие игровые вставки берут постановку из того же Cinematics, что ведёт бой.
@@ -56,7 +56,7 @@ for (const stage of ZONE1.filter((s) => !s.boss && !s.encounter)) {
   append(`${stage.id} · Пролёт арены`, 'landing', { hero });
 }
 for (const kind of ['gateGuardian', 'bellRinger'] as const) {
-  const title = kind === 'gateGuardian' ? 'Страж Врат' : 'Звонарь';
+  const title = kind === 'gateGuardian' ? 'Страж Врат' : 'Жакемар';
   const e = { ...boss, kind, height: kind === 'gateGuardian' ? 4 : 4.5, def: { name: title } } as Enemy;
   const model = kind === 'gateGuardian' ? 'gate' : 'bell';
   cine.guardianIntro(e); append(`${title} · Появление`, model, { hero, [kind]: boss });
@@ -70,4 +70,4 @@ export const CLIP_NAMES: Record<string, string> = {
   executionLeap: 'Прыжок', executionLand: 'Приземление после удара', guardianSweep: 'Подсечка', guardianApproach: 'Обход за спину', lowerBlade: 'Опустить клинок', chainBrace: 'Опора у цепи', chainRun: 'Бег по цепи', chainApex: 'Замах в прыжке', maskStrike: 'Двуручный разрез маски', gateCrush: 'Двуручный удар в шлем', bellBreak: 'Двуручный косой удар', chainExit: 'Отталкивание и посадка',
   pullBlade: 'Извлечь клинок', extractBlade: 'Извлечь клинок', extraction: 'Извлечь клинок', shaftRun: 'Бег по древку', land: 'Приземление', dash: 'Рывок', atk1: 'Первый удар', atk2: 'Второй удар',
 };
-export const ACTOR_NAMES: Record<string, string> = { hero: 'Пилот', boss: 'Иерофант', gateGuardian: 'Страж Врат', bellRinger: 'Звонарь', shard: 'Клинок в полу', ship: 'Иней' };
+export const ACTOR_NAMES: Record<string, string> = { hero: 'Пилот', boss: 'Иерофант', gateGuardian: 'Страж Врат', bellRinger: 'Жакемар', shard: 'Клинок в полу', ship: 'Иней' };

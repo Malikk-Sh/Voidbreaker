@@ -161,7 +161,7 @@ export function heartSoulFlightTrack(hero: V3, soul: HeartSoul, gateZ: number, h
 export const HEART_INTRO_T = { walk: 2.0, rise: 3.6, stones: 6.0, title: 6.9 };
 
 /**
- * Начало боя с Погребальным сердцем. Камера проходит над залом от дальней стены, герой входит в Чертог,
+ * Начало боя с Неугасимым сердцем. Камера проходит над залом от дальней стены, герой входит в Чертог,
  * Сердце поднимается из колодца, бьётся дважды, ревёт — броня распахивается и наливается багровым; над чашами
  * собираются жернова; общий план героя и босса с именем. Камера не выходит за ворота нового зала.
  */
@@ -201,7 +201,7 @@ export function heartIntroTrack(hero: V3, centerZ: number): CineTrack {
     { t: awakeAt, do: 'cam', path: [close, thrown], look: [coreLook, [0, 4.2, centerZ]], dur: 0.55, fov: 50, ease: 'outCubic', blend: 0.04 },
     { t: awakeAt + 0.55, do: 'cam', path: [thrown, wide], look: [[0, 4.2, centerZ], wideLook], dur: T.title - awakeAt - 0.55, fov: 56, ease: 'inOutSine', blend: 0.12 },
     { t: T.stones, do: 'call', fn: 'heartStones' },
-    { t: T.title, do: 'banner', text: 'ПОГРЕБАЛЬНОЕ СЕРДЦЕ', sub: 'Страж Последнего Огня', color: 'hunger', dur: 1.8, size: 44 },
+    { t: T.title, do: 'banner', text: 'НЕУГАСИМОЕ СЕРДЦЕ', sub: 'Страж Последнего Огня', color: 'hunger', dur: 1.8, size: 44 },
     { t: T.title, do: 'cam', path: [wide, [wide[0], wide[1] + 0.3, wide[2] + 0.4]], look: [wideLook], dur: awakeningDur - T.title, fov: 56, ease: 'outSine', blend: 0.12 },
   ];
   // Повторный просмотр — без долгого общего плана с именем; маркеры в те же моменты.

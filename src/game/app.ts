@@ -237,7 +237,7 @@ export class App {
     if (watch && ['hierophantEnd', 'killGate', 'killBell'].includes(watch)) {
       this.watchScene(watch);
       const choices = h('div', { style: { position: 'fixed', zIndex: '100', left: 'max(10px, env(safe-area-inset-left))', bottom: 'max(10px, env(safe-area-inset-bottom))', display: 'flex', gap: '6px', pointerEvents: 'auto' } });
-      for (const [id, label] of [['hierophantEnd', 'Иерофант'], ['killGate', 'Страж Врат'], ['killBell', 'Звонарь']]) {
+      for (const [id, label] of [['hierophantEnd', 'Иерофант'], ['killGate', 'Страж Врат'], ['killBell', 'Жакемар']]) {
         const link = h('a', { href: `?watch=${id}`, 'aria-current': watch === id ? 'true' : 'false', style: { display: 'inline-flex', alignItems: 'center', minHeight: '44px', padding: '9px 13px', color: '#e5d9ff', background: watch === id ? '#45345ded' : '#15131fed', border: '1px solid #786493', borderRadius: '10px', fontSize: '12px', textDecoration: 'none' }, onClick: (event: MouseEvent) => {
           event.preventDefault(); event.stopPropagation();
           // Сохраняем AudioContext: перезагрузка по ссылке снова блокировала звук на телефоне.

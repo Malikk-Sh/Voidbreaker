@@ -125,7 +125,7 @@ export interface GameEvents {
   guardianRage: { x: number; z: number; kind: string };
   bossIntro: { name: string; title: string };
   bossDeath: { x: number; z: number };
-  /** Погребальное сердце: удар о пол (big — последнее падение серии; open — после него ядро открыто). */
+  /** Неугасимое сердце: удар о пол (big — последнее падение серии; open — после него ядро открыто). */
   heartSlam: { x: number; z: number; r: number; big: boolean; open: boolean };
   /** Клинок о закрытую броню Сердца. */
   heartClank: { x: number; y: number; z: number };
