@@ -4,7 +4,7 @@
  */
 export type ShapeKind = 'oct' | 'rect' | 'circle';
 export interface ShapePart { kind: ShapeKind; x: number; z: number; w: number; h: number }
-export type DecorStyle = 'nave' | 'gate' | 'candles' | 'bridge' | 'belfry' | 'boss' | 'hub';
+export type DecorStyle = 'nave' | 'gate' | 'candles' | 'bridge' | 'belfry' | 'boss' | 'hub' | 'quarry';
 
 export interface ArenaDef {
   id: string;
@@ -99,6 +99,10 @@ export const ARENAS: Record<string, ArenaDef> = {
     parts: [{ kind: 'oct', x: 0, z: 0, w: 26, h: 21 }],
     holes: [{ kind: 'rect', x: 0, z: -3.6, w: 11, h: 4.2 }, { kind: 'rect', x: 0, z: 3.6, w: 11, h: 4.2 }],
     cover: [{ x: -8.5, z: 0, r: 0.7 }, { x: 8.5, z: 0, r: 0.7 }],
+  },
+  echoQuarry: {
+    id: 'echoQuarry', tile: 1, edge: 'wall', decor: 'quarry', rune: false,
+    parts: [{ kind: 'oct', x: 0, z: 0, w: 27, h: 22 }],
   },
   hierophant: {
     // плитка 1 м: на 1.5 м диагональные лучи звезды выходят лесенкой (2–3 плитки в ширину — проходимы)

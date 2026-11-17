@@ -295,6 +295,7 @@ export class World {
     this.endStrike(p);
     // отражённые снаряды и Искры можно отбивать — проверка снарядов
     if (p.source === 'blade') {
+      this.bus.emit('bladeSweep', {shape, hitList});
       for (const pr of this.projectiles) {
         if (!pr.alive || pr.reflected || pr.kind === 'ring' || pr.kind === 'wave') continue;
         // кадило Иерофанта (план §8.3): полный заряженный удар шлёт его обратно в колокол

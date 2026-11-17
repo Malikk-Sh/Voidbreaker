@@ -62,7 +62,7 @@ export function computeStats(s: SaveData, autoAim = 2): HeroStats {
 
 /** Реликвии (GDD §7.2) — пассивные эффекты. */
 export const RELICS: Record<string, { name: string; desc: string }> = {
-  hierophant_eye: { name: 'Глаз Иерофанта', desc: 'Идеальное уклонение длится на 0.3 с дольше.' },
+  hierophant_eye: { name: 'Слух Пожирателя', desc: 'Идеальное уклонение длится на 0.3 с дольше.' },
   black_candle: { name: 'Чёрная Свеча', desc: '+1 заряд рывка, −10 % HP.' },
   star_shard: { name: 'Осколок Звезды', desc: '+15 % Осколков с этапов.' },
 };

@@ -104,6 +104,11 @@ export const SFX: Record<string, SfxRecipe> = {
   // гибель: «осыпание» — хруст, каскад сколов, низкий шорох обломков
   shatter: { len: 0.7, variants: 4, reverb: 0.06, render: (c, o, t) => { crunch(c, o, t, 420, 0.12, 0.5); chips(c, o, t, 8, 0.16, 0.14); noiseHit(c, o, t + 0.05, 0.35, 900, 0.25, 'lowpass', 0.7, 'pink'); osc(c, 'sine', 1800, t, 0.12, o, 0.025, 0.002, 0.12); } },
   shatter_wet: { len: 0.6, variants: 3, reverb: 0.05, render: (c, o, t) => { crunch(c, o, t, 350, 0.1, 0.55); noiseHit(c, o, t + 0.03, 0.3, 500, 0.3, 'lowpass', 0.8, 'pink'); chips(c, o, t, 4, 0.1, 0.1); } },
+  echo_pebble: { len: 0.55, variants: 2, reverb: 0.2, render: (c, o, t) => {
+    for (const [dt, gain] of [[0, 0.58], [0.16, 0.27], [0.27, 0.12]]) {
+      transient(c, o, t + dt, 3100, gain); crunch(c, o, t + dt, 980, 0.045, gain * 0.5);
+    }
+  } },
   shatter_stone: { len: 1.0, variants: 2, reverb: 0.1, render: (c, o, t) => { sub(c, o, t, 70, 32, 0.4, 0.8); crunch(c, o, t, 300, 0.18, 0.6); for (let i = 0; i < 10; i++) noiseHit(c, o, t + Math.random() * 0.35, 0.02, 400 + Math.random() * 600, 0.2, 'bandpass', 5); noiseHit(c, o, t + 0.05, 0.6, 250, 0.35, 'lowpass', 0.7, 'pink'); } },
   shatter_energy: { len: 0.9, variants: 2, reverb: 0.12, render: (c, o, t) => { crunch(c, o, t, 600, 0.08, 0.35); glassTail(c, o, t, 6, 0.05); const x = osc(c, 'sine', 900, t, 0.4, o, 0.08, 0.002, 0.4); x.frequency.exponentialRampToValueAtTime(140, t + 0.4); } },
   shatter_big: { len: 1.3, reverb: 0.1, render: (c, o, t) => { sub(c, o, t, 80, 30, 0.5, 0.8); crunch(c, o, t, 380, 0.2, 0.6); noiseHit(c, o, t, 0.6, 400, 0.6, 'lowpass', 0.8); chips(c, o, t, 14, 0.18, 0.4); for (let i = 0; i < 6; i++) noiseHit(c, o, t + 0.1 + Math.random() * 0.5, 0.05, 500 + Math.random() * 500, 0.2, 'bandpass', 4); } },

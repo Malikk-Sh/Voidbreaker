@@ -4,6 +4,7 @@ import type { Actor } from './actor';
 
 /** Типизированные события боя (Tech §9). Звук, частицы, тряска, вибрация — подписчики. */
 export interface GameEvents {
+  bladeSweep: { shape: import('./combat').Shape; hitList: Set<number> };
   hit: { target: Actor; dmg: number; crit: boolean; feel: FeelId; dirX: number; dirZ: number; x: number; y: number; z: number; source: 'blade' | 'ability' | 'proj' | 'env'; shielded?: boolean; weak?: boolean };
   /**
    * Один взмах (или один залп способности) — одно событие на все задетые цели (план §5.1):

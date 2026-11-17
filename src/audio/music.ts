@@ -483,3 +483,8 @@ export function hierophantSong(): Song {
     groove: 'taiko', ost: OST.pulse, brassAt: [0, 6, 10], organ: true, harsh: true, tocsin: true, tritone: true,
   });
 }
+
+/** The quarry leaves space for the positional bell cues. */
+export function devourerSong(): Song {
+  return epicSong({id:'devourer',bpm:124,root:47,progs:[['i','bII','i','bVI']],groove:'halftime',ost:OST.pulse,brassAt:[0,9],harsh:true});
+}

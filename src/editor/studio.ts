@@ -5,6 +5,7 @@ import { HERO_CLIPS } from '../anim/clips/hero';
 import { Ease, type EaseId } from '../core/ease';
 import type { CineStep, V3 } from '../game/director';
 import { offsetWorld, parseProject, readProject, saveProject, stepKeys, type StepEdit, type Variant, type VariantEdit } from '../game/sceneEdits';
+import { DEVOURER_CLIPS } from '../anim/clips/devourer';
 import { ACTOR_NAMES, BOSS_CLIPS, CLIP_NAMES, SCENES, type SceneSpec } from './catalog';
 import { StudioPreview } from './preview';
 
@@ -314,7 +315,7 @@ class Studio {
 
   private clipDefinition(s: CineStep, d?: StepEdit): ClipDef | undefined {
     if (s.do !== 'clip') return undefined;
-    return d?.definition ?? s.definition ?? (s.who === 'hero' ? HERO_CLIPS : BOSS_CLIPS).find((c) => c.id === (d?.clip ?? s.clip));
+    return d?.definition ?? s.definition ?? (s.who === 'hero' ? HERO_CLIPS : this.spec.model === 'devourer' ? DEVOURER_CLIPS : BOSS_CLIPS).find((c) => c.id === (d?.clip ?? s.clip));
   }
   private writeDefinition(def: ClipDef): void { this.setPatch({ definition: def }); }
   private renderPose(): void {
@@ -408,7 +409,7 @@ class Studio {
       this.change(() => { const e = this.currentEdit(true); e.added ??= []; this.selected = `added:${e.added.length}`; e.added.push({ t: this.preview.time * this.rate(), do: 'actor', who: this.actor, lookAt, turn: 0.4, dur: 0.4 }); });
       this.tab = 'move'; this.renderInspector();
     }, 'wide'));
-    const replayIds = ['prologue', 'prologueLanding', 'hierophantIntro', 'hierophantEnd', 'hierophantCollapse', 'hierophantCrack', 'killGate', 'killBell'];
+    const replayIds = ['devourerIntro', 'devourerFrenzy', 'devourerEcho', 'devourerEnd', 'prologue', 'prologueLanding', 'hierophantIntro', 'hierophantEnd', 'hierophantCollapse', 'hierophantCrack', 'killGate', 'killBell'];
     if (replayIds.includes(this.spec.id)) this.content.append(button('Просмотр в игре ↗', () => {
       this.change(() => { this.project.enabled = true; }); this.persist();
       const url = new URL('./', location.href); url.searchParams.set('scene', this.spec.id); url.searchParams.set('studioPreview', '1'); url.searchParams.set('variant', this.variant);

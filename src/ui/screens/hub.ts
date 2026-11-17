@@ -155,7 +155,7 @@ function altarTab(app: App, refresh: () => void): HTMLElement {
   const cards = (Object.keys(ABILITIES) as AbilityId[]).map((id) => {
     const A = ABILITIES[id], st = s.abilities[id];
     if (!st) {
-      const where = A.unlock === 'boss1' ? 'Иерофант Скорби' : `этап ${A.unlock}`;
+      const where = A.unlock === 'boss1' ? 'Пожиратель' : `этап ${A.unlock}`;
       return h('div', { class: 'vb-card vb-row locked' }, medallion('lock', 46, false),
         h('div', { class: 'vb-col', style: { gap: '2px' } }, h('span', { class: 'vb-name' }, A.name), h('span', { class: 'vb-dim', style: { fontSize: '12px' } }, `Откроется: ${where}`)));
     }
@@ -191,7 +191,7 @@ function forgeTab(app: App, refresh: () => void): HTMLElement {
   const w = s.weapons.void_blade;
   const cost = weaponCost(w.level), can = w.level < WEAPON_MAX && s.currencies.shards >= cost;
   const locked: [string, string, string][] = [
-    ['Парные Кинжалы «Близнецы»', 'Скорость, криты: 6 ударов по 0.55×, финишер крест-накрест', 'Откроется за Иерофантом — в следующем обновлении'],
+    ['Парные Кинжалы «Близнецы»', 'Скорость, криты: 6 ударов по 0.55×, финишер крест-накрест', 'Откроется после победы над Пожирателем — в следующем обновлении'],
     ['Глефа «Орбита»', 'Дальность, толпы: широкие вращения 3.2 м', 'Откроется: Молох (Зона 02)'],
     ['Коса «Жатва»', 'Тяжёлая: ×1.5 оглушения, удары подтягивают врагов', 'Откроется: Сестра Безмолвия (Зона 03)'],
   ];
@@ -220,7 +220,7 @@ function relicsTab(app: App, refresh: () => void): HTMLElement {
     h('div', { class: 'vb-caps', style: { color: UI.dim } }, 'Слоты реликвий: 1 · второй — за Молоха, третий — за Ткача Орбит'),
     h('div', { class: 'vb-card vb-row sel', style: { gap: '14px' } }, medallion('relic', 48, !!slot),
       h('span', {}, slot ? `${RELICS[slot]?.name ?? slot} — ${RELICS[slot]?.desc ?? ''}` : 'Пустой слот')),
-    s.relics.length ? null : h('div', { class: 'vb-dim', style: { fontSize: '12px', lineHeight: '1.5' } }, 'Реликвии выпадают из сундуков стражей и боссов. Первая ждёт за Иерофантом Скорби.'),
+    s.relics.length ? null : h('div', { class: 'vb-dim', style: { fontSize: '12px', lineHeight: '1.5' } }, 'Реликвии выпадают из сундуков стражей и боссов. Первая ждёт после победы над Пожирателем.'),
     ...s.relics.map((id) => h('div', { class: `vb-card vb-row${slot === id ? ' sel' : ''}`, style: { gap: '14px' } }, medallion('relic', 44),
       h('div', { class: 'vb-col vb-grow', style: { gap: '2px' } }, h('span', { class: 'vb-name' }, RELICS[id]?.name ?? id), h('span', { class: 'vb-dim', style: { fontSize: '12px' } }, RELICS[id]?.desc ?? '')),
       h('button', { class: 'vb-btn small', onClick: () => { s.loadout.relics = slot === id ? [] : [id]; app.sfx('ui_confirm'); app.save(); refresh(); } }, slot === id ? 'Снять' : 'Надеть'))),
@@ -231,7 +231,7 @@ function relicsTab(app: App, refresh: () => void): HTMLElement {
 function cinemaSection(app: App): HTMLElement {
   const s = app.ctx.save;
   // пролог открыт и тем, кто прошёл прежний текстовый пролог: новую сцену можно посмотреть здесь
-  const open = CINEMA.filter((c) => (s.cine[c.id] ?? 0) > 0 || (c.id === 'prologue' && !!s.flags.prologue));
+  const open = CINEMA.filter((c) => ((s.cine[c.id] ?? 0) > 0 || !!(c.previous && s.cine[c.previous])) || (c.id === 'prologue' && !!s.flags.prologue));
   return h('div', { class: 'vb-card' },
     h('div', { class: 'vb-name', style: { color: UI.goldHi, fontSize: '14px' } }, 'Кинозал'),
     open.length

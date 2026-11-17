@@ -175,8 +175,8 @@ export const ZONE1: StageDef[] = [
     ],
   },
   {
-    id: 'boss1', zone: 0, index: 9, name: 'Иерофант Скорби', arena: 'hierophant', boss: true,
-    waves: [{ spawns: [{ enemy: 'hierophant', count: 1, at: ['top'] }] }],
+    id: 'boss1', zone: 0, index: 9, name: 'Пожиратель', arena: 'echoQuarry', boss: true,
+    waves: [{ spawns: [{ enemy: 'devourer', count: 1, at: ['top'] }] }],
   },
 ];
 

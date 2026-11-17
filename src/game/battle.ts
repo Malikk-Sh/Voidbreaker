@@ -18,7 +18,7 @@ import { CAM_MODES, camModeFrom, CameraRig, type CamMode } from '../world/camera
 import type { HeroStats } from '../world/heroStats';
 import { BREATHER, StageRunner } from '../world/stage';
 import { World } from '../world/world';
-import { guardianSong, hierophantSong, stageSong } from '../audio/music';
+import { guardianSong, devourerSong, stageSong } from '../audio/music';
 import type { MusicCue } from './director';
 import { effectiveFlashes, type Settings } from '../meta/settings';
 import { awardExecution, computeStats } from '../meta/progression';
@@ -37,7 +37,11 @@ import type { Enemy } from '../world/enemy';
 import type { BossController } from '../world/boss/bossBase';
 import { BellRinger, GateGuardian } from '../world/boss/guardians';
 import { guardianTargets } from '../world/boss/guardianStaging';
-import { EXEC_HP, Hierophant, HierophantController, type BossHost } from '../world/boss/hierophant';
+import type { BossHost } from '../world/boss/hierophant';
+import { Devourer } from '../world/boss/devourer';
+import { DevourerEncounter } from '../world/boss/devourerEncounter';
+import { EchoQuarryView } from '../gen/zone/echoQuarry';
+import { DEVOURER_SCENES } from '../world/boss/devourerScenes';
 import { C } from '../vfx/battleVfx';
 import { fxRng } from '../core/rng';
 import { clamp, hexToLinear } from '../core/math';
@@ -87,11 +91,13 @@ const DEBUG_NAV = typeof location !== 'undefined' && new URLSearchParams(locatio
 export interface BattleOutcome { cleared: boolean; world: World; stage: StageDef }
 /** prologue — бой 1-1 начинается приземлением Пилота (план §8.2, планы 6–8), а не пролётом над ареной. */
 /** Сцены Кинозала, которые пересматриваются в бою (план §8.1): kill-cam стражей и интро Иерофанта. */
-export type ReplayId = 'killGate' | 'killBell' | 'hierophantIntro' | 'hierophantEnd' | 'hierophantCollapse' | 'hierophantCrack' | 'prologueLanding';
+export type ReplayId = typeof DEVOURER_SCENES[number] | 'killGate' | 'killBell' | 'hierophantIntro' | 'hierophantEnd' | 'hierophantCollapse' | 'hierophantCrack' | 'prologueLanding';
 /** Этап, на котором играет сцена, и для kill-cam — кто Страж. */
 export const REPLAY: Record<ReplayId, { stage: string; guardian?: EnemyKind }> = {
   killGate: { stage: '1-3', guardian: 'gateGuardian' },
   killBell: { stage: '1-6', guardian: 'bellRinger' },
+  devourerIntro: { stage: 'boss1' }, devourerFrenzy: { stage: 'boss1' },
+  devourerEcho: { stage: 'boss1' }, devourerEnd: { stage: 'boss1' },
   hierophantIntro: { stage: 'boss1' },
   // казнь: интро пропускается, босс сразу в фазе III — на звёздном мосту, оглушён, на краю смерти
   hierophantEnd: { stage: 'boss1' },
@@ -100,7 +106,7 @@ export const REPLAY: Record<ReplayId, { stage: string; guardian?: EnemyKind }> =
   prologueLanding: { stage: '1-1' },
 };
 /** Пауза после сцены перед возвратом в Святилище (с): осыпание Стража доигрывает. */
-const REPLAY_TAIL = { kill: 1.6, intro: 0.5, execDelay: 0.4 };
+const REPLAY_TAIL = { kill: 1.6, intro: 0.5 };
 
 /** prologue — бой 1-1 начинается приземлением; replay — пересмотр сцены: без волн и наград, по концу — onReplayEnd. */
 export interface BattleOpts { prologue?: boolean; replay?: ReplayId; previewShort?: boolean; singleStage?: boolean }
@@ -225,6 +231,7 @@ export class Battle {
   private finisherVictory = false;
   onEnd: ((o: BattleOutcome) => void) | null = null;
   boss: BossController | null = null;
+  private quarry: EchoQuarryView | null = null;
   private fpsAcc = 0; private fpsN = 0; fps = 60;
   private dashCount = 0;
   private tutorialReaperDone = false;
@@ -323,6 +330,7 @@ export class Battle {
       try { rigs.add(createEnemy(sp.enemy, { zone: stage.zone, stage: stage.index }).puppet.layout.def.id); } catch { /* вид без рига */ }
     }
     this.enemies.warm([...rigs]);
+    if (stage.arena === 'echoQuarry') { this.quarry = new EchoQuarryView(); this.group.add(this.quarry.root); }
     // тени (контактные хвосты и тени буфера света) — от окон фасада этой арены. Буфер — после прогрева батчей: тени
     // тел создаются при загрузке, а не посреди боя (three.js тратит Math.random на UUID, ход боя сдвинулся бы)
     shadowDirFromRays(this.view.rays, G.uShadowDir.value);
@@ -408,7 +416,7 @@ export class Battle {
       this.cine.stageIntro(stage.id === '1-4' ? { ...stage, name: 'Притвор Угасших' } : stage, { x: (ab.minX + ab.maxX) / 2, z: (ab.minZ + ab.maxZ) / 2 }, Math.max(ab.maxX - ab.minX, ab.maxZ - ab.minZ), () => { this.runner.skipIntro(); ctx.hud.foldTitle(); }, vista);
     }
     // в прологе музыка 1-1 вступает после титула; тема босса — с его именем в интро (план §8.3)
-    if (stage.boss) { this.runner.introTime = 0.05; ctx.music.preload(hierophantSong()); }
+    if (stage.boss) { this.runner.introTime = 0.05; ctx.music.preload(devourerSong()); }
     else if (!opts.prologue && !this.replay && !this.heartStage) ctx.music.play(stageSong(stage.id), 0.3);
     // тема Стража запекается заранее — переключение на его появлении без паузы
     const guardianWave = stage.waves.find((wv) => wv.guardian);
@@ -419,7 +427,6 @@ export class Battle {
       if (beat !== 0) return;
       this.rune.u.uPulse.value = 0.5;
       this.beatPulse = 1;
-      if (this.runner.boss instanceof Hierophant) this.runner.boss.beatGlow = 1;
     };
   }
 
@@ -655,6 +662,7 @@ export class Battle {
     this.rune.u.uAlpha.value += (runeTarget - this.rune.u.uAlpha.value) * Math.min(1, realDt * 2);
     if (this.lightQuality !== this.ctx.renderer.quality) this.applyLight();
     // рендер врагов и героя
+    if (this.quarry && this.runner.boss instanceof Devourer) this.quarry.sync(this.runner.boss, this.world.time);
     this.enemies.render(this.world.enemies, this.world.shadows);
     this.updateXray(realDt);
     h.avatar.render(true, h.blinking);
@@ -692,8 +700,11 @@ export class Battle {
     this.collapseOverview = Math.max(0, this.collapseOverview-dtW);
     this.heart?.step(dtW, !this.director.active && !this.cine.active && !this.world.hero.locked && !this.world.hero.dead && !this.world.shatterSeq);
     if (!fighting) this.world.run.time = runTime;
-    if (!this.boss && this.runner.boss instanceof Hierophant) {
-      this.boss = new HierophantController(this.bossHost(), this.runner.boss);
+    if (!this.boss && this.runner.boss instanceof Devourer) {
+      const beast = this.runner.boss;
+      this.props.set('echoStone', beast.stone);
+      this.props.set('echoBell', beast.bells[2]);
+      this.boss = new DevourerEncounter(this.bossHost(), beast, text => this.ctx.hud.showHint(text, 6));
       // цепи, колокола-спутники и прочие объекты босса — тоже до первого кадра с ними
       void this.ctx.renderer.warmAll(this.group, () => !this.disposed);
     }
@@ -1027,8 +1038,8 @@ export class Battle {
       },
       music: (cue: MusicCue) => { if (cue === 'silence') ctx.music.stop(1.2); else this.feel.musicCue(cue); },
       startSong: () => {
-        if (ctx.music.song?.id === 'hierophant') return;
-        ctx.music.play(hierophantSong(), 0.6);
+        if (ctx.music.song?.id === 'devourer') return;
+        ctx.music.play(devourerSong(), 0.6);
         ctx.audio.play('boss_intro', { gain: 0.8 });
       },
       quench: (x, z, r) => this.quench(x, z, r),
@@ -1692,10 +1703,11 @@ export class Battle {
     const R = this.replay!, w = this.world;
     this.ctx.hud.visible = false;
     const e = R.target;
-    if ((R.id === 'hierophantCollapse' || R.id === 'hierophantCrack') && !R.setup && this.boss instanceof HierophantController) {
+    if (!R.setup && this.boss instanceof DevourerEncounter && ['devourerFrenzy','devourerEcho','devourerEnd','hierophantCollapse','hierophantCrack','hierophantEnd'].includes(R.id)) {
       R.setup = true;
       this.director.skip();
-      this.boss.replayTransition(R.id === 'hierophantCollapse' ? 2 : 3);
+      if (R.id === 'devourerEnd' || R.id === 'hierophantEnd') this.boss.ending();
+      else this.boss.transition(R.id === 'devourerFrenzy' || R.id === 'hierophantCollapse' ? 2 : 3);
       R.seen = true;
       return;
     }
@@ -1707,29 +1719,6 @@ export class Battle {
       (e as unknown as { cur: unknown }).cur = null;
       w.stunEnemy(e);
       w.damageEnemy(e, { mult: 50, stun: 0, knockback: 2, feel: 'heavy', dirX: 0, dirZ: -1, source: 'blade' });
-    }
-    // «Последний звон»: как только босс на месте — пропустить интро, фаза III, оглушить и казнить
-    if (R.id === 'hierophantEnd' && !R.setup && this.boss instanceof HierophantController) {
-      R.setup = true;
-      this.director.skip();
-      const c = this.boss as unknown as { collapse(i: boolean): void; crack(): void; enterPhase(p: number): void; execute(): void; boss: Enemy };
-      c.collapse(true); c.crack(); c.enterPhase(2); c.enterPhase(3);
-      void c.execute;
-      this.skyCine.crack = 1;
-      const bb = c.boss, h = w.hero;
-      const o = { x: 0, z: 0 };
-      this.arena.nearestWalkable(bb.x, bb.z + 6, o);
-      h.x = o.x; h.z = o.z; h.facing = Math.atan2(bb.x - h.x, bb.z - h.z);
-      bb.hp = bb.maxHp * EXEC_HP * 0.5;
-      w.stunEnemy(bb);
-      // казнь — через пару кадров: скелет босса ещё стоит в начале спуска интро, точки цепи считались бы от 16 м
-      R.t = -REPLAY_TAIL.execDelay;
-      return;
-    }
-    if (R.id === 'hierophantEnd' && R.setup && !R.seen && R.t < 0) {
-      R.t += realDt;
-      if (R.t >= 0) (this.boss as unknown as { execute(): void }).execute();
-      return;
     }
     if (this.director.active) { R.seen = true; return; }
     if (!R.seen || R.done) return;
@@ -1964,6 +1953,7 @@ export class Battle {
     this.disposeLandingProps();
     this.ambience?.stop();
     this.ctx.audio.onSpeak = null;
+    this.quarry?.dispose();
     this.kaelis.dispose();
     this.cine.clear(this.cam);
     this.director.clear(this.cam);

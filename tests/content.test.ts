@@ -118,9 +118,8 @@ describe('данные Зоны 01', () => {
     }
   });
 
-  it('арена босса обрушается в крест-мост', () => {
-    const def = ZONE1.find((d) => d.boss)!;
-    const a = new Arena(ARENAS[def.arena]);
+  it('плиты звёздного моста обрушаются и восстанавливаются', () => {
+    const a = new Arena(ARENAS.hierophant);
     const before = a.tiles.length;
     a.collapseOutsideCross();
     // дать плиткам упасть

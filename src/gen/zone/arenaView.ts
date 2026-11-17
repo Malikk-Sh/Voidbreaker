@@ -1,3 +1,4 @@
+import { quarryFrames } from './echoQuarry';
 import * as THREE from 'three';
 import { buildDomeRose } from './space';
 import { CandleSanctum } from './candleSanctum';
@@ -348,7 +349,11 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
 
   // рассказ окружением (план §8.6): свой генератор, чтобы не сдвигать раскладку остального декора
   const srng = new Rng(seed + ':story');
-  if (wall) {
+  if (style === 'quarry') {
+    quarryFrames(D);
+    for (const x of [-7.6, 7.6]) pools.push({x,z:1.4,r:3.5,color:'#b38146',intensity:0.48,flicker:0.1});
+    pools.push({x:0,z:-5.8,r:3.7,color:'#709caa',intensity:0.56,flicker:0.08});
+  } else if (wall) {
     // периметр: колонны, статуи, канделябры
     const p0 = def.parts[0];
     const per = Math.PI * (p0.w + p0.h) / 2;
@@ -615,7 +620,7 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
   }
 
   // ---------- детали пола: дорожка, надгробные плиты, трещины со звёздным светом, обломки ----------
-  if (wall && floorStays) {
+  if (wall && floorStays && style !== 'quarry') {
     if (def.aisle) {
       // ковровая дорожка от входа к фасаду, местами истлела
       const ax = def.parts[0].x;
@@ -782,7 +787,8 @@ export function buildArenaView(arena: Arena, seed: string, look: ZoneLook, densi
     const x = Math.sin(a) * d, z = Math.cos(a) * d - 20;
     const h = frng.range(180, 320);
     const g = new GeomBuilder(); g.rng = new Rng(frng.int(0, 1e6));
-    spire(g, { h, r: frng.range(5, 12), tiers: frng.int(3, 6), ruin: frng.chance(0.35) ? frng.range(0.2, 0.5) : 0, seed: frng.int(0, 1e6) });
+    if (style === 'quarry') g.add(shard(h, frng.range(8, 15), 6, 0.24, i), {color: OBS_HI});
+    else spire(g, { h, r: frng.range(5, 12), tiers: frng.int(3, 6), ruin: frng.chance(0.35) ? frng.range(0.2, 0.5) : 0, seed: frng.int(0, 1e6) });
     const y = -h * frng.range(0.75, 0.95);
     // у босса шпили — отдельными мешами: в его фазах они склоняются к арене
     if (style === 'boss') leaners.push({ g, x, y, z });

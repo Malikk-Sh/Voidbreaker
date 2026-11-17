@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildAcolyte, buildBrute, buildCrawler, buildCrucifier, buildEye, buildHusk, buildMantis, buildObelisk, buildPsalmist, buildRinger, type RigBuild } from '../gen/chars/enemies';
+import { buildDevourer } from '../gen/chars/devourer';
 import { buildHierophant } from '../gen/chars/hierophant';
 import type { Enemy } from '../world/enemy';
 import type { ShadowCopy } from '../world/shadow';
@@ -18,10 +19,11 @@ const BUILDERS: Record<string, { build: () => RigBuild; max: number }> = {
   brute: { build: () => buildBrute(15), max: 10 },
   gateGuardian: { build: () => buildBrute(21, 1.65, { halberd: true }), max: 2 },
   bellRinger: { build: () => buildRinger(22, 1.45), max: 2 },
+  devourer: { build: buildDevourer, max: 1 },
   hierophant: { build: () => buildHierophant(31), max: 1 },
 };
 /** Крупные риги — слабее контурный свет, иначе они превращаются в красное пятно. */
-const BIG = new Set(['brute', 'gateGuardian', 'bellRinger', 'hierophant']);
+const BIG = new Set(['brute', 'gateGuardian', 'bellRinger', 'hierophant', 'devourer']);
 
 export function registerRigBuilder(id: string, build: () => RigBuild, max: number): void { BUILDERS[id] = { build, max }; }
 
@@ -43,8 +45,8 @@ export class EnemyRenderer {
       const r = def.build();
       b = new RigBatch(r.geometry, r.rig.joints.length, def.max, {
         // понтифик в тёмной рясе на фоне ночного неба над бездной — контур ярче, иначе силуэт пропадает
-        rim: id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: id === 'hierophant' ? 0.8 : BIG.has(id) ? 0.34 : 0.62, rimPower: id === 'hierophant' ? 2.4 : BIG.has(id) ? 3.2 : 2.8,
-        emissive: '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 2.8, white: ENEMY_WHITE,
+        rim: id === 'devourer' ? '#a9d0df' : id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: id === 'hierophant' ? 0.8 : BIG.has(id) ? 0.34 : 0.62, rimPower: id === 'hierophant' ? 2.4 : BIG.has(id) ? 3.2 : 2.8,
+        emissive: id === 'devourer' ? '#5edecf' : '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 2.8, white: ENEMY_WHITE,
       });
       this.batches.set(id, b);
       this.group.add(b.mesh);

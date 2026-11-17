@@ -74,8 +74,9 @@ describe('кат-сцены: приземление, ракурсы, Киноз�
     }
   });
 
-  it('Кинозал: kill-cam и интро Иерофанта пересматриваются на своих этапах', () => {
-    const ids = new Set(CINEMA.map((c) => c.id));
+  it('Кинозал открывает сцены Пожирателя и поддерживает прежние ссылки', () => {
+    const ids = new Set(CINEMA.flatMap((c) => [c.id, c.previous]));
+    expect(REPLAY.devourerIntro.stage).toBe('boss1');
     for (const [id, r] of Object.entries(REPLAY)) {
       expect(ids.has(id)).toBe(true);
       expect(stageById(r.stage)).toBeTruthy();

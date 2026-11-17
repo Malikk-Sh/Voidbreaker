@@ -130,7 +130,10 @@ describe('студия и Director используют одну траекто�
     expect(hero.x).toBeCloseTo(10); expect(hero.facing).toBeCloseTo(0.4);
   });
   it('вся библиотека имеет уникальные id, концовку, обе версии и вставки арен', () => {
-    expect(SCENES).toHaveLength(24); expect(new Set(SCENES.map((s) => s.id)).size).toBe(24);
+    const ids = SCENES.map(s => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(expect.arrayContaining(['devourerIntro', 'devourerFrenzy', 'devourerEcho', 'devourerEnd']));
+    expect(SCENES.find(s => s.id === 'devourerIntro')!.track.short).toBeDefined();
     for (const spec of SCENES) { expect(spec.track.id).toBe(spec.id); expect(spec.track.dur).toBeGreaterThan(0); }
     expect(SCENES.find((s) => s.id === 'hierophantEnd')!.track.short).toBeDefined();
     expect(SCENES.some((s) => s.id === 'arenaIntro:1-9')).toBe(true);
