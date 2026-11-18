@@ -60,6 +60,9 @@ export function quarryFrames(g: GeomBuilder): void {
   }
 }
 
+type QuarryFrame = Pick<Devourer, 'bells' | 'loose' | 'dead' | 'stone' | 'motion'> &
+  ({ invulnerable: true } | Pick<Devourer, 'invulnerable' | 'bellReady' | 'echoes' | 'attack' | 'elapsed' | 'x' | 'z' | 'facing'>);
+
 export class EchoQuarryView {
   readonly root = new THREE.Group();
   private readonly material = obsidianMaterial({
@@ -74,7 +77,13 @@ export class EchoQuarryView {
   private readonly tethers: THREE.InstancedMesh;
   private readonly ready: THREE.InstancedMesh;
   private readonly pebble: THREE.Mesh;
+  private readonly hearing = new THREE.Group();
+  private readonly earArc = new THREE.TorusGeometry(1.05, 0.044, 4, 18, 1.9);
+  private readonly earLight = new THREE.MeshBasicMaterial({ color: '#ffcf82', transparent: true, depthWrite: false });
   private readonly matrix = new THREE.Matrix4();
+  private readonly ringScale = new THREE.Vector3();
+  private readonly readyColor = new THREE.Color('#9bd7cd');
+  private readonly callColor = new THREE.Color('#ffc158');
   constructor() {
     const g = new GeomBuilder();
     g.add(
@@ -131,7 +140,7 @@ export class EchoQuarryView {
     });
     this.ready = new THREE.InstancedMesh(
       new THREE.TorusGeometry(1.05, 0.035, 4, 32),
-      new THREE.MeshBasicMaterial({ color: 0x9bd7cd }),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }),
       3
     );
     this.ready.frustumCulled = false;
@@ -148,12 +157,20 @@ export class EchoQuarryView {
     this.tethers.count = 0;
     this.tethers.frustumCulled = false;
     this.root.add(this.tethers);
+    this.earArc.rotateX(-Math.PI / 2);
+    for (const angle of [-0.95, Math.PI - 0.95]) {
+      const arc = new THREE.Mesh(this.earArc, this.earLight);
+      arc.rotation.y = angle;
+      this.hearing.add(arc);
+    }
+    this.hearing.visible = false;
+    this.root.add(this.hearing);
     const pebble = new GeomBuilder();
     pebble.add(rock(0.31, 0, 0.17, 11), { color: '#aaafa0' });
     this.pebble = new THREE.Mesh(pebble.build(), this.material);
     this.root.add(this.pebble);
   }
-  sync(b: Pick<Devourer, 'bells' | 'loose' | 'dead' | 'stone' | 'motion' | 'invulnerable'>, time: number): void {
+  sync(b: QuarryFrame, time: number): void {
     let n = 0,
       lit = 0;
     this.bells.forEach((m, i) => {
@@ -162,16 +179,29 @@ export class EchoQuarryView {
       m.position.set(bell.x, loose ? 0.87 : 1.37, bell.z);
       m.rotation.x = loose ? Math.PI / 2 : 0;
       m.rotation.z = loose ? bell.roll - bell.x * 0.55 : Math.sin(time * 17) * bell.pulse * 0.25;
-      if (!b.invulnerable && !b.dead && bell.cooldown <= 0) {
-        this.matrix.makeRotationX(Math.PI / 2).setPosition(bell.x, 0.075, bell.z);
-        this.ready.setMatrixAt(lit++, this.matrix);
+      if (!b.invulnerable && !b.dead && b.bellReady(i)) {
+        const calling = b.echoes.isCalling(i);
+        const radius = calling ? 1.23 + Math.sin(time * 18) * 0.13 : 1;
+        this.matrix.makeRotationX(Math.PI / 2).scale(this.ringScale.setScalar(radius)).setPosition(bell.x, 0.075, bell.z);
+        this.ready.setMatrixAt(lit, this.matrix);
+        this.ready.setColorAt(lit++, calling ? this.callColor : this.readyColor);
       }
       if (!loose) {
         this.matrix.makeTranslation(bell.x, 2.35, bell.z);
         this.tethers.setMatrixAt(n++, this.matrix);
       }
     });
+    this.hearing.visible = false;
+    if (!b.invulnerable && !b.dead && b.motion === 'aim' && b.attack === 'listen') {
+      this.hearing.visible = true;
+      const beat = ((b.elapsed + 0.35) % 0.5) / 0.5;
+      this.hearing.position.set(b.x + Math.sin(b.facing) * 1.25, 2.7, b.z + Math.cos(b.facing) * 1.25);
+      this.hearing.rotation.y = b.facing;
+      this.hearing.scale.setScalar(0.8 + beat * 0.95);
+      this.earLight.opacity = 0.95 - beat * 0.7;
+    }
     this.ready.count = lit;
+    if (this.ready.instanceColor) this.ready.instanceColor.needsUpdate = true;
     this.ready.instanceMatrix.needsUpdate = true;
     this.tethers.count = n;
     this.tethers.instanceMatrix.needsUpdate = true;
@@ -180,6 +210,8 @@ export class EchoQuarryView {
     this.pebble.rotation.z = b.stone.y * 1.8;
   }
   dispose(): void {
+    this.earArc.dispose();
+    this.earLight.dispose();
     this.ready.geometry.dispose();
     (this.ready.material as THREE.Material).dispose();
     this.ready.dispose();

@@ -100,9 +100,9 @@ describe('Пожиратель', () => {
   });
   it('промах по герою не открывает шею; в третьей фазе перед повторным броском есть новая метка', () => {
     const { b, w } = setup();
-    b.phase = 3;
     b.beginHunt(0);
     b.step(w, dt);
+    b.phase = 3;
     expect(b.attack).toBe('rush');
     const first = b.tele;
     advance(b, w, () => b.motion === 'active');
@@ -129,6 +129,170 @@ describe('Пожиратель', () => {
     expect(b.hp).toBe(b.maxHp);
     expect(Math.abs(b.bells[2].x)).toBeLessThanOrEqual(5.6);
   });
+  it('для следующей приманки нужны другой колокол и разбег', () => {
+    const { b, w } = setup();
+    ring(w, 0);
+    advance(b, w, () => b.inWindow);
+    expect(b.lastBell).toBe(0);
+    w.hero.x = 8;
+    w.hero.z = 4;
+    advance(b, w, () => b.bellReady(1), 700);
+    expect(b.bellReady(0)).toBe(false);
+    const other = setup();
+    other.b.x = BELL_STANDS[1].x - 0.2; other.b.z = BELL_STANDS[1].z;
+    ring(other.w, 1);
+    expect(other.b.attack).toBe('sweep');
+    expect(other.b.inWindow).toBe(false);
+    expect(other.b.lastBell).toBe(-1);
+  });
+
+  it('кольцо хвоста оставляет у лап место для контратаки', () => {
+    const { b, w } = setup();
+    b.x = BELL_STANDS[1].x; b.z = BELL_STANDS[1].z;
+    w.hero.x = b.x - 2.1; w.hero.z = b.z;
+    ring(w, 1);
+    expect(b.tele?.shape.k).toBe('ring');
+    expect(w.telegraphs.some(t => t.shape.k === 'arc')).toBe(true);
+    const hpAfterSwing = b.hp;
+    w.hero.x = b.x; w.hero.z = b.z + 2;
+    advance(b, w, () => b.inWindow);
+    expect(b.opening).toBe('shoulder');
+    expect(w.run.hitsTaken).toBe(0);
+    expect(b.hp).toBe(hpAfterSwing);
+    const outside = setup();
+    outside.b.x = b.x; outside.b.z = b.z;
+    outside.w.hero.x = b.x - 4.5; outside.w.hero.z = b.z;
+    ring(outside.w, 1);
+    advance(outside.b, outside.w, () => outside.b.motion === 'recover');
+    expect(outside.w.run.hitsTaken).toBe(1);
+  });
+
+  it('охота на слух различает тишину и шум клинка и бьёт по месту звука', () => {
+    const quiet = setup();
+    quiet.b.phase = 2; quiet.b.beginHunt(0);
+    advance(quiet.b, quiet.w, () => quiet.b.attack === 'listen');
+    advance(quiet.b, quiet.w, () => quiet.b.inWindow);
+    expect(quiet.b.opening).toBe('silence');
+    const { b, w } = setup();
+    b.phase = 2; b.beginHunt(0);
+    advance(b, w, () => b.attack === 'listen' && b.elapsed > 0.56);
+    w.bus.emit('swing', { kind: 'light' });
+    advance(b, w, () => w.telegraphs.some(t => t.echo));
+    const t = w.telegraphs.find(t => t.echo)!;
+    const original = [t.shape.x, t.shape.z];
+    expect(t.dur).toBeGreaterThanOrEqual(0.75);
+    w.hero.x = 7;
+    advance(b, w, () => b.attack === 'pounce');
+    expect([b.targetX, b.targetZ]).toEqual(original);
+    expect(w.run.hitsTaken).toBe(0);
+    expect(b.inWindow).toBe(false);
+  });
+
+  it('перекличка предупреждает о каждой линии отдельно; клинок отменяет только свой удар', () => {
+    const { b, w } = setup();
+    b.phase = 3; b.beginHunt(0);
+    advance(b, w, () => b.attack === 'crosscall');
+    const first = b.bells.findIndex((_, i) => b.echoes.isCalling(i));
+    const line = w.telegraphs.find(t => t.echo)!;
+    expect(line.shape.k).toBe('line');
+    expect(line.dur).toBeGreaterThan(1);
+    b.bells[first].cooldown = 5;
+    expect(b.bellReady(first)).toBe(true);
+    ring(w, first);
+    expect(line.alive).toBe(false);
+    expect(b.echoes.isCalling(first)).toBe(false);
+    advance(b, w, () => b.bells.some((_, i) => i !== first && b.echoes.isCalling(i)));
+    const second = w.telegraphs.find(t => t.alive && t.echo)!;
+    expect(second).not.toBe(line);
+    w.hero.x = second.shape.x; w.hero.z = second.shape.z;
+    advance(b, w, () => b.inWindow);
+    expect(w.run.hitsTaken).toBe(1);
+    expect(b.opening).toBe('return');
+  });
+
+  it('переход убирает незавершённые эхо, в броню спереди проходит меньше урона, чем с тыла', () => {
+    const { b, w } = setup();
+    b.facing = 0;
+    w.damageEnemy(b, { ...hit, dirZ: -1, mult: 7 });
+    const frontal = b.maxHp - b.hp, before = b.hp;
+    w.damageEnemy(b, { ...hit, dirZ: 1, mult: 7 });
+    expect(before - b.hp).toBeGreaterThan(frontal * 1.5);
+    b.phase = 3; b.beginHunt(0);
+    advance(b, w, () => b.attack === 'crosscall');
+    b.enterScene('shift');
+    expect(w.telegraphs.filter(t => t.echo && t.alive)).toHaveLength(0);
+    expect(b.bells.some((_, i) => b.bellReady(i))).toBe(false);
+  });
+
+  it('при серии в горло весь завершающий удар проходит, затем зверь предупреждает об ответе', () => {
+    const { b, w } = setup();
+    ring(w, 0);
+    advance(b, w, () => b.inWindow);
+    w.hero.x = b.x + 2; w.hero.z = b.z;
+    const hp = b.hp;
+    w.damageEnemy(b, { ...hit, mult: 24 });
+    expect(hp - b.hp).toBeGreaterThan(b.maxHp * 0.135);
+    b.step(w, dt);
+    expect(b.motion).toBe('aim');
+    expect(b.attack).toBe('rake');
+    expect(b.tele?.shape.k).toBe('arc');
+    expect(w.run.hitsTaken).toBe(0);
+  });
+
+  it('даже внутри кольца перед пастью опасно, а обе метки гаснут при смене фазы', () => {
+    const { b, w } = setup();
+    b.x = BELL_STANDS[0].x; b.z = BELL_STANDS[0].z;
+    w.hero.x = b.x + 2.1; w.hero.z = b.z;
+    ring(w, 0);
+    const marks = w.telegraphs.filter(t => t.alive);
+    expect(marks.map(t => t.shape.k).sort()).toEqual(['arc', 'ring']);
+    advance(b, w, () => b.motion === 'recover');
+    expect(w.run.hitsTaken).toBe(1);
+    expect(b.inWindow).toBe(false);
+    const other = setup();
+    other.b.x = BELL_STANDS[0].x; other.b.z = BELL_STANDS[0].z;
+    ring(other.w, 0);
+    other.b.enterScene('shift');
+    expect(other.w.telegraphs.some(t => t.alive)).toBe(false);
+  });
+
+  it('серия вблизи вызывает отскок с обозначенной траекторией, всплеск от дальней способности — нет', () => {
+    const { b, w } = setup();
+    w.hero.x = b.x; w.hero.z = b.z + 2.1;
+    for (let i = 0; i < 4; i++) w.damageEnemy(b, { ...hit, source: 'ability' });
+    b.step(w, dt);
+    expect(b.motion).toBe('hunt');
+    for (let i = 0; i < 3; i++) w.damageEnemy(b, hit);
+    b.step(w, dt);
+    expect(b.attack).toBe('snap');
+    const tele = b.tele!;
+    expect(tele.shape.k).toBe('line');
+    expect(tele.dur).toBeGreaterThan(0.7);
+    const z = b.z;
+    const target = [b.targetX, b.targetZ];
+    w.hero.x += 4;
+    advance(b, w, () => b.motion === 'active');
+    expect(b.z).toBeLessThan(z);
+    expect([b.targetX, b.targetZ]).toEqual(target);
+    advance(b, w, () => b.motion === 'recover');
+    expect(w.run.hitsTaken).toBe(0);
+  });
+
+  it('без перехвата за двумя линиями следуют две волны, разрыв второй виден заранее', () => {
+    const { b, w } = setup();
+    w.hero.invulnUntil = 1e6;
+    b.phase = 3; b.beginHunt(0);
+    advance(b, w, () => b.attack === 'howl' && b.motion === 'active');
+    expect(w.ringWaves).toHaveLength(1);
+    const next = b.tele!;
+    expect(next.shape.k).toBe('ring');
+    expect(next.dur).toBeGreaterThan(0.9);
+    advance(b, w, () => w.ringWaves.length === 2);
+    const [first, second] = w.ringWaves;
+    expect(Math.abs(first.gaps[0].a - second.gaps[0].a)).toBeCloseTo(Math.PI / 2);
+    expect(next.shape.k === 'ring' && next.shape.gaps).toEqual(second.gaps);
+  });
+
   it.each(['full', 'short', 'skip'] as const)(
     'вступление %s возвращает одного живого босса и безопасный первый замах',
     (variant) => {

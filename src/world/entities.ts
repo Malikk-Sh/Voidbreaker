@@ -17,8 +17,8 @@ export interface Telegraph {
   shadow?: boolean;
   /** Кто поставил метку (враг, чей шаг шёл): по ней атаку повторяет «Тень». */
   owner?: Enemy | null;
-  /** Метка-повтор «Тени» — тёмная. */
-  echo?: boolean;
+  /** Shadow copies are dark red. Sound returning through the quarry is violet. */
+  echo?: boolean | 'quarry';
   /** Не атака (щит Аколита, псалм) — «Тень» её не повторяет. */
   buff?: boolean;
 }

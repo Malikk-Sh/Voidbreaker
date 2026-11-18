@@ -71,7 +71,10 @@ export class DevourerEncounter implements BossController {
     }
     if (this.hintT >= 0) {
       this.hintT -= dt;
-      if (this.hintT < 0) this.hint('Ударь по колоколу и уйди с пути зверя. После столкновения бей в открытое горло.');
+      if (this.hintT < 0) this.hint(b.phase === 1
+        ? 'Замани зверя издалека. Меняй колокола. Перед взмахом хвоста зайди зверю за плечо.'
+        : b.phase === 2 ? 'Зверь поднял слуховые пластины. Замри до третьего щелчка — и он откроет горло.'
+        : 'Колокола бьют по очереди. Ударь клинком по пульсирующему ободу, чтобы заглушить волну.');
     }
   }
   transition(to: 2 | 3): void {
@@ -105,6 +108,7 @@ export class DevourerEncounter implements BossController {
         b.facing = Math.atan2(w.hero.x - b.x, w.hero.z - b.z);
         b.beginHunt(0.9);
         this.scene = false;
+        this.hintT = 0.05;
         this.host.musicPhase(to - 1);
       }
     );

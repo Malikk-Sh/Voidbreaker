@@ -48,7 +48,7 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   bellRinger: { id: 'bellRinger', name: 'Жакемар', hp: 1500, dmg: 22, speed: 2.4, radius: 1.4, mass: 30, height: 4.6, stun: 120, stunDur: 2.5, drop: 30, staggerable: false },
   // обелиск Проповеди: держит 3 удара или 1 полный заряд (план §8.3); HP — число ударов
   obelisk: { id: 'obelisk', name: 'Обелиск', hp: 3, dmg: 0, speed: 0, radius: 0.75, mass: 999, height: 3.6, drop: 0, staggerable: false },
-  devourer: { id: 'devourer', name: 'Пожиратель', hp: 2720, dmg: 32, speed: 2.65, radius: 1.45, mass: 999, height: 3.25, drop: 0, staggerable: false },
+  devourer: { id: 'devourer', name: 'Пожиратель', hp: 3820, dmg: 42, speed: 3.35, radius: 1.45, mass: 999, height: 3.25, drop: 0, staggerable: false },
   hierophant: { id: 'hierophant', name: 'Иерофант Скорби', hp: 9000, dmg: 34, speed: 2.6, radius: 2.2, mass: 999, height: 7.5, stun: 120, stunDur: 3.5, drop: 0, staggerable: false },
 };
 

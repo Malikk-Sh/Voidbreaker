@@ -683,6 +683,16 @@ export class FeelSystem {
         this.cam.addTrauma(0.25);
         this.vfx.lights.flash(e.x, e.y, e.z, C.hungerHot, 5, 12, 0.5);
       }),
+      b.on('quarryWave', (e) => {
+        const count = Math.max(8, Math.round(24 * this.vfx.quality));
+        for (let i = 0; i < count; i++) {
+          const t = (i + 0.5) * e.len / count;
+          this.vfx.add.emit({ x: e.x + e.dx * t, y: 0.22, z: e.z + e.dz * t,
+            vx: e.dx * 2, vz: e.dz * 2, vy: 1.4, life: 0.32, size: 0.22, size1: 0.04,
+            color: C.gold, frame: 'spark', drag: 1.2 });
+        }
+        this.cam.addTrauma(0.12);
+      }),
       b.on('heartBeam', (e) => {
         if (e.first) this.audio.play('beam', { gain: 0.7 });
         else this.audio.play('slash_enemy', { gain: 0.35, pitch: 0.7, pan: this.pan(e.x) });

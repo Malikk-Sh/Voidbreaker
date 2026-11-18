@@ -129,7 +129,36 @@ const howl: Pose = {
   finL: [0, 0.56, 0.42],
   finR: [0, -0.56, -0.42],
 };
+const tailWind: Pose = {
+  ...coil, body: [0.05, -0.36, -0.13], neck: [0.09, 0.46, 0.09],
+  hipL: [-0.43, -0.31, 0.24], tail: [-0.38, -0.94, -0.16],
+  tailMid: [-0.29, -0.81, -0.1], tailTip: [-0.12, -1.03, 0],
+};
+const tailStrike: Pose = {
+  ...stretch, body: [-0.02, 0.43, 0.12], chest: [0.03, 0.29, 0.05],
+  neck: [0, -0.55, -0.12], tail: [-0.12, 1.14, 0.04],
+  tailMid: [0.16, 0.9, 0], tailTip: [0.12, 0.55, 0],
+};
+const earsUp: Pose = {
+  ...hear, body: [-0.08, 0, 0], neck: [-0.32, -0.16, 0.14], jaw: [0.02, 0, 0],
+  finL: [-0.48, 0.82, 0.67], finR: [-0.48, -0.82, -0.67],
+  shoulderL: [-0.21, 0, 0.2], shoulderR: [-0.21, 0, -0.2], tail: [-0.38, 0, 0],
+};
+const groundBlow: Pose = {
+  ...coil, chest: [0.39, 0.12, -0.15], neck: [0.53, 0.12, 0.1], head: [-0.19, 0, 0],
+  jaw: [0.76, 0, 0], shoulderL: [-0.81, -0.21, 0.31], elbowL: [0.78, 0, 0.06],
+  shoulderR: [-0.56, 0, -0.28], tailMid: [-0.44, 0.2, 0],
+};
 export const DEVOURER_CLIPS: ClipDef[] = [
+  clip('snap', [key(0, rest), key(0.34, { ...coil, chest: [-0.16,0,0], neck: [-0.34,0,0], jaw: [0.9,0,0] }, -0.18),
+    key(0.7, { ...coil, head: [-0.42,0,0], jaw: [1.16,0,0] }, -0.26),
+    key(0.84, { ...stretch, neck: [0.24,0,0], head: [0.2,0,0], jaw: [0.05,0,0] }, 0.13), key(1, rest)]),
+  clip('tailSweep', [key(0, rest), key(0.36, tailWind, -0.14), key(0.69, tailWind, -0.21),
+    key(0.82, tailStrike, 0.1), key(1, rest)]),
+  clip('soundHunt', [key(0, rest), key(0.2, earsUp, 0.13), key(0.48, mirror(earsUp), 0.16),
+    key(0.72, earsUp, 0.15), key(1, mirror(hear), 0.03)]),
+  clip('groundCall', [key(0, groundBlow, -0.16), key(0.21, howl, 0.19), key(0.36, mirror(groundBlow), -0.17),
+    key(0.52, mirror(groundBlow), -0.11), key(0.78, howl, 0.19), key(1, rest)]),
   clip('listen', [key(0, rest), key(0.31, hear, 0.025), key(0.7, hear, 0.045), key(1, rest)], true),
   clip(
     'stalk',
