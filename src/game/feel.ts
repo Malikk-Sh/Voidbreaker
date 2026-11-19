@@ -344,7 +344,7 @@ export class FeelSystem {
         }
       }),
       // Жакемар: каждый удар колокола виден
-      b.on('bellPulse', (e) => this.vfx.bellPulse(e.x, e.y, e.z, e.big)),
+      b.on('bellPulse', (e) => this.vfx.bellPulse(e.x, e.y, e.z, e.big, e.color)),
       b.on('bellResonance', (e) => this.quarryNote(e)),
       b.on('quarryBreath', (e) => this.quarryBreath(e)),
       ...this.greatBellFeel(),

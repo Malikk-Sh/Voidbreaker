@@ -90,7 +90,7 @@ export interface GameEvents {
   quarryWave: { x: number; z: number; dx: number; dz: number; len: number };
   bellResonance: { x: number; z: number; tx: number; tz: number; bell: number; notes: number; kind: 'bell' | 'downbeat' | 'chord' };
   quarryBreath: { x: number; z: number; facing: number };
-  bellPulse: { x: number; y: number; z: number; big: boolean };
+  bellPulse: { x: number; y: number; z: number; big: boolean; color?: 'star' | 'gold' };
   /** Страж Врат: герой побежал по древку застрявшей алебарды; удар в шлем. */
   shaftRun: { x: number; z: number };
   helmetHit: { x: number; y: number; z: number };

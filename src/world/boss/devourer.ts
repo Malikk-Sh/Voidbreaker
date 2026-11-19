@@ -156,8 +156,9 @@ export class Devourer extends Enemy {
   private sound(w: World, i: number, blade: boolean): void {
     const b = this.bells[i];
     b.pulse = 1;
-    w.bus.emit('bellPulse', { x: b.x, y: i === 2 && this.loose ? 0.78 : 1.45, z: b.z, big: blade });
+    const at = { x: b.x, y: i === 2 && this.loose ? 0.78 : 1.45, z: b.z };
     if (!blade) {
+      w.bus.emit('bellPulse', { ...at, big: false, color: 'gold' });
       w.bus.emit('sfx', { id: 'tele_bell', x: b.x, z: b.z, gain: 0.48 });
       return;
     }
@@ -170,6 +171,7 @@ export class Devourer extends Enemy {
     const notes = this.bells.reduce((n, _, index) => n + Number(!!(this.chordMask & (1 << index))), 0);
     const chord = notes === this.bells.length;
     const kind = chord ? 'chord' : precise ? 'downbeat' : 'bell';
+    w.bus.emit('bellPulse', { ...at, big: true, color: kind === 'bell' ? 'star' : 'gold' });
     if (chord) {
       this.chordMask = 0;
       this.chordLeft = 0;

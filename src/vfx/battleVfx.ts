@@ -356,11 +356,12 @@ export class BattleVfx {
   }
 
   /** Удар колокола виден: вспышка на колоколе и кольцо по полу (дубль звука). */
-  bellPulse(x: number, y: number, z: number, big: boolean): void {
-    this.add.emit({ x, y, z, life: 0.3, size: big ? 1.6 : 1.0, size1: big ? 3.2 : 2, color: C.hungerHot, alpha: 0.55, frame: 'ring' });
-    this.add.emit({ x, y, z, life: 0.18, size: big ? 1.4 : 0.9, size1: 0.3, color: C.ember, alpha: 0.8, frame: 'dot' });
-    this.rings.spawn(x, z, 0.4, big ? 3.6 : 2.4, 0.4, C.hungerHot, 0.12, big ? 0.9 : 0.5);
-    this.lights.flash(x, y, z, C.hunger, big ? 4 : 2.5, 6, 0.25);
+  bellPulse(x: number, y: number, z: number, big: boolean, color?: 'star' | 'gold'): void {
+    const rim = color === 'star' ? C.starHot : color === 'gold' ? C.gold : C.hungerHot;
+    this.add.emit({ x, y, z, life: 0.3, size: big ? 1.6 : 1.0, size1: big ? 3.2 : 2, color: rim, alpha: 0.55, frame: 'ring' });
+    this.add.emit({ x, y, z, life: 0.18, size: big ? 1.4 : 0.9, size1: 0.3, color: color ? C.core : C.ember, alpha: 0.8, frame: 'dot' });
+    this.rings.spawn(x, z, 0.4, big ? 3.6 : 2.4, 0.4, rim, 0.12, big ? 0.9 : 0.5);
+    this.lights.flash(x, y, z, color ? C[color] : C.hunger, big ? 4 : 2.5, 6, 0.25);
   }
 
   /** «Тень» проявилась или рассеялась: багровый дым на её месте. */
