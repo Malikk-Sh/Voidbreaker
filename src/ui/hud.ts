@@ -6,6 +6,7 @@ import { ABILITIES, type AbilityId } from '../data/abilities';
 import type { Input } from '../input/input';
 import type { Abilities } from '../world/abilities';
 import type { Enemy } from '../world/enemy';
+import type { Devourer } from '../world/boss/devourer';
 import { STUN_IMMUNE } from '../world/actor';
 import type { World } from '../world/world';
 import { drawTitle, measureTitle, type TitleOpts } from './font';
@@ -61,6 +62,7 @@ export interface HudFrame {
   /** Тренировочный зал: активное упражнение и шаг. */
   training?: TrainingCard;
   heart?: HeartBarState;
+  quarry?: Pick<Devourer, 'chordMask' | 'chordLeft' | 'opening' | 'elapsed' | 'duration' | 'attack' | 'motion' | 'bellStunned'>;
 }
 
 /** Кто целится издалека — им шевроны у края экрана. */
@@ -209,7 +211,10 @@ export class Hud {
     if (f.debugNav) this.drawNav(f);
     this.drawHeroPanel(f, L, T, s);
     if (f.heart) drawHeartBar(g,f.heart,this.w/2,T,s);
-    else if (f.boss) this.drawBossBar(s, T, f.boss, f.bossName, f.bossPhases, f.bossPhase);
+    else if (f.boss) {
+      this.drawBossBar(s, T, f.boss, f.bossName, f.bossPhases, f.bossPhase);
+      if (f.quarry) this.drawQuarryNotes(s, T, f.quarry);
+    }
     else if (f.guardian && !f.guardian.dead) {
       // Звонарь: ромбы на порогах HP, которые держит колокол, и фаза по целым верёвкам
       const g = f.guardian as Enemy & { hudPhases?: readonly number[]; phase?: number };
@@ -583,6 +588,33 @@ export class Hud {
       if (boss.shatterable) { g.globalAlpha = 0.7 + 0.3 * Math.sin(this.time * 12); this.text('ОГЛУШЁН — РАСКОЛ!', this.w / 2, sy + 25 * s, 11 * s, UI.goldHi, 'bodyBold', 'center'); g.globalAlpha = 0.95; }
     }
     if (phase > 0) this.text(`ФАЗА ${ROMAN[phase - 1] ?? ''}`, x + w, y - 8 * s, 10 * s, UI.goldHi, 'bodyBold', 'right');
+  }
+
+  private drawQuarryNotes(s: number, top: number, b: NonNullable<HudFrame['quarry']>): void {
+    const chord = b.opening === 'chord';
+    const stunned = b.bellStunned;
+    const returning = b.motion === 'aim' && b.attack === 'reprise';
+    if (!b.chordMask && !stunned && !returning) return;
+    const cx = this.w / 2, y = top + 60 * s, glyph = Math.max(0.8, s);
+    const color = chord || b.opening === 'downbeat' ? UI.goldHi : UI.star;
+    // Each group matches the number of prisms over its physical bell.
+    for (let bell = 0; bell < 3; bell++) {
+      const lit = chord || !!(b.chordMask & (1 << bell));
+      for (let i = 0; i <= bell; i++) {
+        const x = cx + (bell - 1) * 24 * glyph + (i - bell / 2) * 6.5 * glyph;
+        this.diamond(x, y, 3.8 * glyph, lit ? color : UI.ink, lit ? color : UI.dim, glyph);
+      }
+    }
+    const line = returning ? 'ОБРАТНОЕ ЭХО' : chord ? 'АККОРД · ОГЛУШЁН' : b.opening === 'downbeat' ? 'ТОЧНЫЙ ЗВОН · ОГЛУШЁН'
+      : stunned ? 'ОГЛУШЁН' : `АККОРД · ${Math.ceil(b.chordLeft)} с`;
+    this.text(line, cx, y + 17 * glyph, Math.max(10, 12 * s), returning ? UI.redHi : color, 'tech', 'center');
+    if (stunned) {
+      const width = 80 * s;
+      this.g.fillStyle = UI.ink;
+      this.g.fillRect(cx - width / 2, y + 21 * glyph, width, 2 * s);
+      this.g.fillStyle = color;
+      this.g.fillRect(cx - width / 2, y + 21 * glyph, width * clamp(1 - b.elapsed / b.duration, 0, 1), 2 * s);
+    }
   }
 
   // ------------------------------------------------------------------ ранг комбо

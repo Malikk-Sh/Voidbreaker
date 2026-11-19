@@ -32,7 +32,10 @@ export function devourerIntro(hx = 0, hz = 6): CineTrack {
     pose(3.55, 'bound', 0.6),
     cue(4.14, 'stoneImpact'),
     { t: 4.14, do: 'hold', dur: 0.075 },
-    pose(4.15, 'crash', 0.63),
+    pose(4.15, 'brace', 0.69),
+    { t: 4.16, do: 'actor', who: 'echoStone', moveTo: [-4.8, 2.35, -0.18], dur: 0.38, ease: 'outQuad' },
+    { t: 4.54, do: 'actor', who: 'echoStone', moveTo: [-7.04, 1.41, 1.15], dur: 0.40, ease: 'inQuad' },
+    { t: 4.95, do: 'actor', who: 'echoStone', moveTo: [-6.85, 0.24, 1.43], dur: 0.46, ease: 'inQuad' },
   ];
   return {
     id: DEVOURER_SCENES[0],
@@ -100,19 +103,22 @@ export function devourerIntro(hx = 0, hz = 6): CineTrack {
       cam(
         4.68,
         [
-          [-2.08, 1.43, 2.71],
-          [-1.76, 1.81, 2.14],
+          [-8.95, 1.77, 4.65],
+          [-6.45, 2.21, 4.82],
         ],
         [
-          [-1.91, 1.86, -1.98],
-          [-2.03, 2.07, -1.91],
+          [-6.0, 1.49, 0.58],
+          [-1.1, 1.46, -2.55],
         ],
         1.65,
         46
       ),
-      pose(4.83, 'roar', 1.48),
-      sound(5.3, 'boss_roar', 0.75),
-      { t: 5.47, do: 'banner', text: 'ПОЖИРАТЕЛЬ', color: 'hunger', size: 48, dur: 2.2 },
+      cue(4.94, 'bellAnswer'),
+      pose(5.03, 'bellFall', 1.03),
+      pose(6.06, 'bellRise', 0.77),
+      sound(6.87, 'boss_roar', 0.72),
+      pose(6.87, 'roar', 1.20),
+      { t: 6.0, do: 'banner', text: 'ПОЖИРАТЕЛЬ', color: 'hunger', size: 48, dur: 1.87 },
       cam(
         6.33,
         [
@@ -147,7 +153,10 @@ export function devourerIntro(hx = 0, hz = 6): CineTrack {
       { t: 0.4, do: 'actor', who: 'boss', moveTo: LANDING, lookAt: STONE_MARK, dur: 0.55, ease: 'inQuad' },
       pose(0.4, 'bound', 0.55),
       cue(0.95, 'stoneImpact'),
-      pose(0.99, 'roar', 0.92),
+      { t: 0.95, do: 'actor', who: 'echoStone', moveTo: [-7.04, 1.41, 1.15], dur: 0.36, ease: 'outQuad' },
+      cue(1.31, 'bellAnswer'),
+      pose(1.36, 'bellFall', 0.65),
+      pose(2.01, 'bellRise', 0.5),
       { t: 1.03, do: 'banner', text: 'ПОЖИРАТЕЛЬ', color: 'hunger', size: 47, dur: 1.5 },
       cam(
         1.4,
@@ -208,7 +217,7 @@ export function devourerShift(phase: 2 | 3, x = 0, z = 0): CineTrack {
     };
   return {
     id: DEVOURER_SCENES[2],
-    dur: 2.58,
+    dur: 3.12,
     blendOut: 0.36,
     steps: [
       cam(
@@ -221,13 +230,19 @@ export function devourerShift(phase: 2 | 3, x = 0, z = 0): CineTrack {
           [x, 1.65, z],
           [x, 2.15, z],
         ],
-        1.85,
+        1.3,
         52
       ),
-      pose(0, 'roar', 1.55),
-      cue(0.68, 'echoCry'),
-      sound(0.76, 'boss_roar', 0.75),
-      { t: 0.83, do: 'banner', text: 'ПОСЛЕДНЕЕ ЭХО', color: 'hunger', size: 40, dur: 1.45 },
+      pose(0, 'inhale', 1.27),
+      cue(0.13, 'drawBreath'),
+      pose(1.27, 'vent', 0.85),
+      cam(1.3, [[0.4, 8.8, 12.4], [0, 12.8, 11.9]], [[0, 0.9, -1.4]], 1.62, 59),
+      cue(1.84, 'echoCry'),
+      sound(1.84, 'boss_roar', 0.8),
+      { t: 1.97, do: 'call', fn: 'rimAnswer', arg: 0 },
+      { t: 2.09, do: 'call', fn: 'rimAnswer', arg: 1 },
+      { t: 2.21, do: 'call', fn: 'rimAnswer', arg: 2 },
+      { t: 1.67, do: 'banner', text: 'ПОСЛЕДНЕЕ ЭХО', color: 'hunger', size: 40, dur: 1.36 },
     ],
   };
 }

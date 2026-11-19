@@ -4,6 +4,7 @@ import { GeomBuilder, mat, matAlong, SURF } from '../geom/build';
 import { box, lathe, prism, rock } from '../geom/prims';
 import { obsidianMaterial } from '../../render/materials';
 import type { Devourer } from '../../world/boss/devourer';
+import { QuarryRubble } from './quarryRubble';
 
 const iron = '#495665',
   bronze = '#a97d4f',
@@ -61,7 +62,7 @@ export function quarryFrames(g: GeomBuilder): void {
 }
 
 type QuarryFrame = Pick<Devourer, 'bells' | 'loose' | 'dead' | 'stone' | 'motion'> &
-  ({ invulnerable: true } | Pick<Devourer, 'invulnerable' | 'bellReady' | 'echoes' | 'attack' | 'elapsed' | 'x' | 'z' | 'facing'>);
+  ({ invulnerable: true } | Pick<Devourer, 'invulnerable' | 'bellReady' | 'echoes' | 'patterns' | 'attack' | 'elapsed' | 'chordMask' | 'opening' | 'downbeat' | 'x' | 'z' | 'facing'>);
 
 export class EchoQuarryView {
   readonly root = new THREE.Group();
@@ -76,14 +77,17 @@ export class EchoQuarryView {
   private readonly bells: THREE.Mesh[];
   private readonly tethers: THREE.InstancedMesh;
   private readonly ready: THREE.InstancedMesh;
+  private readonly noteMarks: THREE.InstancedMesh;
   private readonly pebble: THREE.Mesh;
+  private readonly rubble = new QuarryRubble(this.material);
   private readonly hearing = new THREE.Group();
   private readonly earArc = new THREE.TorusGeometry(1.05, 0.044, 4, 18, 1.9);
   private readonly earLight = new THREE.MeshBasicMaterial({ color: '#ffcf82', transparent: true, depthWrite: false });
   private readonly matrix = new THREE.Matrix4();
   private readonly ringScale = new THREE.Vector3();
   private readonly readyColor = new THREE.Color('#9bd7cd');
-  private readonly callColor = new THREE.Color('#ffc158');
+  private readonly callColor = new THREE.Color('#ffcc66');
+  private readonly heldColor = new THREE.Color('#99c1fa');
   constructor() {
     const g = new GeomBuilder();
     g.add(
@@ -138,13 +142,14 @@ export class EchoQuarryView {
       this.root.add(m);
       return m;
     });
+    const indicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.ready = new THREE.InstancedMesh(
-      new THREE.TorusGeometry(1.05, 0.035, 4, 32),
-      new THREE.MeshBasicMaterial({ color: 0xffffff }),
-      3
+      new THREE.TorusGeometry(1.05, 0.045, 4, 36), indicatorMaterial, 6
     );
-    this.ready.frustumCulled = false;
-    this.root.add(this.ready);
+    this.noteMarks = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.16), indicatorMaterial, 6);
+    this.noteMarks.frustumCulled = this.ready.frustumCulled = false;
+    this.noteMarks.count = 0;
+    this.root.add(this.ready, this.noteMarks);
     const chains = new GeomBuilder();
     for (let i = 0; i < 5; i++)
       chains.add(new THREE.TorusGeometry(0.09, 0.025, 4, 10), {
@@ -168,23 +173,47 @@ export class EchoQuarryView {
     const pebble = new GeomBuilder();
     pebble.add(rock(0.31, 0, 0.17, 11), { color: '#aaafa0' });
     this.pebble = new THREE.Mesh(pebble.build(), this.material);
-    this.root.add(this.pebble);
+    this.root.add(this.pebble, this.rubble.mesh);
   }
   sync(b: QuarryFrame, time: number): void {
-    let n = 0,
-      lit = 0;
+    this.rubble.sync(b.invulnerable || b.dead ? null : b.patterns);
+    let n = 0, lit = 0, notes = 0;
     this.bells.forEach((m, i) => {
       const bell = b.bells[i],
         loose = i === 2 && b.loose;
       m.position.set(bell.x, loose ? 0.87 : 1.37, bell.z);
       m.rotation.x = loose ? Math.PI / 2 : 0;
       m.rotation.z = loose ? bell.roll - bell.x * 0.55 : Math.sin(time * 17) * bell.pulse * 0.25;
-      if (!b.invulnerable && !b.dead && b.bellReady(i)) {
-        const calling = b.echoes.isCalling(i);
-        const radius = calling ? 1.23 + Math.sin(time * 18) * 0.13 : 1;
-        this.matrix.makeRotationX(Math.PI / 2).scale(this.ringScale.setScalar(radius)).setPosition(bell.x, 0.075, bell.z);
-        this.ready.setMatrixAt(lit, this.matrix);
-        this.ready.setColorAt(lit++, calling ? this.callColor : this.readyColor);
+      if (!b.invulnerable && !b.dead) {
+        const bit = 1 << i;
+        const fullChord = b.opening === 'chord';
+        const held = !!(b.chordMask & bit) || fullChord;
+        const ready = b.bellReady(i);
+        const completes = (b.chordMask | bit) === 7;
+        const accent = fullChord || completes || b.downbeat || b.echoes.isCalling(i);
+        if (ready || fullChord) {
+          const radius = accent ? 1.15 + Math.sin(time * 16) * 0.10 : 1;
+          this.matrix.makeRotationX(Math.PI / 2).scale(this.ringScale.setScalar(radius)).setPosition(bell.x, 0.09, bell.z);
+          this.ready.setMatrixAt(lit, this.matrix);
+          this.ready.setColorAt(lit++, accent ? this.callColor : this.readyColor);
+          if (completes || fullChord) {
+            this.matrix.makeRotationX(Math.PI / 2).scale(this.ringScale.setScalar(radius + 0.35)).setPosition(bell.x, 0.10, bell.z);
+            this.ready.setMatrixAt(lit, this.matrix);
+            this.ready.setColorAt(lit++, this.callColor);
+          }
+        }
+        // One, two and three prisms identify the pitches even without sound or colour.
+        // Collected notes hang above their bell while the readiness ring cools down.
+        if (ready || held) {
+          const y = (loose ? 1.88 : 2.49) + 0.08 * Math.sin(time * 3.8 + i);
+          const color = fullChord || (ready && accent) ? this.callColor : held ? this.heldColor : this.readyColor;
+          this.matrix.makeRotationY(time * 1.8).scale(this.ringScale.set(0.88, 1.7, 0.88));
+          for (let j = 0; j <= i; j++) {
+            this.matrix.setPosition(bell.x + (j - i / 2) * 0.34, y, bell.z + 0.48);
+            this.noteMarks.setMatrixAt(notes, this.matrix);
+            this.noteMarks.setColorAt(notes++, color);
+          }
+        }
       }
       if (!loose) {
         this.matrix.makeTranslation(bell.x, 2.35, bell.z);
@@ -200,6 +229,9 @@ export class EchoQuarryView {
       this.hearing.scale.setScalar(0.8 + beat * 0.95);
       this.earLight.opacity = 0.95 - beat * 0.7;
     }
+    this.noteMarks.count = notes;
+    this.noteMarks.instanceMatrix.needsUpdate = true;
+    if (this.noteMarks.instanceColor) this.noteMarks.instanceColor.needsUpdate = true;
     this.ready.count = lit;
     if (this.ready.instanceColor) this.ready.instanceColor.needsUpdate = true;
     this.ready.instanceMatrix.needsUpdate = true;
@@ -210,8 +242,11 @@ export class EchoQuarryView {
     this.pebble.rotation.z = b.stone.y * 1.8;
   }
   dispose(): void {
+    this.rubble.dispose();
     this.earArc.dispose();
     this.earLight.dispose();
+    this.noteMarks.geometry.dispose();
+    this.noteMarks.dispose();
     this.ready.geometry.dispose();
     (this.ready.material as THREE.Material).dispose();
     this.ready.dispose();

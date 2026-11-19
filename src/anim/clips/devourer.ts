@@ -149,7 +149,65 @@ const groundBlow: Pose = {
   jaw: [0.76, 0, 0], shoulderL: [-0.81, -0.21, 0.31], elbowL: [0.78, 0, 0.06],
   shoulderR: [-0.56, 0, -0.28], tailMid: [-0.44, 0.2, 0],
 };
+const rearUp: Pose = {
+  ...coil, body: [-0.19, 0.04, 0], chest: [-0.38, 0, 0], neck: [-0.13, 0, 0],
+  shoulderL: [-1.02, -0.13, 0.42], shoulderR: [-1.02, 0.13, -0.42],
+  elbowL: [0.94, 0, 0.16], elbowR: [0.94, 0, -0.16], tail: [0.39, 0, 0],
+};
+const hammer: Pose = {
+  ...groundBlow, body: [0.21, 0, 0], chest: [0.32, 0, 0], jaw: [0.48, 0, 0],
+  shoulderL: [-0.46, 0, 0.37], shoulderR: [-0.46, 0, -0.37], elbowL: [0.18, 0, 0], elbowR: [0.18, 0, 0],
+};
+const drawBreath: Pose = {
+  ...earsUp, chest: [-0.33, 0, 0], head: [0.19, 0, 0], jaw: [1.25, 0, 0],
+  finL: [-0.53, 0.84, 0.71], finR: [-0.53, -0.84, -0.71],
+  gillL: [0, -0.72, 1.04], gillR: [0, 0.72, -1.04], tailMid: [-0.38, 0.19, 0],
+};
+const spit: Pose = {
+  ...stretch, body: [0.2, 0, 0], neck: [0.07, 0, 0], head: [-0.12, 0, 0], jaw: [0.89, 0, 0],
+  finL: [-0.22, -0.21, -0.42], finR: [-0.22, 0.21, 0.42],
+};
+const dropped: Pose = {
+  ...opened, body: [0.16, -0.07, -0.32], chest: [0.25, 0.07, -0.13],
+  neck: [-0.48, 0.22, 0.18], head: [-0.22, 0.2, 0.32],
+  shoulderL: [-0.79, -0.22, 0.71], elbowL: [0.97, 0, 0.26],
+  shoulderR: [0.29, 0.06, -0.52], elbowR: [0.78, 0.12, -0.26],
+  hipL: [-0.58, 0.12, 0.26], hockL: [1.06, 0, 0], hipR: [-0.3, 0, -0.16],
+  hockR: [0.79, 0.08, 0], tailMid: [0.32, 0.58, 0.12], tailTip: [0, 0.67, 0],
+};
+const bellFlinch: Pose = {
+  ...dropped, neck: [-0.66, -0.21, 0.25], head: [-0.42, -0.32, -0.14],
+  gillL: [-0.2, -0.39, 1.16], jaw: [1.17, 0, 0], tailTip: [-0.18, -0.41, 0],
+};
 export const DEVOURER_CLIPS: ClipDef[] = [
+  clip('bellFall', [key(0, rest), key(0.13, { ...flinch, finL: [0, 0.8, 0.86], finR: [0, -0.8, -0.86] }, 0.09),
+    key(0.46, dropped, -0.62), key(0.69, { ...dropped, tailTip: [-0.29, -0.43, 0] }, -0.48), key(1, dropped, -0.53)]),
+  clip('bellWoundL', [key(0, dropped, -0.53), key(0.19, bellFlinch, -0.42), key(1, dropped, -0.53)]),
+  clip('bellWoundR', [key(0, dropped, -0.53),
+    key(0.19, { ...dropped, neck: [-0.66, 0.4, -0.2], head: [-0.42, 0.34, 0.3], jaw: [1.18, 0, 0] }, -0.42),
+    key(1, dropped, -0.53)]),
+  clip('bellRise', [key(0, dropped, -0.53), key(0.44, { ...coil, head: [-0.31, 0, 0] }, -0.23), key(1, rest)]),
+  clip('fault', [
+    key(0, rest), key(0.24, rearUp, 0.28), key(0.35, rearUp, 0.35),
+    key(0.40, hammer, -0.28), key(0.55, { ...rearUp, head: [-0.24, 0, 0] }, 0.2),
+    key(0.73, rearUp, 0.42), key(0.79, hammer, -0.33), key(1, rest),
+  ]),
+  clip('caveIn', [
+    key(0, rest), key(0.19, { ...earsUp, head: [-0.63, 0.15, 0] }, 0.19),
+    key(0.34, howl, 0.25), key(0.48, mirror(howl), 0.16), key(0.60, coil, -0.28),
+    key(0.71, stretch, 0.08), key(0.81, { ...stretch, jaw: [0.83, 0, 0] }),
+    key(0.85, hammer, -0.35), key(1, rest),
+  ]),
+  clip('inhale', [
+    key(0, coil, -0.14), key(0.27, drawBreath, 0.1),
+    key(0.75, { ...drawBreath, neck: [-0.26, 0, 0], jaw: [1.39, 0, 0] }, 0.18),
+    key(1, { ...coil, gillL: [0, -0.34, 0.51], gillR: [0, 0.34, -0.51] }, -0.14),
+  ]),
+  clip('vent', [
+    key(0, coil, -0.14), key(0.47, { ...coil, head: [-0.13, 0, 0], jaw: [0.29, 0, 0] }, -0.22),
+    key(0.64, { ...coil, neck: [-0.29, 0, 0] }, -0.24), key(0.69, spit, 0.08),
+    key(0.79, { ...spit, neck: [-0.25, 0, 0] }, 0.13), key(1, rest),
+  ]),
   clip('snap', [key(0, rest), key(0.34, { ...coil, chest: [-0.16,0,0], neck: [-0.34,0,0], jaw: [0.9,0,0] }, -0.18),
     key(0.7, { ...coil, head: [-0.42,0,0], jaw: [1.16,0,0] }, -0.26),
     key(0.84, { ...stretch, neck: [0.24,0,0], head: [0.2,0,0], jaw: [0.05,0,0] }, 0.13), key(1, rest)]),

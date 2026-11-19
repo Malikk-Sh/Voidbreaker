@@ -40,14 +40,6 @@ export class QuarryEchoes {
 
   isCalling(bell: number): boolean { return this.pending.some(e => e.bell === bell); }
 
-  mute(bell: number): boolean {
-    const index = this.pending.findIndex(e => e.bell === bell);
-    if (index < 0) return false;
-    this.pending[index].warning.alive = false;
-    this.pending.splice(index, 1);
-    return true;
-  }
-
   step(w: World, owner: Enemy, dt: number): void {
     for (let i = this.pending.length - 1; i >= 0; i--) {
       const e = this.pending[i];

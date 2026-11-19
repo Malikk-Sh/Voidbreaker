@@ -704,7 +704,7 @@ export class Battle {
       const beast = this.runner.boss;
       this.props.set('echoStone', beast.stone);
       this.props.set('echoBell', beast.bells[2]);
-      this.boss = new DevourerEncounter(this.bossHost(), beast, text => this.ctx.hud.showHint(text, 6));
+      this.boss = new DevourerEncounter(this.bossHost(), beast, text => this.ctx.hud.showHint(text, 12));
       // цепи, колокола-спутники и прочие объекты босса — тоже до первого кадра с ними
       void this.ctx.renderer.warmAll(this.group, () => !this.disposed);
     }
@@ -1848,11 +1848,13 @@ export class Battle {
 
   hudFrame(): Parameters<GameContext['hud']['draw']>[1] {
     const r = this.ctx.renderer;
+    const boss = this.boss?.hudBoss() ?? null;
     return {
       world: this.world, abilities: this.abilities, input: this.ctx.input,
       project: (x, y, z, out) => r.project(x, y, z, out),
       wave: this.runner.phase === 'intro' || this.runner.phase === 'clear' || this.stage.boss || this.stage.training ? null : { index: Math.max(0, this.runner.waveIdx), total: this.runner.waveTotal },
-      boss: this.boss?.hudBoss() ?? null, bossName: this.boss?.name ?? '', bossPhases: this.boss?.phaseMarks ?? [], bossPhase: this.boss?.phase ?? 0,
+      boss, bossName: this.boss?.name ?? '', bossPhases: this.boss?.phaseMarks ?? [], bossPhase: this.boss?.phase ?? 0,
+      quarry: boss instanceof Devourer ? boss : undefined,
       guardian: this.runner.guardian,
       stageLabel: this.stage.boss ? 'БОСС' : this.stage.training ? 'ЗАЛ' : `${this.stage.zone + 1}-${this.stage.index + 1}`,
       stageName: this.stage.name,

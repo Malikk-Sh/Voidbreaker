@@ -224,6 +224,16 @@ export const SFX: Record<string, SfxRecipe> = {
   // «камень по металлу» + восходящие колокольчики
   ui_upgrade: { len: 1.6, render: (c, o, t) => { industrial(c, o, t, 0.25, 330); [62, 69, 74, 81].forEach((n, i) => bell(c, o, t + 0.05 + i * 0.07, mtof(n), 0.05, 1.2)); } },
   boss_bell: { reverb: 0.25, len: 5, render: (c, o, t) => { bell(c, o, t, 98, 0.35, 5); kick(c, o, t, 0.5, 30); } },
+  quarry_note: { reverb: 0.19, len: 1.85, render: (c, o, t) => {
+    transient(c, o, t, 2350, 0.25);
+    bell(c, o, t, mtof(47), 0.27, 1.8);
+    pluck(c, o, t + 0.025, mtof(71), 0.52, 0.075);
+  } },
+  quarry_chord: { reverb: 0.24, len: 2.65, render: (c, o, t) => {
+    [47, 50, 54].forEach((note, i) => bell(c, o, t + i * 0.075, mtof(note), 0.135, 2.3 - i * 0.25));
+    metal(c, o, t + 0.14, 1280, 0.09, 0.34);
+    sub(c, o, t + 0.155, 82, 39, 0.55, 0.38);
+  } },
   boss_roar: { reverb: 0.25, len: 2.0, render: (c, o, t) => { growl(c, o, t, 1.6, 55, 0.45); bell(c, o, t, 73.4, 0.15, 1.8); } },
   step_heavy: { len: 0.4, variants: 2, render: (c, o, t) => { body(c, o, t, 80, 35, 0.2, 0.5); noiseHit(c, o, t, 0.12, 300, 0.2, 'lowpass', 1); } },
   heartbeat: { len: 0.6, render: (c, o, t) => { body(c, o, t, 70, 40, 0.12, 0.7); body(c, o, t + 0.18, 62, 38, 0.14, 0.55); } },

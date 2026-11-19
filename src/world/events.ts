@@ -88,6 +88,8 @@ export interface GameEvents {
   psalm: { kind: 'link' | 'off' | 'snap'; x: number; z: number; tx?: number; tz?: number };
   /** Звонарь: удар колокола виден — вспышка механизма Звонаря (big — полный удар). */
   quarryWave: { x: number; z: number; dx: number; dz: number; len: number };
+  bellResonance: { x: number; z: number; tx: number; tz: number; bell: number; notes: number; kind: 'bell' | 'downbeat' | 'chord' };
+  quarryBreath: { x: number; z: number; facing: number };
   bellPulse: { x: number; y: number; z: number; big: boolean };
   /** Страж Врат: герой побежал по древку застрявшей алебарды; удар в шлем. */
   shaftRun: { x: number; z: number };

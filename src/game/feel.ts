@@ -345,6 +345,8 @@ export class FeelSystem {
       }),
       // Жакемар: каждый удар колокола виден
       b.on('bellPulse', (e) => this.vfx.bellPulse(e.x, e.y, e.z, e.big)),
+      b.on('bellResonance', (e) => this.quarryNote(e)),
+      b.on('quarryBreath', (e) => this.quarryBreath(e)),
       ...this.greatBellFeel(),
       ...this.heartFeel(),
       // Страж Врат: пробежка по древку и удар в шлем
@@ -879,6 +881,50 @@ export class FeelSystem {
   }
 
   /** Ударная волна искажения в посте (экранные координаты). */
+  private quarryNote(e: GameEvents['bellResonance']): void {
+    const chord = e.kind === 'chord', accent = e.kind !== 'bell';
+    const color = accent ? C.gold : C.starHot;
+    const pitch = [1, 2 ** (3 / 12), 2 ** (7 / 12)][e.bell];
+    this.audio.play('quarry_note', { pitch, vary: 0, gain: accent ? 0.95 : 0.76, pan: this.pan(e.x) });
+    // A travelling line makes the link between a distant bell and the falling beast visible.
+    const count = Math.max(9, Math.round(24 * this.vfx.quality));
+    for (let i = 0; i < count; i++) {
+      const u = i / (count - 1);
+      this.vfx.add.emit({
+        x: e.x + (e.tx - e.x) * u, y: 1.28 + 0.72 * Math.sin(Math.PI * u), z: e.z + (e.tz - e.z) * u,
+        vy: 0.48, delay: u * 0.14, life: 0.28, size: 0.2, size1: 0.045, color, frame: 'spark',
+      });
+    }
+    const brightness = this.settings.photosensitive || !this.settings.flashes ? 0.52 : 1;
+    this.vfx.lights.flash(e.tx, 1.55, e.tz, color, (chord ? 5.2 : 2.8) * brightness, chord ? 8 : 5, 0.42);
+    this.vfx.rings.spawn(e.tx, e.tz, 0.7, chord ? 5.7 : 2.6, 0.48, color, 0.18, 0.65 * brightness);
+    this.cam.addTrauma(chord ? 0.42 : accent ? 0.22 : 0.11);
+    if (chord) {
+      this.music.duck(0.4, 0.36, 0.045, 0.62);
+      this.audio.play('quarry_chord', { gain: 0.95, vary: 0, pan: this.pan(e.tx) });
+      this.vfx.debris.burst(e.tx, 1.7, e.tz, 0, 0, Math.round(12 * this.vfx.quality), 6, 0.23);
+      this.time.addHitstop(0.055);
+      this.input.vibrate(65);
+    } else if (accent) {
+      this.audio.play('stun_break', { gain: 0.36, pitch: 1.19, pan: this.pan(e.tx) });
+      this.input.vibrate(35);
+    }
+  }
+
+  private quarryBreath(e: GameEvents['quarryBreath']): void {
+    const mouthX = e.x + Math.sin(e.facing) * 1.75, mouthZ = e.z + Math.cos(e.facing) * 1.75;
+    const count = Math.max(9, Math.round(24 * this.vfx.quality));
+    for (let i = 0; i < count; i++) {
+      const angle = e.facing + Math.sin(i * 2.4) * 0.65, len = 3.7 + (i % 6) * 0.73;
+      const x = e.x + Math.sin(angle) * len, z = e.z + Math.cos(angle) * len;
+      const y = 0.27 + (i % 4) * 0.21, life = 0.45 + (i % 3) * 0.08;
+      this.vfx.add.emit({ x, y, z, vx: (mouthX - x) / life, vy: (1.9 - y) / life, vz: (mouthZ - z) / life,
+        delay: i / count * 0.35, life, gravity: 0, size: 0.1, size1: 0.04, color: C.starHot, alpha: 0.67,
+        frame: 'spark', stretch: 0.6 });
+    }
+    this.audio.play('recoil_charge', { gain: 0.66, pitch: 0.72, pan: this.pan(e.x) });
+  }
+
   shockwave(x: number, z: number, strength: number, life: number, y = 0.5): void {
     if (!this.settings.distortion) return;
     this.waveSlots.push({ x, y, z, t: 0, life, r: 0.02, s: strength });

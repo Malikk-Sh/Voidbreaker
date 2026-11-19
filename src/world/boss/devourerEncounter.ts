@@ -43,6 +43,15 @@ export class DevourerEncounter implements BossController {
           w.bus.emit('shake', { trauma: 0.26 });
           host.light?.(b.x, 1.8, b.z, 'gold', 2, 5, 0.5);
         },
+        bellAnswer: () => {
+          const bell = b.bells[0];
+          bell.pulse = 1;
+          this.echo(bell.x, bell.z, 2.8);
+          w.bus.emit('sfx', { id: 'quarry_note', x: bell.x, z: bell.z });
+          const dx = b.x - bell.x, dz = b.z - bell.z, len = Math.hypot(dx, dz) || 1;
+          w.bus.emit('quarryWave', { x: bell.x, z: bell.z, dx: dx / len, dz: dz / len, len });
+          host.light?.(b.x, 1.55, b.z, 'gold', 3.1, 6, 0.58);
+        },
       },
       () => {
         b.x = LANDING[0];
@@ -72,9 +81,9 @@ export class DevourerEncounter implements BossController {
     if (this.hintT >= 0) {
       this.hintT -= dt;
       if (this.hintT < 0) this.hint(b.phase === 1
-        ? 'Замани зверя издалека. Меняй колокола. Перед взмахом хвоста зайди зверю за плечо.'
-        : b.phase === 2 ? 'Зверь поднял слуховые пластины. Замри до третьего щелчка — и он откроет горло.'
-        : 'Колокола бьют по очереди. Ударь клинком по пульсирующему ободу, чтобы заглушить волну.');
+        ? 'Ударь клинком по колоколу и бей упавшего зверя в горло. Когда он встанет, сойди с линии эха.'
+        : b.phase === 2 ? `Ударь в три разных колокола за ${HUNT.chordLife} секунды. Третий сорвался с цепи — лови его на ходу.`
+        : 'Перед самым ударом зверя обод вспыхивает золотом. Звон в этот миг продлит оглушение и вернёт рывок.');
     }
   }
   transition(to: 2 | 3): void {
@@ -92,9 +101,15 @@ export class DevourerEncounter implements BossController {
           this.echo(0, -5.8, 3.4);
           w.bus.emit('shake', { trauma: 0.25 });
         },
+        drawBreath: () => w.bus.emit('quarryBreath', { x: b.x, z: b.z, facing: b.facing }),
         echoCry: () => {
           this.echo(b.x, b.z, 5.6);
           this.host.light?.(b.x, 1.9, b.z, 'void', 2.2, 6, 0.7);
+        },
+        rimAnswer: (i = 0) => {
+          const bell = b.bells[i];
+          bell.pulse = 1;
+          this.echo(bell.x, bell.z, 2.6);
         },
       },
       () => {

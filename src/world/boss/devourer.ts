@@ -5,6 +5,7 @@ import { ENEMIES } from '../../data/enemies';
 import { DEVOURER_RIG } from '../../gen/chars/devourer';
 import { overlaps, type Shape } from '../combat';
 import { QuarryEchoes } from './quarryEchoes';
+import { isHuntPattern, QuarryPatterns, type HuntPattern } from './quarryPatterns';
 import { Enemy, type SpawnOpts } from '../enemy';
 import { registerEnemy } from '../enemies/factory';
 import type { Telegraph } from '../entities';
@@ -14,27 +15,31 @@ import { BELL_STANDS } from '../../data/echoBells';
 export const HUNT = {
   phase2: 0.68,
   phase3: 0.39,
-  bellCooldown: 9,
-  lureRecovery: 4.6,
-  runUp: 4.2,
-  exposed: [2.05, 1.85, 1.65],
+  bellCooldown: 15,
+  bellRecovery: 4.6,
+  bellStun: [1.75, 1.6, 1.48],
+  downbeatWindow: 0.42,
+  downbeatBonus: 0.9,
+  chordLife: 23,
+  chordStun: 3.65,
+  chordDamage: 0.032,
   windup: [0.97, 0.87, 0.8],
   rush: [15.5, 17.5, 19],
   shellArmor: 410,
   throat: 2.15,
-  crashFraction: 0.022,
   tailInner: 3.15,
   tailOuter: 6.4,
   jawHalf: 0.88,
   execute: 0.065,
 };
 type Motion = 'intro' | 'hunt' | 'aim' | 'active' | 'exposed' | 'recover' | 'shift' | 'dying';
-type Attack = 'rush' | 'rake' | 'pounce' | 'howl' | 'sweep' | 'listen' | 'crosscall' | 'snap';
-type Opening = 'bell' | 'shoulder' | 'silence' | 'return' | 'riposte';
+type Attack = 'rush' | 'rake' | 'pounce' | 'howl' | 'sweep' | 'listen' | 'crosscall' | 'snap' | 'reprise' | HuntPattern;
+const PHASE_PATTERNS: ReadonlyArray<readonly HuntPattern[]> = [
+  ['fault'], ['caveIn', 'fault'], ['inhale', 'fault', 'caveIn'],
+];
+type Opening = 'bell' | 'downbeat' | 'chord' | 'shoulder' | 'silence' | 'riposte';
 interface AttackOptions {
-  bell?: number;
   follow?: boolean;
-  ambient?: boolean;
   mark?: { x: number; z: number };
 }
 export class Devourer extends Enemy {
@@ -57,29 +62,26 @@ export class Devourer extends Enemy {
   private startZ = 0;
   targetX = 0;
   targetZ = 0;
-  private bellTarget = -1;
   readonly echoes = new QuarryEchoes();
-  lastBell = -1;
+  readonly patterns = new QuarryPatterns();
+  chordMask = 0;
+  chordLeft = 0;
   opening: Opening | null = null;
-  private pendingBell = -1;
-  private soundLife = 0;
   private sampleIndex = 0;
   private heard = false;
   private lastNoise = -1;
   private readonly noiseAt = { x: 0, z: 0 };
   private tailCounter = false;
-  private jaw: Telegraph | null = null;
+  private secondaryWarning: Telegraph | null = null;
   private exposedDamage = 0;
   private callDX = 0;
   private callDZ = 1;
   private callSide = 0;
   private returnHowl = false;
-  private answered = false;
   private specialCount = 0;
-  private echoPending = false;
-  private lured = false;
   private rollSign = 1;
-  private lureLock = 0;
+  private bellLock = 0;
+  private lastBell = 0;
   private passed = false;
   private guardHits = 0;
   private guardAge = 0;
@@ -114,9 +116,6 @@ export class Devourer extends Enemy {
         radius: 0.86,
         get targetable() {
           return (
-            !beast.dead &&
-            !beast.invulnerable &&
-            !beast.inWindow &&
             beast.bellReady(i) &&
             Math.hypot(w.hero.x - bell.x, w.hero.z - bell.z) < 3.1
           );
@@ -141,47 +140,79 @@ export class Devourer extends Enemy {
     w.bus.on('castStart', noise);
   }
 
+  get downbeat(): boolean {
+    if (this.motion !== 'aim') return false;
+    if (this.patterns.kind) return this.patterns.marks.some(m =>
+      m.warning && !m.struck && m.at - this.elapsed <= HUNT.downbeatWindow);
+    return this.duration - this.elapsed <= HUNT.downbeatWindow;
+  }
+
   bellReady(i: number): boolean {
     if (this.invulnerable || this.inWindow || this.dead) return false;
-    if (this.echoes.isCalling(i)) return true;
-    if (this.motion === 'aim' && this.attack === 'crosscall') return false;
-    return i !== this.lastBell && this.bells[i].cooldown <= 0 && this.lureLock <= 0;
+    // The beast charges a calling bell itself; that note can always turn the attack back.
+    return this.echoes.isCalling(i) || (this.bells[i].cooldown <= 0 && this.bellLock <= 0);
   }
 
   private sound(w: World, i: number, blade: boolean): void {
     const b = this.bells[i];
     b.pulse = 1;
-    w.bus.emit('bellPulse', { x: b.x, y: i === 2 && this.phase > 1 ? 0.78 : 1.45, z: b.z, big: blade });
-    w.bus.emit('sfx', { id: blade ? 'boss_bell' : 'tele_bell', x: b.x, z: b.z, gain: blade ? 0.85 : 0.48 });
-    if (blade) {
-      b.cooldown = HUNT.bellCooldown;
-      if (this.echoes.mute(i)) {
-        this.answered = true;
-        const dx = this.x - b.x, dz = this.z - b.z, len = Math.hypot(dx, dz);
-        if (len > 0.1) w.bus.emit('quarryWave', { x: b.x, z: b.z, dx: dx / len, dz: dz / len, len });
-        w.bus.emit('shockwave', { x: b.x, z: b.z, r: 2.4, color: 'gold', strength: 0.45 });
-        return;
-      }
-      // A nearby bell cannot give a stationary beast a running start.
-      if (Math.hypot(this.x - b.x, this.z - b.z) < HUNT.runUp) {
-        if (this.motion === 'hunt' && !this.specialDue()) this.begin(w, 'sweep');
-        return;
-      }
-      this.pendingBell = i;
-      this.soundLife = 1.8;
-      const aiming = this.motion === 'aim' && this.attack === 'rush' && this.bellTarget < 0 && this.elapsed < this.duration * 0.6;
-      if ((this.motion === 'hunt' && !this.specialDue()) || aiming) this.begin(w, 'rush', { bell: i });
-    } else this.echoPending = true;
+    w.bus.emit('bellPulse', { x: b.x, y: i === 2 && this.loose ? 0.78 : 1.45, z: b.z, big: blade });
+    if (!blade) {
+      w.bus.emit('sfx', { id: 'tele_bell', x: b.x, z: b.z, gain: 0.48 });
+      return;
+    }
+
+    const precise = this.downbeat || this.echoes.isCalling(i);
+    this.lastBell = i;
+    b.cooldown = HUNT.bellCooldown;
+    if (!this.chordMask) this.chordLeft = HUNT.chordLife;
+    this.chordMask |= 1 << i;
+    const notes = this.bells.reduce((n, _, index) => n + Number(!!(this.chordMask & (1 << index))), 0);
+    const chord = notes === this.bells.length;
+    const kind = chord ? 'chord' : precise ? 'downbeat' : 'bell';
+    if (chord) {
+      this.chordMask = 0;
+      this.chordLeft = 0;
+    }
+
+    // Keep the knockdown worth pursuing even when the hero rings from the far side of the quarry.
+    const distance = Math.hypot(w.hero.x - this.x, w.hero.z - this.z);
+    const approach = clamp((distance - 3) / 7, 0, 1);
+    const duration = approach + (chord ? HUNT.chordStun : HUNT.bellStun[this.phase - 1] + (precise ? HUNT.downbeatBonus : 0));
+    if (precise || chord) w.hero.dashCharges = Math.min(w.hero.stats.dashCharges, w.hero.dashCharges + 1);
+    this.cancelOffense(w);
+    this.expose(w, kind, duration);
+    this.shieldMul = chord ? 2.35 : precise ? 1.85 : 1.26;
+    this.bellLock = duration + HUNT.bellRecovery;
+    w.bus.emit('bellResonance', { x: b.x, z: b.z, tx: this.x, tz: this.z, bell: i, notes, kind });
+    if (chord) {
+      const before = this.hp;
+      this.hp = Math.max(0, before - Math.round(this.maxHp * HUNT.chordDamage));
+      this.checkThreshold();
+      w.run.dmgDealt += before - this.hp;
+      if (this.hp <= 0) this.enterScene('dying');
+    }
   }
+
+  private cancelOffense(w: World): void {
+    this.y = 0;
+    this.returnHowl = false;
+    this.echoes.clear();
+    this.patterns.clear();
+    if (this.secondaryWarning) { this.secondaryWarning.alive = false; this.secondaryWarning = null; }
+    for (let i = w.ringWaves.length - 1; i >= 0; i--)
+      if (w.ringWaves[i].owner === this.id) w.ringWaves.splice(i, 1);
+  }
+
   private tickBells(w: World, dt: number): void {
     for (const b of this.bells) {
       b.cooldown = Math.max(0, b.cooldown - dt);
       b.pulse = Math.max(0, b.pulse - dt * 1.4);
     }
-    this.lureLock = Math.max(0, this.lureLock - dt);
-    this.soundLife -= dt;
-    if (this.soundLife <= 0) this.pendingBell = -1;
-    if (!this.loose || this.echoes.isCalling(2)) return;
+    this.bellLock = Math.max(0, this.bellLock - dt);
+    this.chordLeft = Math.max(0, this.chordLeft - dt);
+    if (!this.chordLeft) this.chordMask = 0;
+    if (!this.loose || this.echoes.isCalling(2) || (this.attack === 'reprise' && this.motion === 'aim' && this.lastBell === 2)) return;
     const b = this.bells[2];
     const v = (this.phase === 2 ? 1.9 : 2.5) * this.rollSign;
     b.x += v * dt;
@@ -197,6 +228,9 @@ export class Devourer extends Enemy {
   }
   override get inWindow(): boolean {
     return this.motion === 'exposed';
+  }
+  get bellStunned(): boolean {
+    return this.opening === 'bell' || this.opening === 'downbeat' || this.opening === 'chord';
   }
   private setMotion(motion: Motion, duration: number): void {
     this.motion = motion;
@@ -220,29 +254,20 @@ export class Devourer extends Enemy {
     this.guardHits = 0;
     this.guardCooldown = 0;
     this.specialCount = 0;
-    this.lureLock = 0;
-    this.pendingBell = -1;
-    this.echoPending = false;
     this.second = false;
     this.setMotion('hunt', delay);
   }
-  private begin(w: World, attack: Attack, { bell = -1, follow = false, ambient = false, mark }: AttackOptions = {}): void {
+  private begin(w: World, attack: Attack, { follow = false, mark }: AttackOptions = {}): void {
     this.cancelTelegraph();
-    if (this.jaw) { this.jaw.alive = false; this.jaw = null; }
+    if (this.secondaryWarning) { this.secondaryWarning.alive = false; this.secondaryWarning = null; }
     this.attack = attack;
     this.lastAttack = attack;
-    this.bellTarget = bell;
     this.second = follow;
-    this.lured = bell >= 0 && !ambient;
-    if (bell >= 0) {
-      this.pendingBell = -1;
-      this.echoPending = false;
-    }
     this.left = !this.left;
-    const target = bell >= 0 ? this.bells[bell] : (mark ?? w.hero);
+    const target = mark ?? w.hero;
     let dx = target.x - this.x,
       dz = target.z - this.z;
-    if (!mark && bell < 0 && ((follow && attack === 'rush') || (attack === 'pounce' && this.phase >= 2))) {
+    if (!mark && ((follow && attack === 'rush') || (attack === 'pounce' && this.phase >= 2))) {
       // Commit to the projected footfall once. The complete lane stays fixed during the wind-up.
       const h = w.hero, speed = Math.hypot(h.vx, h.vz);
       const lead = Math.min(follow ? 0.46 : 0.3, 2.25 / Math.max(1, speed));
@@ -260,6 +285,30 @@ export class Devourer extends Enemy {
     this.facing = Math.atan2(dx, dz);
     this.startX = this.x;
     this.startZ = this.z;
+    if (attack === 'reprise') {
+      const bell = this.bells[this.lastBell];
+      this.targetX = bell.x;
+      this.targetZ = bell.z;
+      const rx = bell.x - this.x, rz = bell.z - this.z, length = Math.hypot(rx, rz);
+      this.setMotion('aim', 1.15);
+      this.lastTeleDur = this.duration;
+      if (length > 0.8) {
+        this.facing = Math.atan2(rx, rz);
+        this.tele = w.addTelegraph({ k: 'line', x: this.x, z: this.z, dx: rx / length, dz: rz / length, len: length, w: 2.4 }, this.duration);
+        this.tele.echo = 'quarry';
+      }
+      this.secondaryWarning = w.addTelegraph({ k: 'ring', x: bell.x, z: bell.z, r0: 0.3, r1: 1.9,
+        gaps: [{ a: this.facing + Math.PI, w: 1.65 }] }, this.duration);
+      this.secondaryWarning.echo = 'quarry';
+      bell.pulse = 1;
+      w.bus.emit('telegraph', { kind: 'chime', x: bell.x, z: bell.z });
+      return;
+    }
+    if (isHuntPattern(attack)) {
+      this.setMotion('aim', this.patterns.start(w, this, attack));
+      if (attack === 'inhale') w.bus.emit('quarryBreath', { x: this.x, z: this.z, facing: this.facing });
+      return;
+    }
     if (attack === 'snap') {
       this.braceSnap(w, dx, dz, dist);
       return;
@@ -268,7 +317,7 @@ export class Devourer extends Enemy {
       this.startSoundHunt(w, attack);
       return;
     }
-    let len = attack === 'rush' && bell < 0 ? Math.max(4.3, dist + 1.5) : dist;
+    let len = attack === 'rush' ? Math.max(4.3, dist + 1.5) : dist;
     // Keep the whole body on walkable tiles, including when the target is on the rim.
     if (!w.arena.walkable(this.x + dx * len, this.z + dz * len)) {
       let lo = 0,
@@ -311,7 +360,7 @@ export class Devourer extends Enemy {
             : { k: 'circle', x: this.x, z: this.z, r: 2.1 };
     // The leap lands after the flight. Keep its marker until contact.
     this.tele = w.addTelegraph(shape, wind + (attack === 'pounce' ? 0.58 : 0));
-    if (attack === 'sweep') this.jaw = w.addTelegraph({ k: 'arc', x: this.x, z: this.z,
+    if (attack === 'sweep') this.secondaryWarning = w.addTelegraph({ k: 'arc', x: this.x, z: this.z,
       r: HUNT.tailInner, dir: this.facing, half: HUNT.jawHalf }, wind);
     this.lastTeleDur = wind;
     w.bus.emit('telegraph', {
@@ -346,7 +395,6 @@ export class Devourer extends Enemy {
     this.sampleIndex = 0;
     this.heard = false;
     this.lastNoise = -1;
-    this.answered = false;
     this.setMotion('aim', attack === 'listen' ? 2.13 : 2.45);
     this.lastTeleDur = this.duration;
     if (attack === 'crosscall') {
@@ -366,9 +414,17 @@ export class Devourer extends Enemy {
   }
 
   private specialDue(): boolean {
-    return this.phase >= 2 && this.turn % (this.phase === 2 ? 4 : 3) === 0;
+    return this.phase >= 2 && this.turn % (this.phase === 2 ? 4 : 3) === 2;
   }
   private choose(w: World): void {
+    const cadence = this.phase === 3 ? 3 : 4;
+    if (this.turn % cadence === 0) {
+      const deck = PHASE_PATTERNS[this.phase - 1];
+      const move = deck[(this.turn / cadence) % deck.length];
+      this.turn++;
+      this.begin(w, move);
+      return;
+    }
     if (this.specialDue()) {
       this.turn++;
       const cross = this.phase === 3 && this.specialCount % 2 === 0;
@@ -376,22 +432,12 @@ export class Devourer extends Enemy {
       this.begin(w, cross ? 'crosscall' : 'listen');
       return;
     }
-    if (this.pendingBell >= 0 && this.lureLock <= 0) {
-      this.begin(w, 'rush', { bell: this.pendingBell });
-      return;
-    }
     const d = Math.hypot(w.hero.x - this.x, w.hero.z - this.z);
     this.turn++;
-    if (this.echoPending && this.turn % 4 === 0 && Math.hypot(this.x - this.bells[2].x, this.z - this.bells[2].z) >= HUNT.runUp) {
-      // The loose bell keeps moving. The beast commits to where it heard the bounce.
-      this.echoPending = false;
-      this.begin(w, 'rush', { bell: 2, ambient: true });
-      return;
-    }
     const options: Attack[] = d < 4.6 ? ['rake', 'sweep', 'rush'] : d < 7.3 ? ['sweep', 'pounce', 'rush'] : ['pounce', 'rush'];
     if (this.phase >= 2) options.push('howl');
     const choices = options.filter((a) => a !== this.lastAttack);
-    this.begin(w, this.turn === 1 ? 'rush' : w.rng.pick(choices));
+    this.begin(w, w.rng.pick(choices));
   }
   private hit(w: World, shape: Shape, mult: number, kb = 4): boolean {
     return w.enemyStrike(this, shape, this.dmg * mult, kb) !== 'miss';
@@ -401,24 +447,6 @@ export class Devourer extends Enemy {
     w.bus.emit('shake', { trauma: 0.25 });
   }
   private finishRush(w: World): void {
-    const i = this.bellTarget;
-    if (i >= 0 && Math.hypot(this.x - this.bells[i].x, this.z - this.bells[i].z) < 1.75) {
-      this.bells[i].pulse = 1;
-      this.impact(w, 2.8);
-      w.bus.emit('sfx', { id: 'shatter_stone', x: this.x, z: this.z });
-      if (!this.lured) {
-        this.setMotion('recover', 0.85);
-        return;
-      }
-      this.lastBell = i;
-      this.expose(w, 'bell', HUNT.exposed[this.phase - 1]);
-      this.second = false;
-      const before = this.hp;
-      this.hp = Math.max(1, this.hp - Math.round(this.maxHp * HUNT.crashFraction));
-      this.checkThreshold();
-      if (before !== this.hp) w.bus.emit('shockwave', { x: this.x, z: this.z, r: 3.1, color: 'gold', strength: 0.65 });
-      return;
-    }
     if (this.phase === 3 && !this.second) {
       this.begin(w, 'rush', { follow: true });
       return;
@@ -431,8 +459,6 @@ export class Devourer extends Enemy {
     this.opening = reason;
     this.exposedDamage = 0;
     this.guardHits = 0;
-    this.pendingBell = -1;
-    this.lureLock = HUNT.lureRecovery + duration;
     w.bus.emit('shockwave', { x: this.x, y: 1.6, z: this.z, r: 1.8, color: 'gold', strength: 0.34 });
   }
 
@@ -473,14 +499,26 @@ export class Devourer extends Enemy {
 
   private release(w: World): void {
     const a = this.attack;
+    if (a === 'reprise') {
+      const ray = this.tele?.shape, rim = this.secondaryWarning?.shape;
+      if (ray?.k === 'line') {
+        this.hit(w, ray, 0.92);
+        w.bus.emit('quarryWave', { x: ray.x, z: ray.z, dx: ray.dx, dz: ray.dz, len: ray.len });
+      }
+      if (rim?.k === 'ring') w.addRingWave(rim.x, rim.z, 6.7, 0.68, 12.5, rim.gaps ?? [], this.dmg * 0.78, this.id);
+      this.bells[this.lastBell].pulse = 1;
+      w.bus.emit('sfx', { id: 'boss_bell', x: this.targetX, z: this.targetZ, gain: 0.68 });
+      this.secondaryWarning = null;
+      this.setMotion('recover', 0.62);
+      return;
+    }
     if (a === 'listen') {
       if (this.heard) this.begin(w, 'pounce', { mark: this.noiseAt });
       else this.expose(w, 'silence', 1.65);
       return;
     }
     if (a === 'crosscall') {
-      if (this.answered) this.expose(w, 'return', 1.9);
-      else this.begin(w, 'howl');
+      this.begin(w, 'howl');
       return;
     }
     if (a === 'snap') {
@@ -501,9 +539,9 @@ export class Devourer extends Enemy {
       let result = w.enemyStrike(this, { k: 'ring', x: this.x, z: this.z, r0: HUNT.tailInner, r1: HUNT.tailOuter }, this.dmg * 1.02, 5);
       w.bus.emit('enemyAttack', { kind: 'slash', x: this.x, z: this.z, dir: this.facing + Math.PI, r: HUNT.tailOuter });
       const d = Math.hypot(w.hero.x - this.x, w.hero.z - this.z);
-      if (result === 'miss' && this.jaw) result = w.enemyStrike(this, this.jaw.shape, this.dmg * 1.08, 5);
+      if (result === 'miss' && this.secondaryWarning) result = w.enemyStrike(this, this.secondaryWarning.shape, this.dmg * 1.08, 5);
       this.tailCounter = d < HUNT.tailInner - w.hero.radius && (result === 'miss' || result === 'perfect');
-      this.jaw = null;
+      this.secondaryWarning = null;
       return;
     }
     if (a === 'rake') {
@@ -559,6 +597,14 @@ export class Devourer extends Enemy {
         break;
       }
       case 'aim':
+        if (this.patterns.kind) {
+          this.patterns.step(w, this, this.elapsed, dt);
+          if (u >= 1) {
+            this.patterns.clear();
+            this.setMotion('recover', this.attack === 'inhale' ? 1.05 : 0.78);
+          }
+          break;
+        }
         if (this.attack === 'snap') {
           const retreat = Math.min(1, u * 1.8);
           this.x = this.startX + (this.recoilAt.x - this.startX) * retreat;
@@ -612,12 +658,14 @@ export class Devourer extends Enemy {
         }
         break;
       }
-      case 'exposed':
-        if (u >= 1 || this.exposedDamage >= this.maxHp * (this.opening === 'bell' || this.opening === 'return' ? 0.135 : 0.085)) {
-          if (Math.hypot(w.hero.x - this.x, w.hero.z - this.z) < 5.2) this.begin(w, 'rake');
+      case 'exposed': {
+        if (u >= 1 || (!this.bellStunned && this.exposedDamage >= this.maxHp * 0.085)) {
+          if (this.opening === 'bell') this.begin(w, 'reprise');
+          else if (Math.hypot(w.hero.x - this.x, w.hero.z - this.z) < 5.2) this.begin(w, 'rake');
           else this.setMotion('recover', 0.43);
         }
         break;
+      }
       case 'recover':
         if (u >= 1) this.setMotion('hunt', w.rng.range(0.36, 0.72) - (this.phase - 1) * 0.065);
         break;
@@ -633,7 +681,8 @@ export class Devourer extends Enemy {
   enterScene(motion: 'shift' | 'dying'): void {
     this.cancelTelegraph();
     this.echoes.clear();
-    if (this.jaw) { this.jaw.alive = false; this.jaw = null; }
+    this.patterns.clear();
+    if (this.secondaryWarning) { this.secondaryWarning.alive = false; this.secondaryWarning = null; }
     this.y = 0;
     this.woundT = 0;
     this.inScene = true;
@@ -688,17 +737,31 @@ export class Devourer extends Enemy {
       id = this.sceneClip;
       sample = id === 'listen' ? (this.sceneAge * 0.7) % 1 : Math.min(1, this.sceneAge / (id === 'fall' ? 1.55 : 0.8));
     } else if (this.motion === 'exposed') {
-      id = this.woundT > 0 ? (this.wounds % 2 ? 'woundL' : 'woundR') : 'crash';
+      if (this.bellStunned) {
+        id = this.woundT > 0 ? (this.wounds % 2 ? 'bellWoundL' : 'bellWoundR') : 'bellFall';
+      } else id = this.woundT > 0 ? (this.wounds % 2 ? 'woundL' : 'woundR') : 'crash';
       sample = this.woundT > 0 ? 1 - this.woundT / 0.37 : Math.min(1, this.elapsed / 0.64);
     } else if (this.motion === 'hunt' && Math.hypot(this.vx, this.vz) > 0.2) {
       id = 'stalk';
       sample = (this.time * 1.45) % 1;
     } else if (this.motion === 'recover') {
       id = 'rise';
-      sample = this.elapsed < 0.65 && this.lureLock > HUNT.lureRecovery - 0.8 ? u : 1;
+      sample = this.elapsed < 0.65 && this.bellLock > HUNT.bellRecovery - 0.8 ? u : 1;
     } else if (this.motion === 'aim' || this.motion === 'active') {
       const aim = this.motion === 'aim';
-      if (this.attack === 'snap') {
+      if (isHuntPattern(this.attack)) {
+        id = this.attack;
+        if (id === 'inhale') {
+          const vent = this.patterns.marks[1];
+          if (vent && this.elapsed >= vent.show) {
+            id = 'vent';
+            sample = (this.elapsed - vent.show) / (this.duration - vent.show);
+          } else sample = this.elapsed / (vent?.show ?? this.duration);
+        } else sample = u;
+      } else if (this.attack === 'reprise') {
+        id = u < 0.4 ? 'bellRise' : 'vent';
+        sample = u < 0.4 ? u / 0.4 : (u - 0.4) / 0.6 * 0.69;
+      } else if (this.attack === 'snap') {
         id = 'snap';
         sample = aim ? u * 0.7 : 0.7 + u * 0.3;
       } else if (this.attack === 'listen') {
