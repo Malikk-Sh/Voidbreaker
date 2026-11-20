@@ -80,6 +80,9 @@ try {
         last.notes = event.notes;
         last.immediate = boss.inWindow && boss.opening === event.kind;
         last.range = Number(Math.hypot(event.tx - event.x, event.tz - event.z).toFixed(1));
+        // A chord's own damage can trigger the next phase before the next input frame.
+        exposures++;
+        openings[event.kind] = (openings[event.kind] || 0) + 1;
       });
       w.bus.on('hit', event => {
         const boss = b.runner.boss;
@@ -135,7 +138,7 @@ try {
           if (e.patterns.kind && e.patterns.marks.some(m => m.struck)) impacts.add(e.patterns.kind);
           if (e.strings.lines.some(l => l.flight !== null)) impacts.add('strings');
           if (e.opening === 'sever') severed.add(e.phase);
-          if (e.inWindow && !wasOpen) {
+          if (e.inWindow && !wasOpen && !isBellStun(e)) {
             exposures++;
             openings[e.opening] = (openings[e.opening] || 0) + 1;
           }
