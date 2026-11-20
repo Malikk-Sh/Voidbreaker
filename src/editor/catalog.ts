@@ -31,9 +31,9 @@ export const MASK: V3 = [m.x, m.y, m.z];
 const spots = { hx: hero.x, hz: hero.z, bx: boss.x, bz: boss.z };
 const star: V3 = [STAR.x, STAR.y, STAR.z];
 export const SCENES: SceneSpec[] = [
-  { id: 'devourerIntro', title: 'Пожиратель · Появление', group: 'Пожиратель', model: 'devourer', note: 'Падение камня, поворот головы и бросок на звук', actors: {hero, boss:{...boss,x:DEVOURER_START[0],z:DEVOURER_START[2],facing:-0.23},echoStone:{...boss,x:-2.6,y:4.1,z:-1.5}}, track: devourerIntro() },
-  { id: 'devourerFrenzy', title: 'Исступление', group: 'Пожиратель', model: 'devourer', note: 'Обрыв подвеса', actors: {hero,boss,echoBell:{...boss,z:-5.8}}, track: devourerShift(2) },
-  { id: 'devourerEcho', title: 'Последнее эхо', group: 'Пожиратель', model: 'devourer', note: 'Ответный рёв', actors: {hero,boss}, track: devourerShift(3) },
+  { id: 'devourerIntro', title: 'Пожиратель · Появление', group: 'Пожиратель', model: 'devourer', note: 'Пробуждение, шаги на звук камня и первый ответ колокола', actors: {hero, boss:{...boss,x:DEVOURER_START[0],z:DEVOURER_START[2],facing:-0.23},echoStone:{...boss,x:-2.6,y:4.1,z:-1.5}}, track: devourerIntro() },
+  { id: 'devourerFrenzy', title: 'Исступление', group: 'Пожиратель', model: 'devourer', note: 'Два подвеса отвечают на раскрытие резонаторов', actors: {hero,boss}, track: devourerShift(2) },
+  { id: 'devourerEcho', title: 'Последнее эхо', group: 'Пожиратель', model: 'devourer', note: 'Вдох и три ноты в обратном порядке', actors: {hero,boss}, track: devourerShift(3) },
   { id: 'devourerEnd', title: 'Тишина', group: 'Пожиратель', model: 'devourer', note: 'Последний выдох зверя', actors: {hero,boss}, track: devourerEnd() },
   { id: 'hierophantEnd', title: 'Добивание Иерофанта', group: 'Финал', model: 'hierophant', note: 'Прыжок → маска → взрыв → приземление', actors: { hero, boss }, track: executionTrack({ ...spots, cx: 0, cz: 2.6, bellY: MASK[1], lx: 0, lz: -3.2, star, mask: MASK }) },
   { id: 'prologueLanding', title: 'Пролог · Клинок', group: 'Пролог', model: 'landing', note: 'Приземление и извлечение клинка', actors: { hero: { ...hero, x: 0, z: 0, y: 2 }, shard: { ...boss, x: 1.8, z: -2.1 } }, track: landingTrack({ x: 0, z: 0, shardX: 1.8, shardZ: -2.1, huskX: 0, huskZ: -7 }) },
@@ -75,4 +75,4 @@ export const CLIP_NAMES: Record<string, string> = {
   executionLeap: 'Прыжок', executionLand: 'Приземление после удара', guardianSweep: 'Подсечка', guardianApproach: 'Обход за спину', lowerBlade: 'Опустить клинок', chainBrace: 'Опора у цепи', chainRun: 'Бег по цепи', chainApex: 'Замах в прыжке', maskStrike: 'Двуручный разрез маски', gateCrush: 'Двуручный удар в шлем', bellBreak: 'Двуручный косой удар', chainExit: 'Отталкивание и посадка',
   pullBlade: 'Извлечь клинок', extractBlade: 'Извлечь клинок', extraction: 'Извлечь клинок', shaftRun: 'Бег по древку', land: 'Приземление', dash: 'Рывок', atk1: 'Первый удар', atk2: 'Второй удар',
 };
-export const ACTOR_NAMES: Record<string, string> = { hero: 'Пилот', boss: 'Босс', echoStone: 'Обломок', echoBell: 'Сорванный колокол', gateGuardian: 'Страж Врат', bellRinger: 'Жакемар', shard: 'Клинок в полу', ship: 'Иней' };
+export const ACTOR_NAMES: Record<string, string> = { hero: 'Пилот', boss: 'Босс', echoStone: 'Обломок', gateGuardian: 'Страж Врат', bellRinger: 'Жакемар', shard: 'Клинок в полу', ship: 'Иней' };

@@ -119,19 +119,84 @@ describe('Пожиратель', () => {
     advance(b, w, () => b.motion === 'recover');
     expect(b.hp).toBe(b.maxHp);
   });
-  it('естественный звон сорванного колокола не отнимает здоровье у босса', () => {
+  it('в Исступлении все три колокола остаются на подвесах во время атак', () => {
     const { b, w } = setup();
     b.phase = 2;
-    b.loose = true;
     w.hero.invulnUntil = 1e6;
-    let bounces = 0;
-    w.bus.on('bellPulse', (e) => {
-      if (!e.big) bounces++;
-    });
     for (let i = 0; i < 60 * 24; i++) b.step(w, dt);
-    expect(bounces).toBeGreaterThan(2);
+    expect(b.bells.map(({ x, z }) => ({ x, z }))).toEqual(BELL_STANDS);
     expect(b.hp).toBe(b.maxHp);
-    expect(Math.abs(b.bells[2].x)).toBeLessThanOrEqual(5.6);
+  });
+
+  it('первый ход фиксирует струну по следу Пилота. Узел отвечает только на клинок', () => {
+    const { b, w } = setup();
+    b.beginHunt(0);
+    advance(b, w, () => b.strings.active);
+    const [line] = b.strings.lines;
+    const { x, z } = line.knot;
+    expect(w.aimTargets.has(line.target)).toBe(true);
+    expect(w.arena.walkable(x, z)).toBe(true);
+    expect(overlaps(line.lane, w.hero.x, w.hero.z, w.hero.radius)).toBe(true);
+    const target = { k: 'circle' as const, x, z, r: 0.5 };
+    w.heroStrike(target, new Set(), hit);
+    expect(line.cut).toBe(false);
+    w.hero.x = x; w.hero.z = z;
+    w.heroStrike(target, new Set(), { ...hit, source: 'ability' });
+    expect(line.cut).toBe(false);
+    w.heroStrike(target, new Set(), hit);
+    expect(b.opening).toBe('sever');
+    expect(line.warning?.alive).toBe(false);
+    expect(w.aimTargets.has(line.target)).toBe(false);
+  });
+
+  it('две струны помнят разные позиции. Один разрез отменяет только свой удар, два открывают горло', () => {
+    const { b, w } = setup();
+    b.phase = 2;
+    b['begin'](w, 'strings');
+    const [first] = b.strings.lines, sweep = new Set<number>();
+    const cut = (point: { x: number; z: number }, list: Set<number>) => {
+      w.hero.x = point.x; w.hero.z = point.z;
+      w.heroStrike({ k: 'circle', ...point, r: 0.3 }, list, hit);
+    };
+    cut(first.knot, sweep);
+    w.hero.x = 4; w.hero.z = -2;
+    advance(b, w, () => b.strings.lines.length === 2);
+    const second = b.strings.lines[1];
+    expect(second.bell).not.toBe(first.bell);
+    expect(overlaps(second.lane, 4, -2, w.hero.radius)).toBe(true);
+    expect(b.inWindow).toBe(false);
+    cut(second.knot, sweep);
+    expect(second.cut).toBe(false);
+    cut(second.knot, new Set());
+    expect(b.opening).toBe('sever');
+    expect(b.strings.active).toBe(false);
+  });
+
+  it('пропущенная пара в Исступлении заканчивается прыжком с отдельной меткой', () => {
+    const { b, w } = setup(); b.phase = 2; w.hero.invulnUntil = 1e6;
+    b['begin'](w, 'strings');
+    advance(b, w, () => b.attack === 'pounce');
+    expect(b.tele?.shape.k).toBe('circle');
+    expect(b.lastTeleDur).toBeGreaterThan(0.8);
+  });
+
+  it('последняя фаза предупреждает об обратном проходе. Звон гасит его вместе со второй струной', () => {
+    const { b, w } = setup(); b.phase = 3; w.hero.invulnUntil = 1e6;
+    b['begin'](w, 'strings');
+    const [line] = b.strings.lines;
+    advance(b, w, () => line.reversing);
+    expect(line.warning?.alive).toBe(true);
+    expect(line.warning!.dur).toBeGreaterThan(0.9);
+    expect(b.strings.available(line)).toBe(false);
+    advance(b, w, () => line.reversing && line.flight !== null && line.flight < 0.9);
+    const start = line.flight!;
+    b.step(w, dt);
+    expect(line.flight!).toBeLessThan(start);
+    const warnings = b.strings.lines.map(l => l.warning);
+    ring(w, 2);
+    expect(b.strings.active).toBe(false);
+    expect(warnings.every(t => t && !t.alive)).toBe(true);
+    expect(w.aimTargets.size).toBe(3);
   });
   it('у повторного звонка есть общая пауза, а три разных колокола складываются в аккорд', () => {
     const { b, w } = setup();
@@ -174,6 +239,18 @@ describe('Пожиратель', () => {
     expect(b.chordMask).toBe(0b010);
   });
 
+  it('в Исступлении серия по неподвижной цели смыкает маску. Фланг и время оглушения сохраняются', () => {
+    const { b, w } = setup(); b.phase = 2;
+    ring(w);
+    const duration = b.duration;
+    b.onDamaged(w, Math.ceil(b.maxHp * 0.08));
+    expect(b.throatGuard).toBe(true);
+    w.hero.x = b.x + Math.sin(b.facing) * 2; w.hero.z = b.z + Math.cos(b.facing) * 2;
+    b.preHit(w, hit); expect(b.armor).toBeGreaterThan(150);
+    w.hero.x = b.x + Math.cos(b.facing) * 2; w.hero.z = b.z - Math.sin(b.facing) * 2;
+    b.preHit(w, hit); expect(b.armor).toBe(0);
+    expect(b.duration).toBe(duration);
+  });
   it('сильный удар по оглушённому зверю не сокращает оставшееся время для серии', () => {
     const { b, w } = setup();
     ring(w);

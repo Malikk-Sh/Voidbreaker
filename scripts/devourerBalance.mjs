@@ -11,6 +11,7 @@ const cases = [
   { name: 'finalist', style: 'adaptive', build: 'finalist', delay: 0.32 },
   { name: 'late-reader', style: 'adaptive', build: 'finalist', delay: 0.46 },
   { name: 'veteran', style: 'adaptive', build: 'veteran', delay: 0.23 },
+  { name: 'string-cutter', style: 'cutter', build: 'finalist', delay: 0.32 },
   { name: 'duelist', style: 'duelist', build: 'veteran', delay: 0.24 },
   { name: 'base-sword', style: 'adaptive', build: 'starter', delay: 0.18 },
 ];
@@ -38,8 +39,8 @@ try {
       g.startStageById('boss1');
     }, run.build);
     const result = await page.evaluate(({name, style, delay}) => {
-      const adaptive = ['adaptive', 'duelist', 'conductor'].includes(style);
-      const playsBells = adaptive && style !== 'duelist';
+      const adaptive = ['adaptive', 'duelist', 'conductor', 'cutter'].includes(style);
+      const playsBells = adaptive && style !== 'duelist' && style !== 'cutter';
       const b = window.__vb.battle,
         w = b.world,
         h = w.hero,
@@ -54,7 +55,7 @@ try {
         dodgeAt = -1,
         started = -1;
       const signatureMoves = new Set(['fault', 'caveIn', 'inhale']);
-      const openings = {}, hurt = {}, casts = {};
+      const openings = {}, hurt = {}, casts = {}, severed = new Set();
       const bellStuns = [];
       const bellOpenings = new Set(['bell', 'downbeat', 'chord']);
       const isBellStun = e => e?.inWindow && bellOpenings.has(e.opening);
@@ -132,6 +133,8 @@ try {
             dodge = false;
           if (e.motion === 'aim' || e.motion === 'active') moves.add(e.attack);
           if (e.patterns.kind && e.patterns.marks.some(m => m.struck)) impacts.add(e.patterns.kind);
+          if (e.strings.lines.some(l => l.flight !== null)) impacts.add('strings');
+          if (e.opening === 'sever') severed.add(e.phase);
           if (e.inWindow && !wasOpen) {
             exposures++;
             openings[e.opening] = (openings[e.opening] || 0) + 1;
@@ -233,7 +236,7 @@ try {
                 if (playsBells && isBellStun(e) && d > 5.2 && e.duration - e.elapsed > 0.4) dodge = true;
               } else {
                 const ready = e.bells
-                  .filter((q, i) => adaptive ? style !== 'duelist' && e.bellReady(i) : q.cooldown <= 0)
+                  .filter((q, i) => adaptive ? playsBells && e.bellReady(i) : q.cooldown <= 0)
                   .sort((a, c) => {
                     if (adaptive) {
                       const usedA = Number(!!(e.chordMask & (1 << e.bells.indexOf(a))));
@@ -277,9 +280,19 @@ try {
             attack = false;
             if (!dodge && (e.motion === 'hunt' || e.motion === 'recover')) go(-h.x, -h.z);
           }
-          if (attack && frame % 70 === 0) inp.buffer.push('q', inp.now);
-          if (attack && frame % 100 === 0) inp.buffer.push('e', inp.now);
-          if (attack && h.resonance >= 100 && frame % 5 === 0) inp.buffer.push('r', inp.now);
+          const readsStrings = style === 'cutter' || style === 'duelist' || name === 'base-sword';
+          const knot = readsStrings && e.strings.lines.find(l => e.strings.available(l) && e.elapsed - l.show >= delay &&
+            (style !== 'duelist' || !e.bells.some(q => Math.hypot(q.x - l.knot.x, q.z - l.knot.z) < 3.75)));
+          if (knot) {
+            steerTo(knot.knot.x, knot.knot.z);
+            const range = Math.hypot(knot.knot.x - h.x, knot.knot.z - h.z);
+            if (range < 1.3) mx = mz = 0;
+            attack = range < 2.6;
+            dodge = false;
+          }
+          if (attack && !knot && frame % 70 === 0) inp.buffer.push('q', inp.now);
+          if (attack && !knot && frame % 100 === 0) inp.buffer.push('e', inp.now);
+          if (attack && !knot && h.resonance >= 100 && frame % 5 === 0) inp.buffer.push('r', inp.now);
           if (attack && frame % 10 === 0) inp.buffer.push('attack', inp.now);
           if (dodge && frame > dodgeAt + 23 && h.dashCharges >= 1) {
             inp.buffer.push('dash', inp.now, mx, mz);
@@ -305,7 +318,7 @@ try {
         stuns: bellStuns.filter(x => x.opening),
         exposures,
         phases,
-        moves: [...moves],
+        moves: [...moves], severed: [...severed],
         impacts: [...impacts],
         dodges: w.run.perfectDodges,
         hits: w.run.hitsTaken,
@@ -319,6 +332,7 @@ try {
     if (result.damageScale !== 1 || (result.win && result.outcome !== 'won')) process.exitCode = 1;
     if (run.name === 'frontal' && !result.dead) process.exitCode = 1;
     if (run.name === 'one-bell' && result.win && result.hp > result.maxHp * 0.65) process.exitCode = 1;
+    if (run.name === 'string-cutter' && (!result.win || result.severed.length !== 3)) process.exitCode = 1;
     if (run.name === 'duelist' && result.bellHits) process.exitCode = 1;
     if (['veteran', 'finalist', 'duelist', 'base-sword'].includes(run.name) &&
       (!result.win || !result.phases[3] || Object.keys(result.openings).length < 2)) process.exitCode = 1;
@@ -328,7 +342,7 @@ try {
     await page.close();
   }
   if (!process.env.DEVOURER_CASE) {
-    for (const id of ['fault', 'caveIn', 'inhale']) {
+    for (const id of ['fault', 'caveIn', 'inhale', 'strings']) {
       if (!report.some(run => run.impacts.includes(id))) {
         console.error('Signature never reached its impact in the balance suite:', id);
         process.exitCode = 1;

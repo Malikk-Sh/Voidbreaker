@@ -7,7 +7,7 @@ import type { RingWave, Telegraph } from '../world/entities';
 const RED = new THREE.Vector3(...hexToLinear('#FF4A57')).multiplyScalar(1.6);
 const WHITE = new THREE.Vector3(1.6, 1.55, 1.7);
 /** Повтор «Тени» — тёмно-багровый. */
-const QUARRY = new THREE.Vector3(...hexToLinear('#ed98ff')).multiplyScalar(1.5);
+const QUARRY = new THREE.Vector3(...hexToLinear('#ff796f')).multiplyScalar(1.28);
 const ECHO = new THREE.Vector3(...hexToLinear('#8a1020')).multiplyScalar(1.3);
 
 interface Decal { mesh: THREE.Mesh; u: Record<string, THREE.IUniform>; used: boolean }

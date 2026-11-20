@@ -43,7 +43,7 @@ export class Sequencer {
   private layers = {} as Record<Layer, GainNode>;
   private bus: GainNode | null = null;
   /** Отправка песни в реверберацию: своя шина, чтобы хвосты старой песни глохли вместе с ней. */
-  private send: GainNode | null = null;
+  private room: ConvolverNode | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private next = 0;
   step = 0;
@@ -72,9 +72,19 @@ export class Sequencer {
     if (!ctx) return false;
     this.bus = ctx.createGain();
     this.bus.connect(this.engine.musicBus);
-    this.send = ctx.createGain();
-    this.send.connect(this.engine.reverbSend);
-    for (const l of LAYERS) { const g = ctx.createGain(); g.gain.value = 0; g.connect(this.bus); this.layers[l] = g; }
+    // Each song owns its return. Even notes already inside the impulse response fade with its dry mix.
+    this.room = ctx.createConvolver();
+    this.room.buffer = this.engine.reverb.buffer;
+    const send = ctx.createGain();
+    send.gain.value = 0.3;
+    send.connect(this.room).connect(this.bus);
+    for (const l of LAYERS) {
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.connect(this.bus);
+      if (l === 'A' || l === 'D') g.connect(send);
+      this.layers[l] = g;
+    }
     return true;
   }
 
@@ -130,16 +140,16 @@ export class Sequencer {
   stop(fade = 0.5): void {
     this.gen++;
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    const ctx = this.engine.ctx, bus = this.bus, send = this.send;
-    if (ctx && bus && send) {
-      // запланированные и звучащие хвосты (пэды, хор, колокола) глушатся вместе с шиной старой песни;
-      // реверберационная отправка идёт мимо шины, поэтому гасится отдельно — иначе пэды Святилища звучат в бою
-      bus.gain.setTargetAtTime(0, ctx.currentTime, fade / 3);
-      send.gain.setTargetAtTime(0, ctx.currentTime, fade / 3);
-      setTimeout(() => { bus.disconnect(); send.disconnect(); }, (fade * 2 + 0.2) * 1000);
+    const ctx = this.engine.ctx, bus = this.bus, room = this.room;
+    if (ctx && bus && room) {
+      const t = ctx.currentTime;
+      bus.gain.cancelScheduledValues(t);
+      bus.gain.setValueAtTime(bus.gain.value, t);
+      bus.gain.linearRampToValueAtTime(0, t + fade);
+      setTimeout(() => { room.disconnect(); bus.disconnect(); }, (fade + 0.05) * 1000);
     }
     this.bus = null;
-    this.send = null;
+    this.room = null;
     this.layers = {} as Record<Layer, GainNode>;
     this.song = null;
   }
@@ -197,12 +207,11 @@ export class Sequencer {
   /** Воспроизвести запечённый буфер в слой. */
   buf(name: string, t: number, layer: Layer, gain = 1, rate = 1): void {
     const ctx = this.engine.ctx, b = this.bufs.get(this.key(name));
-    if (!ctx || !b || !this.layers[layer] || !this.send) return;
+    if (!ctx || !b || !this.layers[layer]) return;
     const s = ctx.createBufferSource(); s.buffer = b;
     s.playbackRate.value = rate * Math.pow(2, this.engine.musicDetune / 1200);
     const g = ctx.createGain(); g.gain.value = gain;
     s.connect(g).connect(this.layers[layer]);
-    if (layer === 'A' || layer === 'D') { const r = ctx.createGain(); r.gain.value = 0.35; g.connect(r).connect(this.send); }
     s.start(t);
   }
 
@@ -484,7 +493,71 @@ export function hierophantSong(): Song {
   });
 }
 
-/** The quarry leaves space for the positional bell cues. */
+/** A four-note call in B returns at three speeds. The bell and blade cues have the upper register to themselves. */
 export function devourerSong(): Song {
-  return epicSong({id:'devourer',bpm:124,root:47,progs:[['i','bII','i','bVI']],groove:'halftime',ost:OST.pulse,brassAt:[0,9],harsh:true});
+  const bpm = 132, unit = 60 / bpm / 4;
+  const drums = drumBakes();
+  const bake: Record<string, BakeSpec> = {
+    taiko: drums.taiko, skin: drums.taikoHi, kick: drums.kick, metal: drums.ind,
+    stinger: drums.stinger, stunStinger: drums.stunStinger, choirHit: drums.choirHit,
+    waveHit: drums.waveHit,
+    tread: { len: 0.9, render: (c, o, t) => bass(c, o, t, 35, 0.32, 0.22) },
+    bow: { len: 0.48, render: (c, o, t) => strings(c, o, t, 59, 0.19, 0.084) },
+    horn: { len: 1.55, render: (c, o, t) => brass(c, o, t, [47, 54, 59], 0.84, 0.077, true) },
+    overtone: { len: 1.4, render: (c, o, t) => harp(c, o, t, 71, 0.86, 0.056) },
+    horizon: { len: 2.25, render: (c, o, t) => choir(c, o, t, [47, 54, 62, 66], 1.55, 0.056, 'u', 'a') },
+    undertow: { len: 2.6, render: (c, o, t) => pad(c, o, t, [35, 42, 59], 1.78, 0.058, 790) },
+    arrival: { len: 1.85, render: (c, o, t) => {
+      taiko(c, o, t, 55, 0.64); brass(c, o, t + 0.065, [35, 42, 59], 0.94, 0.068, true);
+    } },
+    split: { len: 1.4, render: (c, o, t) => {
+      [0, 3, 6].forEach((k, i) => { taiko(c, o, t + k * unit, 60 + i * 21, 0.52 - i * 0.07); });
+      strings(c, o, t + 7 * unit, 60, 0.31, 0.079);
+    } },
+    recall: { len: 1.85, render: (c, o, t) => {
+      harp(c, o, t, 66, 0.84, 0.08); harp(c, o, t + 2 * unit, 62, 0.8, 0.08);
+      brass(c, o, t + 4 * unit, [35, 47, 54], 0.88, 0.07, true);
+    } },
+    // Two antiphonal phrases. The second bow answers from below before the next bar turns.
+    answer: { len: 1.45, render: (c, o, t) => {
+      strings(c, o, t, 66, 3 * unit, 0.072);
+      strings(c, o, t + 3 * unit, 62, 5 * unit, 0.084);
+    } },
+  };
+  const harmony = [[0, 0, 1, -4, 0, 3, -4, -2], [0, 1, 0, -2, 3, 1, -4, -2], [0, -4, 3, -2, 0, 1, -4, 0]];
+  const motif = [0, 1, 7, 3];
+  const ratio = (n: number) => 2 ** (n / 12);
+  let movement = -1, firstStep = 0;
+  return { id: 'devourer', bpm, bake, schedule(s, step, t) {
+    const phase = Math.min(2, s.phase);
+    if (movement !== phase || step === 0) {
+      firstStep = step;
+      movement = phase;
+      s.buf(['arrival', 'split', 'recall'][phase], t, 'A', 0.84);
+    }
+    const local = step - firstStep, bar = Math.floor(local / 16) % 8, k = local % 16;
+    const root = harmony[phase][bar];
+    const note = (voice: string, layer: Layer, semitone: number, gain = 1) => s.buf(voice, t, layer, gain, ratio(semitone));
+    if (k === 0) note('undertow', 'A', root);
+    if (phase === 0) {
+      if (k === 0 || k === 10) { note('tread', 'A', root, k ? 0.65 : 1); s.buf('taiko', t, 'B', k ? 0.36 : 0.68); }
+      if (k === 2 || k === 8) note('bow', 'B', motif[(bar + (k === 8 ? 1 : 0)) % 4] + root);
+      if (bar % 2 === 0 && k === 4) note('horn', 'A', motif[bar / 2], 0.83);
+      if (bar % 2 && k === 8) note('answer', 'C', root, 0.9);
+    } else if (phase === 1) {
+      // Three, three, two eighths. The bow anticipates the drum on the next bar.
+      if ([0, 6, 12].includes(k)) { s.buf(k === 6 ? 'skin' : 'taiko', t, 'A', k ? 0.6 : 0.78); note('tread', 'B', root); }
+      if (k % 2 === 0 || k === 15) note('bow', 'A', root + motif[(Math.floor(k / 2) + bar) % 4], k % 6 ? 0.6 : 0.98);
+      if (k === 3 || k === 9 || (bar % 2 && k === 14)) s.buf('metal', t, 'C', 0.38);
+      if (k === 4 && bar % 2 === 0) note('horn', 'B', root, 0.84);
+      if (k === 12 && bar % 2) note('overtone', 'C', root + 3);
+    } else {
+      if (k === 0) { note('horizon', 'A', root); note('horn', 'B', root, 1.05); }
+      if (k === 0 || k === 7 || k === 10) { s.buf('kick', t, 'B', k ? 0.6 : 0.86); note('tread', 'A', root, 0.9); }
+      if (k === 8 || (bar % 2 && k === 14)) s.buf('taiko', t, 'A', 0.76);
+      if (k === 4 || k === 12) note('overtone', 'C', motif[(bar + (k === 12 ? 2 : 0)) % 4] + root);
+      if (k === 6) note('answer', 'B', root + (bar % 2 ? 5 : 0));
+      if (bar % 4 === 3 && k >= 12) s.buf('skin', t, 'D', 0.24 + (k - 12) * 0.1);
+    }
+  } };
 }

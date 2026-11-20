@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildAcolyte, buildBrute, buildCrawler, buildCrucifier, buildEye, buildHusk, buildMantis, buildObelisk, buildPsalmist, buildRinger, type RigBuild } from '../gen/chars/enemies';
-import { buildDevourer } from '../gen/chars/devourer';
+import { buildDevourer, DEVOURER_FINISH } from '../gen/chars/devourer';
 import { buildHierophant } from '../gen/chars/hierophant';
 import type { Enemy } from '../world/enemy';
 import type { ShadowCopy } from '../world/shadow';
@@ -43,10 +43,10 @@ export class EnemyRenderer {
       const def = BUILDERS[id];
       if (!def) throw new Error(`no rig builder ${id}`);
       const r = def.build();
-      b = new RigBatch(r.geometry, r.rig.joints.length, def.max, {
+      b = new RigBatch(r.geometry, r.rig.joints.length, def.max, id === 'devourer' ? DEVOURER_FINISH : {
         // понтифик в тёмной рясе на фоне ночного неба над бездной — контур ярче, иначе силуэт пропадает
-        rim: id === 'devourer' ? '#a9d0df' : id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: id === 'hierophant' ? 0.8 : BIG.has(id) ? 0.34 : 0.62, rimPower: id === 'hierophant' ? 2.4 : BIG.has(id) ? 3.2 : 2.8,
-        emissive: id === 'devourer' ? '#5edecf' : '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 2.8, white: ENEMY_WHITE,
+        rim: id === 'hierophant' ? '#ff3b4a' : '#d02838', rimStrength: id === 'hierophant' ? 0.8 : BIG.has(id) ? 0.34 : 0.62, rimPower: id === 'hierophant' ? 2.4 : BIG.has(id) ? 3.2 : 2.8,
+        emissive: '#E11D2E', emissive2: '#FF8A3D', emissiveStrength: 2.8, white: ENEMY_WHITE,
       });
       this.batches.set(id, b);
       this.group.add(b.mesh);

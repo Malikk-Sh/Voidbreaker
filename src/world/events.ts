@@ -216,7 +216,7 @@ export interface GameEvents {
   /** Уклонение от атаки босса и сразу оглушение: +80 очков ранга, камера и музыка отвечают. */
   rankBurst: { x: number; z: number };
   voice: { line: string; speaker: 'kaelis' | 'boss' };
-  sfx: { id: string; x: number; z: number; gain?: number };
+  sfx: { id: string; x: number; z: number; gain?: number; pitch?: number };
   shake: { trauma: number };
   hint: { id: string; text: string };
 }

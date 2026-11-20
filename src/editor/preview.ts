@@ -11,7 +11,7 @@ import { G } from '../render/materials';
 import { RigBatch } from '../render/rigbatch';
 import { EchoQuarryView } from '../gen/zone/echoQuarry';
 import { BELL_STANDS } from '../data/echoBells';
-import { buildDevourer } from '../gen/chars/devourer';
+import { buildDevourer, DEVOURER_FINISH } from '../gen/chars/devourer';
 import { DEVOURER_CLIPS } from '../anim/clips/devourer';
 import { buildHierophant } from '../gen/chars/hierophant';
 import { buildBrute, buildRinger } from '../gen/chars/enemies';
@@ -40,7 +40,7 @@ export class StudioPreview {
   private target: THREE.Mesh;
   private shard: THREE.Mesh;
   private quarry: EchoQuarryView | null = null;
-  private readonly echoBells = BELL_STANDS.map(({x,z}) => ({x:Number(x),z:Number(z),pulse:0,roll:0,cooldown:0,facing:0}));
+  private readonly echoBells = BELL_STANDS.map(({x,z}) => ({x:Number(x),z:Number(z),pulse:0,cooldown:0}));
   private rig = new CameraRig();
   private director: Director;
   private spec!: SceneSpec;
@@ -130,7 +130,7 @@ export class StudioPreview {
     if (['devourer', 'hierophant', 'gate', 'bell'].includes(spec.model)) {
       const b = spec.model === 'devourer' ? buildDevourer() : spec.model === 'hierophant' ? buildHierophant() : spec.model === 'bell' ? buildRinger(22, 1.45) : buildBrute(5, 1.65, { halberd: true });
       this.bossPuppet = new Puppet(layoutOf(b.rig), spec.model === 'devourer' ? DEVOURER_CLIPS : spec.model === 'hierophant' ? BOSS_CLIPS : []);
-      this.bossBatch = new RigBatch(b.geometry, this.bossPuppet.layout.n, 1, { rim: '#d59a7d', rimStrength: 0.65, emissive: '#ff534b', emissiveStrength: 1.4 });
+      this.bossBatch = new RigBatch(b.geometry, this.bossPuppet.layout.n, 1, spec.model === 'devourer' ? DEVOURER_FINISH : { rim: '#d59a7d', rimStrength: 0.65, emissive: '#ff534b', emissiveStrength: 1.4 });
       this.renderer.scene.add(this.bossBatch.mesh);
     }
     const all = variant === 'short' ? this.prepared.short ?? this.prepared.steps : this.prepared.steps;
@@ -153,7 +153,7 @@ export class StudioPreview {
     for (const key of Object.keys(this.actors)) delete this.actors[key];
     this.puppets.set('hero', this.hero.puppet);
     for (const [who, a] of Object.entries(this.spec.actors)) {
-      const p = who === 'hero' ? this.hero.puppet : who === 'ship' ? this.shipPuppet : who === 'echoStone' || who === 'echoBell' ? null : this.bossPuppet;
+      const p = who === 'hero' ? this.hero.puppet : who === 'ship' ? this.shipPuppet : who === 'echoStone' ? null : this.bossPuppet;
       this.actors[who] = { ...a, puppet: p ?? undefined };
       if (p) this.puppets.set(who, p);
     }
@@ -244,9 +244,7 @@ export class StudioPreview {
       this.contactError = edge.distanceTo(this.target.position);
     }
     if (this.quarry) {
-      const loose = this.spec.id === 'devourerFrenzy' ? this.time >= 1.14 : this.spec.id !== 'devourerIntro';
-      this.echoBells[2].x = this.actors.echoBell?.x ?? 0;
-      this.quarry.sync({ bells:this.echoBells, loose, dead:false, invulnerable:true, motion:this.spec.id === 'devourerIntro' ? 'intro' : 'shift', stone:this.actors.echoStone ?? {x:0,y:0,z:0,facing:0} },this.time);
+      this.quarry.sync({ bells:this.echoBells, dead:false, invulnerable:true, motion:this.spec.id === 'devourerIntro' ? 'intro' : 'shift', stone:this.actors.echoStone ?? {x:0,y:0,z:0,facing:0} },this.time);
     }
     this.shard.visible = this.spec.model === 'landing';
     this.guides.visible = this.showGuides;

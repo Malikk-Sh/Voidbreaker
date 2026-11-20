@@ -703,7 +703,6 @@ export class Battle {
     if (!this.boss && this.runner.boss instanceof Devourer) {
       const beast = this.runner.boss;
       this.props.set('echoStone', beast.stone);
-      this.props.set('echoBell', beast.bells[2]);
       this.boss = new DevourerEncounter(this.bossHost(), beast, text => this.ctx.hud.showHint(text, 12));
       // цепи, колокола-спутники и прочие объекты босса — тоже до первого кадра с ними
       void this.ctx.renderer.warmAll(this.group, () => !this.disposed);
@@ -1040,7 +1039,6 @@ export class Battle {
       startSong: () => {
         if (ctx.music.song?.id === 'devourer') return;
         ctx.music.play(devourerSong(), 0.6);
-        ctx.audio.play('boss_intro', { gain: 0.8 });
       },
       quench: (x, z, r) => this.quench(x, z, r),
       runes: (x, z) => {

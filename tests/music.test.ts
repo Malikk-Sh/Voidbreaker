@@ -71,13 +71,13 @@ describe('уровни музыки и последняя волна (план �
   });
 });
 
-import { guardianSong, hierophantSong, hubSong } from '../src/audio/music';
+import { devourerSong, guardianSong, hierophantSong, hubSong } from '../src/audio/music';
 
 describe('запечённые фразы и арфа (план §8.7, пп. 6–8)', () => {
-  const songs = [...['1-1', '1-2', '1-3', '1-4', '1-5', '1-6'].map((id) => stageSong(id)), guardianSong('gateGuardian'), guardianSong('bellRinger'), hierophantSong(), hubSong()];
+  const songs = [...['1-1', '1-2', '1-3', '1-4', '1-5', '1-6'].map((id) => stageSong(id)), guardianSong('gateGuardian'), guardianSong('bellRinger'), hierophantSong(), devourerSong(), hubSong()];
   it('всё, что тема ставит в слои, запечено; живых узлов — единицы на такт (орган, арфа Святилища)', () => {
     for (const song of songs) {
-      for (const [phase, final] of [[0, false], [1, false], [1, true]] as const) {
+      for (const [phase, final] of [[0, false], [1, false], [1, true], [2, true]] as const) {
         const f = fakeSeq(final);
         (f.s as unknown as { phase: number }).phase = phase;
         for (let step = 0; step < 16 * 32; step++) song.schedule(f.s, step, step * 0.1);
@@ -87,6 +87,19 @@ describe('запечённые фразы и арфа (план §8.7, пп. 6�
     }
   });
 
+  it('у трёх фаз Пожирателя свои партии в основном миксе', () => {
+    const song = devourerSong();
+    const parts = [0, 1, 2].map(phase => {
+      const f = fakeSeq(phase === 2);
+      f.s.phase = phase;
+      for (let i = 0; i < 32; i++) song.schedule(f.s, i, i * 0.1);
+      return f.bufs;
+    });
+    expect(parts[0]).toContain('horn');
+    expect(parts[1].filter(p => p === 'bow').length).toBeGreaterThan(parts[0].filter(p => p === 'bow').length * 2);
+    expect(parts[2]).toContain('horizon');
+    expect(parts[1]).not.toContain('horizon');
+  });
   it('в боевых темах нет квадратного арпеджиатора: мелодия — арфа, раз в 8 тактов — лейтмотив', () => {
     const f = fakeSeq(false);
     const song = stageSong('1-1');

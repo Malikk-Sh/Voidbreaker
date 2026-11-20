@@ -224,6 +224,15 @@ export const SFX: Record<string, SfxRecipe> = {
   // «камень по металлу» + восходящие колокольчики
   ui_upgrade: { len: 1.6, render: (c, o, t) => { industrial(c, o, t, 0.25, 330); [62, 69, 74, 81].forEach((n, i) => bell(c, o, t + 0.05 + i * 0.07, mtof(n), 0.05, 1.2)); } },
   boss_bell: { reverb: 0.25, len: 5, render: (c, o, t) => { bell(c, o, t, 98, 0.35, 5); kick(c, o, t, 0.5, 30); } },
+  quarry_wire: { reverb: 0.09, len: 0.86, render: (c, o, t) => {
+    const f = mtof(54);
+    for (const harmonic of [1, 2.01, 3.98]) {
+      const bow = osc(c, 'sine', f * harmonic, t, 0.5, o, 0.16 / harmonic, 0.11, 0.55);
+      bow.frequency.exponentialRampToValueAtTime(f * harmonic * 1.085, t + 0.39);
+      bow.frequency.exponentialRampToValueAtTime(f * harmonic * 1.08, t + 0.58);
+    }
+    noiseHit(c, o, t, 0.27, 1150, 0.065, 'bandpass', 4);
+  } },
   quarry_note: { reverb: 0.19, len: 1.85, render: (c, o, t) => {
     transient(c, o, t, 2350, 0.25);
     bell(c, o, t, mtof(47), 0.27, 1.8);

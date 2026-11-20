@@ -37,7 +37,7 @@ export type CineStep =
   | { t: number; do: 'flash'; v: number }
   | { t: number; do: 'letterbox'; v: number }
   /** Логика сцены (спаун, смена арены): выполняется и при пропуске. */
-  | { t: number; do: 'call'; fn: string; arg?: number }
+  | { t: number; do: 'call'; fn: string; arg?: number; onSkip?: boolean }
   /** Необязательное касание-тайминг: атака в окне dur — флаг onHit. */
   | { t: number; do: 'tap'; dur: number; onHit: string }
   /**
@@ -427,7 +427,7 @@ export class Director {
         h.shatter?.(s.who, d[0], d[2], s.power ?? 4);
         break;
       }
-      case 'call': h.call?.(s.fn, s.arg); break;
+      case 'call': if (!fast || s.onSkip !== false) h.call?.(s.fn, s.arg); break;
       case 'hold': if (fast) l.done = true; return;
       // ниже — только подача: при пропуске не нужна
       case 'time': if (!fast) h.timeScale?.(s.scale, s.dur, s.rampIn, s.rampOut); break;

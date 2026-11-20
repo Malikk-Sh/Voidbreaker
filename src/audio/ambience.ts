@@ -25,7 +25,7 @@ export const AMBIENCE: Record<string, AmbienceDef> = {
   '1-7': { wind: 0.55, choir: 0.35, bell: 0.3, drops: 6 }, // клуатр: двор под открытым небом
   '1-8': { wind: 0.1, choir: 0.45, bell: 0, drops: 14 },   // крипта: тесно, сыро
   '1-9': { wind: 0.4, choir: 0.95, bell: 0.8, drops: 3 },  // хоры: поют за стенами
-  boss1: { wind: 0.4, choir: 0.85, bell: 1, drops: 3 },    // святилище: хор
+  boss1: { wind: 0.48, choir: 0, bell: 0, drops: 2 },       // пустая каменоломня: только ветер и редкие капли
 };
 
 /** Уровень фона: между волнами — полный, в бою — под музыкой. */

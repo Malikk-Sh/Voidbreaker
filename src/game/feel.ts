@@ -500,7 +500,7 @@ export class FeelSystem {
       b.on('rankBurst', () => { this.cam.zoomPunch += 0.08; this.music.stinger('choirHit'); }),
       b.on('rank', (e) => { if (e.up) this.audio.play('rank_up', { gain: 0.5, pitch: 0.9 + ['C', 'B', 'A', 'S', 'SS'].indexOf(e.rank) * 0.06 }); }),
       b.on('voice', (e) => this.voice(e.line, 0, e.speaker)),
-      b.on('sfx', (e) => this.audio.play(e.id, { gain: e.gain ?? 1, pan: this.pan(e.x) })),
+      b.on('sfx', (e) => this.audio.play(e.id, { gain: e.gain ?? 1, pitch: e.pitch, pan: this.pan(e.x) })),
       b.on('shake', (e) => this.cam.addTrauma(e.trauma)),
       b.on('resonanceFull', () => { this.audio.play('charge2', { gain: 0.6 }); this.hud.pulseUlt(); }),
       b.on('abilityReady', (e) => { this.audio.play('ability_ready', { gain: 0.35, vary: 0 }); this.hud.abilityReady(e.slot); }),

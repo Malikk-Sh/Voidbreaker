@@ -1,9 +1,11 @@
+import { Quaternion } from 'three';
 import { DEVOURER_CLIPS } from '../../anim/clips/devourer';
 import { layoutOf } from '../../anim/puppet';
 import { clamp, dampAngle } from '../../core/math';
 import { ENEMIES } from '../../data/enemies';
 import { DEVOURER_RIG } from '../../gen/chars/devourer';
 import { overlaps, type Shape } from '../combat';
+import { ResonantStrings } from './resonantStrings';
 import { QuarryEchoes } from './quarryEchoes';
 import { isHuntPattern, QuarryPatterns, type HuntPattern } from './quarryPatterns';
 import { Enemy, type SpawnOpts } from '../enemy';
@@ -32,12 +34,13 @@ export const HUNT = {
   jawHalf: 0.88,
   execute: 0.065,
 };
+const fromPose = new Quaternion(), toPose = new Quaternion();
 type Motion = 'intro' | 'hunt' | 'aim' | 'active' | 'exposed' | 'recover' | 'shift' | 'dying';
-type Attack = 'rush' | 'rake' | 'pounce' | 'howl' | 'sweep' | 'listen' | 'crosscall' | 'snap' | 'reprise' | HuntPattern;
-const PHASE_PATTERNS: ReadonlyArray<readonly HuntPattern[]> = [
-  ['fault'], ['caveIn', 'fault'], ['inhale', 'fault', 'caveIn'],
+type Attack = 'rush' | 'rake' | 'pounce' | 'howl' | 'sweep' | 'listen' | 'crosscall' | 'snap' | 'reprise' | 'strings' | HuntPattern;
+const PHASE_PATTERNS: ReadonlyArray<readonly (HuntPattern | 'strings')[]> = [
+  ['fault', 'strings'], ['caveIn', 'strings', 'fault', 'strings'], ['inhale', 'strings', 'caveIn'],
 ];
-type Opening = 'bell' | 'downbeat' | 'chord' | 'shoulder' | 'silence' | 'riposte';
+type Opening = 'bell' | 'downbeat' | 'chord' | 'shoulder' | 'silence' | 'riposte' | 'sever';
 interface AttackOptions {
   follow?: boolean;
   mark?: { x: number; z: number };
@@ -48,11 +51,8 @@ export class Devourer extends Enemy {
     z: Number(z),
     cooldown: 0,
     pulse: 0,
-    roll: 0,
-    facing: 0,
   }));
   readonly stone = { x: -2.6, y: 4.1, z: -1.5, facing: 0 };
-  loose = false;
   phase = 1;
   motion: Motion = 'intro';
   attack: Attack = 'rush';
@@ -64,6 +64,7 @@ export class Devourer extends Enemy {
   targetZ = 0;
   readonly echoes = new QuarryEchoes();
   readonly patterns = new QuarryPatterns();
+  readonly strings = new ResonantStrings();
   chordMask = 0;
   chordLeft = 0;
   opening: Opening | null = null;
@@ -74,12 +75,12 @@ export class Devourer extends Enemy {
   private tailCounter = false;
   private secondaryWarning: Telegraph | null = null;
   private exposedDamage = 0;
+  private guardedAt = 0;
   private callDX = 0;
   private callDZ = 1;
   private callSide = 0;
   private returnHowl = false;
   private specialCount = 0;
-  private rollSign = 1;
   private bellLock = 0;
   private lastBell = 0;
   private passed = false;
@@ -95,6 +96,11 @@ export class Devourer extends Enemy {
   private wounds = 0;
   private woundT = 0;
   private readonly rootMotion = { x: 0, y: 0, z: 0, stretch: 1, spin: 0 };
+  private lastClip = '';
+  private readonly blendPose = new Float32Array(DEVOURER_RIG.joints.length * 4);
+  private blendTime = 1;
+  private blendY = 0;
+  private drawFacing: number | null = null;
   private sceneClip = 'listen';
   private sceneAge = 0;
   private damageReleased = false;
@@ -123,12 +129,20 @@ export class Devourer extends Enemy {
       });
     w.bus.on('bladeSweep', ({ shape, hitList }) => {
       if (this.dead || this.invulnerable || w.hero.dead || w.hero.locked) return;
+      if (this.strings.cut(w, this, shape, hitList)) {
+        if (this.strings.severed) {
+          const approach = clamp((Math.hypot(w.hero.x - this.x, w.hero.z - this.z) - 3) / 7, 0, 1);
+          this.cancelOffense(w);
+          this.expose(w, 'sever', approach + (this.phase === 1 ? 1.35 : 2.15));
+        }
+        return;
+      }
       for (let i = 0; i < this.bells.length; i++) {
         const b = this.bells[i],
           id = -10 - i;
         if (hitList.has(id) || !this.bellReady(i) || !overlaps(shape, b.x, b.z, 0.86)) continue;
         hitList.add(id);
-        this.sound(w, i, true);
+        this.sound(w, i);
         break;
       }
     });
@@ -142,6 +156,7 @@ export class Devourer extends Enemy {
 
   get downbeat(): boolean {
     if (this.motion !== 'aim') return false;
+    if (this.strings.active) return this.strings.downbeat;
     if (this.patterns.kind) return this.patterns.marks.some(m =>
       m.warning && !m.struck && m.at - this.elapsed <= HUNT.downbeatWindow);
     return this.duration - this.elapsed <= HUNT.downbeatWindow;
@@ -153,15 +168,10 @@ export class Devourer extends Enemy {
     return this.echoes.isCalling(i) || (this.bells[i].cooldown <= 0 && this.bellLock <= 0);
   }
 
-  private sound(w: World, i: number, blade: boolean): void {
+  private sound(w: World, i: number): void {
     const b = this.bells[i];
     b.pulse = 1;
-    const at = { x: b.x, y: i === 2 && this.loose ? 0.78 : 1.45, z: b.z };
-    if (!blade) {
-      w.bus.emit('bellPulse', { ...at, big: false, color: 'gold' });
-      w.bus.emit('sfx', { id: 'tele_bell', x: b.x, z: b.z, gain: 0.48 });
-      return;
-    }
+    const at = { x: b.x, y: 1.45, z: b.z };
 
     const precise = this.downbeat || this.echoes.isCalling(i);
     this.lastBell = i;
@@ -201,12 +211,13 @@ export class Devourer extends Enemy {
     this.returnHowl = false;
     this.echoes.clear();
     this.patterns.clear();
+    this.strings.clear();
     if (this.secondaryWarning) { this.secondaryWarning.alive = false; this.secondaryWarning = null; }
     for (let i = w.ringWaves.length - 1; i >= 0; i--)
       if (w.ringWaves[i].owner === this.id) w.ringWaves.splice(i, 1);
   }
 
-  private tickBells(w: World, dt: number): void {
+  private tickBells(dt: number): void {
     for (const b of this.bells) {
       b.cooldown = Math.max(0, b.cooldown - dt);
       b.pulse = Math.max(0, b.pulse - dt * 1.4);
@@ -214,16 +225,6 @@ export class Devourer extends Enemy {
     this.bellLock = Math.max(0, this.bellLock - dt);
     this.chordLeft = Math.max(0, this.chordLeft - dt);
     if (!this.chordLeft) this.chordMask = 0;
-    if (!this.loose || this.echoes.isCalling(2) || (this.attack === 'reprise' && this.motion === 'aim' && this.lastBell === 2)) return;
-    const b = this.bells[2];
-    const v = (this.phase === 2 ? 1.9 : 2.5) * this.rollSign;
-    b.x += v * dt;
-    b.roll -= (v * dt) / 0.81;
-    if (Math.abs(b.x) >= 5.6) {
-      b.x = this.rollSign * 5.6;
-      this.rollSign *= -1;
-      this.sound(w, 2, false);
-    }
   }
   override get invulnerable(): boolean {
     return this.motion === 'intro' || this.motion === 'shift' || this.motion === 'dying';
@@ -233,6 +234,10 @@ export class Devourer extends Enemy {
   }
   get bellStunned(): boolean {
     return this.opening === 'bell' || this.opening === 'downbeat' || this.opening === 'chord';
+  }
+  get throatGuard(): boolean {
+    return this.phase >= 2 && this.bellStunned && this.opening !== 'chord' &&
+      this.exposedDamage >= this.maxHp * (this.opening === 'downbeat' ? 0.115 : 0.075);
   }
   private setMotion(motion: Motion, duration: number): void {
     this.motion = motion;
@@ -261,6 +266,8 @@ export class Devourer extends Enemy {
   }
   private begin(w: World, attack: Attack, { follow = false, mark }: AttackOptions = {}): void {
     this.cancelTelegraph();
+    this.strings.clear();
+    this.patterns.clear();
     if (this.secondaryWarning) { this.secondaryWarning.alive = false; this.secondaryWarning = null; }
     this.attack = attack;
     this.lastAttack = attack;
@@ -304,6 +311,10 @@ export class Devourer extends Enemy {
       this.secondaryWarning.echo = 'quarry';
       bell.pulse = 1;
       w.bus.emit('telegraph', { kind: 'chime', x: bell.x, z: bell.z });
+      return;
+    }
+    if (attack === 'strings') {
+      this.setMotion('aim', this.strings.start(w, this, this.phase));
       return;
     }
     if (isHuntPattern(attack)) {
@@ -420,9 +431,15 @@ export class Devourer extends Enemy {
   }
   private choose(w: World): void {
     const cadence = this.phase === 3 ? 3 : 4;
-    if (this.turn % cadence === 0) {
+    // Each phase gets its signature move directly after the string lesson, even in a short duel.
+    if (this.turn === 0) {
+      this.turn++;
+      this.begin(w, 'strings');
+      return;
+    }
+    if ((this.turn - 1) % cadence === 0) {
       const deck = PHASE_PATTERNS[this.phase - 1];
-      const move = deck[(this.turn / cadence) % deck.length];
+      const move = deck[((this.turn - 1) / cadence) % deck.length];
       this.turn++;
       this.begin(w, move);
       return;
@@ -574,7 +591,7 @@ export class Devourer extends Enemy {
   protected think(w: World, dt: number): void {
     this.vx = this.vz = 0;
     if (this.invulnerable || w.hero.dead) return;
-    this.tickBells(w, dt);
+    this.tickBells(dt);
     this.echoes.step(w, this, dt);
     this.guardCooldown -= dt;
     this.guardAge += dt;
@@ -599,6 +616,16 @@ export class Devourer extends Enemy {
         break;
       }
       case 'aim':
+        if (this.strings.active) {
+          this.strings.step(w, this, this.elapsed);
+          if (u >= 1) {
+            const pursue = this.phase === 2 && this.strings.uncut;
+            this.strings.clear();
+            if (pursue) this.begin(w, 'pounce');
+            else this.setMotion('recover', 0.74);
+          }
+          break;
+        }
         if (this.patterns.kind) {
           this.patterns.step(w, this, this.elapsed, dt);
           if (u >= 1) {
@@ -684,6 +711,7 @@ export class Devourer extends Enemy {
     this.cancelTelegraph();
     this.echoes.clear();
     this.patterns.clear();
+    this.strings.clear();
     if (this.secondaryWarning) { this.secondaryWarning.alive = false; this.secondaryWarning = null; }
     this.y = 0;
     this.woundT = 0;
@@ -700,19 +728,27 @@ export class Devourer extends Enemy {
     this.guardHits = Math.min(3, this.guardHits + 1);
   }
 
-  override preHit(_w: World, p: StrikeParams): boolean {
+  override preHit(w: World, p: StrikeParams): boolean {
     // Plates cover the head and chest. The back stays reachable during a committed attack.
     const incoming = Math.hypot(p.dirX, p.dirZ);
     const rear = incoming > 0 && (Math.sin(this.facing) * p.dirX + Math.cos(this.facing) * p.dirZ) / incoming > 0.42;
-    if (this.inWindow) this.armor = 0;
-    else if (this.motion === 'recover') this.armor = rear ? 30 : 130;
+    if (this.inWindow) {
+      const dx = w.hero.x - this.x, dz = w.hero.z - this.z;
+      const front = dx * Math.sin(this.facing) + dz * Math.cos(this.facing);
+      this.armor = this.throatGuard && front > Math.hypot(dx, dz) * 0.44 ? 225 : 0;
+    } else if (this.motion === 'recover') this.armor = rear ? 30 : 130;
     else this.armor = rear ? 105 : HUNT.shellArmor;
     return false;
   }
 
-  override onDamaged(_w: World, dmg: number): void {
+  override onDamaged(w: World, dmg: number): void {
     if (this.inWindow) {
+      const braced = this.throatGuard;
       this.exposedDamage += dmg;
+      if (!braced && this.throatGuard) {
+        this.guardedAt = this.elapsed;
+        w.bus.emit('sfx', { id: 'hit_armor', x: this.x, z: this.z, gain: 0.76 });
+      }
       this.wounds++;
       this.woundT = 0.37;
     }
@@ -739,10 +775,14 @@ export class Devourer extends Enemy {
       id = this.sceneClip;
       sample = id === 'listen' ? (this.sceneAge * 0.7) % 1 : Math.min(1, this.sceneAge / (id === 'fall' ? 1.55 : 0.8));
     } else if (this.motion === 'exposed') {
-      if (this.bellStunned) {
+      if (this.bellStunned || this.opening === 'sever') {
         id = this.woundT > 0 ? (this.wounds % 2 ? 'bellWoundL' : 'bellWoundR') : 'bellFall';
       } else id = this.woundT > 0 ? (this.wounds % 2 ? 'woundL' : 'woundR') : 'crash';
       sample = this.woundT > 0 ? 1 - this.woundT / 0.37 : Math.min(1, this.elapsed / 0.64);
+      if (this.throatGuard) {
+        id = 'guardThroat';
+        sample = Math.min(1, (this.elapsed - this.guardedAt) / 0.48);
+      }
     } else if (this.motion === 'hunt' && Math.hypot(this.vx, this.vz) > 0.2) {
       id = 'stalk';
       sample = (this.time * 1.45) % 1;
@@ -751,7 +791,10 @@ export class Devourer extends Enemy {
       sample = this.elapsed < 0.65 && this.bellLock > HUNT.bellRecovery - 0.8 ? u : 1;
     } else if (this.motion === 'aim' || this.motion === 'active') {
       const aim = this.motion === 'aim';
-      if (isHuntPattern(this.attack)) {
+      if (this.attack === 'strings') {
+        id = this.phase === 1 ? 'pluck' : this.phase === 2 ? 'counterpoint' : 'reversal';
+        sample = u;
+      } else if (isHuntPattern(this.attack)) {
         id = this.attack;
         if (id === 'inhale') {
           const vent = this.patterns.marks[1];
@@ -786,13 +829,31 @@ export class Devourer extends Enemy {
         sample = !aim && id === 'gallop' ? (this.elapsed * 3.2) % 1 : u;
       }
     }
+    if (id !== this.lastClip) {
+      this.blendPose.set(s.rot);
+      this.blendY = s.off[1];
+      this.blendTime = this.lastClip ? 0 : 1;
+      this.lastClip = id;
+    }
+    this.blendTime = Math.min(1, this.blendTime + dt / 0.17);
     s.resetPose();
     p.clips.get(id)!.sample(sample, s.rot, this.rootMotion);
     s.off[1] = this.rootMotion.y + 0.025 * Math.sin(this.time * 3.4);
+    if (this.blendTime < 1) {
+      const k = this.blendTime * this.blendTime * (3 - 2 * this.blendTime);
+      for (let q = 0; q < s.rot.length; q += 4) {
+        fromPose.fromArray(this.blendPose, q).slerp(toPose.fromArray(s.rot, q), k).toArray(s.rot, q);
+      }
+      s.off[1] = this.blendY + (s.off[1] - this.blendY) * k;
+    }
+    const core = s.layout.idx('core') * 3;
+    const beat = Math.sin(this.time * (this.phase === 2 ? 6.4 : 3.1));
+    s.scl.fill(1 + (this.inWindow ? 0.16 : 0.07) * beat, core, core + 3);
     s.x = this.x;
     s.y = this.y;
     s.z = this.z;
-    s.facing = this.facing;
+    this.drawFacing = this.invulnerable || this.drawFacing === null ? this.facing : dampAngle(this.drawFacing, this.facing, 0.105, dt);
+    s.facing = this.drawFacing;
     if (this.attack === 'sweep' && this.motion === 'active')
       s.facing += Math.PI * 2 * (u * u * (3 - 2 * u));
     p.boost = this.inWindow ? 0.65 + 0.22 * Math.sin(this.time * 8) : this.motion === 'aim' ? 0.27 * u : 0.07;

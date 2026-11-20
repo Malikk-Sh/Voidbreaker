@@ -4,6 +4,7 @@ import { GeomBuilder, mat, matAlong, SURF } from '../geom/build';
 import { box, lathe, prism, rock } from '../geom/prims';
 import { obsidianMaterial } from '../../render/materials';
 import type { Devourer } from '../../world/boss/devourer';
+import { QuarryStringView } from './quarryStrings';
 import { QuarryRubble } from './quarryRubble';
 
 const iron = '#495665',
@@ -61,8 +62,8 @@ export function quarryFrames(g: GeomBuilder): void {
   }
 }
 
-type QuarryFrame = Pick<Devourer, 'bells' | 'loose' | 'dead' | 'stone' | 'motion'> &
-  ({ invulnerable: true } | Pick<Devourer, 'invulnerable' | 'bellReady' | 'echoes' | 'patterns' | 'attack' | 'elapsed' | 'chordMask' | 'opening' | 'downbeat' | 'x' | 'z' | 'facing'>);
+type QuarryFrame = Pick<Devourer, 'bells' | 'dead' | 'stone' | 'motion'> &
+  ({ invulnerable: true } | Pick<Devourer, 'invulnerable' | 'bellReady' | 'echoes' | 'patterns' | 'strings' | 'puppet' | 'attack' | 'elapsed' | 'chordMask' | 'opening' | 'downbeat' | 'x' | 'z' | 'facing'>);
 
 export class EchoQuarryView {
   readonly root = new THREE.Group();
@@ -80,6 +81,7 @@ export class EchoQuarryView {
   private readonly noteMarks: THREE.InstancedMesh;
   private readonly pebble: THREE.Mesh;
   private readonly rubble = new QuarryRubble(this.material);
+  private readonly strings = new QuarryStringView();
   private readonly hearing = new THREE.Group();
   private readonly earArc = new THREE.TorusGeometry(1.05, 0.044, 4, 18, 1.9);
   private readonly earLight = new THREE.MeshBasicMaterial({ color: '#ffcf82', transparent: true, depthWrite: false });
@@ -173,17 +175,17 @@ export class EchoQuarryView {
     const pebble = new GeomBuilder();
     pebble.add(rock(0.31, 0, 0.17, 11), { color: '#aaafa0' });
     this.pebble = new THREE.Mesh(pebble.build(), this.material);
-    this.root.add(this.pebble, this.rubble.mesh);
+    this.root.add(this.pebble, this.rubble.mesh, this.strings.mesh);
   }
   sync(b: QuarryFrame, time: number): void {
     this.rubble.sync(b.invulnerable || b.dead ? null : b.patterns);
+    if (b.invulnerable || b.dead) this.strings.sync(null);
+    else this.strings.sync(b.strings, b.puppet.skel);
     let n = 0, lit = 0, notes = 0;
     this.bells.forEach((m, i) => {
-      const bell = b.bells[i],
-        loose = i === 2 && b.loose;
-      m.position.set(bell.x, loose ? 0.87 : 1.37, bell.z);
-      m.rotation.x = loose ? Math.PI / 2 : 0;
-      m.rotation.z = loose ? bell.roll - bell.x * 0.55 : Math.sin(time * 17) * bell.pulse * 0.25;
+      const bell = b.bells[i];
+      m.position.set(bell.x, 1.37, bell.z);
+      m.rotation.z = Math.sin(time * 11) * bell.pulse * 0.18;
       if (!b.invulnerable && !b.dead) {
         const bit = 1 << i;
         const fullChord = b.opening === 'chord';
@@ -205,7 +207,7 @@ export class EchoQuarryView {
         // One, two and three prisms identify the pitches even without sound or colour.
         // Collected notes hang above their bell while the readiness ring cools down.
         if (ready || held) {
-          const y = (loose ? 1.88 : 2.49) + 0.08 * Math.sin(time * 3.8 + i);
+          const y = 2.49 + 0.08 * Math.sin(time * 3.8 + i);
           const color = fullChord || (ready && accent) ? this.callColor : held ? this.heldColor : this.readyColor;
           this.matrix.makeRotationY(time * 1.8).scale(this.ringScale.set(0.88, 1.7, 0.88));
           for (let j = 0; j <= i; j++) {
@@ -215,10 +217,8 @@ export class EchoQuarryView {
           }
         }
       }
-      if (!loose) {
-        this.matrix.makeTranslation(bell.x, 2.35, bell.z);
-        this.tethers.setMatrixAt(n++, this.matrix);
-      }
+      this.matrix.makeTranslation(bell.x, 2.35, bell.z);
+      this.tethers.setMatrixAt(n++, this.matrix);
     });
     this.hearing.visible = false;
     if (!b.invulnerable && !b.dead && b.motion === 'aim' && b.attack === 'listen') {
@@ -242,6 +242,7 @@ export class EchoQuarryView {
     this.pebble.rotation.z = b.stone.y * 1.8;
   }
   dispose(): void {
+    this.strings.dispose();
     this.rubble.dispose();
     this.earArc.dispose();
     this.earLight.dispose();

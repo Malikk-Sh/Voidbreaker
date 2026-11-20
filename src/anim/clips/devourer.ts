@@ -2,7 +2,17 @@ import type { ClipDef, Key } from '../clip';
 import type { V3 } from '../skeleton';
 
 type Pose = Record<string, V3>;
-const key = (t: number, pose: Pose, y = 0): Key => ({ t, pose, rootOffset: [0, y, 0], ease: 'inOutSine' });
+function key(t: number, pose: Pose, y = 0): Key {
+  const open = pose.jaw?.[0] ?? 0.07;
+  const rigPose: Pose = { ...pose };
+  for (const [side, sign] of [['L', 1], ['R', -1]] as const) {
+    const ear = pose['fin' + side]?.[2] ?? 0;
+    rigPose['mantle' + side] ??= [-0.11 * open, -ear * 0.32, -sign * (0.09 + open * 0.44) - ear * 0.27];
+    rigPose['rib' + side] ??= [-0.06 * open, sign * open * 0.16, sign * open * 0.51];
+  }
+  rigPose.core ??= [0.13 * open, 0.54 * open, -0.12 * open];
+  return { t, pose: rigPose, rootOffset: [0, y, 0], ease: 'inOutSine' };
+}
 function clip(id: string, keys: Key[], loop = false): ClipDef {
   const bones = new Set(keys.flatMap((k) => Object.keys(k.pose)));
   // The shared sampler holds missing channels. Explicit rest keys let the paw plant and the gills close.
@@ -179,7 +189,50 @@ const bellFlinch: Pose = {
   ...dropped, neck: [-0.66, -0.21, 0.25], head: [-0.42, -0.32, -0.14],
   gillL: [-0.2, -0.39, 1.16], jaw: [1.17, 0, 0], tailTip: [-0.18, -0.41, 0],
 };
+const folded: Pose = {
+  ...coil, head: [0.38, 0, -0.15], neck: [0.28, 0.16, 0], jaw: [0.02, 0, 0],
+  mantleL: [0.63, -0.48, 0.65], mantleR: [0.69, 0.34, -0.69], tailTip: [0.2, 0.7, -0.14],
+};
+const display: Pose = {
+  ...rearUp, hipL: [0.08,0,0.065], hipR: [0.08,0,-0.065], hockL: [-0.14,0,0], hockR: [-0.14,0,0],
+  shoulderL: [-0.56,-0.12,0.31], shoulderR: [-0.56,0.12,-0.31], elbowL: [0.35,0,0.08], elbowR: [0.35,0,-0.08],
+  chest: [-0.22, 0.1, -0.04], jaw: [0.72, 0, 0], neck: [-0.24, -0.11, 0.07],
+  mantleL: [-0.35, 0.31, -0.83], mantleR: [-0.27, -0.25, 0.94],
+  ribL: [-0.16, 0.13, 0.53], ribR: [-0.17, -0.11, -0.57],
+};
+const stringDraw: Pose = {
+  ...display, body: [-0.08, -0.28, 0.12], chest: [-0.27, -0.2, 0.16], head: [0.06, 0.54, -0.18],
+  shoulderL: [-0.98, -0.24, 0.53], elbowL: [0.77, 0.15, 0.17], pawL: [0.42, 0.26, -0.35],
+  shoulderR: [-0.31, 0, -0.23], mantleL: [-0.37, 0.52, -1.02], mantleR: [0.1, 0.18, 0.05],
+  tail: [-0.19, 0.49, 0], tailMid: [0.09, 0.29, 0.09], core: [-0.16, 0.88, 0.32],
+};
+const stringRelease: Pose = {
+  ...hammer, body: [0.09, 0.21, -0.12], neck: [-0.14, -0.14, 0.1], head: [-0.03, -0.3, -0.11],
+  shoulderL: [-0.69, 0.51, -0.36], elbowL: [0.13, 0.36, -0.32], jaw: [0.83, 0, 0],
+  mantleL: [0.25, -0.32, 0.16], mantleR: [-0.18, -0.26, 0.71], tailTip: [-0.11, -0.81, -0.09],
+};
 export const DEVOURER_CLIPS: ClipDef[] = [
+  clip('awaken', [key(0, folded, -0.31), key(0.26, { ...folded, head: [0.01, -0.31, -0.11], finL: [-0.26,0.31,0.43] }, -0.28),
+    key(0.55, { ...stringDraw, shoulderL: [-0.42, 0.13, 0.19] }, 0.02), key(0.82, display, 0.23), key(1, rest)]),
+  clip('pluck', [key(0, rest), key(0.31, stringDraw, 0.08), key(0.62, stringDraw, 0.11),
+    key(0.72, stringRelease, -0.18), key(0.85, { ...stringRelease, tailMid: [0.1,-0.68,0] }, -0.13), key(1, rest)]),
+  clip('counterpoint', [key(0, rest), key(0.18, stringDraw, 0.24), key(0.36, stringDraw, 0.09),
+    key(0.45, stringRelease, -0.19), key(0.56, mirror(stringDraw), 0.24), key(0.71, mirror(stringDraw), 0.33),
+    key(0.79, mirror(stringRelease), -0.23), key(1, rest)]),
+  clip('reversal', [key(0, rest), key(0.17, stringDraw, 0.23), key(0.26, stringRelease, -0.17),
+    key(0.42, mirror(stringDraw), 0.27), key(0.51, mirror(stringRelease), -0.17), key(0.62, folded, -0.28),
+    key(0.76, display, 0.17), key(0.85, { ...display, jaw:[1.16,0,0], core:[0,1.42,0] }, 0.41),
+    key(1, rest)]),
+  clip('unfurl', [key(0, rest), key(0.19, folded, -0.28), key(0.38, stringDraw, 0.22),
+    key(0.61, mirror(stringDraw), 0.1), key(0.8, display, 0.12), key(1, rest)]),
+  clip('eclipse', [key(0, rest), key(0.35, { ...folded, jaw:[0.44,0,0] }, -0.29),
+    key(0.59, { ...display, head:[-0.53,0,0], jaw:[1.12,0,0] }, 0.36),
+    key(0.79, { ...display, core:[0,1.76,0], neck:[-0.32,0.19,0] }, 0.28), key(1, rest)]),
+  clip('guardThroat', [key(0, dropped, -0.49),
+    key(0.62, { ...dropped, jaw: [0.12, 0, 0], neck: [0.29, 0, 0], head: [0.22, 0, 0],
+      mantleL: [0.41, -0.38, 0.58], mantleR: [0.45, 0.32, -0.59], gillL: [0,0,0.05], gillR: [0,0,-0.05] }, -0.56),
+    key(1, { ...dropped, jaw: [0.07,0,0], neck: [0.31,0,0], head: [0.19,-0.06,0],
+      mantleL: [0.49,-0.42,0.62], mantleR: [0.52,0.38,-0.62], gillL: [0,0,0], gillR: [0,0,0] }, -0.53)]),
   clip('bellFall', [key(0, rest), key(0.13, { ...flinch, finL: [0, 0.8, 0.86], finR: [0, -0.8, -0.86] }, 0.09),
     key(0.46, dropped, -0.62), key(0.69, { ...dropped, tailTip: [-0.29, -0.43, 0] }, -0.48), key(1, dropped, -0.53)]),
   clip('bellWoundL', [key(0, dropped, -0.53), key(0.19, bellFlinch, -0.42), key(1, dropped, -0.53)]),

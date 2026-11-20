@@ -6,11 +6,12 @@ import { DEVOURER_START, LANDING, STONE_MARK, devourerEnd, devourerIntro, devour
 export class DevourerEncounter implements BossController {
   readonly name = 'ПОЖИРАТЕЛЬ';
   readonly phaseMarks = [HUNT.phase2, HUNT.phase3];
-  readonly zoomMul = 1.09;
+  get zoomMul(): number { return this.boss.strings.active ? 1.2 : 1.09; }
   private scene = true;
   private finished = false;
   private flawless = true;
   private hintT = -1;
+  private showedGuard = false;
   get phase(): number {
     return this.boss.phase;
   }
@@ -40,7 +41,7 @@ export class DevourerEncounter implements BossController {
         stoneImpact: () => {
           w.bus.emit('impact', { kind: 'slam', x: STONE_MARK[0], z: STONE_MARK[2], r: 2.15 });
           w.bus.emit('sfx', { id: 'shatter_stone', x: b.x, z: b.z });
-          w.bus.emit('shake', { trauma: 0.26 });
+          w.bus.emit('shake', { trauma: 0.10 });
           host.light?.(b.x, 1.8, b.z, 'gold', 2, 5, 0.5);
         },
         bellAnswer: () => {
@@ -60,7 +61,7 @@ export class DevourerEncounter implements BossController {
         b.beginHunt(1.2);
         this.scene = false;
         host.startSong();
-        this.hintT = 0.7;
+        this.hintT = 0.1;
       }
     );
   }
@@ -78,12 +79,16 @@ export class DevourerEncounter implements BossController {
       this.ending();
       return;
     }
+    if (b.throatGuard && !this.showedGuard) {
+      this.showedGuard = true;
+      this.hint('Зверь прикрыл горло. Пока он лежит, бей сбоку.');
+    }
     if (this.hintT >= 0) {
       this.hintT -= dt;
       if (this.hintT < 0) this.hint(b.phase === 1
-        ? 'Ударь клинком по колоколу и бей упавшего зверя в горло. Когда он встанет, сойди с линии эха.'
-        : b.phase === 2 ? `Ударь в три разных колокола за ${HUNT.chordLife} секунды. Третий сорвался с цепи — лови его на ходу.`
-        : 'Перед самым ударом зверя обод вспыхивает золотом. Звон в этот миг продлит оглушение и вернёт рывок.');
+        ? 'Разруби золотой узел на струне, чтобы открыть горло. Удар по колоколу тоже оглушает зверя.'
+        : b.phase === 2 ? 'В Исступлении два узла. Разруби оба, чтобы повалить зверя. Упустишь оба — он прыгнет следом.'
+        : 'Эхо возвращается по целой струне. Разруби узел до первого удара или дважды уйди с линии.');
     }
   }
   transition(to: 2 | 3): void {
@@ -93,33 +98,25 @@ export class DevourerEncounter implements BossController {
     this.scene = true;
     w.ringWaves.length = 0;
     this.host.scene(
-      devourerShift(to, b.x, b.z),
+      devourerShift(to, b.x, b.z, w.hero.x, w.hero.z),
       {
-        looseBell: () => {
-          b.loose = true;
-          b.bells[2].pulse = 1;
-          this.echo(0, -5.8, 3.4);
-          w.bus.emit('shake', { trauma: 0.25 });
-        },
+        newMovement: () => this.host.musicPhase(to - 1),
         drawBreath: () => w.bus.emit('quarryBreath', { x: b.x, z: b.z, facing: b.facing }),
         echoCry: () => {
           this.echo(b.x, b.z, 5.6);
-          this.host.light?.(b.x, 1.9, b.z, 'void', 2.2, 6, 0.7);
+          this.host.light?.(b.x, 1.9, b.z, 'gold', 1.8, 6, 0.7);
         },
         rimAnswer: (i = 0) => {
           const bell = b.bells[i];
           bell.pulse = 1;
           this.echo(bell.x, bell.z, 2.6);
+          w.bus.emit('sfx', { id: 'quarry_note', x: bell.x, z: bell.z, pitch: [1, 1.189, 1.498][i], gain: 0.66 });
+          const dx = bell.x - b.x, dz = bell.z - b.z, len = Math.hypot(dx, dz);
+          if (len > 0.01) w.bus.emit('quarryWave', { x: b.x, z: b.z, dx: dx / len, dz: dz / len, len });
         },
       },
       () => {
         b.phase = to;
-        b.loose = true;
-        if (to === 2) {
-          b.bells[2].x = 1.8;
-          b.x = 0;
-          b.z = -4.6;
-        }
         b.facing = Math.atan2(w.hero.x - b.x, w.hero.z - b.z);
         b.beginHunt(0.9);
         this.scene = false;

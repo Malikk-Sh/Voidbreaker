@@ -189,6 +189,8 @@ export class Game {
 
   startBattle(def: StageDef, opts: BattleOpts = {}): void {
     this.endBattle();
+    // Boss and story intros preload in silence, including when entered straight from the map.
+    this.ctx.music.stop(0.22);
     this.ctx.audio.unlock();
     const stats = computeStats(this.ctx.save, this.ctx.settings.autoAim);
     // HUD виден по умолчанию; сцена в конструкторе боя (пролог) может его скрыть
