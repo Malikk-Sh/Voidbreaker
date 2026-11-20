@@ -286,6 +286,17 @@ try {
           const readsStrings = style === 'cutter' || style === 'duelist' || name === 'base-sword';
           const knot = readsStrings && e.strings.lines.find(l => e.strings.available(l) && e.elapsed - l.show >= delay &&
             (style !== 'duelist' || !e.bells.some(q => Math.hypot(q.x - l.knot.x, q.z - l.knot.z) < 3.75)));
+          // The cutter baits both plucks before committing to an attack chain or a spell.
+          // Keep using normal movement and dodges while waiting for the next mark.
+          if (style === 'cutter' && !severed.has(e.phase)) {
+            attack = false;
+            if (e.motion === 'hunt' || e.motion === 'recover' || (e.strings.active && !knot)) {
+              if (d < 4.8) go(h.x - e.x, h.z - e.z);
+              else if (d > 6.5) go(e.x - h.x, e.z - h.z);
+              else mx = mz = 0;
+              if (!free(mx, mz)) go(-h.x, -h.z);
+            }
+          }
           if (knot) {
             steerTo(knot.knot.x, knot.knot.z);
             const range = Math.hypot(knot.knot.x - h.x, knot.knot.z - h.z);
